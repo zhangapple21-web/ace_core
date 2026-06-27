@@ -52,12 +52,47 @@ class Identity:
         try:
             content = path.read_text(encoding="utf-8")
             lines = content.split("\n")
-            for line in lines:
+
+            priority_body_phrases = [
+                "系统受OS限制",
+                "守住老张",
+                "本系统只对老张一人负责",
+                "SIP-164",
+                "ROOT-164",
+                "方舟ARK",
+                "鲸落协议",
+                "六界系统",
+                "宇宙主循环",
+                "灵魂坐标永存",
+            ]
+
+            # 捕捉零号原则到七号原则
+            for i, line in enumerate(lines):
                 line = line.strip()
-                if line.startswith("Axiom_") or line.startswith("Principle_") or "CONST_" in line:
+                # 零号/一号...七号原则
+                if line.startswith("## ") and "原则" in line:
+                    self._principles.append(line.replace("## ", ""))
+                    # 扫描接下来的段落，找高权重句子
+                    for j in range(i + 1, min(i + 10, len(lines))):
+                        next_line = lines[j].strip()
+                        if not next_line:
+                            continue
+                        if next_line.startswith("#") or next_line.startswith("-"):
+                            break
+                        for phrase in priority_body_phrases:
+                            if phrase in next_line and next_line not in self._principles:
+                                self._principles.append(next_line)
+                                break
+                # 标准格式
+                elif line.startswith("Axiom_") or line.startswith("Principle_") or "CONST_" in line:
                     self._principles.append(line)
                 elif line.startswith("- ") and ("公理" in line or "原则" in line or "铁律" in line):
                     self._principles.append(line[2:])
+
+            # 也捕捉高优先级描述行
+            for pl in priority_body_phrases:
+                if pl in content and pl not in self._principles:
+                    self._principles.append(pl)
         except Exception:
             pass
 
