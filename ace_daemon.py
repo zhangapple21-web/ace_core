@@ -36,6 +36,7 @@ from core.task_roles import Observer, Researcher, Validator, Archivist, Guardian
 from core.task_creator import TaskCreator
 from core.fragment_index import FragmentIndex
 from core.file_scanner import FileScanner
+from core.mine_seed_scanner import MineSeedScanner
 
 import sys
 _events_module = str(Path(__file__).parent / "08_EVENTS")
@@ -106,6 +107,7 @@ class AceDaemon:
         self.task_creator = None
         self.fragment_index = None
         self.file_scanner = None
+        self.mine_seed_scanner = None
         self._init_miners()
         self._init_export_sync()
         self._init_task_lifecycle()
@@ -142,10 +144,13 @@ class AceDaemon:
             except Exception:
                 self.slice_clusterer = None
 
+        self.mine_seed_path = None
+
     def _init_export_sync(self):
         """初始化导出器和同步器（找不到mine-seed也不报错）"""
         mine_seed_path = self._find_mine_seed()
         if mine_seed_path:
+            self.mine_seed_path = mine_seed_path
             try:
                 self.exporter = ArchaeologyExporter(
                     ace_base_dir=self.base_dir,
@@ -226,6 +231,13 @@ class AceDaemon:
                 scan_roots=scan_roots,
                 max_depth=4,
             )
+            if self.mine_seed_path:
+                state_file = self.base_dir / "02_FRAGMENT_INDEX" / ".mine_seed_state.json"
+                self.mine_seed_scanner = MineSeedScanner(
+                    mine_seed_path=str(self.mine_seed_path),
+                    state_file=str(state_file),
+                    max_new_commits=5,
+                )
         except Exception as e:
             self._log_error("task_lifecycle_init", str(e))
             self.task_pool = None
@@ -854,6 +866,8 @@ class AceDaemon:
             "fragment_scanned": 0,
             "fragment_new": 0,
             "fragment_tasks": 0,
+            "mine_seed_commits": 0,
+            "mine_seed_tasks": 0,
             "blocked_unblocked": 0,
             "researched": 0,
             "validated": 0,
@@ -862,6 +876,16 @@ class AceDaemon:
             "experiences_deposited": 0,
             "graveyarded": 0,
         }
+
+        try:
+            if self.mine_seed_scanner:
+                ms_result = self.mine_seed_scanner.scan_and_create_tasks(
+                    self.task_pool, max_tasks=1
+                )
+                result["mine_seed_commits"] = ms_result.get("new_commits", 0)
+                result["mine_seed_tasks"] = ms_result.get("tasks_created", 0)
+        except Exception as e:
+            self._log_error("mine_seed_scanner", str(e))
 
         try:
             if self.file_scanner:
@@ -1446,6 +1470,10 @@ class AceDaemon:
         if self.task_pool and self.observer:
             lifecycle_result = self._run_task_lifecycle()
             print(f"  事件处理: {lifecycle_result.get('events_processed', 0)} 个")
+            ms_commits = lifecycle_result.get('mine_seed_commits', 0)
+            ms_tasks = lifecycle_result.get('mine_seed_tasks', 0)
+            if ms_commits > 0:
+                print(f"  矿场扫描: 发现{ms_commits}个新commit，建任务{ms_tasks}个")
             frag_scanned = lifecycle_result.get('fragment_scanned', 0)
             frag_new = lifecycle_result.get('fragment_new', 0)
             frag_tasks = lifecycle_result.get('fragment_tasks', 0)
