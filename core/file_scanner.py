@@ -155,10 +155,19 @@ class FileScanner:
             "architecture", "sip", "guardian", "eco_layer",
             "offshore", "dispatch", "memory", "shadow",
             "lexicon", "constraint", "experience",
+            "archaeology", "考古", "survivor", "存活",
+            "cluster", "index", "finding", "发现",
+            "structure", "结构", "alignment", "对齐",
         ]
         for kw in boost_keywords:
             if kw in name:
                 score += 5
+
+        path_str = str(path).lower()
+        if "telegram_archive" in path_str or "04_findings" in path_str:
+            score += 15
+        if "03_clusters" in path_str or "02_index" in path_str:
+            score += 10
 
         size = path.stat().st_size if path.exists() else 0
         if size > 1024 * 1024:
