@@ -120,6 +120,7 @@ class ResearchWorker(BaseWorker):
         return {
             "status": "success",
             "outputs": outputs,
+            "evidence": evidence,
             "evidence_count": len(evidence),
             "keywords_used": keywords[:5],
             "next_tasks": next_tasks,
