@@ -270,7 +270,7 @@ class TaskPool:
         parent_task: str = "",
     ) -> Task:
         today = datetime.now().strftime("%Y%m%d")
-        existing = self.list_tasks(status="pending") + self.list_tasks(status="active")
+        existing = self.list_tasks(limit=1000, sort_by="created")
         today_count = sum(1 for t in existing if t.task_id.startswith(f"RQ-{today}"))
         task_id = f"RQ-{today}-{today_count + 1:03d}"
 
