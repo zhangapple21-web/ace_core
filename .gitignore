@@ -36,19 +36,10 @@ task_pool/
 02_FRAGMENT_INDEX/
 02_CONSTRAINT/
 02_STATE/
+02_MEMORY/
 08_EVENTS/
-08_ARCHAEOLOGY/SPEC.md
-08_ARCHAEOLOGY/TODO.md
-08_ARCHAEOLOGY/index.json
-08_ARCHAEOLOGY/*.md
-!08_ARCHAEOLOGY/*.py
-
-# Dependencies
-node_modules/
-
-# Large data files
-*.zip
-*.tar.gz
-*.pdf
-*.mp3
-*.mp4
+09_KNOWLEDGE/
+06_RUNTIME/ace/
+data/
+nodes/
+ace_core_local/
