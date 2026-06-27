@@ -198,25 +198,41 @@ class SynthesisWorker(BaseWorker):
             return {"status": "failed", "error": validation, "outputs": {}, "next_tasks": []}
 
         sections = []
+        evidence = []
 
         if self.slice_clusterer and hasattr(self.slice_clusterer, "total_slices"):
+            content = f"当前系统共有 {self.slice_clusterer.total_slices} 个切片"
             sections.append({
                 "title": "切片统计",
-                "content": f"当前系统共有 {self.slice_clusterer.total_slices} 个切片",
+                "content": content,
+            })
+            evidence.append({
+                "content": content,
+                "source": "slice_clusterer",
             })
 
         if self.memory_index:
             stats = self.memory_index.get_stats()
+            content = f"当前索引 {stats.get('total', 0)} 条记忆"
             sections.append({
                 "title": "记忆索引",
-                "content": f"当前索引 {stats.get('total', 0)} 条记忆",
+                "content": content,
+            })
+            evidence.append({
+                "content": content,
+                "source": "memory_index",
             })
 
         if self.lexicon:
             stats = self.lexicon.get_stats()
+            content = f"当前词库 {stats.get('total_concepts', 0)} 个概念"
             sections.append({
                 "title": "词库",
-                "content": f"当前词库 {stats.get('total_concepts', 0)} 个概念",
+                "content": content,
+            })
+            evidence.append({
+                "content": content,
+                "source": "lexicon",
             })
 
         return {
@@ -225,6 +241,8 @@ class SynthesisWorker(BaseWorker):
                 "sections": sections,
                 "section_count": len(sections),
             },
+            "evidence": evidence,
+            "evidence_count": len(evidence),
             "next_tasks": [],
         }
 
