@@ -990,9 +990,13 @@ class AceDaemon:
 
         return result
 
-    def _run_autonomous_loop(self, max_iterations: int = 20) -> Dict[str, Any]:
+    def _run_autonomous_loop(self, max_depth: int = 20) -> Dict[str, Any]:
         """
         自主循环模式：持续扫描 pending → 领取 → Worker执行 → 直到阻塞或无可执行任务
+
+        使用递归深度跟踪代替硬编码迭代上限。
+        每个任务知道自己的 recursion_depth，派生任务时深度+1。
+        max_depth 是安全上限，可观测、可配置，不是隐藏的魔法数字。
 
         用户指令："从现在开始，我不再手动派单。
         你自行完成当前任务后，自动扫描 pending/，
@@ -1003,20 +1007,38 @@ class AceDaemon:
         """
         result = {
             "iterations": 0,
+            "max_depth_reached": max_depth,
             "tasks_executed": 0,
             "tasks_blocked": 0,
             "tasks_failed": 0,
             "events_emitted": 0,
+            "depth_distribution": {},
+            "stop_reason": "",
         }
 
-        for i in range(max_iterations):
-            result["iterations"] = i + 1
+        for i in range(max_depth):
+            current_depth = i + 1
+            result["iterations"] = current_depth
 
             task = self.researcher.pick_up_task(priority="high")
             if not task:
                 task = self.researcher.pick_up_task(priority="any")
             if not task:
+                result["stop_reason"] = "no_more_pending_tasks"
                 break
+
+            task.recursion_depth = current_depth
+            task.record_selection(
+                decision_point="loop_pickup",
+                selected=task.task_id,
+                alternatives=[],
+                reason=f"第{current_depth}层自主循环领取，优先级{task.priority}",
+                actor="autonomous_loop",
+            )
+            self.task_pool.update_task(task)
+
+            depth_key = f"depth_{current_depth}"
+            result["depth_distribution"][depth_key] = result["depth_distribution"].get(depth_key, 0) + 1
 
             if task.depends_on and not self.task_pool.check_depends_satisfied(task):
                 self.task_pool.block_task(
@@ -1025,6 +1047,7 @@ class AceDaemon:
                     actor="autonomous_loop",
                 )
                 result["tasks_blocked"] += 1
+                result["stop_reason"] = "dependency_blocked"
                 break
 
             worker_result = self._execute_task_with_worker(task)
@@ -1036,6 +1059,7 @@ class AceDaemon:
                     actor="autonomous_loop",
                 )
                 result["tasks_blocked"] += 1
+                result["stop_reason"] = "worker_blocked"
                 break
 
             elif worker_result.get("status") == "failed":
@@ -1060,22 +1084,48 @@ class AceDaemon:
                         depends_on=next_task_def.get("depends_on", []),
                         tags=["derived", task.task_id],
                     )
-                    if new_t and self.event_listener:
-                        self.event_listener.emit(
-                            event_type="task_completed",
-                            source="autonomous_loop",
-                            payload={
-                                "completed_task": task.task_id,
-                                "derived_task": new_t.task_id,
-                                "outputs": worker_result.get("outputs", {}),
-                            },
+                    if new_t:
+                        new_t.recursion_depth = current_depth + 1
+                        new_t.parent_task = task.task_id
+                        new_t.record_selection(
+                            decision_point="task_derivation",
+                            selected=new_t.task_id,
+                            alternatives=[],
+                            reason=f"由{task.task_id}派生，深度{current_depth+1}",
+                            actor="autonomous_loop",
                         )
-                        result["events_emitted"] += 1
+                        self.task_pool.update_task(new_t)
+                        if self.event_listener:
+                            self.event_listener.emit(
+                                event_type="task_completed",
+                                source="autonomous_loop",
+                                payload={
+                                    "completed_task": task.task_id,
+                                    "derived_task": new_t.task_id,
+                                    "outputs": worker_result.get("outputs", {}),
+                                    "recursion_depth": current_depth + 1,
+                                },
+                            )
+                            result["events_emitted"] += 1
 
             blocked_count = len(self.task_pool.get_blocked())
             pending_count = len(self.task_pool.list_tasks(status="pending", limit=10))
             if pending_count == 0 and blocked_count > 0:
+                result["stop_reason"] = "all_blocked_no_pending"
                 break
+
+        if not result["stop_reason"] and result["iterations"] >= max_depth:
+            result["stop_reason"] = "max_depth_reached"
+
+        if "recursion_depths" not in self.state:
+            self.state["recursion_depths"] = []
+        self.state["recursion_depths"].insert(0, {
+            "date": datetime.now().strftime("%Y-%m-%d"),
+            "depth": result["iterations"],
+            "tasks_executed": result["tasks_executed"],
+            "stop_reason": result["stop_reason"],
+        })
+        self.state["recursion_depths"] = self.state["recursion_depths"][:30]
 
         return result
 
@@ -1499,7 +1549,7 @@ class AceDaemon:
         print("【自主循环执行】")
         auto_result = {}
         if self.task_pool and self.researcher:
-            auto_result = self._run_autonomous_loop(max_iterations=10)
+            auto_result = self._run_autonomous_loop(max_depth=10)
             if auto_result.get("iterations", 0) > 0:
                 print(f"  循环迭代: {auto_result['iterations']} 次")
                 print(f"  Worker执行: {auto_result['tasks_executed']} 个任务")
