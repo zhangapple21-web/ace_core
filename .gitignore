@@ -1,0 +1,54 @@
+# Python runtime artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+*.egg
+*.pyc
+*.pyo
+
+# Virtual env
+.venv/
+venv/
+ENV/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Temp / logs
+*.tmp
+*.log
+*.temp
+*.state.json
+
+# Test
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Data / State (not source)
+task_pool/
+02_FRAGMENT_INDEX/
+02_CONSTRAINT/
+02_STATE/
+08_EVENTS/
+08_ARCHAEOLOGY/SPEC.md
+08_ARCHAEOLOGY/TODO.md
+08_ARCHAEOLOGY/index.json
+08_ARCHAEOLOGY/*.md
+!08_ARCHAEOLOGY/*.py
+
+# Dependencies
+node_modules/
+
+# Large data files
+*.zip
+*.tar.gz
+*.pdf
+*.mp3
+*.mp4
