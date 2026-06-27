@@ -246,6 +246,8 @@ class LocalArchaeologist:
 
         status = "found_new_structures" if all_new_structures else "no_new_structures"
 
+        task_ids = [t.task_id for t in created_tasks] if created_tasks else []
+
         return {
             "status": status,
             "files_scanned": files_scanned,
@@ -253,7 +255,7 @@ class LocalArchaeologist:
             "new_structures_count": len(all_new_structures),
             "new_structures": all_new_structures[:20],
             "tasks_created": len(created_tasks),
-            "tasks": [t.task_id for t in created_tasks] if hasattr(created_tasks[0], 'task_id') else created_tasks,
+            "tasks": task_ids,
         }
 
     # ── 分析层 ─────────────────────────────────────────────
