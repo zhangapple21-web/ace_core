@@ -71,6 +71,8 @@ class Task:
         failure_reason: Optional[str] = None,
         retry_count: int = 0,
         audit_log: Optional[List] = None,
+        selection_trace: Optional[List] = None,
+        recursion_depth: int = 0,
         **kwargs,
     ):
         self.task_id = task_id
@@ -100,6 +102,8 @@ class Task:
         self.failure_reason = failure_reason or ""
         self.retry_count = retry_count
         self.audit_log = audit_log or []
+        self.selection_trace = selection_trace or []
+        self.recursion_depth = recursion_depth
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -130,6 +134,8 @@ class Task:
             "failure_reason": self.failure_reason,
             "retry_count": self.retry_count,
             "audit_log": self.audit_log,
+            "selection_trace": self.selection_trace,
+            "recursion_depth": self.recursion_depth,
         }
 
     @classmethod
@@ -173,6 +179,24 @@ class Task:
             "content": note,
             "validator": validator,
             "added_at": datetime.now().isoformat(),
+        })
+        self.touch()
+
+    def record_selection(
+        self,
+        decision_point: str,
+        selected: str,
+        alternatives: List[str] = None,
+        reason: str = "",
+        actor: str = "",
+    ):
+        self.selection_trace.append({
+            "decision_point": decision_point,
+            "selected": selected,
+            "alternatives": alternatives or [],
+            "reason": reason,
+            "actor": actor,
+            "at": datetime.now().isoformat(),
         })
         self.touch()
 
