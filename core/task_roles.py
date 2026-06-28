@@ -395,6 +395,146 @@ class Validator:
 
         return result
 
+    def assess_prospect(self, task: Task) -> Dict[str, Any]:
+        """
+        评估任务继续探索的前景（AoT 风格）
+        
+        基于思维算法 (Algorithm of Thoughts) 的四步框架：
+        1. 分解成子问题 - 任务是否可以拆解
+        2. 提议解答 - 已有多少有效解答
+        3. 衡量前景 - 继续探索的价值评分
+        4. 回溯决策 - 是否应该放弃当前路径
+        
+        Returns:
+            {
+                "prospect_score": float,  # 0-100，继续探索的价值
+                "prospect_level": str,    # high/medium/low/dead_end
+                "recommendations": [...], # 具体建议
+                "prune": bool,            # 是否应该剪枝
+                "branch_suggestions": [...] # 备选路径建议
+            }
+        """
+        prospect_result = {
+            "task_id": task.task_id,
+            "prospect_score": 50.0,  # 默认中性
+            "prospect_level": "medium",
+            "recommendations": [],
+            "prune": False,
+            "branch_suggestions": [],
+        }
+        
+        # === 1. 新颖性评分 ===
+        novelty_score = 50.0
+        if task.tags:
+            # 与核心系统相关的标签权重更高
+            high_value_tags = ["constraint", "protocol", "axiom", "experience", "archaeology"]
+            tag_match = sum(1 for t in task.tags if any(hvt in t.lower() for hvt in high_value_tags))
+            novelty_score += tag_match * 10
+        
+        # 考古类任务新颖性较高
+        if any(t in task.tags for t in ["fragment_archaeology", "r1", "r2"]):
+            novelty_score += 15
+        
+        # 与词库已有概念关联度高 → 新颖性下降（可能是已知知识）
+        if self.lexicon and task.evidence:
+            keywords = re.findall(r"[\u4e00-\u9fffA-Za-z_][\u4e00-\u9fffA-Za-z0-9_]{2,}", task.title)
+            matched = sum(1 for kw in keywords[:5] if self.lexicon.get_concept(kw))
+            novelty_score -= matched * 5
+        
+        novelty_score = max(0, min(100, novelty_score))
+        
+        # === 2. 证据质量评分 ===
+        quality_score = 50.0
+        evidence_count = len(task.evidence)
+        if evidence_count >= 5:
+            quality_score += 20
+        elif evidence_count >= 3:
+            quality_score += 10
+        elif evidence_count >= 1:
+            quality_score += 0
+        else:
+            quality_score -= 30
+        
+        # 证据内容长度
+        if task.evidence:
+            avg_len = sum(
+                len(e.get("content", "")) if isinstance(e, dict) else len(str(e))
+                for e in task.evidence
+            ) / len(task.evidence)
+            if avg_len > 200:
+                quality_score += 15
+            elif avg_len > 100:
+                quality_score += 5
+        
+        # 有反例 → 证据质量更高（说明认真验证过）
+        if task.counter_examples and len(task.counter_examples) >= 1:
+            quality_score += 10
+        
+        quality_score = max(0, min(100, quality_score))
+        
+        # === 3. 概念覆盖率评分 ===
+        coverage_score = 50.0
+        if self.lexicon:
+            stats = self.lexicon.get_stats()
+            categories = stats.get("categories", {})
+            weak_categories = [cat for cat, count in categories.items() if count <= 2]
+            
+            # 任务是否覆盖薄弱分类
+            title_lower = task.title.lower()
+            for weak_cat in weak_categories[:5]:
+                if weak_cat.lower() in title_lower:
+                    coverage_score += 15
+                    break
+        
+        coverage_score = max(0, min(100, coverage_score))
+        
+        # === 4. 综合前景评分 ===
+        prospect_result["prospect_score"] = (novelty_score * 0.4 + quality_score * 0.35 + coverage_score * 0.25)
+        
+        # === 5. 前景等级 ===
+        score = prospect_result["prospect_score"]
+        if score >= 70:
+            prospect_result["prospect_level"] = "high"
+        elif score >= 50:
+            prospect_result["prospect_level"] = "medium"
+        elif score >= 30:
+            prospect_result["prospect_level"] = "low"
+        else:
+            prospect_result["prospect_level"] = "dead_end"
+        
+        # === 6. 剪枝决策 ===
+        # 死路或低价值任务应该剪枝
+        review_count = getattr(task, "review_count", 0)
+        if prospect_result["prospect_level"] == "dead_end":
+            prospect_result["prune"] = True
+            prospect_result["recommendations"].append("⚠️ 任务已陷入死路，建议剪枝放弃")
+        elif prospect_result["prospect_level"] == "low" and review_count >= 2:
+            prospect_result["prune"] = True
+            prospect_result["recommendations"].append("⚠️ 任务价值低且多次重审，建议剪枝")
+        elif review_count >= 5:
+            # 超过 5 次重审，无论价值如何都应该给出建议
+            prospect_result["recommendations"].append(f"⚠️ 已重审 {review_count} 次，建议强制通过或剪枝")
+        
+        # === 7. 分支建议 ===
+        if prospect_result["prospect_level"] in ["low", "dead_end"] and task.tags:
+            # 建议转换方向
+            if "lexicon" in task.tags:
+                prospect_result["branch_suggestions"].append({
+                    "type": "redirect",
+                    "suggestion": "词库补全方向遇阻，可尝试考古方向"
+                })
+            if "archaeology" in task.tags:
+                prospect_result["branch_suggestions"].append({
+                    "type": "redirect", 
+                    "suggestion": "考古方向价值有限，可尝试补全词库或构建约束"
+                })
+        
+        # 高价值但证据不足的任务建议继续
+        if prospect_result["prospect_level"] == "high" and evidence_count < 3:
+            prospect_result["recommendations"].append("✨ 高价值任务，建议继续补充证据")
+        
+        return prospect_result
+
 
 class Archivist:
     """
