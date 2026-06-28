@@ -11,9 +11,14 @@
   - 三者全匹配 = 已见过，跳过
   - 任一变化 = 新碎片，重新考古
 
+主题标签：
+  - 从文件路径自动提取
+  - 基于目录结构和文件名关键词
+  - 用于"按主题搜索"而非"按关键词搜索"
+
 存储：
   - 02_FRAGMENT_INDEX/fragment_index.json
-  - 结构：{ file_path: {size, mtime, first_seen, last_checked, status} }
+  - 结构：{ file_path: {size, mtime, first_seen, last_checked, status, topics} }
 """
 
 import json
@@ -21,6 +26,29 @@ import hashlib
 from pathlib import Path
 from datetime import datetime
 from typing import Dict, List, Any, Optional, Set, Tuple
+import re
+
+
+# 主题关键词映射表
+TOPIC_KEYWORDS = {
+    "task": ["task", "任务", "派单", "调度", "queue", "pending", "active"],
+    "memory": ["memory", "记忆", "索引", "index", "lexicon", "词库", "概念"],
+    "archaeology": ["archaeology", "考古", "fragment", "碎片", "scan", "发现"],
+    "protocol": ["protocol", "协议", "constraint", "约束", "rule", "规则"],
+    "runtime": ["runtime", "运行", "daemon", "worker", "executor", "执行"],
+    "sync": ["sync", "同步", "git", "backup", "备份", "push", "pull"],
+    "health": ["health", "健康", "check", "检查", "monitor", "监控"],
+    "config": ["config", "配置", "setting", "env", "环境"],
+    "experience": ["experience", "经验", "lesson", "教训", "deposition"],
+    "r1": ["r1", "r2", "r3", "ruin", "遗迹", "废墟", "survivor", "幸存者"],
+    "eco": ["eco", "生态", "layer", "层", "narrative", "叙事", "behavior"],
+    "api": ["api", "接口", "gateway", "bridge", "桥接"],
+    "security": ["security", "安全", "guardian", "守护", "shadow", "影子"],
+    "business": ["business", "业务", "客户", "培训", "话术", "策略"],
+    "engineering": ["engineering", "工程", "python", "script", "脚本"],
+    "knowledge": ["knowledge", "知识", "knowledge_base", "知识库"],
+    "observation": ["observation", "观察", "observer", "runtime_observer"],
+}
 
 
 class FragmentIndex:
@@ -76,11 +104,19 @@ class FragmentIndex:
         except Exception:
             return
         now = datetime.now().isoformat()
+        
+        # 自动提取主题标签
+        topics = self._extract_topics(path)
+        
         if key in self.index:
             self.index[key]["size"] = size
             self.index[key]["mtime"] = mtime
             self.index[key]["last_checked"] = now
             self.index[key]["status"] = status
+            # 合并主题标签（不覆盖已有的）
+            existing_topics = set(self.index[key].get("topics", []))
+            existing_topics.update(topics)
+            self.index[key]["topics"] = list(existing_topics)
         else:
             self.index[key] = {
                 "size": size,
@@ -88,8 +124,60 @@ class FragmentIndex:
                 "first_seen": now,
                 "last_checked": now,
                 "status": status,
+                "topics": topics,
             }
         self._save()
+    
+    def _extract_topics(self, path: Path) -> List[str]:
+        """从路径提取主题标签"""
+        path_str = str(path).lower()
+        topics = []
+        
+        for topic, keywords in TOPIC_KEYWORDS.items():
+            for kw in keywords:
+                if kw in path_str:
+                    topics.append(topic)
+                    break
+        
+        # 从目录结构推断
+        parts = path.parts
+        for part in parts:
+            part_lower = part.lower()
+            # 特殊目录映射
+            if "task" in part_lower or "派单" in part_lower:
+                topics.append("task")
+            elif "memory" in part_lower or "记忆" in part_lower:
+                topics.append("memory")
+            elif "archaeology" in part_lower or "考古" in part_lower:
+                topics.append("archaeology")
+            elif "protocol" in part_lower or "协议" in part_lower:
+                topics.append("protocol")
+            elif "ops" in part_lower or "运维" in part_lower:
+                topics.append("health")
+        
+        # 去重
+        return list(set(topics))
+    
+    def get_by_topic(self, topic: str) -> List[Dict[str, Any]]:
+        """获取指定主题的所有文件"""
+        results = []
+        for path_str, rec in self.index.items():
+            topics = rec.get("topics", [])
+            if topic in topics:
+                results.append({
+                    "path": path_str,
+                    "status": rec.get("status"),
+                    "last_checked": rec.get("last_checked"),
+                })
+        return results
+    
+    def get_all_topics(self) -> Dict[str, int]:
+        """获取所有主题及其文件数量"""
+        topic_count: Dict[str, int] = {}
+        for rec in self.index.values():
+            for topic in rec.get("topics", []):
+                topic_count[topic] = topic_count.get(topic, 0) + 1
+        return topic_count
 
     def mark_archaeologized(self, path: Path, task_id: str = ""):
         key = str(path.resolve())
