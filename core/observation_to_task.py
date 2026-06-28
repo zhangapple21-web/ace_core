@@ -319,25 +319,28 @@ class ObservationToTaskConverter:
                 # 生成 Task 参数
                 task_params = rule.generate_task_from(obs)
 
-                # 补充动态参数
+                # 补充动态参数（安全访问，避免类型错误）
                 state = obs.system_state
-                gap_categories = state.get("gap_categories", [])
-                task_params["hypothesis"] = task_params["hypothesis"].format(
-                    review=state.get("review", 0),
-                    pending=state.get("pending", 0),
-                    active=state.get("active", 0),
-                    pending_scan=state.get("pending_scan", 0),
-                    total_concepts=state.get("total_concepts", 0),
-                    uncategorized=state.get("uncategorized", 0),
-                    gap_count=len(gap_categories),
-                    gap_categories=", ".join(gap_categories[:5]),
-                    last_mine_seed_scan=state.get("last_mine_seed_scan", "never"),
-                    recent_error_count=state.get("recent_error_count", 0),
-                    error_samples=", ".join(state.get("error_samples", [])[:3]),
-                    disk_free_pct=state.get("disk_free_pct", 0),
-                    disk_free_gb=state.get("disk_free_gb", 0),
-                    task_never_run=state.get("task_never_run", False),
-                )
+                gap_categories_raw = state.get("gap_categories")
+                gap_categories = gap_categories_raw if isinstance(gap_categories_raw, list) else []
+                
+                format_args = {
+                    "review": state.get("review", 0),
+                    "pending": state.get("pending", 0),
+                    "active": state.get("active", 0),
+                    "pending_scan": state.get("pending_scan", 0),
+                    "total_concepts": state.get("total_concepts", 0),
+                    "uncategorized": state.get("uncategorized", 0),
+                    "gap_count": len(gap_categories),
+                    "gap_categories": ", ".join(gap_categories[:5]) if gap_categories else "无",
+                    "last_mine_seed_scan": state.get("last_mine_seed_scan", "never"),
+                    "recent_error_count": state.get("recent_error_count", 0),
+                    "error_samples": ", ".join(str(e) for e in state.get("error_samples", [])[:3]),
+                    "disk_free_pct": state.get("disk_free_pct", 0),
+                    "disk_free_gb": state.get("disk_free_gb", 0),
+                    "task_never_run": state.get("task_never_run", False),
+                }
+                task_params["hypothesis"] = task_params["hypothesis"].format(**format_args)
 
                 # 创建 Task
                 try:

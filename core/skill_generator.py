@@ -109,11 +109,13 @@ class SkillGenerator:
         for cluster in clusters:
             if cluster["task_count"] >= 2:
                 existing = self._find_existing_skill(cluster["name"])
+                if not existing:
+                    existing = self._find_similar_skill(cluster)
                 if existing:
                     result["skipped"].append({
                         "pattern": cluster["name"],
                         "reason": "skill_already_exists",
-                        "existing_skill": existing,
+                        "existing_skill": existing["skill_name"],
                     })
                 else:
                     skill = self._generate_skill_from_cluster(cluster)
@@ -402,6 +404,29 @@ class SkillGenerator:
             except Exception:
                 pass
         return None
+
+    def _find_similar_skill(self, cluster: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """查找相似的已有技能（避免重复创建）"""
+        cluster_tags = set(cluster.get("common_tags", []))
+        if not cluster_tags:
+            return None
+
+        best_match = None
+        best_overlap = 0
+
+        for skill_entry in self.manifest.get("skills", []):
+            skill = self._find_existing_skill(skill_entry["skill_name"])
+            if not skill:
+                continue
+            skill_tags = set(skill.get("matching_rules", {}).get("tag_match", []))
+            if not skill_tags:
+                continue
+            overlap = len(cluster_tags & skill_tags)
+            if overlap > best_overlap and overlap >= 2:
+                best_overlap = overlap
+                best_match = skill
+
+        return best_match
 
     def find_matching_skill(self, task_candidate: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """

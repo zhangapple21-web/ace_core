@@ -1,59 +1,82 @@
 #!/usr/bin/env python3
-"""批量疏通 review 队列 — 清理 Runtime 瓶颈"""
-import json
+"""
+清理 review 队列中的死循环任务
+
+规则：
+- review_count >= 3 → 强制 approval（终审保护）
+- review_count >= 2 且证据不足 → 降级为 archive（放弃继续考古）
+"""
 import sys
 from pathlib import Path
 from datetime import datetime
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
+
 from core.task import TaskPool
 
-pool = TaskPool('task_pool')
 
-review_tasks = pool.list_tasks(status='review', limit=20)
-print(f'待处理: {len(review_tasks)} 个')
-print()
+def main():
+    base_dir = Path(__file__).parent.parent.resolve()
+    task_pool_dir = base_dir / "task_pool"
+    task_pool = TaskPool(str(task_pool_dir))
+    
+    review_dir = task_pool_dir / "review"
+    if not review_dir.exists():
+        print("review 目录不存在")
+        return
+    
+    review_tasks = list(review_dir.glob("*.json"))
+    print(f"review 队列任务数: {len(review_tasks)}")
+    
+    results = {
+        "forced_approval": [],
+        "archived": [],
+        "skipped": [],
+    }
+    
+    for task_file in review_tasks:
+        task_id = task_file.stem
+        task = task_pool.load_task(task_id)
+        if not task:
+            print(f"  [WARN] 无法加载任务: {task_id}")
+            continue
+        
+        # 读取 review_count
+        review_count = task.review_count
+        
+        if review_count >= 3:
+            # 终审保护：强制 approval
+            task_pool.move_task(task_id, "approved", actor="auto_curator", 
+                              reason=f"终审保护：review_count={review_count} >= 3，强制批准")
+            results["forced_approval"].append(task_id)
+            print(f"  [APPROVED] {task_id} (review_count={review_count})")
+            
+        elif review_count >= 2:
+            # 降级为 archive（证据不足，放弃继续考古）
+            # 先检查是否有足够的证据
+            evidence_count = len(task.evidence) if task.evidence else 0
+            if evidence_count < 3:
+                task_pool.move_task(task_id, "archived", actor="auto_curator",
+                                  reason=f"考古证据不足：review_count={review_count}, evidence={evidence_count}")
+                results["archived"].append(task_id)
+                print(f"  [ARCHIVED] {task_id} (review_count={review_count}, evidence={evidence_count})")
+            else:
+                # 有足够证据，强制 approval
+                task_pool.move_task(task_id, "approved", actor="auto_curator",
+                                  reason=f"有足够证据：review_count={review_count}, evidence={evidence_count}，强制批准")
+                results["forced_approval"].append(task_id)
+                print(f"  [APPROVED] {task_id} (review_count={review_count}, evidence={evidence_count})")
+        else:
+            results["skipped"].append(task_id)
+            print(f"  [SKIP] {task_id} (review_count={review_count})")
+    
+    print()
+    print("=" * 50)
+    print("清理完成")
+    print(f"  强制批准: {len(results['forced_approval'])} 个")
+    print(f"  归档: {len(results['archived'])} 个")
+    print(f"  跳过: {len(results['skipped'])} 个")
 
-results = {'approved': 0, 'rejected': 0, 'kept': 0}
-for task in review_tasks:
-    ev_count = len(task.evidence)
-    rv_count = task.review_count
-    title = task.title[:55]
 
-    # === 重复任务直接拒绝 ===
-    if task.task_id == 'RQ-20260628-002':
-        pool.move_task(task.task_id, 'rejected', actor='batch_processor',
-                      reason='与RQ-20260628-001重复，文件相同')
-        results['rejected'] += 1
-        print(f'[REJECT] {task.task_id} (重复考古报告)')
-        continue
-
-    # === 证据充分（>=5条）→ 批准 ===
-    if ev_count >= 5:
-        task.guardian_decision = 'experience'
-        task.add_validation_note('[批量终审] 证据充分(ev=' + str(ev_count) + ')，批量批准', validator='batch_processor')
-        pool.update_task(task)
-        pool.move_task(task.task_id, 'approved', actor='batch_processor', task=task)
-        results['approved'] += 1
-        print('[APPROVE] ' + task.task_id + ' ev=' + str(ev_count) + ' rv=' + str(rv_count) + ': ' + title)
-        continue
-
-    # === 用户输入任务且无证据 → 保留active ===
-    if task.creator == 'user_input' and ev_count == 0:
-        task.add_validation_note('[批量处理] 无证据，暂存待后续研究', validator='batch_processor')
-        pool.update_task(task)
-        pool.move_task(task.task_id, 'active', actor='batch_processor', task=task)
-        results['kept'] += 1
-        print('[ACTIVE ] ' + task.task_id + ' (无证据，用户输入): ' + title)
-        continue
-
-    # === 其余保留review ===
-    results['kept'] += 1
-    print('[KEEP  ] ' + task.task_id + ' ev=' + str(ev_count) + ' rv=' + str(rv_count) + ': ' + title)
-
-print()
-print('结果: 批准=' + str(results['approved']) + ' | 拒绝=' + str(results['rejected']) + ' | 保留=' + str(results['kept']))
-
-# 验证结果
-remaining = pool.list_tasks(status='review', limit=20)
-print('剩余review任务: ' + str(len(remaining)))
+if __name__ == "__main__":
+    main()
