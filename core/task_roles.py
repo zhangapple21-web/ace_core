@@ -181,7 +181,94 @@ class Researcher:
                     if status == "pending":
                         self.task_pool.move_task(task.task_id, "active", actor="researcher")
                     return task
-        return None
+        return result
+
+    def generate_candidates(self, task: Task, max_candidates: int = 3) -> List[Dict[str, Any]]:
+        """
+        生成多个候选研究路径（ToT 风格）
+        
+        核心思路：从不同角度/关键词生成多个假设，供 Validator 评估选择。
+        
+        Returns:
+            [
+                {
+                    "candidate_id": str,
+                    "hypothesis": str,
+                    "keywords": [...],
+                    "confidence": float,  # 0-1 初步置信度
+                    "reasoning": str,    # 为什么选择这个方向
+                },
+                ...
+            ]
+        """
+        candidates = []
+        
+        # 1. 从任务标题提取核心假设
+        title_keywords = self._extract_keywords(task.title.lower())
+        
+        # 2. 从 hypothesis 提取辅助假设
+        hypothesis_keywords = self._extract_keywords(task.hypothesis.lower()) if task.hypothesis else []
+        
+        # 3. 生成主假设（基于标题）
+        if title_keywords:
+            primary_hypothesis = " / ".join(title_keywords[:3])
+            candidates.append({
+                "candidate_id": "A",
+                "hypothesis": f"核心假设：{primary_hypothesis}",
+                "keywords": title_keywords[:5],
+                "confidence": 0.8,
+                "reasoning": "基于任务标题的核心概念提取",
+                "type": "primary",
+            })
+        
+        # 4. 生成备选假设（基于词库关联）
+        if self.lexicon and title_keywords:
+            for kw in title_keywords[:3]:
+                concept = self.lexicon.get_concept(kw)
+                if concept and concept.get("related"):
+                    related = concept.get("related", [])[:2]
+                    if related:
+                        candidates.append({
+                            "candidate_id": f"B_{kw}",
+                            "hypothesis": f"关联假设：{kw} 与 {related[0]} 相关",
+                            "keywords": [kw] + related,
+                            "confidence": 0.6,
+                            "reasoning": f"词库关联：{kw} 的 related 概念",
+                            "type": "lexicon_related",
+                        })
+        
+        # 5. 生成对立假设（基于反例）
+        if task.counter_examples:
+            candidates.append({
+                "candidate_id": "C_negation",
+                "hypothesis": f"对立假设：{task.title} 的反面是否成立",
+                "keywords": title_keywords[:2],
+                "confidence": 0.5,
+                "reasoning": "基于已有反例的对立探索",
+                "type": "negation",
+            })
+        
+        # 6. 生成跨域假设（如果有 eco_layer）
+        if self.eco_parser and title_keywords:
+            candidates.append({
+                "candidate_id": "D_cross",
+                "hypothesis": f"跨域假设：{title_keywords[0]} 在 eco_layer 中的表现",
+                "keywords": title_keywords[:2],
+                "confidence": 0.55,
+                "reasoning": "跨层探索：eco_layer 叙事生态",
+                "type": "cross_layer",
+            })
+        
+        # 去重并限制数量
+        seen = set()
+        unique_candidates = []
+        for c in candidates:
+            key = c["hypothesis"][:30]
+            if key not in seen:
+                seen.add(key)
+                unique_candidates.append(c)
+        
+        return unique_candidates[:max_candidates]
 
     def research_task(self, task: Task, max_evidence: int = 5) -> Dict[str, Any]:
         """对任务进行研究，收集证据"""
@@ -238,16 +325,22 @@ class Researcher:
         result["research_summary"] = "；".join(summary_parts)
 
         task.add_research_note(result["research_summary"])
+        
+        # 生成多候选假设（ToT 风格）
+        candidates = self.generate_candidates(task, max_candidates=3)
+        
         task.result = {
             "evidence_count": len(evidence),
             "counter_count": len(counter_examples),
             "summary": result["research_summary"],
+            "candidates": candidates,  # ToT 风格多路径探索
         }
-
+        
         self.task_pool.update_task(task)
         self.task_pool.move_task(task.task_id, "review", actor="researcher", task=task)
 
         result["evidence_found"] = len(evidence)
+        result["candidates_count"] = len(candidates)
         return result
 
     def _research_eco(self, task: Task, keywords: List[str]) -> List[Dict]:
