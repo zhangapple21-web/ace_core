@@ -34,8 +34,9 @@ class TaskCreator:
     1. 扫描 08_ARCHAEOLOGY/ 中最近 N 天的新报告
     2. 扫描 09_KNOWLEDGE/ 中最近 N 天的新经验模式
     3. 扫描词库中的薄弱分类
-    4. 去重检查
-    5. 生成考古任务
+    4. 技能检索：检查是否有匹配的技能模板
+    5. 去重检查
+    6. 生成考古任务（优先使用技能模板）
     """
 
     def __init__(
@@ -46,6 +47,7 @@ class TaskCreator:
         memory_index=None,
         history_file: Optional[str] = None,
         scan_days: int = 7,
+        skill_generator=None,
     ):
         self.task_pool = task_pool
         self.base_dir = Path(base_dir)
@@ -53,6 +55,7 @@ class TaskCreator:
         self.memory_index = memory_index
         self.scan_days = scan_days
         self.history_file = Path(history_file) if history_file else self.base_dir / ".task_creator_history.json"
+        self.skill_generator = skill_generator
         self._load_history()
 
     def _load_history(self):
@@ -269,16 +272,26 @@ class TaskCreator:
         return new_gaps
 
     def create_tasks_from_candidates(self, candidates: List[Dict]) -> List:
-        """根据候选列表创建任务"""
+        """根据候选列表创建任务，优先使用匹配的技能模板"""
         created_tasks = []
         for cand in candidates:
-            task = self.task_pool.create_task(
-                title=cand["task_title"],
-                hypothesis=cand.get("hypothesis", ""),
-                creator="task_creator",
-                priority=cand.get("priority", "medium"),
-                tags=cand.get("tags", []) + [cand["type"]],
-            )
+            matched_skill = None
+            if self.skill_generator:
+                matched_skill = self.skill_generator.find_matching_skill(cand)
+
+            task_params = {
+                "title": cand["task_title"],
+                "hypothesis": cand.get("hypothesis", ""),
+                "creator": "task_creator",
+                "priority": cand.get("priority", "medium"),
+                "tags": cand.get("tags", []) + [cand["type"]],
+            }
+
+            if matched_skill:
+                task_params = self._apply_skill_template(task_params, matched_skill, cand)
+                self.skill_generator.record_usage(matched_skill["skill_name"])
+
+            task = self.task_pool.create_task(**task_params)
 
             if cand.get("source_task"):
                 task.parent_task = cand["source_task"]
@@ -288,9 +301,34 @@ class TaskCreator:
                 "source_type": cand["type"],
                 "trigger": {k: v for k, v in cand.items() if k not in ("type", "task_title", "priority", "hypothesis", "tags")},
             }
+
+            if matched_skill:
+                task.outputs["used_skill"] = matched_skill["skill_name"]
+                task.outputs["skill_type"] = matched_skill["skill_type"]
+                if "tags" not in task.tags or "skill_based" not in task.tags:
+                    task.tags = list(set(task.tags + ["skill_based"]))
+                self.task_pool.update_task(task)
+
             self.task_pool.update_task(task)
             created_tasks.append(task)
         return created_tasks
+
+    def _apply_skill_template(self, task_params: Dict, skill: Dict, cand: Dict) -> Dict:
+        """应用技能模板到任务参数"""
+        template = skill.get("task_template", {})
+
+        if template.get("priority") and not task_params.get("priority"):
+            task_params["priority"] = template["priority"]
+
+        if template.get("common_tags"):
+            existing_tags = set(task_params.get("tags", []))
+            existing_tags.update(template["common_tags"])
+            task_params["tags"] = list(existing_tags)
+
+        if template.get("hypothesis_template") and not task_params.get("hypothesis"):
+            task_params["hypothesis"] = template["hypothesis_template"]
+
+        return task_params
 
     def scan_and_create(self, max_new: int = 3) -> Dict[str, Any]:
         """
