@@ -37,6 +37,13 @@ from core.task_creator import TaskCreator
 from core.fragment_index import FragmentIndex
 from core.file_scanner import FileScanner
 from core.mine_seed_scanner import MineSeedScanner
+from core.heartbeat import Heartbeat
+from core.self_healing import SelfHealing
+from core.web_scout import WebScout
+from core.local_archaeologist import LocalArchaeologist
+from core.skill_generator import SkillGenerator
+from core.observation import RuntimeObserver
+from core.observation_to_task import ObservationToTaskConverter
 
 import sys
 _events_module = str(Path(__file__).parent / "08_EVENTS")
@@ -108,6 +115,11 @@ class AceDaemon:
         self.fragment_index = None
         self.file_scanner = None
         self.mine_seed_scanner = None
+        self.web_scout = None
+        self.local_archaeologist = None
+        self.skill_generator = None
+        self.runtime_observer = None  # RO：持续观察者
+        self.obs_to_task_converter = None  # Observation → Task 转换器
         self._init_miners()
         self._init_export_sync()
         self._init_task_lifecycle()
@@ -213,12 +225,6 @@ class AceDaemon:
             )
             knowledge_dir = self.base_dir / "09_KNOWLEDGE"
             self.experience_deposition = ExperienceDeposition(str(knowledge_dir))
-            self.task_creator = TaskCreator(
-                task_pool=self.task_pool,
-                base_dir=self.base_dir,
-                lexicon=self.scheduler.lexicon,
-                memory_index=self.scheduler.memory_index,
-            )
             fragment_dir = self.base_dir / "02_FRAGMENT_INDEX"
             self.fragment_index = FragmentIndex(str(fragment_dir))
             scan_roots = [
@@ -238,9 +244,56 @@ class AceDaemon:
                     state_file=str(state_file),
                     max_new_commits=5,
                 )
+
+            # 初始化本地考古扫描器
+            local_arch_state = self.base_dir / "06_RUNTIME" / "ace" / "data" / "local_archaeologist_state.json"
+            self.local_archaeologist = LocalArchaeologist(
+                base_dir=self.base_dir,
+                lexicon=self.scheduler.lexicon,
+                memory_index=self.scheduler.memory_index,
+                task_pool=self.task_pool,
+                state_file=local_arch_state,
+            )
+
+            # 初始化外网学习模块
+            web_scout_state = self.base_dir / "06_RUNTIME" / "ace" / "data" / "web_scout_state.json"
+            self.web_scout = WebScout(
+                base_dir=self.base_dir,
+                lexicon=self.scheduler.lexicon,
+                memory_index=self.scheduler.memory_index,
+                task_pool=self.task_pool,
+                state_file=web_scout_state,
+            )
+
+            # 初始化技能生成器
+            skills_dir = self.base_dir / "09_KNOWLEDGE" / "skills"
+            self.skill_generator = SkillGenerator(
+                skills_dir=skills_dir,
+                task_pool=self.task_pool,
+            )
+
+            # 初始化 task_creator，传入 skill_generator
+            self.task_creator = TaskCreator(
+                task_pool=self.task_pool,
+                base_dir=self.base_dir,
+                lexicon=self.scheduler.lexicon,
+                memory_index=self.scheduler.memory_index,
+                skill_generator=self.skill_generator,
+            )
+
+            # 初始化 RO（Runtime Observer）和 Observation → Task 转换器
+            obs_data_dir = self.base_dir / "06_RUNTIME" / "ace" / "data" / "observations"
+            self.runtime_observer = RuntimeObserver(str(obs_data_dir))
+            self.obs_to_task_converter = ObservationToTaskConverter(
+                observer=self.runtime_observer,
+                task_pool=self.task_pool,
+            )
         except Exception as e:
             self._log_error("task_lifecycle_init", str(e))
             self.task_pool = None
+
+        self.heartbeat = Heartbeat(self.data_dir)
+        self.self_healing = SelfHealing(self.data_dir)
 
     def _find_mine_seed(self) -> Optional[str]:
         """自动寻找 mine-seed 仓库 — 不硬编码路径"""
@@ -410,6 +463,27 @@ class AceDaemon:
             except Exception:
                 pass
 
+        web_scout_info = None
+        if self.web_scout:
+            try:
+                web_scout_info = self.web_scout.get_stats()
+            except Exception:
+                pass
+
+        local_arch_info = None
+        if self.local_archaeologist:
+            try:
+                local_arch_info = self.local_archaeologist.get_stats()
+            except Exception:
+                pass
+
+        skill_info = None
+        if self.skill_generator:
+            try:
+                skill_info = self.skill_generator.get_stats()
+            except Exception:
+                pass
+
         return {
             "lexicon": {
                 "concepts": lex_stats.get("total_concepts", 0),
@@ -425,6 +499,9 @@ class AceDaemon:
             "task_pool": task_info,
             "knowledge": knowledge_info,
             "fragment_index": fragment_info,
+            "local_archaeologist": local_arch_info,
+            "web_scout": web_scout_info,
+            "skills": skill_info,
             "last_run": self.state.get("last_run"),
             "mining_progress": self.state.get("mining_progress", {}),
         }
@@ -965,6 +1042,15 @@ class AceDaemon:
                             result["experiences_deposited"] += 1
                     except Exception:
                         pass
+                if self.skill_generator:
+                    try:
+                        skill = self.skill_generator.generate_skill_from_task(task)
+                        if skill:
+                            if "skills_generated" not in result:
+                                result["skills_generated"] = 0
+                            result["skills_generated"] += 1
+                    except Exception as e:
+                        self._log_error("skill_generation", str(e))
         except Exception as e:
             self._log_error("archivist", str(e))
 
@@ -1159,16 +1245,214 @@ class AceDaemon:
         if worker_result.get("error"):
             task.failure_reason = worker_result["error"]
 
+        if worker_result.get("evidence"):
+            for ev in worker_result["evidence"][:10]:
+                if isinstance(ev, dict):
+                    task.add_evidence(
+                        ev.get("content", "")[:300],
+                        source=ev.get("source", "worker"),
+                    )
+
         if worker_result.get("status") == "failed":
             self.task_pool.fail_task(
                 task.task_id,
                 reason=worker_result.get("error", "Worker failed"),
                 actor="autonomous_loop",
             )
-        elif task.status == "pending":
-            self.task_pool.move_task(task.task_id, "review", actor="autonomous_loop")
+        elif task.status in ("pending", "active"):
+            self.task_pool.move_task(task.task_id, "review", actor="autonomous_loop", task=task)
 
         return worker_result
+
+    def _record_system_observations(self) -> int:
+        """
+        在主循环末尾收集当前系统状态，生成 Observation 记录。
+
+        这是 RO（Runtime Observer）的核心职责：
+        不是判断，而是客观记录当前系统状态。
+        由后续的 Observation → Task 规则引擎决定是否生成 Task。
+        """
+        if not self.runtime_observer:
+            return 0
+
+        obs_count = 0
+        task_pool_stats = self.task_pool.get_stats() if self.task_pool else {}
+        by_status = task_pool_stats.get("by_status", {})
+
+        review_count = by_status.get("review", 0)
+        pending_count = by_status.get("pending", 0)
+        active_count = by_status.get("active", 0)
+        blocked_count = by_status.get("blocked", 0)
+        total = task_pool_stats.get("total", 0)
+
+        # === 瓶颈类 Observation ===
+        if review_count >= 5 or (review_count > 0 and active_count == 0 and pending_count == 0):
+            self.runtime_observer.record(
+                description=f"Review 队列积压 {review_count} 个任务，Runtime 流水线在 Validator 阶段阻塞。"
+                           f"当前 pending={pending_count}, active={active_count}。",
+                system_state={
+                    "review": review_count,
+                    "pending": pending_count,
+                    "active": active_count,
+                    "blocked": blocked_count,
+                    "total": total,
+                },
+                severity="critical" if review_count >= 10 else "high",
+                source="daemon_loop",
+                category="bottleneck",
+            )
+            obs_count += 1
+
+        # === 词库缺口 Observation ===
+        lex_stats = self.scheduler.lexicon.get_stats()
+        gap_categories = [
+            cat for cat, cnt in lex_stats.get("categories", {}).items()
+            if cnt < 5
+        ]
+        if len(gap_categories) >= 3:
+            concepts = lex_stats.get("total_concepts", 0)
+            # 统计待分类概念数
+            uncategorized = 0
+            try:
+                lexicon_path = self.base_dir / "06_RUNTIME" / "ace" / "data" / "memory" / "lexicon.json"
+                if lexicon_path.exists():
+                    lex_data = json.load(open(lexicon_path, "r", encoding="utf-8"))
+                    concepts_map = lex_data.get("concepts", {})
+                    uncategorized = sum(
+                        1 for c in concepts_map.values()
+                        if isinstance(c, dict) and c.get("category") == "待分类"
+                    )
+            except Exception:
+                pass
+
+            self.runtime_observer.record(
+                description=f"词库存在 {len(gap_categories)} 个稀缺分类（< 5 个概念），"
+                           f"另有 {uncategorized} 个概念待分类。",
+                system_state={
+                    "gap_categories": gap_categories,
+                    "total_concepts": concepts,
+                    "uncategorized": uncategorized,
+                    "all_categories": lex_stats.get("categories", {}),
+                },
+                severity="medium",
+                source="daemon_loop",
+                category="gap",
+            )
+            obs_count += 1
+
+        # === 碎片积压 Observation ===
+        if self.fragment_index:
+            fi_stats = self.fragment_index.get_stats()
+            pending_scan = fi_stats.get("pending_scan", 0)
+            if pending_scan > 500:
+                self.runtime_observer.record(
+                    description=f"碎片索引积压 {pending_scan} 个未考古文件，已考古 0 个。",
+                    system_state={
+                        "total": fi_stats.get("total", 0),
+                        "pending_scan": pending_scan,
+                        "archaeologized": fi_stats.get("archaeologized", 0),
+                    },
+                    severity="medium",
+                    source="daemon_loop",
+                    category="gap",
+                )
+                obs_count += 1
+
+        # === 跨智能体学习未激活 ===
+        last_mine_seed = self.state.get("last_mine_seed_scan", "never")
+        if last_mine_seed == "never":
+            self.runtime_observer.record(
+                description="mine-seed 扫描器从未执行，跨智能体学习通道关闭。",
+                system_state={
+                    "last_mine_seed_scan": last_mine_seed,
+                    "mine_seed_path": str(self.mine_seed_path) if self.mine_seed_path else None,
+                },
+                severity="medium",
+                source="daemon_loop",
+                category="gap",
+            )
+            obs_count += 1
+
+        # === 近期错误 Observation ===
+        errors = self.state.get("errors", [])
+        recent_errors = []
+        now = datetime.now()
+        for e in errors:
+            try:
+                t = datetime.fromisoformat(e.get("time", "").replace("Z", ""))
+                if (now - t).total_seconds() < 86400:
+                    recent_errors.append({
+                        "module": e.get("module", "?"),
+                        "error": e.get("error", "?")[:60],
+                    })
+            except Exception:
+                pass
+
+        if len(recent_errors) > 3:
+            self.runtime_observer.record(
+                description=f"近24小时出现 {len(recent_errors)} 个系统错误。",
+                system_state={
+                    "recent_error_count": len(recent_errors),
+                    "error_samples": [
+                        f"{e['module']}: {e['error']}" for e in recent_errors[:5]
+                    ],
+                },
+                severity="high",
+                source="daemon_loop",
+                category="anomaly",
+            )
+            obs_count += 1
+
+        # === 磁盘空间 Observation ===
+        import shutil
+        try:
+            usage = shutil.disk_usage(str(self.base_dir))
+            free_pct = usage.free / usage.total * 100
+            free_gb = usage.free / (1024 ** 3)
+            if free_pct < 15:
+                self.runtime_observer.record(
+                    description=f"磁盘剩余空间不足：{free_pct:.1f}% ({free_gb:.1f}GB）。",
+                    system_state={
+                        "disk_free_pct": round(free_pct, 1),
+                        "disk_free_gb": round(free_gb, 1),
+                    },
+                    severity="high",
+                    source="daemon_loop",
+                    category="health",
+                )
+                obs_count += 1
+        except Exception:
+            pass
+
+        # === 计划任务未执行 Observation ===
+        # 通过检查 checkup_history 来判断
+        checkup_file = self.base_dir / "ops" / "logs" / "checkup_history.jsonl"
+        if checkup_file.exists():
+            try:
+                lines = checkup_file.read_text(encoding="utf-8").strip().split("\n")
+                if lines:
+                    last_checkup = json.loads(lines[-1])
+                    last_time = last_checkup.get("timestamp", "")
+                    if last_time:
+                        last_dt = datetime.fromisoformat(last_time)
+                        hours_since = (now - last_dt).total_seconds() / 3600
+                        if hours_since > 25:
+                            self.runtime_observer.record(
+                                description=f"计划任务超过 {hours_since:.0f} 小时未执行，自动巡检可能中断。",
+                                system_state={
+                                    "task_never_run": False,
+                                    "last_checkup": last_time,
+                                    "hours_since": round(hours_since, 1),
+                                },
+                                severity="medium",
+                                source="daemon_loop",
+                                category="improvement",
+                            )
+                            obs_count += 1
+            except Exception:
+                pass
+
+        return obs_count
 
     def export_artifacts_and_sync(
         self,
@@ -1338,6 +1622,27 @@ class AceDaemon:
                     summary_content += f"  - {e['module']}: {e['error'][:50]}\n"
                 summary_content += "\n"
 
+        if hasattr(self, 'heartbeat'):
+            hb_status = self.heartbeat.get_status()
+            summary_content += "【系统存活状态】\n"
+            summary_content += f"- 心跳状态: {hb_status.get('status', 'unknown')}\n"
+            summary_content += f"- 累计心跳: {hb_status.get('beat_count', 0)} 次\n"
+            summary_content += f"- 死亡次数: {hb_status.get('death_count', 0)} 次\n"
+            summary_content += f"- 当前存活: {hb_status.get('current_uptime_seconds', 0)}s\n"
+            summary_content += "\n"
+
+        if hasattr(self, 'self_healing'):
+            healing_stats = self.self_healing.get_healing_stats()
+            if healing_stats.get('total_healing_events', 0) > 0:
+                summary_content += "【自我修复记录】\n"
+                summary_content += f"- 修复事件: {healing_stats.get('total_healing_events', 0)} 次\n"
+                summary_content += f"- 成功率: {healing_stats.get('success_rate', 0)*100:.1f}%\n"
+                by_type = healing_stats.get('by_issue_type', {})
+                if by_type:
+                    top_types = sorted(by_type.items(), key=lambda x: -x[1])[:3]
+                    summary_content += f"- 主要类型: {', '.join(f'{k}({v})' for k, v in top_types)}\n"
+                summary_content += "\n"
+
         summary_id = self.scheduler.memory_index.add(
             title=f"今日考古摘要 - {today}",
             content=summary_content,
@@ -1366,6 +1671,118 @@ class AceDaemon:
         self.state["last_memory_count"] = mem_stats.get("total", 0)
 
         return summary_id
+
+    def run_daemon(self, interval_seconds: int = 300, max_iterations: int = 0,
+                   force: bool = False, dry_run: bool = False) -> Dict[str, Any]:
+        """
+        守护模式：持续运行，不只是跑一次。
+
+        为什么叫守护模式？
+        - 系统自己醒着，不用别人叫
+        - 周期性跳心跳，证明自己活着
+        - 发现问题自己修
+        - 没事干的时候也不死，只是休息
+
+        参数：
+        - interval_seconds: 每轮之间的间隔（默认5分钟）
+        - max_iterations: 最大轮数（0=无限）
+        - force: 每轮都强制运行
+        - dry_run: 只看决策不执行
+        """
+        import time
+
+        print("=" * 60)
+        print(f"ACE 守护模式启动 — {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        print(f"间隔: {interval_seconds}秒 | 最大轮数: {'无限' if max_iterations == 0 else max_iterations}")
+        print("=" * 60)
+        print()
+
+        self.heartbeat.beat(reason="startup")
+        print(f"心跳已启动。当前存活: {self.heartbeat.get_uptime_string()}")
+        print()
+
+        iteration = 0
+        total_tasks_executed = 0
+        stop_reason = ""
+
+        try:
+            while True:
+                iteration += 1
+                if max_iterations > 0 and iteration > max_iterations:
+                    stop_reason = "reached_max_iterations"
+                    break
+
+                print("-" * 60)
+                print(f"第 {iteration} 轮 — {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+                print("-" * 60)
+
+                self.heartbeat.beat(reason="regular")
+
+                diagnosis = self.self_healing.diagnose(self.base_dir)
+                health = diagnosis["health_score"]
+                print(f"健康度: {health}/100 | 问题: {diagnosis['issue_count']}个")
+
+                if diagnosis["issue_count"] > 0 and health < 80:
+                    print(f"检测到问题，尝试自我修复...")
+                    heal_result = self.self_healing.heal(self.base_dir)
+                    print(f"  修复: {heal_result['fixed']}个成功, {heal_result['failed']}个失败")
+                    if heal_result["fixed"] > 0:
+                        self.heartbeat.beat(reason="recovery")
+
+                print()
+                try:
+                    result = self.run_once(force=force, dry_run=dry_run)
+                    tasks_done = result.get("auto_result", {}).get("tasks_executed", 0)
+                    total_tasks_executed += tasks_done
+                    print(f"本轮执行任务: {tasks_done} | 累计: {total_tasks_executed}")
+                except Exception as e:
+                    print(f"本轮执行出错: {e}")
+                    traceback.print_exc()
+                    self._log_error(f"daemon_iteration_{iteration}", str(e))
+
+                print()
+                print(f"存活时长: {self.heartbeat.get_uptime_string()}")
+                print(f"下一轮: {interval_seconds}秒后")
+                print()
+
+                time.sleep(interval_seconds)
+
+        except KeyboardInterrupt:
+            print()
+            print("收到中断信号，优雅退出...")
+            stop_reason = "keyboard_interrupt"
+
+        except Exception as e:
+            print(f"守护模式异常退出: {e}")
+            traceback.print_exc()
+            self.heartbeat.mark_dead(reason=f"fatal_error: {e}")
+            stop_reason = f"fatal_error: {e}"
+
+        self.heartbeat.mark_dead(reason=stop_reason)
+
+        final_status = self.heartbeat.get_status()
+        healing_stats = self.self_healing.get_healing_stats()
+
+        print()
+        print("=" * 60)
+        print("守护模式结束")
+        print("=" * 60)
+        print(f"  运行轮数: {iteration - 1}")
+        print(f"  执行任务: {total_tasks_executed}")
+        print(f"  存活时长: {self.heartbeat.get_uptime_string()}")
+        print(f"  修复事件: {healing_stats['total_healing_events']}次")
+        print(f"  修复成功率: {healing_stats['success_rate']*100:.1f}%")
+        print(f"  结束原因: {stop_reason}")
+        print()
+
+        return {
+            "iterations": iteration - 1,
+            "total_tasks_executed": total_tasks_executed,
+            "uptime": final_status.get("current_uptime_seconds", 0),
+            "stop_reason": stop_reason,
+            "healing_stats": healing_stats,
+            "final_health": self.self_healing.diagnose(self.base_dir)["health_score"],
+        }
 
     def run_once(self, force: bool = False, dry_run: bool = False) -> Dict[str, Any]:
         print("=" * 60)
@@ -1413,7 +1830,98 @@ class AceDaemon:
             if bs:
                 parts = [f"{k}={v}" for k, v in sorted(bs.items())]
                 print(f"    {' '.join(parts)}")
+        if status.get("local_archaeologist"):
+            la = status["local_archaeologist"]
+            print(f"  本地考古: 已吸收{la.get('absorbed_files_count', 0)}文件, 已知结构{la.get('known_structures_count', 0)}个")
+        if status.get("web_scout"):
+            ws = status["web_scout"]
+            print(f"  外网学习: 今日{ws.get('today_sources_count', 0)}源, 累计发现{ws.get('total_findings', 0)}个")
+        if status.get("skills"):
+            sk = status["skills"]
+            print(f"  技能库: {sk.get('total_skills', 0)}个技能, 类型分布: {json.dumps(sk.get('by_type', {}), ensure_ascii=False)}")
         print()
+
+        # === 第零步：技能注册（每日扫描技能目录，更新清单） ===
+        if self.skill_generator and not dry_run:
+            print("【技能注册中...】")
+            try:
+                archived_tasks = self.task_pool.list_tasks(status="archived", limit=100)
+                skill_result = self.skill_generator.analyze_archived_tasks(archived_tasks)
+                print(f"  分析归档任务: {skill_result['tasks_analyzed']}个")
+                print(f"  发现模式: {skill_result['patterns_found']}种")
+                print(f"  新生成技能: {len(skill_result['new_skills'])}个")
+                if skill_result['new_skills']:
+                    print(f"  新技能: {', '.join(skill_result['new_skills'])}")
+            except Exception as e:
+                self._log_error("skill_registration", str(e))
+                print(f"  [错误] {e}")
+            print()
+
+        # === 第一步：本地考古（优先，检查家里抽屉） ===
+        local_arch_result = None
+        if self.local_archaeologist and not dry_run:
+            print("【本地考古中...】")
+            try:
+                local_arch_result = self.local_archaeologist.scan()
+                status_l = local_arch_result["status"]
+                if status_l == "found_new_structures":
+                    print(f"  扫描文件: {local_arch_result['files_scanned']} 个")
+                    print(f"  发现新结构: {local_arch_result['new_structures_count']} 个")
+                    if local_arch_result.get("new_structures"):
+                        print(f"  前5个: {', '.join(local_arch_result['new_structures'][:5])}")
+                    print(f"  创建任务: {local_arch_result['tasks_created']} 个")
+                elif status_l == "all_absorbed":
+                    print(f"  全部已吸收，无新增")
+                elif status_l == "no_new_structures":
+                    print(f"  扫描了 {local_arch_result['files_scanned']} 个文件，未发现未吸收结构")
+                else:
+                    print(f"  状态: {status_l}")
+            except Exception as e:
+                self._log_error("local_archaeologist", str(e))
+                print(f"  [错误] {e}")
+            print()
+        elif dry_run:
+            print("【本地考古: DRY-RUN 模式，不执行】")
+            print()
+
+        # === 第二步：外网学习（补充，不是默认行为） ===
+        web_scout_result = None
+        if self.web_scout and not dry_run:
+            # 只有本地考古没有重要发现时才做外网学习
+            has_local_findings = (
+                local_arch_result and
+                local_arch_result.get("status") == "found_new_structures" and
+                local_arch_result.get("new_structures_count", 0) > 5
+            )
+
+            if not has_local_findings:
+                print("【外网学习中...】")
+                try:
+                    web_scout_result = self.web_scout.scout()
+                    ws_status = web_scout_result["status"]
+                    if ws_status == "success":
+                        print(f"  来源: {web_scout_result['source']}")
+                        print(f"  新发现: {web_scout_result['new_count']} 个")
+                        print(f"  入库概念: {len(web_scout_result['concepts_added'])} 个")
+                        print(f"  创建任务: {web_scout_result['tasks_created']} 个")
+                    elif ws_status == "no_new_findings":
+                        print(f"  今日外网无新增")
+                    elif ws_status == "budget_exhausted":
+                        print(f"  今日外网预算已用完")
+                    elif ws_status == "error":
+                        print(f"  错误: {web_scout_result.get('error', '')}")
+                    else:
+                        print(f"  状态: {ws_status}")
+                except Exception as e:
+                    self._log_error("web_scout", str(e))
+                    print(f"  [错误] {e}")
+                print()
+            else:
+                print("【外网学习: 跳过（本地已有足够新发现）】")
+                print()
+        elif dry_run:
+            print("【外网学习: DRY-RUN 模式，不执行】")
+            print()
 
         print("【决策中...】")
         decision = self.decide_today_task()
@@ -1574,6 +2082,45 @@ class AceDaemon:
         print("【写入今日考古摘要】")
         summary_id = self.write_daily_summary(decision, action_results, total_concepts_added, total_indexed)
         print(f"  摘要ID: {summary_id}")
+        print()
+
+        # === RO：记录系统 Observation → 自动生成 Task ===
+        print("【RO 观察记录与自动转换】")
+        obs_recorded = 0
+        obs_converted = 0
+        try:
+            obs_recorded = self._record_system_observations()
+            print(f"  记录 Observations: {obs_recorded} 条")
+        except Exception as e:
+            self._log_error("runtime_observer", str(e))
+            print(f"  [错误] {e}")
+
+        if obs_recorded > 0 and self.obs_to_task_converter:
+            try:
+                convert_result = self.obs_to_task_converter.convert()
+                obs_converted = convert_result.get("tasks_created", 0)
+                obs_checked = convert_result.get("observations_checked", 0)
+                obs_matched = convert_result.get("rules_matched", 0)
+                obs_skipped = convert_result.get("skipped", 0)
+                print(f"  检查 Observations: {obs_checked} 条")
+                print(f"  规则匹配: {obs_matched} 条")
+                print(f"  生成 Tasks: {obs_converted} 条")
+                print(f"  跳过（已处理）: {obs_skipped} 条")
+                if convert_result.get("details"):
+                    for d in convert_result["details"]:
+                        if "task_id" in d:
+                            print(f"    → {d['task_id']} ({d['task_priority']}) {d['task_title'][:50]}")
+            except Exception as e:
+                self._log_error("obs_to_task_converter", str(e))
+                print(f"  [错误] {e}")
+        elif self.obs_to_task_converter:
+            try:
+                convert_result = self.obs_to_task_converter.convert()
+                obs_converted = convert_result.get("tasks_created", 0)
+                print(f"  无新增 Observation，转换跳过")
+                print(f"  历史 Observations 检查: {convert_result.get('observations_checked', 0)} 条，生成 Tasks: {obs_converted} 条")
+            except Exception as e:
+                self._log_error("obs_to_task_converter", str(e))
         print()
 
         self._save_state()

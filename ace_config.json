@@ -1,0 +1,46 @@
+{
+  "version": "0.1.0",
+  "name": "ACE Runtime",
+  "full_name": "Autonomous Cognitive Ecology Runtime",
+  "description": "一个统一身份、多生态位的认知生态运行时",
+  "identity": {
+    "core_name": "ACE",
+    "root_principles_path": "00_ROOT/PRINCIPLES.md",
+    "root_state_path": "00_ROOT/ROOT_STATE.md",
+    "architecture_path": "00_ROOT/ARCHITECTURE.md"
+  },
+  "memory": {
+    "base_path": "02_MEMORY",
+    "recent_memory_path": "02_MEMORY/recent_memory",
+    "knowledge_path": "02_MEMORY/knowledge"
+  },
+  "data": {
+    "events_dir": "06_RUNTIME/ace/data/events",
+    "tasks_dir": "06_RUNTIME/ace/data/tasks",
+    "memory_cache_dir": "06_RUNTIME/ace/data/memory"
+  },
+  "nodes": {
+    "observer": {
+      "enabled": true,
+      "description": "观察与记录"
+    },
+    "researcher": {
+      "enabled": true,
+      "description": "分析与研究"
+    },
+    "validator": {
+      "enabled": true,
+      "description": "验证与挑错"
+    },
+    "archivist": {
+      "enabled": true,
+      "description": "归档与沉淀"
+    }
+  },
+  "scheduler": {
+    "poll_interval_seconds": 2,
+    "max_concurrent_tasks": 1
+  },
+  "event_types": ["OBS", "TASK", "RFC", "CONST"],
+  "task_statuses": ["pending", "running", "done", "failed", "archived"]
+}

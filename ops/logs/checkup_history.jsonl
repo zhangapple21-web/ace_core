@@ -1,0 +1,1 @@
+{"timestamp": "2026-06-28T14:07:58.525593", "checks": {"health": {"overall": "ok", "passed": 16, "warnings": 0, "errors": 0}, "status": {"concepts": 477, "memory": 2938, "knowledge": 15, "tasks_total": 21, "disk_free_gb": 57.5}, "log_rotate": {"skipped": true}}, "overall": "ok"}
