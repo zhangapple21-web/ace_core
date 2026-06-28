@@ -185,9 +185,30 @@ class Researcher:
 
     def generate_candidates(self, task: Task, max_candidates: int = 3) -> List[Dict[str, Any]]:
         """
-        生成多个候选研究路径（ToT 风格）
+        构建假设树（ToT 风格）
         
-        核心思路：从不同角度/关键词生成多个假设，供 Validator 评估选择。
+        假设树 = 多候选假设 + 选择机制
+        
+        结构：
+                    [根节点：任务]
+                         │
+            ┌────────────┼────────────┐
+            ▼            ▼            ▼
+        [假设A]      [假设B]      [假设C]
+        primary    lexicon_rel   negation
+        
+        每个假设节点包含：
+        - candidate_id: 节点标识
+        - hypothesis: 假设内容
+        - keywords: 关联关键词
+        - confidence: 置信度 (0-1)
+        - reasoning: 推导过程
+        - type: 假设类型
+        
+        选择机制由 Validator.assess_prospect() 完成：
+        - 评估每个候选的前景
+        - 选择最优分支继续探索
+        - 低价值分支剪枝
         
         Returns:
             [
