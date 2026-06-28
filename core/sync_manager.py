@@ -3,7 +3,7 @@ Sync Manager — Repository Curator 的执行手
 
 职责边界（极度受限）：
   ✓ 只执行来自 Repository Curator 的指令
-  ✓ 验证 sync plan 签名
+  ✓ 验证 sync plan 签名（通过 SyncExecutionContract）
   ✓ 批量合并相关文件到单次提交
   ✓ 执行 git add / commit / push
   ✓ 记录同步日志
@@ -16,11 +16,10 @@ Sync Manager — Repository Curator 的执行手
   - 不接受即兴同步（no ad-hoc sync）
   - 合并同类型的多个文件到单次提交（减少碎片提交）
   - 防抖：同类提交 60 分钟内只执行一次
+  - 所有同步计划必须通过 SyncExecutionContract 验证
 
-权限验证：
-  - 每个 sync plan 必须包含 curator_signature
-  - 签名 = sha256(curator_id + timestamp + plan_hash)
-  - 没有有效签名的 plan 一律拒绝执行
+契约层依赖：
+  - core.contracts.SyncExecutionContract：签名验证 + 防抖 + 审计
 """
 
 import json
@@ -32,6 +31,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Any, Optional
 from dataclasses import dataclass
+
+from .contracts import SyncExecutionContract, SyncPlanVerification, SyncStatus
 
 logger = logging.getLogger(__name__)
 
@@ -80,6 +81,14 @@ class SyncManager:
         self.last_sync_file = self.data_dir / "last_sync.json"
         self.sync_log_file = self.data_dir / "sync_log.jsonl"
         self._last_sync = self._load_last_sync()
+
+        # 执行契约层（所有同步必须通过此验证）
+        self._execution_contract = SyncExecutionContract(
+            curator_id=curator_id,
+            curator_secret=curator_secret,
+            debounce_minutes=debounce_minutes,
+            data_dir=str(self.data_dir),
+        )
 
     def _load_last_sync(self) -> Dict:
         if self.last_sync_file.exists():
@@ -144,19 +153,25 @@ class SyncManager:
         """
         执行同步计划
 
+        所有同步必须通过 SyncExecutionContract 验证：
+          1. 签名验证（curator_signature）
+          2. 防抖检查（60分钟）
+          3. 操作合法性验证
+
         Args:
             sync_plan: 来自 Curator 的同步计划
 
         Returns:
             List[SyncResult]: 每个仓库的执行结果
         """
-        # 验证签名
-        if not self._verify_signature(sync_plan):
-            logger.error("Sync plan 签名验证失败，拒绝执行")
+        # === 契约层验证（第一道防线）===
+        verification = self._execution_contract.verify_plan(sync_plan)
+        if not verification.valid:
+            logger.error(f"Sync plan 契约验证失败: {verification.reason}")
             return [SyncResult(
                 success=False, repo="*", action="verify",
                 files=[], commit_hash=None,
-                error="签名验证失败：plan 可能被篡改或过期",
+                error=f"契约验证失败: {verification.reason}",
                 duration_ms=0,
             )]
 
