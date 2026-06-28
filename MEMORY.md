@@ -76,6 +76,70 @@ ace_daemon.run_once()
   → mine-seed sync（独立）
 ```
 
+---
+
+## 四、Repository Curator（仓库馆长）
+
+### 架构角色
+
+```
+Observer        → 持续观察，记录 Observation
+      ↓
+Researcher      → 生产知识（考古报告、经验、协议）
+      ↓
+Validator       → 验证任务结果
+      ↓
+Archivist       → 归档到本地目录
+      ↓
+Repository Curator  → 馆长整理（唯一有权决定同步的 Agent）
+      ↓
+Sync Manager    → 执行馆长的同步指令
+      ↓
+Git Push        → 写入仓库
+```
+
+### 权限矩阵
+
+| Agent | create | modify | code | sync | git_push |
+|-------|--------|--------|------|------|----------|
+| Research Agent | ✅ | ✅ | - | ❌ | ❌ |
+| Engineering Agent | - | ✅ | ✅ | ❌ | ❌ |
+| Repository Curator | ✅ | ✅ | ✅ | ✅ | ✅ |
+
+**关键约束**：所有 Agent 的产出必须经过馆长，馆长是 Git 的唯一入口。
+
+### 馆长工作流程
+
+```
+Today's Work Finished
+      ↓
+Repository Curator Wakeup（触发方式：scheduled / task_complete / manual）
+      ↓
+Collect Today's Artifacts（扫描 ace_runtime 产物目录）
+      ↓
+Score Each Artifact（Novelty / Similarity / Stability / Reusability）
+      ↓
+Find Similar Docs（n-gram Jaccard 相似度检测）
+      ↓
+Decide Action（create / update / merge / discard / split）
+      ↓
+Generate Sync Plan（含馆长签名）
+      ↓
+Sync Manager Execute（防抖 + 签名验证）
+      ↓
+Archive + Log
+      ↓
+Sleep
+```
+
+### 核心文件
+
+- `core/similarity_engine.py` — n-gram Jaccard 相似度引擎（无外部依赖）
+- `core/value_scorer.py` — 价值评分器（4维度评分）
+- `core/repository_curator.py` — 馆长主体逻辑
+- `core/sync_manager.py` — 同步执行器（仅执行馆长指令）
+- `ops/curator_validate.py` — 馆长验证脚本
+
 ### 手动强制推送
 
 ```bash
