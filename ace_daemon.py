@@ -44,6 +44,10 @@ from core.local_archaeologist import LocalArchaeologist
 from core.skill_generator import SkillGenerator
 from core.observation import RuntimeObserver
 from core.observation_to_task import ObservationToTaskConverter
+from core.repository_curator import RepositoryCurator
+from core.similarity_engine import SimilarityEngine
+from core.value_scorer import ValueScorer
+from core.sync_manager import SyncManager
 
 import sys
 _events_module = str(Path(__file__).parent / "08_EVENTS")
@@ -120,6 +124,7 @@ class AceDaemon:
         self.skill_generator = None
         self.runtime_observer = None  # RO：持续观察者
         self.obs_to_task_converter = None  # Observation → Task 转换器
+        self.repository_curator = None  # 仓库馆长（唯一有权决定同步的 Agent）
         self._init_miners()
         self._init_export_sync()
         self._init_task_lifecycle()
@@ -184,6 +189,31 @@ class AceDaemon:
             except Exception as e:
                 self._log_error("core_syncer_init", str(e))
                 self.core_syncer = None
+
+            # 初始化仓库馆长 + 同步管理器（唯一有权同步的 Agent）
+            try:
+                curator_data_dir = self.base_dir / "06_RUNTIME" / "ace" / "data" / "curator"
+                mine_seed_str = str(self.mine_seed_path) if self.mine_seed_path else ""
+                ace_core_str = str(self.base_dir)
+
+                sim_engine = SimilarityEngine(str(curator_data_dir))
+                val_scorer = ValueScorer(data_dir=str(curator_data_dir))
+                sync_mgr = SyncManager(data_dir=str(curator_data_dir))
+
+                self.repository_curator = RepositoryCurator(
+                    ace_runtime_dir=ace_core_str,
+                    mine_seed_dir=mine_seed_str,
+                    ace_core_dir=ace_core_str,
+                    similarity_engine=sim_engine,
+                    value_scorer=val_scorer,
+                    sync_manager=sync_mgr,
+                    data_dir=str(curator_data_dir),
+                )
+                print(f"[Curator] 仓库馆长已初始化 (数据目录: {curator_data_dir})")
+            except Exception as e:
+                self._log_error("curator_init", str(e))
+                self.repository_curator = None
+                print(f"[Curator] 初始化失败: {e}")
 
     def _init_task_lifecycle(self):
         """初始化任务生命周期系统"""
@@ -1530,16 +1560,10 @@ class AceDaemon:
             result["details"]["export_error"] = str(e)
             return result
 
-        try:
-            sync_result = self.syncer.sync(
-                subdir="03_DATA/research/r1_archaeology",
-                push=True,
-            )
-            result["synced"] = sync_result.get("pushed", False) or sync_result.get("committed", False)
-            result["details"]["sync"] = sync_result
-        except Exception as e:
-            self._log_error("repo_sync", str(e))
-            result["details"]["sync_error"] = str(e)
+        # 注意：不再直接调用 syncer.sync() — 所有同步决策统一由 Repository Curator 做出
+        # Curator 在主循环末尾被唤醒，对所有产物进行评分、去重、分类后再同步
+        result["synced"] = False  # Curator 将在后续独立处理
+        result["details"]["sync"] = {"note": "deferred_to_curator"}
 
         return result
 
@@ -2124,6 +2148,26 @@ class AceDaemon:
         print()
 
         self._save_state()
+
+        # === Curator：Today's Work Finished — 馆长唤醒 ===
+        print("【Repository Curator：今日产物整理】")
+        try:
+            if self.repository_curator:
+                curator_result = self.repository_curator.wakeup(triggered_by="daemon_loop")
+                scanned = curator_result.get("artifacts_scanned", 0)
+                summary = curator_result.get("summary", "无")
+                print(f"  扫描产物: {scanned} 个")
+                print(f"  决策摘要: {summary}")
+                if curator_result.get("duplicates_found"):
+                    print(f"  发现重复: {len(curator_result['duplicates_found'])} 个")
+                if curator_result.get("split_candidates"):
+                    print(f"  需拆分: {len(curator_result['split_candidates'])} 个")
+            else:
+                print("  [跳过] Curator 未初始化")
+        except Exception as e:
+            self._log_error("repository_curator", str(e))
+            print(f"  [错误] {e}")
+        print()
 
         if self.core_syncer:
             try:
