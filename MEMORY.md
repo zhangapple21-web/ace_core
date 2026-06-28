@@ -20,7 +20,8 @@
 ### 仓库信息
 
 - **Remote 名称**: `ace-core`
-- **Remote URL**: `https://github.com/USER/ace_core.git` ⚠️ 待用户创建 GitHub 仓库后替换
+- **Remote URL**: `https://github.com/zhangapple21-web/ace_core.git`
+- **仓库已创建**: 2026-06-28
 - **分支**: `main`
 - **本地路径**: `ace_runtime/` 根目录
 
