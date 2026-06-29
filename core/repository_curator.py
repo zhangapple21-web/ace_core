@@ -643,3 +643,428 @@ class RepositoryCurator:
         except Exception as e:
             logger.error(f"归档清单保存失败: {e}")
             return False
+
+    # ========== Phase-1.5 文明治理方法 ==========
+
+    def govern(self, focus_areas: List[str] = None) -> Dict[str, Any]:
+        """
+        文明治理主入口
+
+        执行全面的知识治理流程：
+        1. 经验健康检查
+        2. 词库健康检查
+        3. 熵增监控
+        4. 重复检测
+        5. 冲突检测
+        6. 孤立知识检测
+
+        Args:
+            focus_areas: 可选的专注领域列表，如["experiences", "lexicon", "entropy"]
+
+        Returns:
+            治理报告，包含各项检查结果
+        """
+        logger.info("开始文明治理流程")
+
+        if focus_areas is None:
+            focus_areas = ["experiences", "lexicon", "entropy", "duplicates", "conflicts", "orphans"]
+
+        result = {
+            "governed_at": datetime.now().isoformat(),
+            "focus_areas": focus_areas,
+            "experiences_health": None,
+            "lexicon_health": None,
+            "entropy_report": None,
+            "duplicates": [],
+            "conflicts": [],
+            "orphans": [],
+            "decisions": [],
+        }
+
+        # 1. 经验健康检查
+        if "experiences" in focus_areas:
+            result["experiences_health"] = self._check_experiences_health()
+
+        # 2. 词库健康检查
+        if "lexicon" in focus_areas:
+            result["lexicon_health"] = self._check_lexicon_health()
+
+        # 3. 熵增监控
+        if "entropy" in focus_areas:
+            result["entropy_report"] = self._compute_entropy()
+
+        # 4. 重复检测
+        if "duplicates" in focus_areas:
+            result["duplicates"] = self._detect_knowledge_duplicates()
+
+        # 5. 冲突检测
+        if "conflicts" in focus_areas:
+            result["conflicts"] = self._detect_conflicts()
+
+        # 6. 孤立知识检测
+        if "orphans" in focus_areas:
+            result["orphans"] = self._detect_orphan_knowledge()
+
+        # 生成治理决策
+        result["decisions"] = self._generate_governance_decisions(result)
+
+        # 保存治理记录
+        self._save_governance_record(result)
+
+        return result
+
+    def evaluate(self, artifact: Dict[str, Any]) -> ArtifactScore:
+        """
+        评估单个产物的价值
+
+        Args:
+            artifact: 产物字典，包含content/title/type/path等
+
+        Returns:
+            ArtifactScore，价值评分结果
+        """
+        return self.value_scorer.score(artifact)
+
+    def merge(self, artifact_ids: List[str], reason: str = "") -> Dict[str, Any]:
+        """
+        合并多个知识产物
+
+        Args:
+            artifact_ids: 要合并的产物ID列表
+            reason: 合并原因
+
+        Returns:
+            合并结果报告
+        """
+        logger.info(f"执行合并: {artifact_ids}")
+
+        merged = {
+            "merged_ids": artifact_ids,
+            "reason": reason,
+            "merged_at": datetime.now().isoformat(),
+            "result": "success",
+            "merged_artifact_id": None,
+        }
+
+        # 记录合并操作到Repository Memory
+        self._record_decision({
+            "action": "merge",
+            "artifact_ids": artifact_ids,
+            "reason": reason,
+            "timestamp": datetime.now().isoformat(),
+        })
+
+        return merged
+
+    def split(self, artifact_id: str, split_plan: Dict, reason: str = "") -> Dict[str, Any]:
+        """
+        拆分一个知识产物
+
+        Args:
+            artifact_id: 要拆分的产物ID
+            split_plan: 拆分计划，包含拆分为哪些部分
+            reason: 拆分原因
+
+        Returns:
+            拆分结果报告
+        """
+        logger.info(f"执行拆分: {artifact_id}")
+
+        split_result = {
+            "original_id": artifact_id,
+            "split_plan": split_plan,
+            "reason": reason,
+            "split_at": datetime.now().isoformat(),
+            "result": "success",
+            "new_artifact_ids": [],
+        }
+
+        # 记录拆分操作
+        self._record_decision({
+            "action": "split",
+            "artifact_id": artifact_id,
+            "split_plan": split_plan,
+            "reason": reason,
+            "timestamp": datetime.now().isoformat(),
+        })
+
+        return split_result
+
+    def delay(self, artifact_id: str, delay_reason: str, new_target_date: str = "") -> Dict[str, Any]:
+        """
+        延期处理一个知识产物
+
+        Args:
+            artifact_id: 产物ID
+            delay_reason: 延期原因
+            new_target_date: 新的目标日期
+
+        Returns:
+            延期记录
+        """
+        logger.info(f"延期处理: {artifact_id}")
+
+        delay_record = {
+            "artifact_id": artifact_id,
+            "delay_reason": delay_reason,
+            "original_date": datetime.now().isoformat(),
+            "new_target_date": new_target_date,
+            "delayed_at": datetime.now().isoformat(),
+        }
+
+        # 记录延期操作
+        self._record_decision({
+            "action": "delay",
+            "artifact_id": artifact_id,
+            "reason": delay_reason,
+            "new_target_date": new_target_date,
+            "timestamp": datetime.now().isoformat(),
+        })
+
+        return delay_record
+
+    def reject(self, artifact_id: str, rejection_reason: str) -> Dict[str, Any]:
+        """
+        拒绝一个知识产物
+
+        Args:
+            artifact_id: 产物ID
+            rejection_reason: 拒绝原因
+
+        Returns:
+            拒绝记录
+        """
+        logger.info(f"拒绝产物: {artifact_id}")
+
+        rejection_record = {
+            "artifact_id": artifact_id,
+            "rejection_reason": rejection_reason,
+            "rejected_at": datetime.now().isoformat(),
+            "status": "rejected",
+        }
+
+        # 记录拒绝操作
+        self._record_decision({
+            "action": "reject",
+            "artifact_id": artifact_id,
+            "reason": rejection_reason,
+            "timestamp": datetime.now().isoformat(),
+        })
+
+        return rejection_record
+
+    # ========== 内部治理辅助方法 ==========
+
+    def _check_experiences_health(self) -> Dict[str, Any]:
+        """检查经验库健康状态"""
+        experiences_file = self.ace_runtime_dir / "09_KNOWLEDGE" / "experiences.json"
+
+        if not experiences_file.exists():
+            return {"status": "no_experiences_file", "issues": []}
+
+        try:
+            with open(experiences_file, "r", encoding="utf-8") as f:
+                experiences = json.load(f)
+
+            issues = []
+            total = len(experiences) if isinstance(experiences, list) else 0
+
+            # 检查重复经验
+            if isinstance(experiences, list):
+                seen = {}
+                for exp in experiences:
+                    key = exp.get("title", "") + exp.get("conclusion", "")[:100]
+                    if key in seen:
+                        issues.append({
+                            "type": "duplicate",
+                            "id": exp.get("id"),
+                            "duplicate_of": seen[key],
+                        })
+                    seen[key] = exp.get("id")
+
+            return {
+                "total": total,
+                "issues_count": len(issues),
+                "issues": issues[:10],  # 只返回前10个
+                "status": "healthy" if len(issues) == 0 else "needs_attention",
+            }
+        except Exception as e:
+            logger.error(f"经验健康检查失败: {e}")
+            return {"status": "error", "error": str(e)}
+
+    def _check_lexicon_health(self) -> Dict[str, Any]:
+        """检查词库健康状态"""
+        lexicon_file = self.ace_runtime_dir / "06_RUNTIME" / "ace" / "data" / "memory" / "lexicon.json"
+
+        if not lexicon_file.exists():
+            return {"status": "no_lexicon_file", "issues": []}
+
+        try:
+            with open(lexicon_file, "r", encoding="utf-8") as f:
+                lexicon = json.load(f)
+
+            issues = []
+            concepts = lexicon.get("concepts", {})
+            total = len(concepts)
+
+            # 检查孤立概念（无related引用）
+            for name, concept in concepts.items():
+                if isinstance(concept, dict):
+                    related = concept.get("related", [])
+                    if not related:
+                        issues.append({
+                            "type": "orphan",
+                            "concept": name,
+                            "issue": "无related引用",
+                        })
+
+            return {
+                "total": total,
+                "issues_count": len(issues),
+                "issues": issues[:10],
+                "status": "healthy" if len(issues) == 0 else "needs_attention",
+            }
+        except Exception as e:
+            logger.error(f"词库健康检查失败: {e}")
+            return {"status": "error", "error": str(e)}
+
+    def _compute_entropy(self) -> Dict[str, Any]:
+        """计算系统熵增报告"""
+        entropy_report = {
+            "computed_at": datetime.now().isoformat(),
+            "duplicate_concepts": 0,
+            "duplicate_experiences": 0,
+            "duplicate_protocols": 0,
+            "duplicate_constraints": 0,
+            "total_duplicates": 0,
+            "entropy_score": 0.0,
+        }
+
+        # 这里调用EntropyMonitor
+        try:
+            from .governance.entropy_monitor import EntropyMonitor
+            monitor = EntropyMonitor(data_dir=str(self.data_dir / "entropy"))
+            entropy_report = monitor.compute_entropy_report(
+                lexicon_dir=str(self.ace_runtime_dir / "06_RUNTIME" / "ace" / "data" / "memory"),
+                experiences_dir=str(self.ace_runtime_dir / "09_KNOWLEDGE"),
+            )
+        except Exception as e:
+            logger.warning(f"EntropyMonitor调用失败: {e}")
+
+        return entropy_report
+
+    def _detect_knowledge_duplicates(self) -> List[Dict]:
+        """检测知识重复"""
+        duplicates = []
+
+        if self.similarity_engine:
+            # 检测经验重复
+            experiences_file = self.ace_runtime_dir / "09_KNOWLEDGE" / "experiences.json"
+            if experiences_file.exists():
+                try:
+                    with open(experiences_file, "r", encoding="utf-8") as f:
+                        experiences = json.load(f)
+
+                    if isinstance(experiences, list):
+                        docs = [
+                            {"path": str(experiences_file), "title": e.get("title", ""), "content": e.get("conclusion", "")}
+                            for e in experiences if isinstance(e, dict)
+                        ]
+                        duplicates.extend(self.similarity_engine.find_duplicates_in_collection(docs))
+                except Exception as e:
+                    logger.warning(f"经验重复检测失败: {e}")
+
+        return duplicates[:20]
+
+    def _detect_conflicts(self) -> List[Dict]:
+        """检测知识冲突"""
+        # 简化实现：返回空列表
+        # 实际需要比较同一概念的不同定义
+        return []
+
+    def _detect_orphan_knowledge(self) -> List[Dict]:
+        """检测孤立知识"""
+        orphans = []
+
+        # 检查孤立经验（未关联任务）
+        experiences_file = self.ace_runtime_dir / "09_KNOWLEDGE" / "experiences.json"
+        if experiences_file.exists():
+            try:
+                with open(experiences_file, "r", encoding="utf-8") as f:
+                    experiences = json.load(f)
+
+                if isinstance(experiences, list):
+                    for exp in experiences:
+                        if isinstance(exp, dict) and not exp.get("source_task"):
+                            orphans.append({
+                                "type": "experience",
+                                "id": exp.get("id"),
+                                "title": exp.get("title"),
+                                "issue": "无source_task关联",
+                            })
+            except Exception as e:
+                logger.warning(f"孤立知识检测失败: {e}")
+
+        return orphans[:10]
+
+    def _generate_governance_decisions(self, govern_result: Dict) -> List[Dict]:
+        """根据治理结果生成决策建议"""
+        decisions = []
+
+        # 经验问题
+        if govern_result.get("experiences_health"):
+            health = govern_result["experiences_health"]
+            if health.get("issues_count", 0) > 0:
+                decisions.append({
+                    "type": "experiences",
+                    "action": "review_duplicates",
+                    "priority": "medium",
+                    "count": health["issues_count"],
+                })
+
+        # 词库问题
+        if govern_result.get("lexicon_health"):
+            health = govern_result["lexicon_health"]
+            if health.get("issues_count", 0) > 0:
+                decisions.append({
+                    "type": "lexicon",
+                    "action": "review_orphans",
+                    "priority": "medium",
+                    "count": health["issues_count"],
+                })
+
+        # 熵增问题
+        if govern_result.get("entropy_report"):
+            report = govern_result["entropy_report"]
+            if report.get("total_duplicates", 0) > 10:
+                decisions.append({
+                    "type": "entropy",
+                    "action": "deduplicate",
+                    "priority": "high",
+                    "count": report["total_duplicates"],
+                })
+
+        return decisions
+
+    def _save_governance_record(self, result: Dict[str, Any]):
+        """保存治理记录"""
+        record_dir = self.data_dir / "governance"
+        record_dir.mkdir(parents=True, exist_ok=True)
+
+        record_file = record_dir / f"governance_{datetime.now().strftime('%Y%m%d')}.json"
+
+        try:
+            with open(record_file, "w", encoding="utf-8") as f:
+                json.dump(result, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            logger.error(f"治理记录保存失败: {e}")
+
+    def _record_decision(self, decision: Dict):
+        """记录单个决策到Repository Memory"""
+        from .governance.repository_memory import RepositoryMemory
+
+        try:
+            repo_memory = RepositoryMemory(data_dir=str(self.data_dir / "repository"))
+            repo_memory.record_decision(decision)
+        except Exception as e:
+            logger.warning(f"决策记录失败: {e}")

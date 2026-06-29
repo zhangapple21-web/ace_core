@@ -112,6 +112,7 @@ class FileScanner:
     def _scan_new_fragments(self) -> Dict[str, Any]:
         new_files: List[Path] = []
         total = 0
+        seen_names: Set[str] = set()  # 基于文件名的去重
 
         for root in self.scan_roots:
             for f in root.rglob("*"):
@@ -126,6 +127,13 @@ class FileScanner:
                     continue
 
                 total += 1
+
+                # 基于文件名的去重：同名文件只处理一次
+                file_key = f.name.lower()
+                if file_key in seen_names:
+                    continue
+                seen_names.add(file_key)
+
                 if not self.fragment_index.is_known(f):
                     new_files.append(f)
 

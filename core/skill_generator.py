@@ -408,6 +408,8 @@ class SkillGenerator:
     def _find_similar_skill(self, cluster: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """查找相似的已有技能（避免重复创建）"""
         cluster_tags = set(cluster.get("common_tags", []))
+        cluster_name = cluster.get("name", "")
+
         if not cluster_tags:
             return None
 
@@ -421,10 +423,24 @@ class SkillGenerator:
             skill_tags = set(skill.get("matching_rules", {}).get("tag_match", []))
             if not skill_tags:
                 continue
+
             overlap = len(cluster_tags & skill_tags)
-            if overlap > best_overlap and overlap >= 2:
+
+            # 如果标签完全相同，认为是重复技能
+            if cluster_tags == skill_tags:
+                return skill
+
+            # 如果有多个标签且重叠>=2，认为是相似技能
+            if len(cluster_tags) > 1 and overlap >= 2 and overlap > best_overlap:
                 best_overlap = overlap
                 best_match = skill
+
+            # 如果集群名称与已有技能名称相同（可能是中英文版本）
+            skill_name = skill_entry["skill_name"]
+            if cluster_name and skill_name:
+                # 检查是否一个是另一个的翻译版本
+                if cluster_name.replace("_", "") == skill_name.replace("_", ""):
+                    return skill
 
         return best_match
 

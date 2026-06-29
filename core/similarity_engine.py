@@ -370,13 +370,329 @@ class SimilarityEngine:
         """获取合并建议"""
         path1 = doc1.get('path', '')
         path2 = doc2.get('path', '')
-        
+
         name1 = Path(path1).stem if path1 else ''
         name2 = Path(path2).stem if path2 else ''
-        
+
         if self.detect_patterns(name1)['is_duplicate_pattern']:
             return f"建议保留 {path2}，删除 {path1}"
         elif self.detect_patterns(name2)['is_duplicate_pattern']:
             return f"建议保留 {path1}，删除 {path2}"
         else:
             return f"建议人工确认保留哪个"
+
+    # ========== Phase-1.5 跨类型相似度比较 ==========
+
+    ARTIFACT_TYPES = ["concept", "experience", "constraint", "protocol", "axiom", "blueprint"]
+
+    def compare_knowledge_types(
+        self,
+        lexicon_data: Dict,
+        experiences_data: List[Dict],
+        constraints_data: List[Dict] = None,
+        protocols_data: List[Dict] = None
+    ) -> Dict[str, Any]:
+        """
+        跨类型知识相似度比较
+
+        检测：
+        - 重复：同类知识高度相似
+        - 冲突：同一概念不同定义
+        - 包含：一个知识包含另一个
+        - 替代：一个知识替代另一个
+        - 继承：一个知识从另一个演化
+        - 演化：知识版本的演进关系
+
+        Args:
+            lexicon_data: 词库数据，包含concepts字典
+            experiences_data: 经验列表
+            constraints_data: 约束列表（可选）
+            protocols_data: 协议列表（可选）
+
+        Returns:
+            跨类型比较报告
+        """
+        report = {
+            "compared_at": datetime.now().isoformat(),
+            "relationships": {
+                "duplicate": [],
+                "conflict": [],
+                "containment": [],
+                "supersession": [],
+                "inheritance": [],
+                "evolution": [],
+            },
+            "summary": {
+                "total_relationships": 0,
+                "by_type": {},
+            }
+        }
+
+        # 1. 概念间重复检测
+        if "concepts" in lexicon_data:
+            concept_dupes = self._find_concept_duplicates(lexicon_data["concepts"])
+            report["relationships"]["duplicate"].extend(concept_dupes)
+
+        # 2. 经验间重复检测
+        if experiences_data:
+            exp_dupes = self._find_experience_duplicates(experiences_data)
+            report["relationships"]["duplicate"].extend(exp_dupes)
+
+        # 3. 概念与经验间关系检测
+        if "concepts" in lexicon_data and experiences_data:
+            concept_exp_relations = self._find_concept_experience_relations(
+                lexicon_data["concepts"],
+                experiences_data
+            )
+            for rel_type, items in concept_exp_relations.items():
+                report["relationships"][rel_type].extend(items)
+
+        # 4. 版本演化关系检测
+        if experiences_data:
+            evolution_relations = self._find_evolution_relations(experiences_data)
+            report["relationships"]["evolution"].extend(evolution_relations)
+
+        # 统计
+        for rel_type, items in report["relationships"].items():
+            if items:
+                report["summary"]["by_type"][rel_type] = len(items)
+                report["summary"]["total_relationships"] += len(items)
+
+        return report
+
+    def _find_concept_duplicates(self, concepts: Dict) -> List[Dict]:
+        """检测概念重复"""
+        duplicates = []
+        concept_list = list(concepts.items())
+
+        for i, (name1, concept1) in enumerate(concept_list):
+            if not isinstance(concept1, dict):
+                continue
+
+            def1 = concept1.get("definition", "")
+            if not def1:
+                continue
+
+            for name2, concept2 in concept_list[i+1:]:
+                if not isinstance(concept2, dict):
+                    continue
+
+                def2 = concept2.get("definition", "")
+                if not def2:
+                    continue
+
+                sim = self.compute_similarity(def1, def2)
+                if sim >= 0.85:
+                    duplicates.append({
+                        "type": "concept_duplicate",
+                        "item1": name1,
+                        "item2": name2,
+                        "similarity": round(sim, 4),
+                        "recommendation": "考虑合并或删除其中一个"
+                    })
+
+        return duplicates
+
+    def _find_experience_duplicates(self, experiences: List[Dict]) -> List[Dict]:
+        """检测经验重复"""
+        duplicates = []
+
+        for i, exp1 in enumerate(experiences):
+            if not isinstance(exp1, dict):
+                continue
+
+            title1 = exp1.get("title", "")
+            conclusion1 = exp1.get("conclusion", "")
+            key1 = title1 + conclusion1[:100]
+
+            for exp2 in experiences[i+1:]:
+                if not isinstance(exp2, dict):
+                    continue
+
+                title2 = exp2.get("title", "")
+                conclusion2 = exp2.get("conclusion", "")
+                key2 = title2 + conclusion2[:100]
+
+                sim = self.compute_similarity(key1, key2)
+                if sim >= 0.75:
+                    duplicates.append({
+                        "type": "experience_duplicate",
+                        "id1": exp1.get("id", ""),
+                        "id2": exp2.get("id", ""),
+                        "title1": title1,
+                        "title2": title2,
+                        "similarity": round(sim, 4),
+                    })
+
+        return duplicates
+
+    def _find_concept_experience_relations(
+        self,
+        concepts: Dict,
+        experiences: List[Dict]
+    ) -> Dict[str, List]:
+        """检测概念与经验间的关系"""
+        relations = {
+            "containment": [],
+            "supersession": [],
+            "inheritance": [],
+        }
+
+        for name, concept in concepts.items():
+            if not isinstance(concept, dict):
+                continue
+
+            concept_def = concept.get("definition", "")
+            if not concept_def:
+                continue
+
+            for exp in experiences:
+                if not isinstance(exp, dict):
+                    continue
+
+                exp_text = exp.get("conclusion", "") + exp.get("title", "")
+
+                # 包含关系：经验引用了概念
+                if name in exp_text:
+                    relations["containment"].append({
+                        "type": "concept_experience_containment",
+                        "concept": name,
+                        "experience_id": exp.get("id", ""),
+                        "relation": "经验引用了概念定义"
+                    })
+
+                # 继承关系：经验体现了概念
+                sim = self.compute_similarity(concept_def, exp_text)
+                if sim >= 0.6:
+                    relations["inheritance"].append({
+                        "type": "concept_experience_inheritance",
+                        "concept": name,
+                        "experience_id": exp.get("id", ""),
+                        "similarity": round(sim, 4),
+                    })
+
+        return relations
+
+    def _find_evolution_relations(self, items: List[Dict]) -> List[Dict]:
+        """检测版本演化关系"""
+        evolutions = []
+
+        # 按标题分组
+        groups = {}
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+
+            title = item.get("title", "")
+            # 提取基础名称（去除版本号等）
+            base_name = title
+            for pattern in [r'v\d+$', r'\d+$', r'_v\d+$']:
+                import re
+                base_name = re.sub(pattern, '', base_name).strip()
+
+            if base_name not in groups:
+                groups[base_name] = []
+            groups[base_name].append(item)
+
+        # 生成演化链
+        for base_name, group_items in groups.items():
+            if len(group_items) < 2:
+                continue
+
+            # 按时间排序
+            group_items.sort(key=lambda x: x.get("created", ""))
+
+            for i in range(len(group_items) - 1):
+                evolutions.append({
+                    "type": "evolution",
+                    "from_id": group_items[i].get("id", ""),
+                    "from_title": group_items[i].get("title", ""),
+                    "to_id": group_items[i+1].get("id", ""),
+                    "to_title": group_items[i+1].get("title", ""),
+                    "relation": "版本演化"
+                })
+
+        return evolutions
+
+    def find_cross_repository_duplicates(
+        self,
+        repo1_path: str,
+        repo2_path: str,
+        artifact_type: str = "concept"
+    ) -> List[Dict]:
+        """
+        跨仓库重复检测
+
+        Args:
+            repo1_path: 第一个仓库路径
+            repo2_path: 第二个仓库路径
+            artifact_type: 产物类型
+
+        Returns:
+            重复列表
+        """
+        duplicates = []
+
+        # 扫描两个仓库的指定类型产物
+        items1 = self._scan_artifact_type(repo1_path, artifact_type)
+        items2 = self._scan_artifact_type(repo2_path, artifact_type)
+
+        for item1 in items1:
+            for item2 in items2:
+                if not item1.get("content") or not item2.get("content"):
+                    continue
+
+                sim = self.compute_similarity(item1["content"], item2["content"])
+                if sim >= 0.8:
+                    duplicates.append({
+                        "type": f"{artifact_type}_cross_repo_duplicate",
+                        "item1": item1,
+                        "item2": item2,
+                        "similarity": round(sim, 4),
+                    })
+
+        return duplicates
+
+    def _scan_artifact_type(self, repo_path: str, artifact_type: str) -> List[Dict]:
+        """扫描特定类型的产物"""
+        items = []
+        path = Path(repo_path)
+
+        if not path.exists():
+            return items
+
+        if artifact_type == "concept":
+            # 扫描词库
+            lexicon_file = path / "06_RUNTIME" / "ace" / "data" / "memory" / "lexicon.json"
+            if lexicon_file.exists():
+                try:
+                    with open(lexicon_file, "r", encoding="utf-8") as f:
+                        data = json.load(f)
+                    for name, concept in data.get("concepts", {}).items():
+                        if isinstance(concept, dict):
+                            items.append({
+                                "id": name,
+                                "title": name,
+                                "content": concept.get("definition", ""),
+                            })
+                except Exception:
+                    pass
+
+        elif artifact_type == "experience":
+            # 扫描经验
+            exp_file = path / "09_KNOWLEDGE" / "experiences.json"
+            if exp_file.exists():
+                try:
+                    with open(exp_file, "r", encoding="utf-8") as f:
+                        experiences = json.load(f)
+                    for exp in experiences:
+                        if isinstance(exp, dict):
+                            items.append({
+                                "id": exp.get("id", ""),
+                                "title": exp.get("title", ""),
+                                "content": exp.get("conclusion", ""),
+                            })
+                except Exception:
+                    pass
+
+        return items
