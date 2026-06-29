@@ -1,0 +1,26 @@
+{
+  "date": "2026-06-29",
+  "target": "c:/Users/USER/Downloads/Telegram Desktop/Windows.exe",
+  "analysis": {
+    "file_type": "PE",
+    "file_size": 41384992,
+    "md5": "da25731e3fb005f6cc49632628337f25",
+    "subtype": "Windows Executable",
+    "obfuscation_level": "low",
+    "recommended_strategy": "ida_pe_analysis",
+    "strings_found": [
+      "This program must be run under Win32",
+      ".text",
+      "`.itext",
+      "`.data",
+      ".bss",
+      ".idata",
+      ".didata",
+      ".edata",
+      "@.tls",
+      ".rdata",
+      "@.reloc",
+      "B.rsrc"
+    ]
+  }
+}

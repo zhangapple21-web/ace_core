@@ -283,6 +283,42 @@ from .concept_health import (
     ConceptHealthMonitor,
 )
 
+# ═══════════════════════════════════════════════════════════════════════════
+# EVOLUTION PLANNER（演化规划器）- 每天结束时问自己四个问题
+# ═══════════════════════════════════════════════════════════════════════════
+# 老张的核心要求：
+# 1. 今天真正新增了什么能力，而不是新增了什么文件？
+# 2. 今天拒绝了哪些东西，为什么拒绝？
+# 3. 今天哪些知识发生了升级、降级或废弃？
+# 4. 如果明天只能研究一个方向，应该选哪一个，为什么？
+# ═══════════════════════════════════════════════════════════════════════════
+
+from .evolution_planner import (
+    EvolutionQuestion,
+    DailyEvolutionReport,
+    EvolutionPlanner,
+)
+
+# ═══════════════════════════════════════════════════════════════════════════
+# REJECTION ENGINE（拒绝引擎）- 系统要学会说"不要"
+# ═══════════════════════════════════════════════════════════════════════════
+# 老张的核心要求：
+# 真正成熟后会大量输出：
+# - Reject（拒绝）
+# - Duplicate（重复）
+# - Already Known（已知）
+# - Too Implementation-Specific（只是实现细节）
+# - Only Keep Philosophy（只保留哲学层）
+# 每天应该输出："今天拒绝了 X 个结构"
+# ═══════════════════════════════════════════════════════════════════════════
+
+from .rejection_engine import (
+    RejectionReason,
+    Rejection,
+    AcceptanceRecord,
+    GovernorRejectionEngine,
+)
+
 
 __all__ = [
     # Constitution（宪法层）
@@ -394,4 +430,15 @@ __all__ = [
 
     # Concept Health
     'ConceptHealthMonitor',
+
+    # Evolution Planner
+    'EvolutionQuestion',
+    'DailyEvolutionReport',
+    'EvolutionPlanner',
+
+    # Rejection Engine
+    'RejectionReason',
+    'Rejection',
+    'AcceptanceRecord',
+    'GovernorRejectionEngine',
 ]

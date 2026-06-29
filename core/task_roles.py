@@ -21,6 +21,21 @@ from collections import Counter
 from .task import Task, TaskPool
 
 
+class BaseWorker:
+    """工作器基类 — 所有 Worker 的父类"""
+
+    def __init__(self, name: str = None):
+        self.name = name or self.__class__.__name__
+
+    def execute(self, task: Dict[str, Any]) -> Dict[str, Any]:
+        """执行任务"""
+        raise NotImplementedError
+
+    def can_handle(self, task: Dict[str, Any]) -> bool:
+        """判断是否能处理这个任务"""
+        return False
+
+
 class Observer:
     """
     观察者 — 发现问题，创建任务
@@ -156,12 +171,13 @@ class Researcher:
     只负责收集证据，呈现事实。
     """
 
-    def __init__(self, task_pool: TaskPool, lexicon=None, memory_index=None, eco_parser=None, slice_clusterer=None):
+    def __init__(self, task_pool: TaskPool, lexicon=None, memory_index=None, eco_parser=None, slice_clusterer=None, llm_router=None):
         self.task_pool = task_pool
         self.lexicon = lexicon
         self.memory_index = memory_index
         self.eco_parser = eco_parser
         self.slice_clusterer = slice_clusterer
+        self.llm_router = llm_router
 
     def pick_up_task(self, priority: str = "high") -> Optional[Task]:
         """领取最高优先级的待办任务（含卡住的active任务）"""
@@ -421,10 +437,11 @@ class Validator:
     至少提出一个反对意见。
     """
 
-    def __init__(self, task_pool: TaskPool, lexicon=None, memory_index=None):
+    def __init__(self, task_pool: TaskPool, lexicon=None, memory_index=None, llm_router=None):
         self.task_pool = task_pool
         self.lexicon = lexicon
         self.memory_index = memory_index
+        self.llm_router = llm_router
 
     def validate_task(self, task: Task) -> Dict[str, Any]:
         """验证一个任务的研究结论，至少找一个反例或疑点"""

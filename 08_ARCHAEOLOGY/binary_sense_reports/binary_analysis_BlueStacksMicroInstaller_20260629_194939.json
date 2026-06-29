@@ -1,0 +1,1268 @@
+{
+  "analysis_time": "2026-06-29T19:49:39.202424",
+  "session_id": "dc91a500",
+  "target": "c:\\Users\\USER\\Downloads\\Telegram Desktop\\Bots\\EXE\\BlueStacksMicroInstaller.exe",
+  "findings": [
+    {
+      "id": "53750228",
+      "type": "file_type",
+      "description": "File type detected: PE",
+      "evidence": [],
+      "confidence": 0.95,
+      "found_at": "2026-06-29T19:49:39.171580"
+    },
+    {
+      "id": "b77c6eb0",
+      "type": "pe_structure",
+      "description": "PE structure: 32-bit, 4 sections",
+      "evidence": [],
+      "confidence": 0.95,
+      "found_at": "2026-06-29T19:49:39.201422"
+    },
+    {
+      "id": "c1718925",
+      "type": "sections",
+      "description": "Found 4 sections",
+      "evidence": [],
+      "confidence": 0.99,
+      "found_at": "2026-06-29T19:49:39.202424"
+    },
+    {
+      "id": "982715e1",
+      "type": "imports",
+      "description": "Import table: 4 DLLs, 120 functions",
+      "evidence": [],
+      "confidence": 0.95,
+      "found_at": "2026-06-29T19:49:39.202424"
+    },
+    {
+      "id": "6adf15ac",
+      "type": "framework",
+      "description": "Most likely framework: Visual Basic",
+      "evidence": [],
+      "confidence": 0.6,
+      "found_at": "2026-06-29T19:49:39.202424"
+    },
+    {
+      "id": "82b8e7e1",
+      "type": "strings",
+      "description": "Extracted ~300 printable strings",
+      "evidence": [],
+      "confidence": 0.9,
+      "found_at": "2026-06-29T19:49:39.202424"
+    }
+  ],
+  "analysis": {
+    "filename": "BlueStacksMicroInstaller.exe",
+    "size_bytes": 831864,
+    "size_human": "812.4 KB",
+    "md5": "08ea1c9bd30a1caf30faee7994555006",
+    "sha1": "7fe4d0543a3550104c1347442f0198939524b57e",
+    "sha256": "ad3e08a06944733fd0ccf39b7af64b9ab6412367d22dd073016e581f3ca945c2",
+    "dos_header": {
+      "e_magic": "0x5A4D (MZ)",
+      "e_lfanew": "0x000000F0",
+      "e_lfanew_dec": 240
+    },
+    "pe_header": {
+      "pe_signature": "0x00004550 (PE\\0\\0)",
+      "machine": "i386 (x86)",
+      "machine_raw": "0x014C",
+      "num_sections": 4,
+      "timestamp": 1626700887,
+      "timestamp_str": "2021-07-19T21:21:27",
+      "sym_table_offset": "0x00000000",
+      "num_symbols": 0,
+      "opt_header_size": 224,
+      "characteristics": [
+        "EXECUTABLE_IMAGE",
+        "32BIT_MACHINE",
+        "RELOCS_STRIPPED"
+      ],
+      "characteristics_raw": "0x0103",
+      "optional_header": {
+        "magic": "PE32",
+        "magic_raw": "0x010B",
+        "address_of_entry_point": "0x0001A5B2",
+        "image_base": "0x00400000",
+        "section_alignment": 4096,
+        "file_alignment": 512,
+        "os_version": "5.0",
+        "image_version": "0.0",
+        "subsystem_version": "5.0",
+        "size_of_image": 319488,
+        "size_of_headers": 1024,
+        "subsystem": "WINDOWS_GUI",
+        "dll_characteristics": "0x8000",
+        "is_64bit": false
+      },
+      "data_directories": [
+        {
+          "index": 0,
+          "name": "EXPORT_TABLE",
+          "virtual_address": "0x00000000",
+          "size": 0
+        },
+        {
+          "index": 1,
+          "name": "IMPORT_TABLE",
+          "virtual_address": "0x00028C7C",
+          "size": 100
+        },
+        {
+          "index": 2,
+          "name": "RESOURCE_TABLE",
+          "virtual_address": "0x0002F000",
+          "size": 122968
+        },
+        {
+          "index": 3,
+          "name": "EXCEPTION_TABLE",
+          "virtual_address": "0x00000000",
+          "size": 0
+        },
+        {
+          "index": 4,
+          "name": "CERTIFICATE_TABLE",
+          "virtual_address": "0x000C87C8",
+          "size": 10672
+        },
+        {
+          "index": 5,
+          "name": "BASE_RELOCATION_TABLE",
+          "virtual_address": "0x00000000",
+          "size": 0
+        },
+        {
+          "index": 6,
+          "name": "DEBUG",
+          "virtual_address": "0x00000000",
+          "size": 0
+        },
+        {
+          "index": 7,
+          "name": "ARCHITECTURE",
+          "virtual_address": "0x00000000",
+          "size": 0
+        },
+        {
+          "index": 8,
+          "name": "GLOBAL_PTR",
+          "virtual_address": "0x00000000",
+          "size": 0
+        },
+        {
+          "index": 9,
+          "name": "TLS_TABLE",
+          "virtual_address": "0x00000000",
+          "size": 0
+        },
+        {
+          "index": 10,
+          "name": "LOAD_CONFIG_TABLE",
+          "virtual_address": "0x00024D48",
+          "size": 64
+        },
+        {
+          "index": 11,
+          "name": "BOUND_IMPORT",
+          "virtual_address": "0x00000000",
+          "size": 0
+        },
+        {
+          "index": 12,
+          "name": "IAT",
+          "virtual_address": "0x00022000",
+          "size": 496
+        },
+        {
+          "index": 13,
+          "name": "DELAY_IMPORT_DESCRIPTOR",
+          "virtual_address": "0x00000000",
+          "size": 0
+        },
+        {
+          "index": 14,
+          "name": "CLR_RUNTIME_HEADER",
+          "virtual_address": "0x00000000",
+          "size": 0
+        },
+        {
+          "index": 15,
+          "name": "RESERVED",
+          "virtual_address": "0x00000000",
+          "size": 0
+        }
+      ]
+    },
+    "is_pe": true,
+    "is_64bit": false,
+    "sections": [
+      {
+        "name": ".text",
+        "virtual_size": 133226,
+        "virtual_address": "0x00001000",
+        "size_of_raw_data": 133632,
+        "pointer_to_raw_data": "0x00000400",
+        "characteristics": [
+          "CODE",
+          "EXECUTE",
+          "READ"
+        ],
+        "characteristics_raw": "0x60000020"
+      },
+      {
+        "name": ".rdata",
+        "virtual_size": 30512,
+        "virtual_address": "0x00022000",
+        "size_of_raw_data": 30720,
+        "pointer_to_raw_data": "0x00020E00",
+        "characteristics": [
+          "INITIALIZED_DATA",
+          "READ"
+        ],
+        "characteristics_raw": "0x40000040"
+      },
+      {
+        "name": ".data",
+        "virtual_size": 17988,
+        "virtual_address": "0x0002A000",
+        "size_of_raw_data": 6144,
+        "pointer_to_raw_data": "0x00028600",
+        "characteristics": [
+          "INITIALIZED_DATA",
+          "READ",
+          "WRITE"
+        ],
+        "characteristics_raw": "0xC0000040"
+      },
+      {
+        "name": ".rsrc",
+        "virtual_size": 122968,
+        "virtual_address": "0x0002F000",
+        "size_of_raw_data": 123392,
+        "pointer_to_raw_data": "0x00029E00",
+        "characteristics": [
+          "INITIALIZED_DATA",
+          "READ"
+        ],
+        "characteristics_raw": "0x40000040"
+      }
+    ],
+    "imports": [
+      {
+        "dll": "KERNEL32.dll",
+        "name_rva": "0x000292F8",
+        "original_first_thunk": "0x00028CE0",
+        "first_thunk": "0x00022000",
+        "time_date_stamp": 0,
+        "forwarder_chain": 0,
+        "function_count": 100,
+        "functions": [
+          {
+            "name": "DeleteCriticalSection",
+            "hint": 190,
+            "type": "by_name"
+          },
+          {
+            "name": "EnterCriticalSection",
+            "hint": 217,
+            "type": "by_name"
+          },
+          {
+            "name": "LeaveCriticalSection",
+            "hint": 751,
+            "type": "by_name"
+          },
+          {
+            "name": "GetLastError",
+            "hint": 486,
+            "type": "by_name"
+          },
+          {
+            "name": "MultiByteToWideChar",
+            "hint": 794,
+            "type": "by_name"
+          },
+          {
+            "name": "WideCharToMultiByte",
+            "hint": 1146,
+            "type": "by_name"
+          },
+          {
+            "name": "LoadLibraryExW",
+            "hint": 755,
+            "type": "by_name"
+          },
+          {
+            "name": "GetModuleFileNameW",
+            "hint": 501,
+            "type": "by_name"
+          },
+          {
+            "name": "LocalFree",
+            "hint": 765,
+            "type": "by_name"
+          },
+          {
+            "name": "FormatMessageW",
+            "hint": 328,
+            "type": "by_name"
+          },
+          {
+            "name": "GetSystemDirectoryW",
+            "hint": 582,
+            "type": "by_name"
+          },
+          {
+            "name": "CloseHandle",
+            "hint": 67,
+            "type": "by_name"
+          },
+          {
+            "name": "SetFileTime",
+            "hint": 995,
+            "type": "by_name"
+          },
+          {
+            "name": "CreateFileW",
+            "hint": 127,
+            "type": "by_name"
+          },
+          {
+            "name": "SetFileAttributesW",
+            "hint": 986,
+            "type": "by_name"
+          },
+          {
+            "name": "RemoveDirectoryW",
+            "hint": 896,
+            "type": "by_name"
+          },
+          {
+            "name": "GetProcAddress",
+            "hint": 544,
+            "type": "by_name"
+          },
+          {
+            "name": "GetModuleHandleW",
+            "hint": 505,
+            "type": "by_name"
+          },
+          {
+            "name": "CreateDirectoryW",
+            "hint": 113,
+            "type": "by_name"
+          },
+          {
+            "name": "DeleteFileW",
+            "hint": 195,
+            "type": "by_name"
+          },
+          {
+            "name": "SetCurrentDirectoryW",
+            "hint": 967,
+            "type": "by_name"
+          },
+          {
+            "name": "GetCurrentDirectoryW",
+            "hint": 424,
+            "type": "by_name"
+          },
+          {
+            "name": "GetTempPathW",
+            "hint": 603,
+            "type": "by_name"
+          },
+          {
+            "name": "SetLastError",
+            "hint": 1004,
+            "type": "by_name"
+          },
+          {
+            "name": "GetCurrentProcessId",
+            "hint": 426,
+            "type": "by_name"
+          },
+          {
+            "name": "GetTickCount",
+            "hint": 614,
+            "type": "by_name"
+          },
+          {
+            "name": "GetCurrentThreadId",
+            "hint": 429,
+            "type": "by_name"
+          },
+          {
+            "name": "FindClose",
+            "hint": 281,
+            "type": "by_name"
+          },
+          {
+            "name": "FindFirstFileW",
+            "hint": 292,
+            "type": "by_name"
+          },
+          {
+            "name": "FindNextFileW",
+            "hint": 304,
+            "type": "by_name"
+          },
+          {
+            "name": "GetModuleHandleA",
+            "hint": 502,
+            "type": "by_name"
+          },
+          {
+            "name": "GetFileAttributesW",
+            "hint": 462,
+            "type": "by_name"
+          },
+          {
+            "name": "GetFileSize",
+            "hint": 468,
+            "type": "by_name"
+          },
+          {
+            "name": "SetFilePointer",
+            "hint": 991,
+            "type": "by_name"
+          },
+          {
+            "name": "ReadFile",
+            "hint": 872,
+            "type": "by_name"
+          },
+          {
+            "name": "WriteFile",
+            "hint": 1165,
+            "type": "by_name"
+          },
+          {
+            "name": "SetEndOfFile",
+            "hint": 973,
+            "type": "by_name"
+          },
+          {
+            "name": "GetProcessAffinityMask",
+            "hint": 545,
+            "type": "by_name"
+          },
+          {
+            "name": "GetCurrentProcess",
+            "hint": 425,
+            "type": "by_name"
+          },
+          {
+            "name": "GetSystemInfo",
+            "hint": 585,
+            "type": "by_name"
+          },
+          {
+            "name": "GlobalMemoryStatus",
+            "hint": 657,
+            "type": "by_name"
+          },
+          {
+            "name": "GetFileInformationByHandle",
+            "hint": 464,
+            "type": "by_name"
+          },
+          {
+            "name": "GetStdHandle",
+            "hint": 571,
+            "type": "by_name"
+          },
+          {
+            "name": "WaitForMultipleObjects",
+            "hint": 1122,
+            "type": "by_name"
+          },
+          {
+            "name": "Sleep",
+            "hint": 1057,
+            "type": "by_name"
+          },
+          {
+            "name": "VirtualAlloc",
+            "hint": 1108,
+            "type": "by_name"
+          },
+          {
+            "name": "VirtualFree",
+            "hint": 1111,
+            "type": "by_name"
+          },
+          {
+            "name": "GetVersionExW",
+            "hint": 630,
+            "type": "by_name"
+          },
+          {
+            "name": "lstrcatW",
+            "hint": 1191,
+            "type": "by_name"
+          },
+          {
+            "name": "lstrlenW",
+            "hint": 1206,
+            "type": "by_name"
+          }
+        ]
+      },
+      {
+        "dll": "USER32.dll",
+        "name_rva": "0x000293F4",
+        "original_first_thunk": "0x00028E8C",
+        "first_thunk": "0x000221AC",
+        "time_date_stamp": 0,
+        "forwarder_chain": 0,
+        "function_count": 16,
+        "functions": [
+          {
+            "name": "DestroyWindow",
+            "hint": 160,
+            "type": "by_name"
+          },
+          {
+            "name": "LoadIconW",
+            "hint": 471,
+            "type": "by_name"
+          },
+          {
+            "name": "EndDialog",
+            "hint": 211,
+            "type": "by_name"
+          },
+          {
+            "name": "KillTimer",
+            "hint": 461,
+            "type": "by_name"
+          },
+          {
+            "name": "SetTimer",
+            "hint": 670,
+            "type": "by_name"
+          },
+          {
+            "name": "SetWindowTextW",
+            "hint": 684,
+            "type": "by_name"
+          },
+          {
+            "name": "PostMessageW",
+            "hint": 543,
+            "type": "by_name"
+          },
+          {
+            "name": "SendMessageW",
+            "hint": 611,
+            "type": "by_name"
+          },
+          {
+            "name": "MessageBoxW",
+            "hint": 511,
+            "type": "by_name"
+          },
+          {
+            "name": "DialogBoxParamW",
+            "hint": 166,
+            "type": "by_name"
+          },
+          {
+            "name": "GetWindowLongW",
+            "hint": 386,
+            "type": "by_name"
+          },
+          {
+            "name": "SetWindowLongW",
+            "hint": 677,
+            "type": "by_name"
+          },
+          {
+            "name": "ShowWindow",
+            "hint": 696,
+            "type": "by_name"
+          },
+          {
+            "name": "LoadStringW",
+            "hint": 484,
+            "type": "by_name"
+          },
+          {
+            "name": "CharUpperW",
+            "hint": 58,
+            "type": "by_name"
+          },
+          {
+            "name": "GetDlgItem",
+            "hint": 287,
+            "type": "by_name"
+          }
+        ]
+      },
+      {
+        "dll": "SHELL32.dll",
+        "name_rva": "0x00029412",
+        "original_first_thunk": "0x00028E84",
+        "first_thunk": "0x000221A4",
+        "time_date_stamp": 0,
+        "forwarder_chain": 0,
+        "function_count": 1,
+        "functions": [
+          {
+            "name": "ShellExecuteExW",
+            "hint": 279,
+            "type": "by_name"
+          }
+        ]
+      },
+      {
+        "dll": "OLEAUT32.dll",
+        "name_rva": "0x0002941E",
+        "original_first_thunk": "0x00028E74",
+        "first_thunk": "0x00022194",
+        "time_date_stamp": 0,
+        "forwarder_chain": 0,
+        "function_count": 3,
+        "functions": [
+          {
+            "ordinal": 9,
+            "type": "by_ordinal"
+          },
+          {
+            "ordinal": 4,
+            "type": "by_ordinal"
+          },
+          {
+            "ordinal": 7,
+            "type": "by_ordinal"
+          }
+        ]
+      }
+    ],
+    "import_dll_count": 4,
+    "total_import_functions": 120,
+    "strings_sample": [
+      {
+        "offset": "0x0000004D",
+        "offset_dec": 77,
+        "string": "!This program cannot be run in DOS mode.",
+        "length": 40
+      },
+      {
+        "offset": "0x0000020F",
+        "offset_dec": 527,
+        "string": "`.rdata",
+        "length": 7
+      },
+      {
+        "offset": "0x00000237",
+        "offset_dec": 567,
+        "string": "@.data",
+        "length": 6
+      },
+      {
+        "offset": "0x000011F4",
+        "offset_dec": 4596,
+        "string": "M Qhx1B",
+        "length": 7
+      },
+      {
+        "offset": "0x0000129C",
+        "offset_dec": 4764,
+        "string": "M0QhX1B",
+        "length": 7
+      },
+      {
+        "offset": "0x00001B41",
+        "offset_dec": 6977,
+        "string": "EH9}Hu",
+        "length": 6
+      },
+      {
+        "offset": "0x00001B9E",
+        "offset_dec": 7070,
+        "string": "M@9U@w ",
+        "length": 7
+      },
+      {
+        "offset": "0x00001D1A",
+        "offset_dec": 7450,
+        "string": "E ;EHrS",
+        "length": 7
+      },
+      {
+        "offset": "0x00001DCA",
+        "offset_dec": 7626,
+        "string": "@;EHs#",
+        "length": 6
+      },
+      {
+        "offset": "0x00001DFD",
+        "offset_dec": 7677,
+        "string": "E$9ELs",
+        "length": 6
+      },
+      {
+        "offset": "0x00002736",
+        "offset_dec": 10038,
+        "string": "t9IIt*",
+        "length": 6
+      },
+      {
+        "offset": "0x000045F4",
+        "offset_dec": 17908,
+        "string": "u\\8];t",
+        "length": 6
+      },
+      {
+        "offset": "0x000046F7",
+        "offset_dec": 18167,
+        "string": "u[9}huV",
+        "length": 7
+      },
+      {
+        "offset": "0x00004777",
+        "offset_dec": 18295,
+        "string": "uA9}hu<",
+        "length": 7
+      },
+      {
+        "offset": "0x00004900",
+        "offset_dec": 18688,
+        "string": "MX9Mpv^",
+        "length": 7
+      },
+      {
+        "offset": "0x0000495E",
+        "offset_dec": 18782,
+        "string": "MX;Mpr",
+        "length": 6
+      },
+      {
+        "offset": "0x00004A4D",
+        "offset_dec": 19021,
+        "string": "}49}TrBw",
+        "length": 8
+      },
+      {
+        "offset": "0x00004A73",
+        "offset_dec": 19059,
+        "string": "E4;ETr",
+        "length": 6
+      },
+      {
+        "offset": "0x00004A7D",
+        "offset_dec": 19069,
+        "string": "EP9E0r",
+        "length": 6
+      },
+      {
+        "offset": "0x00005331",
+        "offset_dec": 21297,
+        "string": "^`9^tv",
+        "length": 6
+      },
+      {
+        "offset": "0x0000706D",
+        "offset_dec": 28781,
+        "string": "^49^,u h,.B",
+        "length": 11
+      },
+      {
+        "offset": "0x000071E0",
+        "offset_dec": 29152,
+        "string": "u=9^<t8",
+        "length": 7
+      },
+      {
+        "offset": "0x0000770E",
+        "offset_dec": 30478,
+        "string": "t)Ht\"Ht",
+        "length": 7
+      },
+      {
+        "offset": "0x00007757",
+        "offset_dec": 30551,
+        "string": "NX;NTt&P",
+        "length": 8
+      },
+      {
+        "offset": "0x000079A2",
+        "offset_dec": 31138,
+        "string": "Nt;Npu",
+        "length": 6
+      },
+      {
+        "offset": "0x0000BFFD",
+        "offset_dec": 49149,
+        "string": "V`8^=t",
+        "length": 6
+      },
+      {
+        "offset": "0x0000C04F",
+        "offset_dec": 49231,
+        "string": "u39^`u",
+        "length": 6
+      },
+      {
+        "offset": "0x0000C18E",
+        "offset_dec": 49550,
+        "string": "F<;FDr",
+        "length": 6
+      },
+      {
+        "offset": "0x0000C1A5",
+        "offset_dec": 49573,
+        "string": "FD;F<uV",
+        "length": 7
+      },
+      {
+        "offset": "0x0000C36F",
+        "offset_dec": 50031,
+        "string": "FH;FPu",
+        "length": 6
+      },
+      {
+        "offset": "0x0000CCFE",
+        "offset_dec": 52478,
+        "string": "t_IItEIt2IIt!It",
+        "length": 15
+      },
+      {
+        "offset": "0x0000E736",
+        "offset_dec": 59190,
+        "string": "9^0u=3",
+        "length": 6
+      },
+      {
+        "offset": "0x0000EBE4",
+        "offset_dec": 60388,
+        "string": "8^@t-j",
+        "length": 6
+      },
+      {
+        "offset": "0x0000F11B",
+        "offset_dec": 61723,
+        "string": "EKPjVWV",
+        "length": 7
+      },
+      {
+        "offset": "0x0000F141",
+        "offset_dec": 61761,
+        "string": "U(Rh(2B",
+        "length": 7
+      },
+      {
+        "offset": "0x0000F857",
+        "offset_dec": 63575,
+        "string": "N ;^$r%w",
+        "length": 8
+      },
+      {
+        "offset": "0x0000F8A0",
+        "offset_dec": 63648,
+        "string": "^$_^[]",
+        "length": 6
+      },
+      {
+        "offset": "0x00010AC0",
+        "offset_dec": 68288,
+        "string": "JtiJtYJt>J",
+        "length": 10
+      },
+      {
+        "offset": "0x00011130",
+        "offset_dec": 69936,
+        "string": "tt8Ftu=",
+        "length": 7
+      },
+      {
+        "offset": "0x00011230",
+        "offset_dec": 70192,
+        "string": "K(+N(9N",
+        "length": 7
+      },
+      {
+        "offset": "0x00011562",
+        "offset_dec": 71010,
+        "string": "89~8tP",
+        "length": 6
+      },
+      {
+        "offset": "0x0001177D",
+        "offset_dec": 71549,
+        "string": "VT9VDt",
+        "length": 6
+      },
+      {
+        "offset": "0x00011785",
+        "offset_dec": 71557,
+        "string": "^L;^Tw",
+        "length": 6
+      },
+      {
+        "offset": "0x0001178F",
+        "offset_dec": 71567,
+        "string": "^H;^Pw",
+        "length": 6
+      },
+      {
+        "offset": "0x000118A9",
+        "offset_dec": 71849,
+        "string": "u#9F@t",
+        "length": 6
+      },
+      {
+        "offset": "0x000118B6",
+        "offset_dec": 71862,
+        "string": "FH;FPu",
+        "length": 6
+      },
+      {
+        "offset": "0x000118BE",
+        "offset_dec": 71870,
+        "string": "FL;FTt",
+        "length": 6
+      },
+      {
+        "offset": "0x000132B8",
+        "offset_dec": 78520,
+        "string": "u29G,u",
+        "length": 6
+      },
+      {
+        "offset": "0x0001331A",
+        "offset_dec": 78618,
+        "string": "x@K#X(",
+        "length": 6
+      },
+      {
+        "offset": "0x00013CEF",
+        "offset_dec": 81135,
+        "string": ";wHt%SW",
+        "length": 7
+      },
+      {
+        "offset": "0x00014283",
+        "offset_dec": 82563,
+        "string": "El9EXu",
+        "length": 6
+      },
+      {
+        "offset": "0x0001436F",
+        "offset_dec": 82799,
+        "string": "ul9Mpup;",
+        "length": 8
+      },
+      {
+        "offset": "0x00014402",
+        "offset_dec": 82946,
+        "string": "Od9MPt",
+        "length": 6
+      },
+      {
+        "offset": "0x00014438",
+        "offset_dec": 83000,
+        "string": "Ml9MXuW",
+        "length": 7
+      },
+      {
+        "offset": "0x000144B3",
+        "offset_dec": 83123,
+        "string": "uX9udu/9u<t%9u`u%",
+        "length": 17
+      },
+      {
+        "offset": "0x000144F4",
+        "offset_dec": 83188,
+        "string": "u@9upue",
+        "length": 7
+      },
+      {
+        "offset": "0x000144FC",
+        "offset_dec": 83196,
+        "string": "GX;GTs39uLt.",
+        "length": 12
+      },
+      {
+        "offset": "0x000145D4",
+        "offset_dec": 83412,
+        "string": "uH;Ehu",
+        "length": 6
+      },
+      {
+        "offset": "0x000145DC",
+        "offset_dec": 83420,
+        "string": "El9EHu",
+        "length": 6
+      },
+      {
+        "offset": "0x00014623",
+        "offset_dec": 83491,
+        "string": "UH;uhu",
+        "length": 6
+      },
+      {
+        "offset": "0x0001462A",
+        "offset_dec": 83498,
+        "string": ";Ultz+u4",
+        "length": 8
+      },
+      {
+        "offset": "0x0001465D",
+        "offset_dec": 83549,
+        "string": "u(QPRV",
+        "length": 6
+      },
+      {
+        "offset": "0x0001466F",
+        "offset_dec": 83567,
+        "string": "u89E`u3",
+        "length": 7
+      },
+      {
+        "offset": "0x0001471F",
+        "offset_dec": 83743,
+        "string": "u\\9u<tK9u`t",
+        "length": 11
+      },
+      {
+        "offset": "0x0001477F",
+        "offset_dec": 83839,
+        "string": "t[9udu",
+        "length": 6
+      },
+      {
+        "offset": "0x000147DC",
+        "offset_dec": 83932,
+        "string": "9uLte9u<t!9udu",
+        "length": 14
+      },
+      {
+        "offset": "0x00014802",
+        "offset_dec": 83970,
+        "string": "9uTt?9",
+        "length": 6
+      },
+      {
+        "offset": "0x00014847",
+        "offset_dec": 84039,
+        "string": "E|9upu",
+        "length": 6
+      },
+      {
+        "offset": "0x0001495E",
+        "offset_dec": 84318,
+        "string": "F`;Fdu",
+        "length": 6
+      },
+      {
+        "offset": "0x000149B9",
+        "offset_dec": 84409,
+        "string": "F`;Fdu",
+        "length": 6
+      },
+      {
+        "offset": "0x00014BDC",
+        "offset_dec": 84956,
+        "string": "_X;G t.",
+        "length": 7
+      },
+      {
+        "offset": "0x00014C87",
+        "offset_dec": 85127,
+        "string": "o@9_8u",
+        "length": 6
+      },
+      {
+        "offset": "0x00015359",
+        "offset_dec": 86873,
+        "string": "8]suwj",
+        "length": 6
+      },
+      {
+        "offset": "0x00015690",
+        "offset_dec": 87696,
+        "string": "t'h`/B",
+        "length": 6
+      },
+      {
+        "offset": "0x00016613",
+        "offset_dec": 91667,
+        "string": "9]@u5h",
+        "length": 6
+      },
+      {
+        "offset": "0x0001673D",
+        "offset_dec": 91965,
+        "string": "PSSSSSS",
+        "length": 7
+      },
+      {
+        "offset": "0x00016C23",
+        "offset_dec": 93219,
+        "string": "QQSVWd",
+        "length": 6
+      },
+      {
+        "offset": "0x00019C0F",
+        "offset_dec": 105487,
+        "string": "u&h@:B",
+        "length": 6
+      },
+      {
+        "offset": "0x00019F24",
+        "offset_dec": 106276,
+        "string": "t$ht:B",
+        "length": 6
+      },
+      {
+        "offset": "0x0001A0E0",
+        "offset_dec": 106720,
+        "string": "F\\=0;B",
+        "length": 6
+      },
+      {
+        "offset": "0x0001ADD6",
+        "offset_dec": 110038,
+        "string": "s[S;7|G;w",
+        "length": 9
+      },
+      {
+        "offset": "0x0001B225",
+        "offset_dec": 111141,
+        "string": "tR99u2",
+        "length": 6
+      },
+      {
+        "offset": "0x0001CBCB",
+        "offset_dec": 117707,
+        "string": "URPQQhL",
+        "length": 7
+      },
+      {
+        "offset": "0x0001CE22",
+        "offset_dec": 118306,
+        "string": ">=Yt1j",
+        "length": 6
+      },
+      {
+        "offset": "0x0001D24A",
+        "offset_dec": 119370,
+        "string": "j@j ^V",
+        "length": 6
+      },
+      {
+        "offset": "0x0001D57F",
+        "offset_dec": 120191,
+        "string": "0SSSSS",
+        "length": 6
+      },
+      {
+        "offset": "0x0001D962",
+        "offset_dec": 121186,
+        "string": "0SSSSS",
+        "length": 6
+      },
+      {
+        "offset": "0x0001D9EB",
+        "offset_dec": 121323,
+        "string": "0SSSSS",
+        "length": 6
+      },
+      {
+        "offset": "0x0001E30F",
+        "offset_dec": 123663,
+        "string": "0A@@Ju",
+        "length": 6
+      },
+      {
+        "offset": "0x0001E710",
+        "offset_dec": 124688,
+        "string": ";t$,v-",
+        "length": 6
+      },
+      {
+        "offset": "0x0001E795",
+        "offset_dec": 124821,
+        "string": "UQPXY]Y[",
+        "length": 8
+      },
+      {
+        "offset": "0x0001ED96",
+        "offset_dec": 126358,
+        "string": "PPPPPPPP",
+        "length": 8
+      },
+      {
+        "offset": "0x0001EFE6",
+        "offset_dec": 126950,
+        "string": "PPPPPPPP",
+        "length": 8
+      },
+      {
+        "offset": "0x0001F21E",
+        "offset_dec": 127518,
+        "string": "t\"SS9]",
+        "length": 6
+      },
+      {
+        "offset": "0x0001F9B2",
+        "offset_dec": 129458,
+        "string": "t+WWVPV",
+        "length": 7
+      },
+      {
+        "offset": "0x000217AC",
+        "offset_dec": 137132,
+        "string": "Error #",
+        "length": 7
+      },
+      {
+        "offset": "0x000217D8",
+        "offset_dec": 137176,
+        "string": "FindNextStreamW",
+        "length": 15
+      },
+      {
+        "offset": "0x000217E8",
+        "offset_dec": 137192,
+        "string": "kernel32.dll",
+        "length": 12
+      },
+      {
+        "offset": "0x000217F8",
+        "offset_dec": 137208,
+        "string": "FindFirstStreamW",
+        "length": 16
+      },
+      {
+        "offset": "0x0002180C",
+        "offset_dec": 137228,
+        "string": ":$DATA",
+        "length": 6
+      }
+    ],
+    "total_strings_estimated": 300,
+    "packer_detection": {
+      "detected_packers": [],
+      "suspicious_sections": [],
+      "section_count": 4
+    },
+    "framework_detection": {
+      "detected": [
+        {
+          "framework": "Visual Basic",
+          "confidence": 0.5,
+          "evidence": [
+            "String: `vector vbase copy constructor iterator'"
+          ]
+        }
+      ],
+      "most_likely": "Visual Basic"
+    }
+  }
+}
