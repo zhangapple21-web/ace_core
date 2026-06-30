@@ -1,0 +1,122 @@
+{
+  "skill_name": "本地考古吸收",
+  "skill_version": "1.0",
+  "skill_type": "research",
+  "description": "自动生成的技能：本地考古吸收",
+  "created_at": "2026-06-29T21:48:09.145323",
+  "created_from": [
+    "RQ-20260627-011",
+    "RQ-20260627-012",
+    "RQ-20260627-013",
+    "RQ-20260627-018",
+    "RQ-20260628-008",
+    "RQ-20260629-001"
+  ],
+  "usage_count": 0,
+  "last_used_at": null,
+  "task_template": {
+    "title_pattern": "本地考古吸收: {topic}",
+    "priority": "high",
+    "common_tags": [
+      "absorption",
+      "local_archaeology",
+      "rate_0"
+    ],
+    "hypothesis_template": "该文件（考古报告）吸收率仅 5%，有 57 个结构未被词库/记忆吸收：DAG, USER, 三条子公理, 下一步最重要的架构, 不做什么, 不照搬, 不重复, 五条生存定律。需要深入考古和吸收。",
+    "depends_on_pattern": [],
+    "outputs_expected": [
+      "concept_matches",
+      "eco_hits",
+      "memory_evidence_count"
+    ]
+  },
+  "worker_config": {
+    "worker_type": "research",
+    "tools": [
+      "memory_index",
+      "eco_parser"
+    ],
+    "data_sources": [
+      "ace_daemon",
+      "archivist",
+      "disk_scan",
+      "eco_parser:deep_report",
+      "lexicon"
+    ],
+    "validation_required": true,
+    "guardian_review": true
+  },
+  "examples": [
+    {
+      "task_id": "RQ-20260627-011",
+      "title": "本地考古吸收: 2026-06-27_mine_seed_cross_agent_survey.md",
+      "priority": "high",
+      "tags": [
+        "local_archaeology",
+        "absorption",
+        "category:考古报告",
+        "rate_0"
+      ],
+      "hypothesis_preview": "该文件（考古报告）吸收率仅 5%，有 57 个结构未被词库/记忆吸收：DAG, USER, 三条子公理, 下一步最重要的架构, 不做什么, 不照搬, 不重复, 五条生存定律。需要深入考古和吸收。",
+      "output_keys": [
+        "memory_evidence_count",
+        "concept_matches",
+        "eco_hits"
+      ]
+    },
+    {
+      "task_id": "RQ-20260627-012",
+      "title": "本地考古吸收: 2026-06-27_r1_dag_real_archaeology.md",
+      "priority": "high",
+      "tags": [
+        "local_archaeology",
+        "absorption",
+        "category:考古报告",
+        "rate_0"
+      ],
+      "hypothesis_preview": "该文件（考古报告）吸收率仅 4%，有 70 个结构未被词库/记忆吸收：ABC, ABC 大脑结构（代码碎片）, A层（Analysis）, B层（Brainstorming）, C层（Command）",
+      "output_keys": [
+        "memory_evidence_count",
+        "concept_matches",
+        "eco_hits"
+      ]
+    },
+    {
+      "task_id": "RQ-20260627-013",
+      "title": "本地考古吸收: 2026-06-27_r1_early_design_doc_archaeology.md",
+      "priority": "high",
+      "tags": [
+        "local_archaeology",
+        "absorption",
+        "category:考古报告",
+        "rate_0"
+      ],
+      "hypothesis_preview": "该文件（考古报告）吸收率仅 1%，有 77 个结构未被词库/记忆吸收：A 层：感知层（Perception Layer）, A-B-C 三层结构, ABC, ABC 三层神经路由架构, ABC三层, ",
+      "output_keys": [
+        "memory_evidence_count",
+        "concept_matches",
+        "eco_hits"
+      ]
+    }
+  ],
+  "matching_rules": {
+    "tag_match": [
+      "absorption",
+      "local_archaeology",
+      "rate_0"
+    ],
+    "title_keywords": [
+      "ABG_v3_observation",
+      "_R1",
+      "_dna_to_skills_report",
+      "_mine_seed_cross_agent_survey",
+      "_r1_dag_real_archaeology",
+      "_r1_early_design_doc_archaeology",
+      "本地考古吸收",
+      "认知路由协议考古报告"
+    ],
+    "creator_match": [
+      "local_archaeologist"
+    ]
+  }
+}

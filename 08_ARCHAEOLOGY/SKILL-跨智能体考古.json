@@ -1,0 +1,91 @@
+{
+  "skill_name": "跨智能体考古",
+  "skill_version": "1.0",
+  "skill_type": "research",
+  "description": "自动生成的技能：跨智能体考古",
+  "created_at": "2026-06-30T09:55:39.983470",
+  "created_from": [
+    "RQ-20260628-013",
+    "RQ-20260630-016"
+  ],
+  "usage_count": 0,
+  "last_used_at": null,
+  "task_template": {
+    "title_pattern": "{topic}",
+    "priority": "high",
+    "common_tags": [
+      "cross_agent",
+      "mine_seed"
+    ],
+    "hypothesis_template": "mine-seed 扫描器从未执行（last_scan=never）。系统失去了向外学习的机会。需要配置 mine-seed 路径并激活扫描循环。来源：OBS-20260628-0006",
+    "depends_on_pattern": [],
+    "outputs_expected": []
+  },
+  "worker_config": {
+    "worker_type": "research",
+    "tools": [
+      "memory_index",
+      "eco_parser"
+    ],
+    "data_sources": [
+      "eco_layer_parser"
+    ],
+    "validation_required": true,
+    "guardian_review": true
+  },
+  "examples": [
+    {
+      "task_id": "RQ-20260628-013",
+      "title": "激活跨智能体学习 — OBS-20260628-0006",
+      "priority": "high",
+      "tags": [
+        "from_obs:OBS-20260628-0006",
+        "cross_agent",
+        "mine_seed",
+        "外部学习"
+      ],
+      "hypothesis_preview": "mine-seed 扫描器从未执行（last_scan=never）。系统失去了向外学习的机会。需要配置 mine-seed 路径并激活扫描循环。来源：OBS-20260628-0006",
+      "output_keys": [
+        "source_obs_id",
+        "source_obs_description"
+      ]
+    },
+    {
+      "task_id": "RQ-20260630-016",
+      "title": "跨智能体考古: zhangapple21-web — seed: sync r1 archaeology assets 20260630",
+      "priority": "medium",
+      "tags": [
+        "cross_agent",
+        "mine_seed",
+        "author:zhangapple21-web"
+      ],
+      "hypothesis_preview": "mine-seed 上 zhangapple21-web 提交了新发现（commit: c05c3361）。主题：seed: sync r1 archaeology assets 20260630。涉",
+      "output_keys": [
+        "memory_evidence_count",
+        "concept_matches",
+        "eco_hits"
+      ]
+    }
+  ],
+  "matching_rules": {
+    "tag_match": [
+      "cross_agent",
+      "mine_seed"
+    ],
+    "title_keywords": [
+      "OBS",
+      "archaeology",
+      "assets",
+      "seed",
+      "sync",
+      "web",
+      "zhangapple21",
+      "激活跨智能体学习",
+      "跨智能体考古"
+    ],
+    "creator_match": [
+      "mine_seed_scanner",
+      "observation_to_task"
+    ]
+  }
+}

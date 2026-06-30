@@ -1,0 +1,127 @@
+{
+  "skill_name": "考古报告分析",
+  "skill_version": "1.0",
+  "skill_type": "research",
+  "description": "自动生成的技能：考古报告分析",
+  "created_at": "2026-06-30T00:03:25.820059",
+  "created_from": [
+    "RQ-20260629-018",
+    "RQ-20260629-019",
+    "RQ-20260629-020",
+    "RQ-20260629-021",
+    "RQ-20260629-022",
+    "RQ-20260629-023",
+    "RQ-20260629-024",
+    "RQ-20260629-025",
+    "RQ-20260629-026",
+    "RQ-20260629-027",
+    "RQ-20260629-029",
+    "RQ-20260629-030",
+    "RQ-20260629-032",
+    "RQ-20260627-006",
+    "RQ-20260628-011",
+    "RQ-20260628-012",
+    "RQ-20260629-015"
+  ],
+  "usage_count": 0,
+  "last_used_at": null,
+  "task_template": {
+    "title_pattern": "{topic}",
+    "priority": "high",
+    "common_tags": [],
+    "hypothesis_template": "该经验模式（constraint）可以推广到更广泛的场景",
+    "depends_on_pattern": [],
+    "outputs_expected": []
+  },
+  "worker_config": {
+    "worker_type": "research",
+    "tools": [
+      "memory_index",
+      "eco_parser",
+      "synthesis"
+    ],
+    "data_sources": [
+      "ace_daemon",
+      "archivist",
+      "eco_layer_parser",
+      "eco_parser:deep_report",
+      "lexicon"
+    ],
+    "validation_required": true,
+    "guardian_review": true
+  },
+  "examples": [
+    {
+      "task_id": "RQ-20260629-018",
+      "title": "经验验证: 该文件（考古报告）吸收率仅 19%，有 74 个结构未被词库/记忆吸收：Boun",
+      "priority": "high",
+      "tags": [
+        "RQ-20260629-001",
+        "constraint",
+        "experience_pattern",
+        "skill_based",
+        "experience"
+      ],
+      "hypothesis_preview": "该经验模式（constraint）可以推广到更广泛的场景",
+      "output_keys": [
+        "memory_evidence_count",
+        "concept_matches",
+        "eco_hits"
+      ]
+    },
+    {
+      "task_id": "RQ-20260629-019",
+      "title": "经验验证: 该文件（考古报告）吸收率仅 12%，有 46 个结构未被词库/记忆吸收：CRDK",
+      "priority": "high",
+      "tags": [
+        "RQ-20260629-002",
+        "constraint",
+        "experience_pattern",
+        "skill_based",
+        "experience"
+      ],
+      "hypothesis_preview": "该经验模式（constraint）可以推广到更广泛的场景",
+      "output_keys": [
+        "memory_evidence_count",
+        "concept_matches",
+        "eco_hits"
+      ]
+    },
+    {
+      "task_id": "RQ-20260629-020",
+      "title": "经验验证: 该文件（考古报告）吸收率仅 15%，有 79 个结构未被词库/记忆吸收：ACE ",
+      "priority": "high",
+      "tags": [
+        "constraint",
+        "RQ-20260629-004",
+        "experience_pattern",
+        "skill_based",
+        "experience"
+      ],
+      "hypothesis_preview": "该经验模式（constraint）可以推广到更广泛的场景",
+      "output_keys": [
+        "memory_evidence_count",
+        "concept_matches",
+        "eco_hits"
+      ]
+    }
+  ],
+  "matching_rules": {
+    "tag_match": [],
+    "title_keywords": [
+      "ACE",
+      "Bina",
+      "Boun",
+      "CRDK",
+      "_R1_",
+      "_r1_early_design_doc_archaeology",
+      "ace",
+      "analys",
+      "constraint",
+      "list_"
+    ],
+    "creator_match": [
+      "task_creator"
+    ]
+  }
+}
