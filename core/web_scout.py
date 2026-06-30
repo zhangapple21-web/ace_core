@@ -69,6 +69,43 @@ class WebScout:
                 "query": "protocol distributed system",
                 "sort": "stars",
             },
+            # === 逆向工程领域狩猎源 ===
+            "github_reverse_android": {
+                "type": "github_search",
+                "priority": 1,
+                "query": "android reverse engineering frida xposed",
+                "sort": "stars",
+            },
+            "github_unpacking": {
+                "type": "github_search",
+                "priority": 1,
+                "query": "unpacking packer binary analysis",
+                "sort": "stars",
+            },
+            "github_rpc_injection": {
+                "type": "github_search",
+                "priority": 1,
+                "query": "rpc injection frida sekiro unidbg",
+                "sort": "stars",
+            },
+            "github_binary_protocol": {
+                "type": "github_search",
+                "priority": 2,
+                "query": "binary protocol reverse engineering parser",
+                "sort": "stars",
+            },
+            "github_obfuscation": {
+                "type": "github_search",
+                "priority": 2,
+                "query": "obfuscation deobfuscation control flow flattening",
+                "sort": "stars",
+            },
+            "github_emulation": {
+                "type": "github_search",
+                "priority": 2,
+                "query": "emulation unicorn qemu angr symbolic execution",
+                "sort": "stars",
+            },
         }
 
         # 每日预算
@@ -80,9 +117,16 @@ class WebScout:
 
         # 关键词过滤器
         self._interest_keywords = [
+            # 系统架构
             "agent", "ai", "system", "framework", "runtime", "protocol",
             "cognitive", "memory", "architecture", "kernel", "core",
             "dispatch", "routing", "engine", "loop", "layer",
+            # 逆向工程
+            "reverse", "unpack", "packer", "binary", "native", "frida",
+            "xposed", "unidbg", "sekiro", "rpc", "injection", "hook",
+            "obfuscation", "deobfuscation", "emulation", "unicorn",
+            "angr", "symbolic", "protocol", "parser", "decrypt",
+            "encrypt", "signature", "anti", "tamper",
         ]
 
         self._state = self._load_state()

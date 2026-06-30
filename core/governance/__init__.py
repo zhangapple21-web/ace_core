@@ -217,24 +217,17 @@ from .contracts import (
 )
 
 # ═══════════════════════════════════════════════════════════════════════════
-# KNOWLEDGE GOVERNOR（知识馆长）- 能不能进文明？
+# GOVERNOR（统一治理者）- 能不能进 + 应该去哪
 # ═══════════════════════════════════════════════════════════════════════════
+# 单一 Governor，下挂两个决策能力：
+#   Knowledge Decision — 评估准入
+#   Repository Decision — 决定放置
 
 from .knowledge_governor import (
     AdmissionDecision,
     AdmissionCriteria,
     AdmissionRecord,
-    KnowledgeGovernor,
-)
-
-# ═══════════════════════════════════════════════════════════════════════════
-# REPOSITORY GOVERNOR（仓库治理官）- 应该去哪？
-# ═══════════════════════════════════════════════════════════════════════════
-
-from .repository_governor import (
-    RepositoryTier,
-    PlacementDecision,
-    RepositoryGovernor,
+    Governor,
 )
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -268,6 +261,7 @@ from .knowledge_revision import (
 from .daily_civilization_report import (
     DailyChange,
     CivilizationReport,
+    DailyMeetingReport,
     DailyCivilizationReporter,
 )
 
@@ -319,6 +313,47 @@ from .rejection_engine import (
     GovernorRejectionEngine,
 )
 
+# ═══════════════════════════════════════════════════════════════════════════
+# GOVERNOR PROTOCOL（治理协议）- 宪法实施细则
+# ═══════════════════════════════════════════════════════════════════════════
+
+from .governor_protocol import (
+    AdmissionCriterion,
+    AdmissionCriteriaResult,
+    AdmissionCriteria,
+    SubmissionRule,
+    SubmissionRulesResult,
+    SubmissionRules,
+    RejectionEvaluation,
+    RejectionCriteria,
+    QualityCheck,
+    QualityAssessment,
+    QualityAssurance,
+    AuthorityLevel,
+    DecisionAuthority,
+    ProtocolDecision,
+    ProtocolResult,
+    ProtocolEngine,
+    RoundtableRole,
+    RoundtableStatement,
+    RoundtableDecision,
+    RoundtableRecord,
+    RoundtableMeeting,
+)
+
+# ═══════════════════════════════════════════════════════════════════════════
+# STABLE RECURSIVE KERNEL（稳定递归内核）
+# ═══════════════════════════════════════════════════════════════════════════
+from .stable_kernel import (
+    StateSnapshot,
+    DriftController,
+    DriftCheckResult,
+    StabilityLayer,
+    FeedbackLoop,
+    SelfReflector,
+    StableRecursiveKernel,
+    KernelCycleResult,
+)
 
 __all__ = [
     # Constitution（宪法层）
@@ -392,16 +427,11 @@ __all__ = [
     'PublicationContract',
     'ContractManager',
 
-    # Knowledge Governor
+    # Governor（统一治理者）
     'AdmissionDecision',
     'AdmissionCriteria',
     'AdmissionRecord',
-    'KnowledgeGovernor',
-
-    # Repository Governor
-    'RepositoryTier',
-    'PlacementDecision',
-    'RepositoryGovernor',
+    'Governor',
 
     # Knowledge Evolution Tracker
     'EvolutionType',
@@ -420,6 +450,7 @@ __all__ = [
     # Daily Civilization Report
     'DailyChange',
     'CivilizationReport',
+    'DailyMeetingReport',
     'DailyCivilizationReporter',
 
     # Civilization Status
@@ -441,4 +472,37 @@ __all__ = [
     'Rejection',
     'AcceptanceRecord',
     'GovernorRejectionEngine',
+
+    # Governor Protocol
+    'AdmissionCriterion',
+    'AdmissionCriteriaResult',
+    'AdmissionCriteria',
+    'SubmissionRule',
+    'SubmissionRulesResult',
+    'SubmissionRules',
+    'RejectionEvaluation',
+    'RejectionCriteria',
+    'QualityCheck',
+    'QualityAssessment',
+    'QualityAssurance',
+    'AuthorityLevel',
+    'DecisionAuthority',
+    'ProtocolDecision',
+    'ProtocolResult',
+    'ProtocolEngine',
+
+    # Roundtable Meeting（圆桌会议）
+    'RoundtableRole',
+    'RoundtableStatement',
+    'RoundtableDecision',
+    'RoundtableRecord',
+    # Stable Recursive Kernel（稳定递归内核）
+    'StateSnapshot',
+    'DriftController',
+    'DriftCheckResult',
+    'StabilityLayer',
+    'FeedbackLoop',
+    'SelfReflector',
+    'StableRecursiveKernel',
+    'KernelCycleResult',
 ]

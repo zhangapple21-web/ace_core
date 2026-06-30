@@ -35,7 +35,14 @@ logger = logging.getLogger(__name__)
 
 
 class ConstitutionalPrinciple:
-    """宪法原则"""
+    """宪法原则
+
+    核心约束：
+        - Governor 拥有最终决策权
+        - 只有 Governor 有资格：Accept / Reject / Observe / Wait
+        - 其他 Agent 只能输出，不能决定
+    """
+    # 核心原则
     APPEND_ONLY = "append_only"                    # 只追加，不覆盖
     EVIDENCE_FIRST = "evidence_first"              # 证据优先
     NEVER_DELETE = "never_delete"                 # 永不删除
@@ -45,7 +52,14 @@ class ConstitutionalPrinciple:
     GOVERNOR_ABOVE_ALL = "governor_above_all"     # Governor高于一切
     REVISION_ABOVE_ADD = "revision_above_add"     # 修订优先于新增
     SEMANTIC_DEDUP = "semantic_dedup"             # 语义去重优先
-    LINEAGE_TRACK = "lineage_track"                # 血缘追踪
+    LINEAGE_TRACK = "lineage_track"               # 血缘追踪
+
+    # 权限约束
+    GOVERNOR_CAN_ACCEPT = "governor_can_accept"   # Governor 可以接受
+    GOVERNOR_CAN_REJECT = "governor_can_reject"   # Governor 可以拒绝
+    GOVERNOR_CAN_OBSERVE = "governor_can_observe" # Governor 可以观察
+    GOVERNOR_CAN_WAIT = "governor_can_wait"       # Governor 可以等待
+    AGENTS_CANNOT_DECIDE = "agents_cannot_decide"  # Agent 不能决定
 
 
 @dataclass

@@ -1,25 +1,20 @@
 """
-Knowledge Governor（知识馆长）
+Governor（治理者）
 
-职责：
-    "它有没有资格进入文明？"
+统一的治理者，下挂两个决策能力：
+  1. Knowledge Decision — "它有没有资格进入文明？"
+  2. Repository Decision — "它应该放在哪？"
 
-只问一个问题：
-    这个知识是否值得成为文明的一部分？
-
-决策：
-    PASS - 值得进入，直接进入候选
-    REJECT - 不值得，拒绝
-    MERGE - 值得但需要与现有知识合并
-    SUPERSEDE - 值得但需要替代旧知识
-    REVISE - 值得但需要修订相关旧知识
-    DELAY - 证据不足，延迟决定
-    SPLIT - 值得但需要拆分成多个知识
+两个决策是连续的：
+  KnowledgeGovernor.evaluate()  →  PASS  →  RepositoryGovernor.decide_placement()
+                                              ↓ REJECT
+                                            直接去 graveyard
 
 设计原则：
     - Knowledge Admission > Git Push
     - 质量 > 数量
     - 不新增，先修订
+    - 仓库分类 = 知识重要性分级
 """
 
 import json
@@ -67,20 +62,23 @@ class AdmissionRecord:
     timestamp: str = ""
 
 
-class KnowledgeGovernor:
+class Governor:
     """
-    知识馆长
+    治理者（统一Governor）
 
-    核心职责：
-        1. 评估新知识是否值得进入文明
-        2. 检测重复/冲突/覆盖
-        3. 决定是新增还是修订
-        4. 确保知识质量 > 数量
+    下挂两个决策能力：
+      1. Knowledge Decision — 评估知识是否值得进入文明
+      2. Repository Decision — 决定知识应该放在哪个仓库/位置
+
+    核心原则：
+        - 质量 > 数量
+        - 不新增，先修订
+        - 仓库分类 = 知识重要性分级
     """
 
     def __init__(self, ace_runtime_dir: str):
         """
-        初始化知识馆长
+        初始化治理者
 
         Args:
             ace_runtime_dir: ACE Runtime根目录
@@ -95,8 +93,56 @@ class KnowledgeGovernor:
         self.lexicon_file = self.ace_runtime_dir / "06_RUNTIME" / "ace" / "data" / "memory" / "lexicon.json"
         self.evolution_file = self.ace_runtime_dir / "09_KNOWLEDGE" / "evolution.json"
 
-        # 记录文件
-        self.records_file = self.records_dir / "knowledge_governor_records.jsonl"
+        # Knowledge Decision 记录
+        self.knowledge_records_file = self.records_dir / "knowledge_governor_records.jsonl"
+
+        # ===== Repository Decision 相关 =====
+        self.placement_records_file = self.records_dir / "placement_records.jsonl"
+
+        # 仓库层级配置
+        self.repository_tiers = {
+            "mine_seed": {
+                "path": "../mine-seed",
+                "description": "种子仓，最核心的结构资产",
+                "strictness": 10,
+            },
+            "r1_archaeology": {
+                "path": "../r1-archaeology",
+                "description": "R1考古发现",
+                "strictness": 8,
+            },
+            "knowledge_base": {
+                "path": "09_KNOWLEDGE",
+                "description": "知识库",
+                "strictness": 5,
+            },
+            "archive": {
+                "path": "08_ARCHAEOLOGY",
+                "description": "归档",
+                "strictness": 3,
+            },
+            "graveyard": {
+                "path": "08_GOVERNANCE/graveyard",
+                "description": "墓地",
+                "strictness": 1,
+            },
+        }
+
+        # 知识类型到仓库的映射规则
+        self.type_rules = {
+            "constraint": {"primary": "mine_seed", "secondary": "knowledge_base"},
+            "axiom": {"primary": "mine_seed", "secondary": "knowledge_base"},
+            "core_principle": {"primary": "mine_seed", "secondary": "knowledge_base"},
+            "architecture": {"primary": "mine_seed", "secondary": "r1_archaeology"},
+            "protocol": {"primary": "mine_seed", "secondary": "knowledge_base"},
+            "r1_archaeology": {"primary": "r1_archaeology", "secondary": "archive"},
+            "experience": {"primary": "knowledge_base", "secondary": "archive"},
+            "concept": {"primary": "knowledge_base", "secondary": "archive"},
+            "evolution": {"primary": "knowledge_base", "secondary": "r1_archaeology"},
+            "archaeology_report": {"primary": "archive", "secondary": "r1_archaeology"},
+            "rejected": {"primary": "graveyard", "secondary": "archive"},
+            "superseded": {"primary": "archive", "secondary": "graveyard"},
+        }
 
     def evaluate(self, knowledge: Dict[str, Any]) -> AdmissionRecord:
         """
@@ -448,7 +494,7 @@ class KnowledgeGovernor:
     def _save_record(self, record: AdmissionRecord):
         """保存准入记录"""
         try:
-            with open(self.records_file, "a", encoding="utf-8") as f:
+            with open(self.knowledge_records_file, "a", encoding="utf-8") as f:
                 f.write(json.dumps({
                     "knowledge_id": record.knowledge_id,
                     "decision": record.decision,
@@ -471,14 +517,14 @@ class KnowledgeGovernor:
 
     def get_governance_summary(self) -> Dict[str, Any]:
         """获取治理摘要"""
-        if not self.records_file.exists():
+        if not self.knowledge_records_file.exists():
             return {"total": 0, "decisions": {}}
 
         total = 0
         decisions = {}
 
         try:
-            with open(self.records_file, "r", encoding="utf-8") as f:
+            with open(self.knowledge_records_file, "r", encoding="utf-8") as f:
                 for line in f:
                     try:
                         record = json.loads(line.strip())
@@ -496,4 +542,211 @@ class KnowledgeGovernor:
             "pass_rate": decisions.get(AdmissionDecision.PASS, 0) / total if total > 0 else 0,
             "reject_rate": decisions.get(AdmissionDecision.REJECT, 0) / total if total > 0 else 0,
             "merge_rate": decisions.get(AdmissionDecision.MERGE, 0) / total if total > 0 else 0,
+        }
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # Repository Decision — "它应该放哪？"
+    # ═══════════════════════════════════════════════════════════════════════
+
+    def decide_placement(self, knowledge: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        决定知识应该放在哪个仓库/位置
+
+        Args:
+            knowledge: 知识对象
+
+        Returns:
+            放置决策 dict
+        """
+        knowledge_id = knowledge.get("id", f"unknown_{datetime.now().timestamp()}")
+        knowledge_type = knowledge.get("type", knowledge.get("artifact_type", "experience"))
+        status = knowledge.get("status", "HYPOTHESIS")
+        confidence = knowledge.get("confidence", 0.0)
+
+        decision = {
+            "knowledge_id": knowledge_id,
+            "target_repository": "",
+            "target_path": "",
+            "confidence": 0.0,
+            "reason": "",
+            "alternatives": [],
+            "conditions": [],
+            "timestamp": datetime.now().isoformat(),
+        }
+
+        # 1. 根据状态直接决定
+        if status == "REJECTED":
+            decision["target_repository"] = "graveyard"
+            decision["target_path"] = self._get_target_path("graveyard", knowledge)
+            decision["confidence"] = 0.9
+            decision["reason"] = "被拒绝的知识进入墓地"
+            self._save_placement(decision)
+            return decision
+
+        if status == "SUPERSEDED":
+            decision["target_repository"] = "archive"
+            decision["target_path"] = self._get_target_path("archive", knowledge)
+            decision["confidence"] = 0.8
+            decision["reason"] = "被替代的知识进入归档"
+            self._save_placement(decision)
+            return decision
+
+        if status in ["DEPRECATED", "ARCHIVED"]:
+            decision["target_repository"] = "archive"
+            decision["target_path"] = self._get_target_path("archive", knowledge)
+            decision["confidence"] = 0.7
+            decision["reason"] = "废弃/归档的知识进入归档库"
+            self._save_placement(decision)
+            return decision
+
+        # 2. 根据类型决定主/次仓库
+        rule = self.type_rules.get(knowledge_type, {
+            "primary": "knowledge_base",
+            "secondary": "archive",
+        })
+        primary_repo = rule["primary"]
+        secondary_repo = rule["secondary"]
+
+        # 3. 根据置信度调整
+        if confidence >= 0.9:
+            decision["target_repository"] = primary_repo
+            decision["confidence"] = 0.8
+            decision["reason"] = f"高置信度({confidence})，进入主仓库{primary_repo}"
+        elif confidence >= 0.7:
+            decision["target_repository"] = primary_repo
+            decision["confidence"] = 0.6
+            decision["reason"] = f"中等置信度({confidence})，进入主仓库{primary_repo}"
+        elif confidence >= 0.5:
+            decision["target_repository"] = secondary_repo
+            decision["confidence"] = 0.5
+            decision["reason"] = f"低置信度({confidence})，进入次仓库{secondary_repo}"
+            decision["conditions"] = [f"置信度提升到0.7以上时迁移到{primary_repo}"]
+        else:
+            decision["target_repository"] = "archive"
+            decision["confidence"] = 0.3
+            decision["reason"] = f"置信度过低({confidence})，暂存归档"
+            decision["conditions"] = ["需要补充证据提升置信度"]
+
+        decision["target_path"] = self._get_target_path(decision["target_repository"], knowledge)
+        decision["alternatives"] = [secondary_repo] if secondary_repo != decision["target_repository"] else []
+
+        self._save_placement(decision)
+        return decision
+
+    def _get_target_path(self, repository: str, knowledge: Dict[str, Any]) -> str:
+        """获取目标路径"""
+        repo_config = self.repository_tiers.get(repository, {})
+        base_path = repo_config.get("path", "")
+
+        knowledge_type = knowledge.get("type", "experience")
+        knowledge_id = knowledge.get("id", "unknown")
+
+        if knowledge_type in ["constraint", "axiom", "core_principle"]:
+            sub_dir = "02_CONSTRAINTS"
+        elif knowledge_type in ["protocol", "blueprint"]:
+            sub_dir = "04_PROTOCOLS"
+        elif knowledge_type == "experience":
+            sub_dir = "experiences"
+        elif knowledge_type == "concept":
+            sub_dir = "lexicon"
+        elif knowledge_type == "evolution":
+            sub_dir = "evolution"
+        elif knowledge_type == "archaeology_report":
+            sub_dir = "reports"
+        else:
+            sub_dir = "misc"
+
+        return f"{base_path}/{sub_dir}/{knowledge_id}.json"
+
+    def _save_placement(self, decision: Dict[str, Any]):
+        """保存放置决策记录"""
+        try:
+            with open(self.placement_records_file, "a", encoding="utf-8") as f:
+                f.write(json.dumps(decision, ensure_ascii=False) + "\n")
+        except Exception as e:
+            logger.error(f"保存放置决策失败: {e}")
+
+    def get_placement_summary(self) -> Dict[str, Any]:
+        """获取仓库治理摘要"""
+        if not self.placement_records_file.exists():
+            return {"total_decisions": 0, "by_repository": {}}
+
+        total = 0
+        by_repository = {}
+
+        try:
+            with open(self.placement_records_file, "r", encoding="utf-8") as f:
+                for line in f:
+                    try:
+                        record = json.loads(line.strip())
+                        total += 1
+                        repo = record.get("target_repository", "unknown")
+                        by_repository[repo] = by_repository.get(repo, 0) + 1
+                    except Exception:
+                        continue
+        except Exception as e:
+            logger.error(f"读取放置决策记录失败: {e}")
+
+        return {
+            "total_decisions": total,
+            "by_repository": by_repository,
+        }
+
+    def get_repository_info(self, repository: str) -> Dict[str, Any]:
+        """获取仓库信息"""
+        return self.repository_tiers.get(repository, {})
+
+    def list_repositories(self) -> List[str]:
+        """列出所有仓库"""
+        return list(self.repository_tiers.keys())
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # 统一决策 — "先评估能不能进，再决定放哪"
+    # ═══════════════════════════════════════════════════════════════════════
+
+    def govern(self, knowledge: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        统一治理决策：评估准入 + 决定放置
+
+        这是圆桌会议中 Governor 的主入口。
+
+        Args:
+            knowledge: 待治理的知识
+
+        Returns:
+            {
+                "admission": AdmissionRecord,  # 准入决策
+                "placement": dict | None,       # 放置决策（PASS时才有）
+                "final_action": str,            # 最终行动
+            }
+        """
+        # 第一步：Knowledge Decision — 能不能进？
+        admission = self.evaluate(knowledge)
+
+        # 如果被拒绝，直接去墓地
+        if admission.decision == AdmissionDecision.REJECT:
+            placement = self.decide_placement({
+                **knowledge,
+                "status": "REJECTED",
+            })
+            return {
+                "admission": admission,
+                "placement": placement,
+                "final_action": "reject_to_graveyard",
+            }
+
+        # 如果通过，决定放哪
+        if admission.decision == AdmissionDecision.PASS:
+            placement = self.decide_placement(knowledge)
+            return {
+                "admission": admission,
+                "placement": placement,
+                "final_action": "admit_and_place",
+            }
+
+        # 其他情况（MERGE/REVISE/DELAY/SPLIT/SUPERSEDE）暂不放置
+        return {
+            "admission": admission,
+            "placement": None,
+            "final_action": admission.decision,
         }
