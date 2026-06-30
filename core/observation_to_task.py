@@ -320,7 +320,7 @@ class ObservationToTaskConverter:
                 task_params = rule.generate_task_from(obs)
 
                 # 补充动态参数（安全访问，避免类型错误）
-                state = obs.system_state
+                state = obs.system_state if isinstance(obs.system_state, dict) else {}
                 gap_categories_raw = state.get("gap_categories")
                 gap_categories = gap_categories_raw if isinstance(gap_categories_raw, list) else []
                 

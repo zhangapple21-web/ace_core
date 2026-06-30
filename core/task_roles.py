@@ -197,7 +197,7 @@ class Researcher:
                     if status == "pending":
                         self.task_pool.move_task(task.task_id, "active", actor="researcher")
                     return task
-        return result
+        return None
 
     def generate_candidates(self, task: Task, max_candidates: int = 3) -> List[Dict[str, Any]]:
         """
