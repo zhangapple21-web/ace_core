@@ -63,6 +63,33 @@ class ConceptMiner:
         "效果", "影响", "原因", "过程", "步骤", "阶段",
         "数量", "大小", "第一", "第二", "第三", "首先", "其次",
         "主要", "重要", "关键", "核心", "基础", "当前", "目前",
+        "the", "a", "an", "is", "are", "was", "were", "be", "been", "being",
+        "have", "has", "had", "do", "does", "did", "will", "would", "could",
+        "should", "may", "might", "can", "shall", "to", "of", "in", "for",
+        "on", "with", "at", "by", "from", "as", "into", "through", "during",
+        "before", "after", "above", "below", "between", "out", "off", "over",
+        "under", "again", "further", "then", "once", "here", "there", "when",
+        "where", "why", "how", "all", "both", "each", "few", "more", "most",
+        "other", "some", "such", "no", "nor", "not", "only", "own", "same",
+        "so", "than", "too", "very", "just", "because", "but", "and", "or",
+        "if", "while", "about", "up", "down", "it", "its", "this", "that",
+        "these", "those", "i", "me", "my", "we", "our", "you", "your", "he",
+        "him", "his", "she", "her", "they", "them", "their", "what", "which",
+        "who", "whom",
+        "ns", "nt", "rn", "ar", "de", "en", "an", "la", "que", "al", "el",
+        "los", "las", "un", "una", "es", "se", "por", "para", "como",
+        "pero", "mas", "si", "no", "lo", "le", "les", "me", "te", "se",
+        "su", "sus", "tu", "tus", "mi", "mis",
+        "id", "name", "type", "value", "key", "count", "total",
+        "size", "status", "list", "item", "data", "time", "date", "source",
+        "result", "info", "config", "setting", "option", "flag", "mode",
+        "state", "path", "file", "dir", "url", "link", "image", "text",
+        "content", "title", "desc", "description", "tags", "category",
+        "level", "score", "rate", "ratio", "percent", "number",
+        "created", "updated", "modified", "deleted", "added", "removed",
+        "start", "end", "begin", "finish", "first", "last", "next", "prev",
+        "new", "old", "good", "bad", "high", "low", "big", "small",
+        "yes", "non",
     }
 
     JUNK_PATTERNS = [
@@ -82,6 +109,9 @@ class ConceptMiner:
         (re.compile(r"^(www|com|https|http|html?|htm|php|cgi|api|sql|yml|yaml|toml|ini|cfg|conf)$", re.I), "tech_fragment"),
         (re.compile(r"^(question|answer|title|author|date|content|tag|category|comment|reply|post)$", re.I), "forum_term"),
         (re.compile(r"^(user|username|nickname|name|first|last|email|mobile|phone|addr)$", re.I), "field_name"),
+        (re.compile(r"^[a-z]{2,3}$"), "too_short_lower_en"),
+        (re.compile(r"^_[a-zA-Z0-9_]+_?$"), "json_field_pattern"),
+        (re.compile(r"^[a-z]{2,7}_[a-z_]{0,3}$"), "short_snake_generic"),
     ]
 
     NAME_PREFIX_CHARS = "赵钱孙李周吴郑王冯陈褚卫蒋沈韩杨朱秦尤许何吕施张孔曹严华金魏陶姜戚谢邹喻柏水窦章云苏潘葛奚范彭郎鲁韦昌马苗凤花方俞任袁柳酆鲍史唐费廉岑薛雷贺倪汤滕殷罗毕郝邬安常乐于时傅皮卞齐康伍余元卜顾孟平黄和穆萧尹"

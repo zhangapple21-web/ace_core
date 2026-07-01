@@ -1,0 +1,31 @@
+{
+  "audit_time": "2026-06-30T20:37:20.760836",
+  "override_chain": [
+    {
+      "level": 0,
+      "source": "SECRET.md (真相源)",
+      "description": "Git 仓库中的权威配置"
+    },
+    {
+      "level": 1,
+      "source": "miner_env.sh",
+      "description": "补充配置（NIM Key等）"
+    },
+    {
+      "level": 2,
+      "source": "环境变量",
+      "description": "运行时覆盖（优先级高）"
+    },
+    {
+      "level": 3,
+      "source": "ace_config.json",
+      "description": "项目级配置"
+    },
+    {
+      "level": 4,
+      "source": "代码默认值",
+      "description": "兜底默认值"
+    }
+  ],
+  "overrides_found": []
+}

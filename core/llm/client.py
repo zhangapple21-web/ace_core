@@ -68,20 +68,7 @@ class LLMRouter:
         if env_file.exists():
             env_vars = self._parse_env_file(env_file)
 
-            # GitHub Models
-            if github_pat := env_vars.get("GITHUB_PAT"):
-                self.models.append(ModelInfo(
-                    name="gpt-4o",
-                    provider="github",
-                    config=LLMConfig(
-                        base_url="https://models.inference.ai.azure.com/v1/chat/completions",
-                        api_key=github_pat,
-                        model="gpt-4o",
-                    ),
-                    priority=10,
-                ))
-
-            # 智谱 GLM
+            # 智谱 GLM（当前唯一稳定可用的独立API，优先）
             if zhipu_key := env_vars.get("ZHIPU_KEY"):
                 self.models.append(ModelInfo(
                     name="glm-4-flash",
@@ -91,7 +78,7 @@ class LLMRouter:
                         api_key=zhipu_key,
                         model="glm-4-flash",
                     ),
-                    priority=20,
+                    priority=5,
                 ))
                 self.models.append(ModelInfo(
                     name="glm-4",
@@ -101,10 +88,23 @@ class LLMRouter:
                         api_key=zhipu_key,
                         model="glm-4",
                     ),
-                    priority=30,
+                    priority=15,
                 ))
 
-            # OpenRouter
+            # GitHub Models（备用，Token 可能失效）
+            if github_pat := env_vars.get("GITHUB_PAT"):
+                self.models.append(ModelInfo(
+                    name="gpt-4o",
+                    provider="github",
+                    config=LLMConfig(
+                        base_url="https://models.inference.ai.azure.com/v1/chat/completions",
+                        api_key=github_pat,
+                        model="gpt-4o",
+                    ),
+                    priority=20,
+                ))
+
+            # OpenRouter（备用）
             if openrouter_key := env_vars.get("OPENROUTER_KEY"):
                 self.models.append(ModelInfo(
                     name="claude-3.5-sonnet",
@@ -114,10 +114,10 @@ class LLMRouter:
                         api_key=openrouter_key,
                         model="anthropic/claude-3.5-sonnet",
                     ),
-                    priority=15,
+                    priority=25,
                 ))
 
-            # NVIDIA NIM Keys
+            # NVIDIA NIM Keys（备用，模型路径待验证）
             nim_keys = [
                 ("NIM_KEY_8", "deepseek-ai/deepseek-v4"),
                 ("NIM_KEY_15", "mistralai/mistral-medium-3.5-128b"),
@@ -133,7 +133,7 @@ class LLMRouter:
                             api_key=key,
                             model=model_name,
                         ),
-                        priority=25,
+                        priority=30,
                     ))
 
         # 云端 OneAPI（备用）

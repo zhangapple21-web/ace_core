@@ -1,0 +1,215 @@
+{
+  "audit_time": "2026-06-30T20:36:43.098157",
+  "credential_source": "coze-assets/01_credentials/SECRET.md + miner_env.sh",
+  "parser": "CredentialManager._load_from_secret_md() + _load_from_miner_env()",
+  "factory": "MinerPool.PROVIDER_FACTORY",
+  "providers": {
+    "nim": {
+      "base_url": "https://integrate.api.nvidia.com/v1",
+      "base_url_source": "SECRET.md",
+      "token_source": "SECRET.md",
+      "token_count": 16,
+      "token_prefix": "nvapi-drrkxZ...",
+      "source_files": [
+        "coze-assets/01_credentials/SECRET.md"
+      ],
+      "env_override": null,
+      "factory_class": "NIMProvider",
+      "parser": "CredentialManager._extract_pattern()",
+      "http_client": "requests (provider.chat())",
+      "full_chain": [
+        "SECRET.md / miner_env.sh",
+        "CredentialManager.load()",
+        "SECRET.md parser",
+        "ProviderCredential (nim)",
+        "NIMProvider",
+        "requests.post()",
+        "https://integrate.api.nvidia.com/v1/chat/completions"
+      ]
+    },
+    "github_models": {
+      "base_url": "https://models.inference.ai.azure.com",
+      "base_url_source": "SECRET.md",
+      "token_source": "SECRET.md",
+      "token_count": 1,
+      "token_prefix": "github_pat_1...",
+      "source_files": [
+        "coze-assets/01_credentials/SECRET.md"
+      ],
+      "env_override": null,
+      "factory_class": "GitHubModelsProvider",
+      "parser": "CredentialManager._extract_pattern()",
+      "http_client": "requests (provider.chat())",
+      "full_chain": [
+        "SECRET.md / miner_env.sh",
+        "CredentialManager.load()",
+        "SECRET.md parser",
+        "ProviderCredential (github_models)",
+        "GitHubModelsProvider",
+        "requests.post()",
+        "https://models.inference.ai.azure.com/chat/completions"
+      ]
+    },
+    "glm": {
+      "base_url": "https://open.bigmodel.cn/api/paas/v4",
+      "base_url_source": "SECRET.md",
+      "token_source": "SECRET.md",
+      "token_count": 1,
+      "token_prefix": "c4c766faaf97...",
+      "source_files": [
+        "coze-assets/01_credentials/SECRET.md"
+      ],
+      "env_override": null,
+      "factory_class": "GLMProvider",
+      "parser": "CredentialManager._extract_pattern()",
+      "http_client": "requests (provider.chat())",
+      "full_chain": [
+        "SECRET.md / miner_env.sh",
+        "CredentialManager.load()",
+        "SECRET.md parser",
+        "ProviderCredential (glm)",
+        "GLMProvider",
+        "requests.post()",
+        "https://open.bigmodel.cn/api/paas/v4/chat/completions"
+      ]
+    },
+    "modelscope": {
+      "base_url": "https://api-inference.modelscope.cn/v1",
+      "base_url_source": "SECRET.md",
+      "token_source": "SECRET.md",
+      "token_count": 1,
+      "token_prefix": "ms-7ab1f34e-...",
+      "source_files": [
+        "coze-assets/01_credentials/SECRET.md"
+      ],
+      "env_override": null,
+      "factory_class": "OpenAICompatibleProvider",
+      "parser": "CredentialManager._extract_pattern()",
+      "http_client": "requests (provider.chat())",
+      "full_chain": [
+        "SECRET.md / miner_env.sh",
+        "CredentialManager.load()",
+        "SECRET.md parser",
+        "ProviderCredential (modelscope)",
+        "OpenAICompatibleProvider",
+        "requests.post()",
+        "https://api-inference.modelscope.cn/v1/chat/completions"
+      ]
+    },
+    "apiyi": {
+      "base_url": "https://api.apiyi.com",
+      "base_url_source": "SECRET.md",
+      "token_source": "SECRET.md",
+      "token_count": 1,
+      "token_prefix": "sk-xQrs9IDbj...",
+      "source_files": [
+        "coze-assets/01_credentials/SECRET.md"
+      ],
+      "env_override": null,
+      "factory_class": "APIYiProvider",
+      "parser": "CredentialManager._extract_pattern()",
+      "http_client": "requests (provider.chat())",
+      "full_chain": [
+        "SECRET.md / miner_env.sh",
+        "CredentialManager.load()",
+        "SECRET.md parser",
+        "ProviderCredential (apiyi)",
+        "APIYiProvider",
+        "requests.post()",
+        "https://api.apiyi.com/chat/completions"
+      ]
+    },
+    "openrouter": {
+      "base_url": "https://openrouter.ai/api/v1",
+      "base_url_source": "SECRET.md",
+      "token_source": "SECRET.md",
+      "token_count": 1,
+      "token_prefix": "sk-or-v1-dc1...",
+      "source_files": [
+        "coze-assets/01_credentials/SECRET.md"
+      ],
+      "env_override": null,
+      "factory_class": "OpenRouterProvider",
+      "parser": "CredentialManager._extract_pattern()",
+      "http_client": "requests (provider.chat())",
+      "full_chain": [
+        "SECRET.md / miner_env.sh",
+        "CredentialManager.load()",
+        "SECRET.md parser",
+        "ProviderCredential (openrouter)",
+        "OpenRouterProvider",
+        "requests.post()",
+        "https://openrouter.ai/api/v1/chat/completions"
+      ]
+    },
+    "oneapi": {
+      "base_url": "http://localhost:3000/v1",
+      "base_url_source": "SECRET.md (默认值 localhost:3000)",
+      "token_source": "SECRET.md",
+      "token_count": 1,
+      "token_prefix": "jHhtKnCuHVri...",
+      "source_files": [
+        "coze-assets/01_credentials/SECRET.md"
+      ],
+      "env_override": null,
+      "factory_class": "OneAPIProvider",
+      "parser": "CredentialManager._extract_pattern()",
+      "http_client": "requests (provider.chat())",
+      "full_chain": [
+        "SECRET.md / miner_env.sh",
+        "CredentialManager.load()",
+        "SECRET.md parser",
+        "ProviderCredential (oneapi)",
+        "OneAPIProvider",
+        "requests.post()",
+        "http://localhost:3000/v1/chat/completions"
+      ]
+    },
+    "sambanova": {
+      "base_url": "https://api.sambanova.ai/v1",
+      "base_url_source": "miner_env.sh",
+      "token_source": "miner_env.sh",
+      "token_count": 1,
+      "token_prefix": "820feeb9-020...",
+      "source_files": [
+        "coze-assets/02_miner_config/miner_env.sh"
+      ],
+      "env_override": null,
+      "factory_class": "SambaNovaProvider",
+      "parser": "CredentialManager._extract_pattern()",
+      "http_client": "requests (provider.chat())",
+      "full_chain": [
+        "SECRET.md / miner_env.sh",
+        "CredentialManager.load()",
+        "miner_env.sh parser",
+        "ProviderCredential (sambanova)",
+        "SambaNovaProvider",
+        "requests.post()",
+        "https://api.sambanova.ai/v1/chat/completions"
+      ]
+    },
+    "huggingface": {
+      "base_url": "https://api-inference.huggingface.co/v1",
+      "base_url_source": "miner_env.sh",
+      "token_source": "miner_env.sh",
+      "token_count": 1,
+      "token_prefix": "hf_rtqFhpEdO...",
+      "source_files": [
+        "coze-assets/02_miner_config/miner_env.sh"
+      ],
+      "env_override": null,
+      "factory_class": "OpenAICompatibleProvider",
+      "parser": "CredentialManager._extract_pattern()",
+      "http_client": "requests (provider.chat())",
+      "full_chain": [
+        "SECRET.md / miner_env.sh",
+        "CredentialManager.load()",
+        "miner_env.sh parser",
+        "ProviderCredential (huggingface)",
+        "OpenAICompatibleProvider",
+        "requests.post()",
+        "https://api-inference.huggingface.co/v1/chat/completions"
+      ]
+    }
+  }
+}

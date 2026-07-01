@@ -1,0 +1,102 @@
+{
+  "scan_time": "2026-06-30T20:00:00.437742",
+  "providers": {
+    "oneapi": [
+      {
+        "variant": "http://localhost:3000",
+        "base_url": "http://localhost:3000/v1",
+        "tcp_check": false,
+        "http_check": false,
+        "models_endpoint": false,
+        "chat_completion": false,
+        "latency_ms": null,
+        "error": "TCP失败: [WinError 10061] 由于目标计算机积极拒绝，无法连接。",
+        "status": "OFFLINE"
+      },
+      {
+        "variant": "http://127.0.0.1:3000",
+        "base_url": "http://127.0.0.1:3000/v1",
+        "tcp_check": false,
+        "http_check": false,
+        "models_endpoint": false,
+        "chat_completion": false,
+        "latency_ms": null,
+        "error": "TCP失败: [WinError 10061] 由于目标计算机积极拒绝，无法连接。",
+        "status": "OFFLINE"
+      }
+    ],
+    "glm": [
+      {
+        "variant": "default",
+        "base_url": "https://open.bigmodel.cn/api/paas/v4",
+        "tcp_check": true,
+        "http_check": true,
+        "models_endpoint": true,
+        "chat_completion": true,
+        "latency_ms": 1490,
+        "error": null,
+        "status": "HEALTHY"
+      }
+    ],
+    "github_models": [
+      {
+        "variant": "default",
+        "base_url": "https://models.inference.ai.azure.com",
+        "tcp_check": true,
+        "http_check": true,
+        "models_endpoint": false,
+        "chat_completion": false,
+        "latency_ms": null,
+        "error": null,
+        "status": "UNHEALTHY"
+      }
+    ],
+    "nim": [
+      {
+        "variant": "default",
+        "base_url": "https://integrate.api.nvidia.com/v1",
+        "tcp_check": true,
+        "http_check": true,
+        "models_endpoint": true,
+        "chat_completion": false,
+        "latency_ms": 622,
+        "error": "API返回 404: 404 page not found\n",
+        "status": "DEGRADED"
+      }
+    ],
+    "openrouter": [
+      {
+        "variant": "default",
+        "base_url": "https://openrouter.ai/api/v1",
+        "tcp_check": true,
+        "http_check": true,
+        "models_endpoint": true,
+        "chat_completion": false,
+        "latency_ms": 1085,
+        "error": "API返回 401: {\"error\":{\"message\":\"User not found.\",\"code\":401}}",
+        "status": "DEGRADED"
+      }
+    ],
+    "ace_proxy": [
+      {
+        "variant": "default",
+        "base_url": "http://localhost:3001/v1",
+        "tcp_check": false,
+        "http_check": false,
+        "models_endpoint": false,
+        "chat_completion": false,
+        "latency_ms": null,
+        "error": "TCP失败: [WinError 10061] 由于目标计算机积极拒绝，无法连接。",
+        "status": "OFFLINE"
+      }
+    ]
+  },
+  "summary": {
+    "total_providers_checked": 6,
+    "total_variants": 7,
+    "healthy": 1,
+    "degraded": 2,
+    "unhealthy": 1,
+    "offline": 3
+  }
+}

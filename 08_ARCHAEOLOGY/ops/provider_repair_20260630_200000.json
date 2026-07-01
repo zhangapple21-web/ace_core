@@ -1,0 +1,21 @@
+{
+  "time": "2026-06-30T20:00:15.382325",
+  "repairs_attempted": [],
+  "repairs_successful": [
+    {
+      "id": "REPAIR-001",
+      "type": "primary_selection",
+      "provider": "glm",
+      "description": "自动选择 glm 作为主 Provider",
+      "status": "success"
+    }
+  ],
+  "repairs_failed": [],
+  "manual_required": [
+    {
+      "component": "OneAPI",
+      "reason": "本地 OneAPI 服务未启动 (localhost:3000 和 127.0.0.1:3000 均不可达)",
+      "suggestion": "启动 OneAPI 服务或检查 Docker 容器状态"
+    }
+  ]
+}

@@ -44,11 +44,14 @@ class LineageNode:
     name: str
     type: str  # concept/experience/constraint/protocol/axiom/blueprint/code
     version: str = ""
+    generation: int = 0  # 代数，根节点为0，每演化一代+1
     parent_ids: List[str] = field(default_factory=list)
     child_ids: List[str] = field(default_factory=list)
     metadata: Dict[str, Any] = field(default_factory=dict)
     created: str = ""
     source: str = ""  # 来源：archaeology/manual/inference
+    status: str = "candidate"  # candidate/observation/accepted/frozen/deprecated/extinct
+    tier: str = "evidence"  # evidence(证据级/报告级) / capability(能力级/文明级)
 
 
 @dataclass
@@ -60,6 +63,7 @@ class LineageEdge:
     confidence: float = 1.0  # 置信度
     reason: str = ""
     created: str = ""
+    evidence: List[str] = field(default_factory=list)  # 证据来源：conversation/git/design_doc/similarity_inference/path_reference/deprecated_tag
 
 
 class LineageGraph:
@@ -190,11 +194,14 @@ class LineageGraph:
                     "name": node.name,
                     "type": node.type,
                     "version": node.version,
+                    "generation": node.generation,
                     "parent_ids": node.parent_ids,
                     "child_ids": node.child_ids,
                     "metadata": node.metadata,
                     "created": node.created,
                     "source": node.source,
+                    "status": node.status,
+                    "tier": node.tier,
                 }
                 for node_id, node in self.nodes.items()
             },
@@ -206,6 +213,7 @@ class LineageGraph:
                     "confidence": edge.confidence,
                     "reason": edge.reason,
                     "created": edge.created,
+                    "evidence": edge.evidence,
                 }
                 for edge in self.edges
             ]
@@ -254,11 +262,14 @@ class LineageSystem:
                         name=node_data["name"],
                         type=node_data["type"],
                         version=node_data.get("version", ""),
+                        generation=node_data.get("generation", 0),
                         parent_ids=node_data.get("parent_ids", []),
                         child_ids=node_data.get("child_ids", []),
                         metadata=node_data.get("metadata", {}),
                         created=node_data.get("created", ""),
                         source=node_data.get("source", ""),
+                        status=node_data.get("status", "candidate"),
+                        tier=node_data.get("tier", "evidence"),
                     )
                     self.graph.add_node(node)
 
@@ -271,6 +282,7 @@ class LineageSystem:
                         confidence=edge_data.get("confidence", 1.0),
                         reason=edge_data.get("reason", ""),
                         created=edge_data.get("created", ""),
+                        evidence=edge_data.get("evidence", []),
                     )
                     self.graph.add_edge(edge)
 
@@ -487,8 +499,14 @@ class LineageSystem:
         """
         # 统计
         type_counts = {}
+        gen_counts = {}
+        status_counts = {}
+        tier_counts = {}
         for node in self.graph.nodes.values():
             type_counts[node.type] = type_counts.get(node.type, 0) + 1
+            gen_counts[node.generation] = gen_counts.get(node.generation, 0) + 1
+            status_counts[node.status] = status_counts.get(node.status, 0) + 1
+            tier_counts[node.tier] = tier_counts.get(node.tier, 0) + 1
 
         # 查找孤立节点
         orphans = []
@@ -503,18 +521,118 @@ class LineageSystem:
             if len(ancestors) > len(longest_chain):
                 longest_chain = ancestors + [self.graph.nodes[node_id]]
 
+        # Gap 检测：演化链中类型跳跃的节点（相邻节点类型不同且没有中间过渡）
+        gaps = self._detect_gaps()
+
+        # 分叉检测：有多个子节点且子节点类型不同的节点
+        divergences = self._detect_divergences()
+
         return {
             "generated_at": datetime.now().isoformat(),
             "total_nodes": len(self.graph.nodes),
             "total_edges": len(self.graph.edges),
             "nodes_by_type": type_counts,
+            "nodes_by_generation": gen_counts,
+            "nodes_by_status": status_counts,
+            "nodes_by_tier": tier_counts,
             "orphan_nodes": orphans,
             "longest_lineage_chain_length": len(longest_chain),
             "longest_lineage_chain": [
-                {"id": n.id, "name": n.name}
+                {"id": n.id, "name": n.name, "gen": n.generation, "type": n.type}
                 for n in longest_chain
             ],
+            "gap_count": len(gaps),
+            "gaps": gaps,
+            "divergence_count": len(divergences),
+            "divergences": divergences,
         }
+
+    def _detect_gaps(self) -> List[Dict[str, Any]]:
+        """
+        检测演化链中的缺口（Gap Detection）
+
+        规则：
+        - 低置信度边（< 0.5）
+        - 演化阶段跳跃（跳过中间层）
+
+        正确的演化顺序（从浅到深）：
+          experience → pattern → principle/constraint → protocol → blueprint → code
+        """
+        gaps = []
+        type_evolution_order = {
+            "experience": 0,   # 经验沉淀
+            "pattern": 1,      # 模式提炼
+            "concept": 2,      # 概念形成
+            "constraint": 3,   # 约束/原则
+            "protocol": 4,     # 协议固化
+            "blueprint": 5,    # 蓝图设计
+            "axiom": 6,        # 公理/底层规则
+            "code": 7,         # 代码实现
+        }
+
+        for edge in self.graph.edges:
+            from_node = self.graph.nodes.get(edge.from_id)
+            to_node = self.graph.nodes.get(edge.to_id)
+            if not from_node or not to_node:
+                continue
+
+            # 规则1：低置信度边标记为 gap
+            if edge.confidence < 0.5:
+                gaps.append({
+                    "type": "low_confidence",
+                    "from": from_node.name,
+                    "to": to_node.name,
+                    "confidence": edge.confidence,
+                    "evidence": edge.evidence,
+                    "severity": "medium" if edge.confidence >= 0.3 else "high",
+                })
+
+            # 规则2：类型跳跃（跳过了中间层）
+            from_order = type_evolution_order.get(from_node.type, -1)
+            to_order = type_evolution_order.get(to_node.type, -1)
+            if from_order >= 0 and to_order >= 0 and to_order - from_order > 1:
+                skipped = [t for t, o in type_evolution_order.items() if from_order < o < to_order]
+                gaps.append({
+                    "type": "type_jump",
+                    "from": from_node.name,
+                    "from_type": from_node.type,
+                    "to": to_node.name,
+                    "to_type": to_node.type,
+                    "skipped_types": skipped,
+                    "severity": "low" if len(skipped) == 1 else "medium",
+                })
+
+        return gaps
+
+    def _detect_divergences(self) -> List[Dict[str, Any]]:
+        """
+        检测演化分叉（Divergence Detection）
+
+        规则：
+        - 节点有 2 个以上子节点且子节点类型不同
+        """
+        divergences = []
+        for node in self.graph.nodes.values():
+            if len(node.child_ids) < 2:
+                continue
+
+            child_types = set()
+            child_names = []
+            for child_id in node.child_ids:
+                child = self.graph.nodes.get(child_id)
+                if child:
+                    child_types.add(child.type)
+                    child_names.append({"name": child.name, "type": child.type, "status": child.status})
+
+            if len(child_types) >= 2:
+                divergences.append({
+                    "node": node.name,
+                    "node_type": node.type,
+                    "divergence_count": len(child_names),
+                    "branches": child_names,
+                })
+
+        return divergences
 
     def export_for_knowledge(self, artifact_id: str) -> Dict[str, Any]:
         """

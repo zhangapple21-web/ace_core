@@ -26,6 +26,7 @@ from datetime import datetime
 from .credential_manager import CredentialManager, ProviderCredential
 from .model_router import ModelRouter, ModelSpec
 from .task_profiles import get_task_profile
+from .provider_watchdog import ProviderWatchdog
 from .providers.openai_compatible import (
     NIMProvider,
     GitHubModelsProvider,
@@ -73,13 +74,14 @@ class MinerPool:
         self._providers: Dict[str, OpenAICompatibleProvider] = {}
         self._router = ModelRouter()
         self._state_dir = Path(state_dir) if state_dir else None
+        self._watchdog: Optional[ProviderWatchdog] = None
         self._initialized = False
 
         if self._state_dir:
             self._state_dir.mkdir(parents=True, exist_ok=True)
 
     def initialize(self) -> bool:
-        """初始化矿工池：加载凭证 + 创建提供商实例"""
+        """初始化矿工池：加载凭证 + 创建提供商实例 + 初始化 Watchdog"""
         if self._initialized:
             return True
 
@@ -89,6 +91,10 @@ class MinerPool:
 
             available = self._credential_mgr.list_providers()
             self._router.set_available_providers(available)
+
+            # 初始化 Watchdog
+            watchdog_dir = self._state_dir / "provider_watchdog" if self._state_dir else None
+            self._watchdog = ProviderWatchdog(state_dir=str(watchdog_dir) if watchdog_dir else None)
 
             for provider_name in available:
                 cred = self._credential_mgr.get(provider_name)
@@ -100,6 +106,12 @@ class MinerPool:
                     self._providers[provider_name] = factory(
                         api_key=cred.primary_key,
                         base_url=cred.base_url,
+                    )
+                    # 注册到 Watchdog
+                    self._watchdog.register_provider(
+                        name=provider_name,
+                        base_url=cred.base_url,
+                        api_key=cred.primary_key,
                     )
                 except Exception:
                     continue
@@ -118,6 +130,32 @@ class MinerPool:
         if not self._initialized:
             self.initialize()
         return list(self._providers.keys())
+
+    @property
+    def watchdog(self) -> Optional[ProviderWatchdog]:
+        """获取 Watchdog 实例"""
+        return self._watchdog
+
+    def get_health_stats(self) -> Dict[str, Any]:
+        """获取 Provider 健康统计"""
+        if self._watchdog:
+            return self._watchdog.get_stats()
+        return {"error": "watchdog not initialized"}
+
+    def run_health_check(self) -> Dict[str, Any]:
+        """执行全量 Provider 健康检查"""
+        if not self._watchdog:
+            return {"error": "watchdog not initialized"}
+        from .task_profiles import TASK_PROFILES
+        test_models = {}
+        for tname, tdata in TASK_PROFILES.items():
+            preferred = tdata.get("preferred_models", [])
+            if preferred:
+                first = preferred[0]
+                if ":" in first:
+                    provider, model = first.split(":", 1)
+                    test_models[provider] = model
+        return self._watchdog.run_full_check(test_models=test_models)
 
     def chat(
         self,
@@ -227,10 +265,14 @@ class MinerPool:
                 result["latency_ms"] = call_result.get("latency_ms", 0)
                 result["tried_models"] = tried
                 self._router.mark_model_health(spec.full_id, True)
+                if self._watchdog:
+                    self._watchdog.record_success(spec.provider, call_result.get("latency_ms", 0))
                 return result
             else:
                 last_error = call_result.get("error", "unknown error")
                 self._router.mark_model_health(spec.full_id, False)
+                if self._watchdog:
+                    self._watchdog.record_failure(spec.provider, last_error)
 
         result["error"] = last_error
         result["tried_models"] = tried

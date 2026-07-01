@@ -1,0 +1,277 @@
+{
+  "audit_time": "2026-06-30T20:36:43.100665",
+  "providers": {
+    "nim": {
+      "provider": "nim",
+      "base_url": "https://integrate.api.nvidia.com/v1",
+      "test_model": "deepseek-ai/deepseek-v4-flash",
+      "models_endpoint": {
+        "url": "https://integrate.api.nvidia.com/v1/models",
+        "method": "GET",
+        "headers": {
+          "Authorization": "Bearer nvapi-dr...8G--",
+          "Content-Type": "application/json"
+        },
+        "http_status": 200,
+        "latency_ms": 721,
+        "response_body_preview": "<model list, 121 models>"
+      },
+      "chat_endpoint": {
+        "url": "https://integrate.api.nvidia.com/v1/chat/completions",
+        "method": "POST",
+        "headers": {
+          "Authorization": "Bearer nvapi-dr...8G--",
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "model": "deepseek-ai/deepseek-v4-flash",
+          "messages": [
+            "<redacted>"
+          ],
+          "max_tokens": 10
+        },
+        "http_status": 200,
+        "latency_ms": 9592,
+        "response_body_preview": "{\"id\":\"96ffed049c8d4d5f8ffdc6e4a619b122\",\"object\":\"chat.completion\",\"created\":1782823014,\"model\":\"deepseek-ai/deepseek-v4-flash\",\"choices\":[{\"index\":0,\"message\":{\"role\":\"assistant\",\"content\":\"你好！有什么可以帮你的吗？\",\"reasoning_content\":null,\"tool_calls\":null},\"logprobs\":null,\"finish_reason\":\"stop\",\"matched_s"
+      }
+    },
+    "github_models": {
+      "provider": "github_models",
+      "base_url": "https://models.inference.ai.azure.com",
+      "test_model": "gpt-4o",
+      "models_endpoint": {
+        "url": "https://models.inference.ai.azure.com/models",
+        "method": "GET",
+        "headers": {
+          "Authorization": "Bearer github_p...Oh5p",
+          "Content-Type": "application/json"
+        },
+        "http_status": 200,
+        "latency_ms": 1883,
+        "response_body_preview": "[\n    {\n        \"id\": \"azureml://registries/azureml-cohere/models/Cohere-embed-v3-english/versions/3\",\n        \"name\": \"Cohere-embed-v3-english\",\n    "
+      },
+      "chat_endpoint": {
+        "url": "https://models.inference.ai.azure.com/chat/completions",
+        "method": "POST",
+        "headers": {
+          "Authorization": "Bearer github_p...Oh5p",
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "model": "gpt-4o",
+          "messages": [
+            "<redacted>"
+          ],
+          "max_tokens": 10
+        },
+        "http_status": 401,
+        "latency_ms": 1890,
+        "response_body_preview": "{\"error\":{\"code\":\"unauthorized\",\"message\":\"Bad credentials\",\"details\":\"Bad credentials\"}}"
+      }
+    },
+    "glm": {
+      "provider": "glm",
+      "base_url": "https://open.bigmodel.cn/api/paas/v4",
+      "test_model": "glm-4-flash",
+      "models_endpoint": {
+        "url": "https://open.bigmodel.cn/api/paas/v4/models",
+        "method": "GET",
+        "headers": {
+          "Authorization": "Bearer c4c766fa...vVRx",
+          "Content-Type": "application/json"
+        },
+        "http_status": 200,
+        "latency_ms": 614,
+        "response_body_preview": "<model list, 8 models>"
+      },
+      "chat_endpoint": {
+        "url": "https://open.bigmodel.cn/api/paas/v4/chat/completions",
+        "method": "POST",
+        "headers": {
+          "Authorization": "Bearer c4c766fa...vVRx",
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "model": "glm-4-flash",
+          "messages": [
+            "<redacted>"
+          ],
+          "max_tokens": 10
+        },
+        "http_status": 200,
+        "latency_ms": 4326,
+        "response_body_preview": "{\"choices\":[{\"finish_reason\":\"length\",\"index\":0,\"message\":{\"content\":\"Hi 👋! I'm ChatGLM\",\"role\":\"assistant\"}}],\"created\":1782823023,\"id\":\"20260630203659a2ba1e5507c84a0c\",\"model\":\"glm-4-flash\",\"object\":\"chat.completion\",\"request_id\":\"20260630203659a2ba1e5507c84a0c\",\"usage\":{\"completion_tokens\":10,\"pr"
+      }
+    },
+    "modelscope": {
+      "provider": "modelscope",
+      "base_url": "https://api-inference.modelscope.cn/v1",
+      "test_model": "qwen-plus",
+      "models_endpoint": {
+        "url": "https://api-inference.modelscope.cn/v1/models",
+        "method": "GET",
+        "headers": {
+          "Authorization": "Bearer ms-7ab1f...9d07",
+          "Content-Type": "application/json"
+        },
+        "http_status": 200,
+        "latency_ms": 1567,
+        "response_body_preview": "<model list, 57 models>"
+      },
+      "chat_endpoint": {
+        "url": "https://api-inference.modelscope.cn/v1/chat/completions",
+        "method": "POST",
+        "headers": {
+          "Authorization": "Bearer ms-7ab1f...9d07",
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "model": "qwen-plus",
+          "messages": [
+            "<redacted>"
+          ],
+          "max_tokens": 10
+        },
+        "http_status": 400,
+        "latency_ms": 1544,
+        "response_body_preview": "{\"error\":{\"message\":\"Invalid model id: qwen-plus\",\"request_id\":\"c5ac7842-2e24-4203-af61-dad50afd0dc1\"}}"
+      }
+    },
+    "apiyi": {
+      "provider": "apiyi",
+      "base_url": "https://api.apiyi.com",
+      "test_model": "gemini-pro",
+      "models_endpoint": {
+        "url": "https://api.apiyi.com/models",
+        "method": "GET",
+        "headers": {
+          "Authorization": "Bearer sk-xQrs9...Dc8b",
+          "Content-Type": "application/json"
+        },
+        "http_status": 200,
+        "latency_ms": 1028,
+        "response_body_preview": "<!doctype html><html lang=\"zh-cn\"><head><meta charset=\"utf-8\"/><link href='https://static.apiyi.com/apiyi-logo.png' rel='icon'><link rel=\"manifest\" hr"
+      },
+      "chat_endpoint": {
+        "url": "https://api.apiyi.com/chat/completions",
+        "method": "POST",
+        "headers": {
+          "Authorization": "Bearer sk-xQrs9...Dc8b",
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "model": "gemini-pro",
+          "messages": [
+            "<redacted>"
+          ],
+          "max_tokens": 10
+        },
+        "http_status": 200,
+        "latency_ms": 998,
+        "response_body_preview": "<!doctype html><html lang=\"zh-cn\"><head><meta charset=\"utf-8\"/><link href='https://static.apiyi.com/apiyi-logo.png' rel='icon'><link rel=\"manifest\" href=\"/manifest.json\"><meta content=\"width=device-width,initial-scale=1,user-scalable=no\" name=\"viewport\"/><meta content=\"#ffffff\" name=\"theme-color\"/><"
+      }
+    },
+    "openrouter": {
+      "provider": "openrouter",
+      "base_url": "https://openrouter.ai/api/v1",
+      "test_model": "anthropic/claude-3.5-sonnet",
+      "models_endpoint": {
+        "url": "https://openrouter.ai/api/v1/models",
+        "method": "GET",
+        "headers": {
+          "Authorization": "Bearer sk-or-v1...e8f2",
+          "Content-Type": "application/json"
+        },
+        "http_status": 200,
+        "latency_ms": 638,
+        "response_body_preview": "<model list, 337 models>"
+      },
+      "chat_endpoint": {
+        "url": "https://openrouter.ai/api/v1/chat/completions",
+        "method": "POST",
+        "headers": {
+          "Authorization": "Bearer sk-or-v1...e8f2",
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "model": "anthropic/claude-3.5-sonnet",
+          "messages": [
+            "<redacted>"
+          ],
+          "max_tokens": 10
+        },
+        "http_status": 401,
+        "latency_ms": 1022,
+        "response_body_preview": "{\"error\":{\"message\":\"User not found.\",\"code\":401}}"
+      }
+    },
+    "oneapi": {
+      "provider": "oneapi",
+      "base_url": "http://localhost:3000/v1",
+      "test_model": "gpt-4o",
+      "models_endpoint": {
+        "url": "http://localhost:3000/v1/models",
+        "method": "GET",
+        "error": "HTTPConnectionPool(host='localhost', port=3000): Max retries exceeded with url: /v1/models (Caused by NewConnectionError",
+        "error_type": "ConnectionError"
+      },
+      "chat_endpoint": {
+        "url": "http://localhost:3000/v1/chat/completions",
+        "method": "POST",
+        "error": "HTTPConnectionPool(host='localhost', port=3000): Max retries exceeded with url: /v1/chat/completions (Caused by NewConne",
+        "error_type": "ConnectionError"
+      }
+    },
+    "sambanova": {
+      "provider": "sambanova",
+      "base_url": "https://api.sambanova.ai/v1",
+      "test_model": "Meta-Llama-3.1-8B-Instruct",
+      "models_endpoint": {
+        "url": "https://api.sambanova.ai/v1/models",
+        "method": "GET",
+        "headers": {
+          "Authorization": "Bearer 820feeb9...d2b9",
+          "Content-Type": "application/json"
+        },
+        "http_status": 200,
+        "latency_ms": 839,
+        "response_body_preview": "<model list, 6 models>"
+      },
+      "chat_endpoint": {
+        "url": "https://api.sambanova.ai/v1/chat/completions",
+        "method": "POST",
+        "headers": {
+          "Authorization": "Bearer 820feeb9...d2b9",
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "model": "Meta-Llama-3.1-8B-Instruct",
+          "messages": [
+            "<redacted>"
+          ],
+          "max_tokens": 10
+        },
+        "http_status": 410,
+        "latency_ms": 691,
+        "response_body_preview": "The requested model (Meta-Llama-3.1-8B-Instruct) is not available on SambaNova Cloud. For more information, please visit https://docs.sambanova.ai/cloud/docs/resources/deprecations. For further inquiries, please contact our support team at help@sambanova.ai.\n"
+      }
+    },
+    "huggingface": {
+      "provider": "huggingface",
+      "base_url": "https://api-inference.huggingface.co/v1",
+      "test_model": "gpt2",
+      "models_endpoint": {
+        "url": "https://api-inference.huggingface.co/v1/models",
+        "method": "GET",
+        "error": "HTTPSConnectionPool(host='api-inference.huggingface.co', port=443): Max retries exceeded with url: /v1/models (Caused by",
+        "error_type": "ConnectionError"
+      },
+      "chat_endpoint": {
+        "url": "https://api-inference.huggingface.co/v1/chat/completions",
+        "method": "POST",
+        "error": "HTTPSConnectionPool(host='api-inference.huggingface.co', port=443): Max retries exceeded with url: /v1/chat/completions ",
+        "error_type": "ConnectionError"
+      }
+    }
+  }
+}

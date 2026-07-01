@@ -1,0 +1,96 @@
+{
+  "audit_time": "2026-06-30T20:37:18.726890",
+  "summary": {
+    "total": 9,
+    "success": 3,
+    "failed": 6,
+    "degraded": 0,
+    "by_category": {
+      "NONE": 3,
+      "AUTH_ERROR": 2,
+      "MODEL_NOT_FOUND": 2,
+      "NETWORK_UNREACHABLE": 2
+    }
+  },
+  "providers": {
+    "nim": {
+      "provider": "nim",
+      "overall_status": "SUCCESS",
+      "failure_category": "NONE",
+      "failure_layer": "none",
+      "evidence": []
+    },
+    "github_models": {
+      "provider": "github_models",
+      "overall_status": "FAILED",
+      "failure_category": "AUTH_ERROR",
+      "failure_layer": "auth/token",
+      "evidence": [
+        "HTTP 401 Unauthorized",
+        "响应: {\"error\":{\"code\":\"unauthorized\",\"message\":\"Bad credentials\",\"details\":\"Bad credentials\"}}"
+      ]
+    },
+    "glm": {
+      "provider": "glm",
+      "overall_status": "SUCCESS",
+      "failure_category": "NONE",
+      "failure_layer": "none",
+      "evidence": []
+    },
+    "modelscope": {
+      "provider": "modelscope",
+      "overall_status": "FAILED",
+      "failure_category": "MODEL_NOT_FOUND",
+      "failure_layer": "provider/model",
+      "evidence": [
+        "HTTP 400 Bad Request",
+        "响应: {\"error\":{\"message\":\"Invalid model id: qwen-plus\",\"request_id\":\"c5ac7842-2e24-4203-af61-dad50afd0dc1\"}}"
+      ]
+    },
+    "apiyi": {
+      "provider": "apiyi",
+      "overall_status": "SUCCESS",
+      "failure_category": "NONE",
+      "failure_layer": "none",
+      "evidence": []
+    },
+    "openrouter": {
+      "provider": "openrouter",
+      "overall_status": "FAILED",
+      "failure_category": "AUTH_ERROR",
+      "failure_layer": "auth/account",
+      "evidence": [
+        "HTTP 401 Unauthorized",
+        "响应: {\"error\":{\"message\":\"User not found.\",\"code\":401}}"
+      ]
+    },
+    "oneapi": {
+      "provider": "oneapi",
+      "overall_status": "FAILED",
+      "failure_category": "NETWORK_UNREACHABLE",
+      "failure_layer": "network/tcp",
+      "evidence": [
+        "TCP 连接被拒: HTTPConnectionPool(host='localhost', port=3000): Max retries exceeded with url: /v1/models (Caused by NewConnectionError"
+      ]
+    },
+    "sambanova": {
+      "provider": "sambanova",
+      "overall_status": "FAILED",
+      "failure_category": "MODEL_NOT_FOUND",
+      "failure_layer": "provider/model",
+      "evidence": [
+        "HTTP 410 Gone - 模型不可用",
+        "响应: The requested model (Meta-Llama-3.1-8B-Instruct) is not available on SambaNova Cloud. For more information, please visit https://docs.sambanova.ai/clo"
+      ]
+    },
+    "huggingface": {
+      "provider": "huggingface",
+      "overall_status": "FAILED",
+      "failure_category": "NETWORK_UNREACHABLE",
+      "failure_layer": "network/tcp",
+      "evidence": [
+        "TCP 连接被拒: HTTPSConnectionPool(host='api-inference.huggingface.co', port=443): Max retries exceeded with url: /v1/models (Caused by"
+      ]
+    }
+  }
+}

@@ -493,6 +493,19 @@ class Governor:
 
     def _save_record(self, record: AdmissionRecord):
         """保存准入记录"""
+        # 构建知识链路引用 — 记录这次决策引用了哪些 Lexicon/Experience/Constraint
+        knowledge_refs = {
+            "lexicon": [],
+            "experience": [],
+            "constraint": [],
+        }
+        # similar_knowledge 来自 Lexicon 搜索
+        for sk in record.similar_knowledge:
+            if isinstance(sk, dict) and sk.get("id"):
+                knowledge_refs["lexicon"].append(sk["id"])
+            elif isinstance(sk, str):
+                knowledge_refs["lexicon"].append(sk)
+
         try:
             with open(self.knowledge_records_file, "a", encoding="utf-8") as f:
                 f.write(json.dumps({
@@ -508,6 +521,7 @@ class Governor:
                         "references": record.criteria.references,
                     },
                     "similar_knowledge": record.similar_knowledge,
+                    "knowledge_references": knowledge_refs,
                     "suggestions": record.suggestions,
                     "operator": record.operator,
                     "timestamp": record.timestamp,

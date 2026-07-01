@@ -117,12 +117,12 @@ class CredentialManager:
         # ACE OpenAI 代理（ACE 自己部署的独立代理）
         ace_base = self._extract_pattern(
             content,
-            r"ACE OpenAI 代理[\s\S]*?Base:\s*(https?://[^\s]+)",
+            r"ACE OpenAI 代理[\s\S]*?Base:\s*`?(https?://[^\s`]+)",
             group=1,
         )
         ace_token = self._extract_pattern(
             content,
-            r"ACE OpenAI 代理[\s\S]*?Token:\s*([\w\-]+)",
+            r"ACE OpenAI 代理[\s\S]*?Token:\s*`?([\w\-]+)",
             group=1,
             default="ace-local-proxy",
         )
@@ -135,7 +135,12 @@ class CredentialManager:
             )
 
         # NVIDIA NIM
-        nim_base = self._extract_pattern(content, r"Base:\s*(https?://[^\s]+)", group=1, default="https://integrate.api.nvidia.com/v1")
+        nim_base = self._extract_pattern(
+            content,
+            r"NVIDIA NIM[\s\S]*?\*?\*?Base:\*?\*?\s*`?(https?://[^\s`]+)",
+            group=1,
+            default="https://integrate.api.nvidia.com/v1",
+        )
         nim_keys = self._extract_nim_keys_from_env_sh()
         if nim_keys:
             self._credentials["nim"] = ProviderCredential(
@@ -148,12 +153,12 @@ class CredentialManager:
         # GitHub Models
         gh_token = self._extract_pattern(
             content,
-            r"GitHub Models[\s\S]*?Token:\s*([\w\-_]+)",
+            r"GitHub Models[\s\S]*?Token:\s*`?([\w\-_]+)",
             group=1,
         )
         gh_base = self._extract_pattern(
             content,
-            r"GitHub Models[\s\S]*?Base:\s*(https?://[^\s]+)",
+            r"GitHub Models[\s\S]*?Base:\s*`?(https?://[^\s`]+)",
             group=1,
             default="https://models.inference.ai.azure.com",
         )
@@ -168,12 +173,12 @@ class CredentialManager:
         # 智谱 GLM
         glm_key = self._extract_pattern(
             content,
-            r"智谱 GLM[\s\S]*?Key:\s*([\w\.\-]+)",
+            r"智谱 GLM[\s\S]*?Key:\s*`?([\w\.\-]+)",
             group=1,
         )
         glm_base = self._extract_pattern(
             content,
-            r"智谱 GLM[\s\S]*?Base:\s*(https?://[^\s]+)",
+            r"智谱 GLM[\s\S]*?Base:\s*`?(https?://[^\s`]+)",
             group=1,
             default="https://open.bigmodel.cn/api/paas/v4",
         )
@@ -188,12 +193,12 @@ class CredentialManager:
         # 魔搭 ModelScope
         ms_key = self._extract_pattern(
             content,
-            r"魔搭 ModelScope[\s\S]*?Key:\s*([\w\-]+)",
+            r"魔搭 ModelScope[\s\S]*?Key:\s*`?([\w\-]+)",
             group=1,
         )
         ms_base = self._extract_pattern(
             content,
-            r"魔搭 ModelScope[\s\S]*?Base:\s*(https?://[^\s]+)",
+            r"魔搭 ModelScope[\s\S]*?Base:\s*`?(https?://[^\s`]+)",
             group=1,
             default="https://api-inference.modelscope.cn/v1",
         )
@@ -208,12 +213,12 @@ class CredentialManager:
         # API易
         apiyi_key = self._extract_pattern(
             content,
-            r"API易[\s\S]*?Key:\s*(sk-[\w]+)",
+            r"API易[\s\S]*?Key:\s*`?(sk-[\w]+)",
             group=1,
         )
         apiyi_base = self._extract_pattern(
             content,
-            r"API易[\s\S]*?Base:\s*(https?://[^\s]+)",
+            r"API易[\s\S]*?Base:\s*`?(https?://[^\s`]+)",
             group=1,
             default="https://api.apiyi.com",
         )
@@ -229,12 +234,12 @@ class CredentialManager:
         # OpenRouter
         or_key = self._extract_pattern(
             content,
-            r"OpenRouter[\s\S]*?Key:\s*(sk-or-v1-[\w]+)",
+            r"OpenRouter[\s\S]*?Key:\s*`?(sk-or-v1-[\w]+)",
             group=1,
         )
         or_base = self._extract_pattern(
             content,
-            r"OpenRouter[\s\S]*?Base:\s*(https?://[^\s]+)",
+            r"OpenRouter[\s\S]*?Base:\s*`?(https?://[^\s`]+)",
             group=1,
             default="https://openrouter.ai/api/v1",
         )
@@ -249,12 +254,12 @@ class CredentialManager:
         # OneAPI
         oneapi_token = self._extract_pattern(
             content,
-            r"OneAPI[\s\S]*?Token-v2:\s*([\w]+)",
+            r"OneAPI[\s\S]*?Token-miner:\s*`?([\w]+)",
             group=1,
         )
         oneapi_base = self._extract_pattern(
             content,
-            r"OneAPI[\s\S]*?地址:\s*(https?://[^\s]+)",
+            r"OneAPI[\s\S]*?地址:\s*`?(https?://[^\s`]+)",
             group=1,
             default="http://localhost:3000",
         )
@@ -266,8 +271,39 @@ class CredentialManager:
                 source=source,
             )
 
-        # SambaNova (从 miner_env.sh 读)
-        # HuggingFace (从 miner_env.sh 读)
+        # SambaNova
+        sn_key = self._extract_pattern(
+            content,
+            r"SambaNova[\s\S]*?Key:\s*`?([\w\-]+)",
+            group=1,
+        )
+        sn_base = self._extract_pattern(
+            content,
+            r"SambaNova[\s\S]*?Base:\s*`?(https?://[^\s`]+)",
+            group=1,
+            default="https://api.sambanova.ai/v1",
+        )
+        if sn_key:
+            self._credentials["sambanova"] = ProviderCredential(
+                provider="sambanova",
+                base_url=sn_base,
+                api_keys=[sn_key],
+                source=source,
+            )
+
+        # HuggingFace
+        hf_key = self._extract_pattern(
+            content,
+            r"HuggingFace[\s\S]*?Key:\s*`?([\w]+)",
+            group=1,
+        )
+        if hf_key:
+            self._credentials["huggingface"] = ProviderCredential(
+                provider="huggingface",
+                base_url="https://api-inference.huggingface.co/v1",
+                api_keys=[hf_key],
+                source=source,
+            )
 
     def _extract_nim_keys_from_env_sh(self) -> List[str]:
         """从 miner_env.sh 提取 NIM Keys"""

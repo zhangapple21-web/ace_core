@@ -1,0 +1,107 @@
+{
+  "scan_time": "2026-06-30T20:00:00.434715",
+  "sources_scanned": [
+    "C:\\Users\\USER\\Downloads\\Telegram Desktop\\coze-assets\\01_credentials\\SECRET.md",
+    "C:\\Users\\USER\\Downloads\\Telegram Desktop\\coze-assets\\02_miner_config\\miner_env.sh",
+    "C:\\Users\\USER\\Downloads\\Telegram Desktop\\ace_runtime\\ace_config.json"
+  ],
+  "providers": {
+    "oneapi": {
+      "secret_md": {
+        "base_url": "http://localhost:3000",
+        "api_key_prefix": "jHhtKnCu...",
+        "has_key": true
+      }
+    },
+    "glm": {
+      "secret_md": {
+        "base_url": "https://open.bigmodel.cn/api/paas/v4",
+        "api_key_prefix": "c4c766fa...",
+        "has_key": true
+      }
+    },
+    "github_models": {
+      "secret_md": {
+        "base_url": "https://models.inference.ai.azure.com",
+        "api_key_prefix": "github_p...",
+        "has_key": true
+      },
+      "miner_env": {
+        "miner_env_pat": {
+          "api_key_prefix": "github_p...",
+          "has_key": true
+        }
+      }
+    },
+    "ace_proxy": {
+      "secret_md": {
+        "base_url": "http://localhost:3001/v1",
+        "has_key": true,
+        "api_key_prefix": "ace-local-..."
+      }
+    },
+    "openrouter": {
+      "secret_md": {
+        "base_url": "https://openrouter.ai/api/v1",
+        "api_key_prefix": "sk-or-v1-437...",
+        "has_key": true
+      }
+    },
+    "apiyi": {
+      "secret_md": {
+        "base_url": "https://api.apiyi.com",
+        "api_key_prefix": "sk-xQrs9...",
+        "has_key": true
+      }
+    },
+    "modelscope": {
+      "secret_md": {
+        "base_url": "https://api-inference.modelscope.cn/v1",
+        "api_key_prefix": "ms-7ab1f...",
+        "has_key": true
+      }
+    },
+    "nim": {
+      "miner_env": {
+        "base_url": "https://integrate.api.nvidia.com/v1",
+        "key_count": 16,
+        "api_key_prefixes": [
+          "nvapi-dr...",
+          "nvapi-bu...",
+          "nvapi-3H..."
+        ],
+        "has_key": true
+      }
+    },
+    "sambanova": {
+      "miner_env": {
+        "base_url": "https://api.sambanova.ai/v1",
+        "api_key_prefix": "820feeb9...",
+        "has_key": true
+      }
+    },
+    "huggingface": {
+      "miner_env": {
+        "base_url": "https://api-inference.huggingface.co/v1",
+        "api_key_prefix": "hf_rtqFh...",
+        "has_key": true
+      }
+    }
+  },
+  "summary": {
+    "total_providers": 10,
+    "provider_list": [
+      "oneapi",
+      "glm",
+      "github_models",
+      "ace_proxy",
+      "openrouter",
+      "apiyi",
+      "modelscope",
+      "nim",
+      "sambanova",
+      "huggingface"
+    ],
+    "sources_count": 3
+  }
+}

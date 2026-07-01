@@ -1,0 +1,157 @@
+{
+  "audit_time": "2026-06-30T20:37:18.726890",
+  "providers": {
+    "nim": {
+      "status": "HEALTHY",
+      "root_cause": "none",
+      "is_token_issue": false,
+      "is_header_issue": false,
+      "is_endpoint_issue": false,
+      "is_model_issue": false,
+      "is_network_issue": false,
+      "is_parser_issue": false,
+      "is_factory_issue": false,
+      "chain": []
+    },
+    "github_models": {
+      "status": "FAILED",
+      "failure_category": "AUTH_ERROR",
+      "root_cause": "GitHub Models Token 无效或权限不足（Bad credentials）— 需检查 Token 是否包含 models scope",
+      "is_token_issue": true,
+      "is_header_issue": false,
+      "is_endpoint_issue": false,
+      "is_model_issue": false,
+      "is_network_issue": false,
+      "is_parser_issue": false,
+      "is_factory_issue": false,
+      "chain": [
+        "HTTP 401/403 响应",
+        "→ 认证层检查失败",
+        "→ Token 来源: SECRET.md",
+        "→ Token 前缀: github_pat_1...",
+        "→ 错误: Bad credentials",
+        "→ GitHub Models 需要 fine-grained PAT 且包含 models 权限",
+        "→ 根因: GitHub Models Token 无效或权限不足（Bad credentials）— 需检查 Token 是否包含 models scope"
+      ]
+    },
+    "glm": {
+      "status": "HEALTHY",
+      "root_cause": "none",
+      "is_token_issue": false,
+      "is_header_issue": false,
+      "is_endpoint_issue": false,
+      "is_model_issue": false,
+      "is_network_issue": false,
+      "is_parser_issue": false,
+      "is_factory_issue": false,
+      "chain": []
+    },
+    "modelscope": {
+      "status": "FAILED",
+      "failure_category": "MODEL_NOT_FOUND",
+      "root_cause": "模型名称与 Provider 实际模型不匹配（请求: qwen-plus）",
+      "is_token_issue": false,
+      "is_header_issue": false,
+      "is_endpoint_issue": false,
+      "is_model_issue": true,
+      "is_network_issue": false,
+      "is_parser_issue": false,
+      "is_factory_issue": false,
+      "chain": [
+        "HTTP 400 响应（模型相关错误）",
+        "→ 请求模型: qwen-plus",
+        "→ /models 可访问，Provider API 本身正常",
+        "→ 问题在模型名称/路径层",
+        "→ 根因: 模型名称与 Provider 实际模型不匹配（请求: qwen-plus）"
+      ]
+    },
+    "apiyi": {
+      "status": "HEALTHY",
+      "root_cause": "none",
+      "is_token_issue": false,
+      "is_header_issue": false,
+      "is_endpoint_issue": false,
+      "is_model_issue": false,
+      "is_network_issue": false,
+      "is_parser_issue": false,
+      "is_factory_issue": false,
+      "chain": []
+    },
+    "openrouter": {
+      "status": "FAILED",
+      "failure_category": "AUTH_ERROR",
+      "root_cause": "账号不存在或 Token 所属用户无效（User not found）",
+      "is_token_issue": true,
+      "is_header_issue": false,
+      "is_endpoint_issue": false,
+      "is_model_issue": false,
+      "is_network_issue": false,
+      "is_parser_issue": false,
+      "is_factory_issue": false,
+      "chain": [
+        "HTTP 401/403 响应",
+        "→ 认证层检查失败",
+        "→ Token 来源: SECRET.md",
+        "→ Token 前缀: sk-or-v1-dc1...",
+        "→ 错误: User not found",
+        "→ Token 可能已被撤销或所属账户不存在",
+        "→ 根因: 账号不存在或 Token 所属用户无效（User not found）"
+      ]
+    },
+    "oneapi": {
+      "status": "FAILED",
+      "failure_category": "NETWORK_UNREACHABLE",
+      "root_cause": "本地服务未启动（进程未运行或端口未监听）",
+      "is_token_issue": false,
+      "is_header_issue": false,
+      "is_endpoint_issue": false,
+      "is_model_issue": false,
+      "is_network_issue": true,
+      "is_parser_issue": false,
+      "is_factory_issue": false,
+      "chain": [
+        "网络层错误: NETWORK_UNREACHABLE",
+        "→ 无法建立有效连接",
+        "→ 目标地址: http://localhost:3000/v1",
+        "→ 根因: 本地服务未启动（进程未运行或端口未监听）"
+      ]
+    },
+    "sambanova": {
+      "status": "FAILED",
+      "failure_category": "MODEL_NOT_FOUND",
+      "root_cause": "模型名称与 Provider 实际模型不匹配（请求: Meta-Llama-3.1-8B-Instruct）",
+      "is_token_issue": false,
+      "is_header_issue": false,
+      "is_endpoint_issue": false,
+      "is_model_issue": true,
+      "is_network_issue": false,
+      "is_parser_issue": false,
+      "is_factory_issue": false,
+      "chain": [
+        "HTTP 410 响应（模型相关错误）",
+        "→ 请求模型: Meta-Llama-3.1-8B-Instruct",
+        "→ /models 可访问，Provider API 本身正常",
+        "→ 问题在模型名称/路径层",
+        "→ 根因: 模型名称与 Provider 实际模型不匹配（请求: Meta-Llama-3.1-8B-Instruct）"
+      ]
+    },
+    "huggingface": {
+      "status": "FAILED",
+      "failure_category": "NETWORK_UNREACHABLE",
+      "root_cause": "网络连接失败（服务未运行/防火墙/网络不通）",
+      "is_token_issue": false,
+      "is_header_issue": false,
+      "is_endpoint_issue": false,
+      "is_model_issue": false,
+      "is_network_issue": true,
+      "is_parser_issue": false,
+      "is_factory_issue": false,
+      "chain": [
+        "网络层错误: NETWORK_UNREACHABLE",
+        "→ 无法建立有效连接",
+        "→ 目标地址: https://api-inference.huggingface.co/v1",
+        "→ 根因: 网络连接失败（服务未运行/防火墙/网络不通）"
+      ]
+    }
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "audit_time": "2026-06-30T20:37:20.764346",
+  "issue_types": {
+    "credential_issues": [
+      "github_models",
+      "openrouter"
+    ],
+    "network_issues": [
+      "huggingface"
+    ],
+    "deployment_issues": [
+      "oneapi"
+    ],
+    "provider_api_issues": [
+      "modelscope",
+      "sambanova"
+    ],
+    "architecture_issues": []
+  },
+  "summary": {
+    "credential_issues_count": 2,
+    "network_issues_count": 1,
+    "deployment_issues_count": 1,
+    "provider_api_issues_count": 2,
+    "architecture_issues_count": 0
+  }
+}

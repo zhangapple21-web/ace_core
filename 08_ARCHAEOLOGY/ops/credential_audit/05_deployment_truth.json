@@ -1,0 +1,23 @@
+{
+  "audit_time": "2026-06-30T20:37:18.728214",
+  "providers": {
+    "oneapi": {
+      "base_url": "http://localhost:3000/v1",
+      "is_local": true,
+      "is_docker": false,
+      "is_cloud": false,
+      "location_type": "local_machine",
+      "tcp_reachable": false,
+      "evidence": [
+        "Base URL 包含 localhost/127.0.0.1",
+        "TCP localhost:3000 不可达（服务未启动）",
+        "Docker 命令不可用或未安装"
+      ]
+    },
+    "ace_proxy": {
+      "base_url": "",
+      "is_local": false,
+      "tcp_reachable": false
+    }
+  }
+}

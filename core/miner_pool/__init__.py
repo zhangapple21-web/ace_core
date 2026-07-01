@@ -1,6 +1,15 @@
 """
 矿工池 — 算力军团调度系统
 
+⚠️  DEPRECATED（已废弃，保留血缘）
+
+本模块已被 core.survival_loop.SurvivalLoopEngine 收敛替代。
+保留此目录仅作为结构血缘记录，不删除。
+
+演化路径：
+  MinerPool (v1) → SurvivalLoopEngine (v2)
+  收敛了：MinerPool + ProviderFactory + Router + Watchdog + OPS诊断
+
 结构 → 协议 → 记忆 → 路由 → 模型
 模型只是临时执行节点。
 

@@ -1,0 +1,54 @@
+{
+  "audit_time": "2026-06-30T20:37:20.764346",
+  "repairs_available": [
+    {
+      "provider": "modelscope",
+      "issue": "模型名称与 Provider 实际模型不匹配（请求: qwen-plus）",
+      "repair_type": "model_name_mapping",
+      "description": "从 /v1/models 获取可用模型列表，自动切换到正确的模型名称",
+      "risk_level": "low",
+      "rollbackable": true,
+      "allowed": true
+    },
+    {
+      "provider": "sambanova",
+      "issue": "模型名称与 Provider 实际模型不匹配（请求: Meta-Llama-3.1-8B-Instruct）",
+      "repair_type": "model_name_mapping",
+      "description": "从 /v1/models 获取可用模型列表，自动切换到正确的模型名称",
+      "risk_level": "low",
+      "rollbackable": true,
+      "allowed": true
+    }
+  ],
+  "repairs_not_allowed": [
+    {
+      "provider": "github_models",
+      "issue": "GitHub Models Token 无效或权限不足（Bad credentials）— 需检查 Token 是否包含 models scope",
+      "reason": "Token/Secret 属于真相源内容，禁止自动修改",
+      "manual_action_required": "更新 Git 仓库中的 SECRET.md"
+    },
+    {
+      "provider": "openrouter",
+      "issue": "账号不存在或 Token 所属用户无效（User not found）",
+      "reason": "Token/Secret 属于真相源内容，禁止自动修改",
+      "manual_action_required": "更新 Git 仓库中的 SECRET.md"
+    },
+    {
+      "provider": "oneapi",
+      "issue": "本地服务未启动（进程未运行或端口未监听）",
+      "reason": "本地服务未启动属于部署问题，需要人工启动",
+      "manual_action_required": "启动本地 OneAPI/ACE Proxy 服务"
+    },
+    {
+      "provider": "huggingface",
+      "issue": "网络连接失败（服务未运行/防火墙/网络不通）",
+      "reason": "网络问题超出自治修复范围",
+      "manual_action_required": "检查网络连接"
+    }
+  ],
+  "summary": {
+    "autonomous_fixable": 2,
+    "needs_manual": 4,
+    "total_issues": 6
+  }
+}

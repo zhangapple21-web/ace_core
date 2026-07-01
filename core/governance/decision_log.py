@@ -36,6 +36,10 @@ class DecisionEntry:
     based_on: List[str] = field(default_factory=list)  # 依据什么
     evidence: List[str] = field(default_factory=list)   # 支撑证据
     constraints: List[str] = field(default_factory=list)  # 参考的约束
+
+    # 知识链路 — 结构化引用，记录这次决策用了哪些 Lexicon/Experience/Constraint 节点
+    knowledge_references: Dict[str, List[str]] = field(default_factory=dict)
+    # 格式: {"lexicon": ["concept_id_1", ...], "experience": ["exp_id_1", ...], "constraint": ["constraint_id_1", ...]}
     
     # 时间
     when: str = field(default_factory=lambda: datetime.now().isoformat())
@@ -67,6 +71,7 @@ class DecisionEntry:
             "based_on": self.based_on,
             "evidence": self.evidence,
             "constraints": self.constraints,
+            "knowledge_references": self.knowledge_references,
             "when": self.when,
             "artifact": self.artifact,
             "artifact_id": self.artifact_id,
@@ -137,6 +142,82 @@ class DecisionLog:
             pass
         return entries
     
+    def query_by_knowledge(self, knowledge_type: str, knowledge_id: str) -> List[DecisionEntry]:
+        """
+        查询引用了某个知识节点的所有决策
+
+        Args:
+            knowledge_type: "lexicon" / "experience" / "constraint"
+            knowledge_id: 知识节点 ID
+
+        Returns:
+            引用了该知识节点的决策列表
+        """
+        entries = []
+        try:
+            with open(self.log_path, 'r', encoding='utf-8') as f:
+                for line in f:
+                    if line.strip():
+                        d = json.loads(line)
+                        refs = d.get('knowledge_references', {})
+                        if knowledge_id in refs.get(knowledge_type, []):
+                            entries.append(DecisionEntry(**d))
+        except FileNotFoundError:
+            pass
+        return entries
+
+    def get_knowledge_linkage_report(self) -> dict:
+        """
+        知识链路报告 — 统计决策与知识的关联情况
+
+        Returns:
+            知识链路统计
+        """
+        report = {
+            "total_decisions": 0,
+            "decisions_with_knowledge_refs": 0,
+            "decisions_without_knowledge_refs": 0,
+            "ref_counts_by_type": {"lexicon": 0, "experience": 0, "constraint": 0},
+            "most_referenced": {"lexicon": [], "experience": [], "constraint": []},
+            "orphan_decisions": [],  # 没有知识引用的决策
+        }
+
+        ref_freq = {"lexicon": {}, "experience": {}, "constraint": {}}
+
+        try:
+            with open(self.log_path, 'r', encoding='utf-8') as f:
+                for line in f:
+                    if line.strip():
+                        report["total_decisions"] += 1
+                        d = json.loads(line)
+                        refs = d.get('knowledge_references', {})
+
+                        if refs and any(refs.get(t) for t in ref_freq):
+                            report["decisions_with_knowledge_refs"] += 1
+                        else:
+                            report["decisions_without_knowledge_refs"] += 1
+                            report["orphan_decisions"].append({
+                                "who": d.get('who', ''),
+                                "what": d.get('what', ''),
+                                "when": d.get('when', ''),
+                            })
+
+                        for ktype in ref_freq:
+                            for kid in refs.get(ktype, []):
+                                report["ref_counts_by_type"][ktype] += 1
+                                ref_freq[ktype][kid] = ref_freq[ktype].get(kid, 0) + 1
+
+            # 最常被引用的知识
+            for ktype in ref_freq:
+                sorted_refs = sorted(ref_freq[ktype].items(), key=lambda x: -x[1])[:10]
+                report["most_referenced"][ktype] = [
+                    {"id": kid, "count": count} for kid, count in sorted_refs
+                ]
+        except FileNotFoundError:
+            pass
+
+        return report
+
     def get_rejection_analysis(self) -> dict:
         """分析所有拒绝决策"""
         rejections = self.query_by_type('reject')
@@ -167,6 +248,7 @@ class DecisionLog:
             "by_role": {},
             "with_evidence": 0,
             "with_alternatives": 0,
+            "with_knowledge_refs": 0,
         }
         
         try:
@@ -191,6 +273,11 @@ class DecisionLog:
                         # 有替代方案的
                         if d.get('alternatives_considered'):
                             stats["with_alternatives"] += 1
+
+                        # 有知识引用的
+                        refs = d.get('knowledge_references', {})
+                        if refs and any(refs.get(t) for t in ("lexicon", "experience", "constraint")):
+                            stats["with_knowledge_refs"] += 1
         except FileNotFoundError:
             pass
         
