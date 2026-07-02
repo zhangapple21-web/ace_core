@@ -44,11 +44,12 @@ class Observer:
     只负责提出值得研究的问题。
     """
 
-    def __init__(self, task_pool: TaskPool, lexicon=None, memory_index=None, daemon_state: Dict = None):
+    def __init__(self, task_pool: TaskPool, lexicon=None, memory_index=None, daemon_state: Dict = None, experience_deposition=None):
         self.task_pool = task_pool
         self.lexicon = lexicon
         self.memory_index = memory_index
         self.daemon_state = daemon_state or {}
+        self.experience_deposition = experience_deposition
 
     def observe_and_create(self, max_new: int = 3) -> List[Task]:
         """观察系统状态，自动创建任务"""
@@ -160,6 +161,33 @@ class Observer:
                     "tags": ["bug", "stability"],
                 })
 
+        # 闭环反馈：从经验库生成任务
+        if self.experience_deposition:
+            exp_stats = self.experience_deposition.get_stats()
+            by_type = exp_stats.get("by_type", {})
+
+            # lesson 堆积 → 生成"避免重复失败"任务
+            lesson_count = by_type.get("lesson", 0)
+            if lesson_count >= 3:
+                recent_lessons = self.experience_deposition.get_all("lesson", limit=3)
+                lesson_titles = [e.conclusion[:40] for e in recent_lessons if e.conclusion]
+                candidates.append({
+                    "title": f"经验库有{lesson_count}条教训，需要复盘避免重复失败",
+                    "hypothesis": f"近期教训涉及：{'；'.join(lesson_titles[:2])}",
+                    "priority": "high",
+                    "tags": ["experience", "lesson_review", "feedback_loop"],
+                })
+
+            # pattern 堆积 → 生成"升格为 axiom"复核任务
+            pattern_count = by_type.get("pattern", 0)
+            if pattern_count >= 5:
+                candidates.append({
+                    "title": f"经验库有{pattern_count}条模式，评估是否有可升格为公理的",
+                    "hypothesis": "部分模式可能已经反复验证，可以升格为 axiom 提升系统置信度",
+                    "priority": "medium",
+                    "tags": ["experience", "pattern_promotion", "feedback_loop"],
+                })
+
         return candidates
 
 
@@ -171,13 +199,14 @@ class Researcher:
     只负责收集证据，呈现事实。
     """
 
-    def __init__(self, task_pool: TaskPool, lexicon=None, memory_index=None, eco_parser=None, slice_clusterer=None, llm_router=None):
+    def __init__(self, task_pool: TaskPool, lexicon=None, memory_index=None, eco_parser=None, slice_clusterer=None, llm_router=None, experience_deposition=None):
         self.task_pool = task_pool
         self.lexicon = lexicon
         self.memory_index = memory_index
         self.eco_parser = eco_parser
         self.slice_clusterer = slice_clusterer
         self.llm_router = llm_router
+        self.experience_deposition = experience_deposition
 
     def pick_up_task(self, priority: str = "high") -> Optional[Task]:
         """领取最高优先级的待办任务（含卡住的active任务）"""
@@ -295,7 +324,23 @@ class Researcher:
                 "reasoning": "跨层探索：eco_layer 叙事生态",
                 "type": "cross_layer",
             })
-        
+
+        # 7. 闭环反馈：从经验库生成经验驱动假设
+        if self.experience_deposition and title_keywords:
+            for kw in title_keywords[:2]:
+                related = self.experience_deposition.find_related(kw, limit=2)
+                if related:
+                    top_exp = related[0]
+                    candidates.append({
+                        "candidate_id": f"E_exp_{kw}",
+                        "hypothesis": f"经验假设：基于{top_exp.experience_type}「{top_exp.conclusion[:40]}」",
+                        "keywords": [kw],
+                        "confidence": 0.7,
+                        "reasoning": f"历史经验 {top_exp.experience_id} 支持此方向",
+                        "type": "experience_informed",
+                    })
+                    break
+
         # 去重并限制数量
         seen = set()
         unique_candidates = []
@@ -348,6 +393,18 @@ class Researcher:
                         "source": "lexicon",
                         "type": "concept",
                         "concept": concept["name"],
+                    })
+
+        # 闭环反馈：从经验库检索历史经验作为证据
+        if self.experience_deposition:
+            for kw in keywords[:3]:
+                related_exp = self.experience_deposition.find_related(kw, limit=3)
+                for exp in related_exp[:2]:
+                    evidence.append({
+                        "content": f"[历史经验-{exp.experience_type}] {exp.conclusion[:200]}",
+                        "source": f"experience:{exp.experience_id}",
+                        "type": "experience",
+                        "experience_id": exp.experience_id,
                     })
 
         evidence = evidence[:max_evidence]
@@ -759,10 +816,11 @@ class Guardian:
     - 直接废弃（discard）—— 不值得保留
     """
 
-    def __init__(self, task_pool: TaskPool, lexicon=None, memory_index=None):
+    def __init__(self, task_pool: TaskPool, lexicon=None, memory_index=None, experience_deposition=None):
         self.task_pool = task_pool
         self.lexicon = lexicon
         self.memory_index = memory_index
+        self.experience_deposition = experience_deposition
 
     def judge(self, task: Task) -> Dict[str, Any]:
         """审判一个归档的任务，决定它的最终去向"""
@@ -780,9 +838,21 @@ class Guardian:
             decision["verdict"] = "discard"
             decision["reason"] = "无证据支撑，无保留价值"
         elif ev_count >= 5 and ce_count == 0:
-            decision["verdict"] = "axiom"
-            decision["reason"] = f"{ev_count}条证据支撑，0反例，可作为临时公理"
-            decision["promoted"] = True
+            # 闭环反馈：升级为 axiom 前检查是否和已有 lesson 冲突
+            conflict_found = False
+            if self.experience_deposition:
+                title_kw = task.title[:20].lower()
+                related_lessons = self.experience_deposition.find_related(task.title[:20], limit=5)
+                for exp in related_lessons:
+                    if exp.experience_type == "lesson":
+                        conflict_found = True
+                        decision["verdict"] = "experience"
+                        decision["reason"] = f"证据充分但与历史教训 {exp.experience_id} 冲突，降级为经验待复核"
+                        break
+            if not conflict_found:
+                decision["verdict"] = "axiom"
+                decision["reason"] = f"{ev_count}条证据支撑，0反例，可作为临时公理"
+                decision["promoted"] = True
         elif ev_count >= 3 and task.priority in ["high", "critical"]:
             decision["verdict"] = "constraint"
             decision["reason"] = "高优先级任务，证据充分，可作为约束"

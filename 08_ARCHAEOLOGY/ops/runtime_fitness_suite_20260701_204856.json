@@ -1,0 +1,346 @@
+{
+  "timestamp": "2026-07-01T20:47:13.138602",
+  "fitness": {
+    "timestamp": "2026-07-01T20:48:24.450594",
+    "total_providers": 10,
+    "passed": 7,
+    "failed": 3,
+    "fitness_score": 70.0,
+    "previous_score": 77.8,
+    "score_change": -7.8,
+    "is_regression": true,
+    "baseline_date": "2026-07-01",
+    "results": [
+      {
+        "provider_name": "glm",
+        "model": "glm-4-flash",
+        "base_url": "https://open.bigmodel.cn/api/paas/v4",
+        "passed": true,
+        "status": "PASS",
+        "latency_ms": 1787,
+        "error": "",
+        "response_preview": "Hi 👋!",
+        "timestamp": "2026-07-01T20:47:13.189562",
+        "response_status": 200,
+        "failure_code": "PASS"
+      },
+      {
+        "provider_name": "openrouter",
+        "model": "qwen/qwen3.7-plus",
+        "base_url": "https://openrouter.ai/api/v1",
+        "passed": true,
+        "status": "PASS",
+        "latency_ms": 13584,
+        "error": "",
+        "response_preview": "Hello! How can",
+        "timestamp": "2026-07-01T20:47:14.977279",
+        "response_status": 200,
+        "failure_code": "PASS"
+      },
+      {
+        "provider_name": "nim",
+        "model": "deepseek-ai/deepseek-v4-flash",
+        "base_url": "https://integrate.api.nvidia.com/v1",
+        "passed": true,
+        "status": "PASS",
+        "latency_ms": 30348,
+        "error": "",
+        "response_preview": "Hello! How can I",
+        "timestamp": "2026-07-01T20:47:28.562259",
+        "response_status": 200,
+        "failure_code": "PASS"
+      },
+      {
+        "provider_name": "apiyi",
+        "model": "gpt-4o",
+        "base_url": "https://api.apiyi.com/v1",
+        "passed": true,
+        "status": "PASS",
+        "latency_ms": 1820,
+        "error": "",
+        "response_preview": "Hello! How can I",
+        "timestamp": "2026-07-01T20:47:58.910560",
+        "response_status": 200,
+        "failure_code": "PASS"
+      },
+      {
+        "provider_name": "sambanova",
+        "model": "DeepSeek-V3.1",
+        "base_url": "https://api.sambanova.ai/v1",
+        "passed": true,
+        "status": "PASS",
+        "latency_ms": 1019,
+        "error": "",
+        "response_preview": "Hello! How can I",
+        "timestamp": "2026-07-01T20:48:00.731863",
+        "response_status": 200,
+        "failure_code": "PASS"
+      },
+      {
+        "provider_name": "oneapi",
+        "model": "gpt-4o",
+        "base_url": "http://localhost:3000/v1",
+        "passed": true,
+        "status": "PASS",
+        "latency_ms": 18366,
+        "error": "",
+        "response_preview": "Hello! How can I",
+        "timestamp": "2026-07-01T20:48:01.751720",
+        "response_status": 200,
+        "failure_code": "PASS"
+      },
+      {
+        "provider_name": "github_models",
+        "model": "gpt-4o",
+        "base_url": "https://models.inference.ai.azure.com",
+        "passed": true,
+        "status": "PASS",
+        "latency_ms": 2502,
+        "error": "",
+        "response_preview": "Hello! How can I",
+        "timestamp": "2026-07-01T20:48:20.117842",
+        "response_status": 200,
+        "failure_code": "PASS"
+      },
+      {
+        "provider_name": "modelscope",
+        "model": "Qwen/Qwen2.5-72B-Instruct",
+        "base_url": "https://api-inference.modelscope.cn/v1",
+        "passed": false,
+        "status": "FAIL",
+        "latency_ms": 1167,
+        "error": "HTTP 401: {\"error\":{\"message\":\"Please bind your Alibaba Cloud account before use.\",\"request_id\":\"283f31ea-1b59-473b-9714-497a3a76ac19\"}}",
+        "response_preview": "{\"error\":{\"message\":\"Please bind your Alibaba Cloud account before use.\",\"request_id\":\"283f31ea-1b59-473b-9714-497a3a76ac19\"}}",
+        "timestamp": "2026-07-01T20:48:22.620262",
+        "response_status": 401,
+        "failure_code": "AUTH_INVALID"
+      },
+      {
+        "provider_name": "huggingface",
+        "model": "meta-llama/Meta-Llama-3-8B-Instruct",
+        "base_url": "https://api-inference.huggingface.co/v1",
+        "passed": false,
+        "status": "FAIL",
+        "latency_ms": 85,
+        "error": "URL Error: [Errno 11001] getaddrinfo failed",
+        "response_preview": "",
+        "timestamp": "2026-07-01T20:48:23.787727",
+        "response_status": 0,
+        "failure_code": "NETWORK_DNS"
+      },
+      {
+        "provider_name": "gemini",
+        "model": "gemini-2.0-flash",
+        "base_url": "https://generativelanguage.googleapis.com/v1beta",
+        "passed": false,
+        "status": "FAIL",
+        "latency_ms": 554,
+        "error": "HTTP 429: [{\n  \"error\": {\n    \"code\": 429,\n    \"message\": \"You exceeded your current quota, please check your plan and billing details. For more information on ",
+        "response_preview": "[{\n  \"error\": {\n    \"code\": 429,\n    \"message\": \"You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-",
+        "timestamp": "2026-07-01T20:48:23.875297",
+        "response_status": 429,
+        "failure_code": "RATE_LIMITED"
+      }
+    ],
+    "details": {}
+  },
+  "model_verification": {
+    "timestamp": "2026-07-01T20:48:24.456398",
+    "total_models": 9,
+    "passed": 3,
+    "failed": 6,
+    "not_found_404": [
+      "openrouter:anthropic/claude-3.5-sonnet"
+    ],
+    "unauthorized": [],
+    "results": [
+      {
+        "provider": "glm",
+        "model_id": "glm-4-flash",
+        "passed": true,
+        "status": "PASS",
+        "latency_ms": 684,
+        "http_status": 200,
+        "error": "",
+        "failure_code": "UNKNOWN_ERROR",
+        "verified_at": "2026-07-01T20:48:24.456398"
+      },
+      {
+        "provider": "openrouter",
+        "model_id": "anthropic/claude-3.5-sonnet",
+        "passed": false,
+        "status": "NOT_FOUND",
+        "latency_ms": 490,
+        "http_status": 404,
+        "error": "HTTP 404: {\"error\":{\"message\":\"No endpoints found for anthropic/claude-3.5-sonnet.\",\"code\":404},\"user_id\":\"user_3F1YACoV1d5eotE89GZWt6vSEBc\"}",
+        "failure_code": "MODEL_NOT_FOUND",
+        "verified_at": "2026-07-01T20:48:25.185628"
+      },
+      {
+        "provider": "nim",
+        "model_id": "deepseek-ai/deepseek-v4-flash",
+        "passed": false,
+        "status": "TIMEOUT",
+        "latency_ms": 20217,
+        "http_status": 0,
+        "error": "请求超时（>20s）",
+        "failure_code": "TIMEOUT",
+        "verified_at": "2026-07-01T20:48:25.724095"
+      },
+      {
+        "provider": "apiyi",
+        "model_id": "gemini-pro",
+        "passed": false,
+        "status": "PARSE_ERROR",
+        "latency_ms": 729,
+        "http_status": 200,
+        "error": "响应解析失败: Expecting value: line 1 column 1 (char 0)",
+        "failure_code": "RESPONSE_PARSE_ERROR",
+        "verified_at": "2026-07-01T20:48:45.986826"
+      },
+      {
+        "provider": "sambanova",
+        "model_id": "Meta-Llama-3.1-405B-Instruct",
+        "passed": false,
+        "status": "HTTP_ERROR",
+        "latency_ms": 428,
+        "http_status": 410,
+        "error": "HTTP 410: The requested model (Meta-Llama-3.1-405B-Instruct) is not available on SambaNova Cloud. For more information, please visit https://docs.sambanova.ai/c",
+        "failure_code": "MODEL_DEPRECATED",
+        "verified_at": "2026-07-01T20:48:46.759987"
+      },
+      {
+        "provider": "oneapi",
+        "model_id": "gpt-4o",
+        "passed": true,
+        "status": "PASS",
+        "latency_ms": 4507,
+        "http_status": 200,
+        "error": "",
+        "failure_code": "UNKNOWN_ERROR",
+        "verified_at": "2026-07-01T20:48:47.233312"
+      },
+      {
+        "provider": "github_models",
+        "model_id": "gpt-4o",
+        "passed": true,
+        "status": "PASS",
+        "latency_ms": 2692,
+        "http_status": 200,
+        "error": "",
+        "failure_code": "UNKNOWN_ERROR",
+        "verified_at": "2026-07-01T20:48:51.782343"
+      },
+      {
+        "provider": "modelscope",
+        "model_id": "qwen-plus",
+        "passed": false,
+        "status": "HTTP_ERROR",
+        "latency_ms": 2187,
+        "http_status": 400,
+        "error": "HTTP 400: {\"error\":{\"message\":\"Invalid model id: qwen-plus\",\"request_id\":\"6f7b5de3-fa61-4fdc-9c21-5af1a6f6ab1c\"}}",
+        "failure_code": "MODEL_NOT_FOUND",
+        "verified_at": "2026-07-01T20:48:54.519891"
+      },
+      {
+        "provider": "huggingface",
+        "model_id": "meta-llama/Meta-Llama-3-8B-Instruct",
+        "passed": false,
+        "status": "NETWORK_ERROR",
+        "latency_ms": 85,
+        "http_status": 0,
+        "error": "URL Error: [Errno 11001] getaddrinfo failed",
+        "failure_code": "NETWORK_DNS",
+        "verified_at": "2026-07-01T20:48:56.754819"
+      }
+    ],
+    "details": {}
+  },
+  "failure_stats": {
+    "total_failures": 13,
+    "total_occurrences": 83,
+    "by_category": {
+      "auth": 5,
+      "parse": 2,
+      "model": 3,
+      "network": 3
+    },
+    "by_severity": {
+      "critical": 8,
+      "warning": 5
+    },
+    "by_status": {
+      "open": 13
+    },
+    "open_count": 13,
+    "investigating_count": 0,
+    "fixed_count": 0,
+    "critical_count": 8
+  },
+  "key_health": {
+    "total_keys": 11,
+    "avg_health": 35.8,
+    "by_status": {
+      "healthy": 1,
+      "unhealthy": 5,
+      "suspended": 4,
+      "degraded": 1
+    },
+    "total_requests": 100,
+    "total_success": 45,
+    "total_failure": 55,
+    "overall_success_rate": 45.0
+  },
+  "registry_summary": {
+    "total_providers": 9,
+    "total_models": 9,
+    "verified_models": 4
+  },
+  "capability_matrix": {
+    "glm:glm-4-flash": {
+      "provider": "glm",
+      "verified": true,
+      "status": "active"
+    },
+    "openrouter:anthropic/claude-3.5-sonnet": {
+      "provider": "openrouter",
+      "verified": false,
+      "status": "active"
+    },
+    "nim:deepseek-ai/deepseek-v4-flash": {
+      "provider": "nim",
+      "verified": true,
+      "status": "active"
+    },
+    "apiyi:gemini-pro": {
+      "provider": "apiyi",
+      "verified": false,
+      "status": "active"
+    },
+    "sambanova:Meta-Llama-3.1-405B-Instruct": {
+      "provider": "sambanova",
+      "verified": false,
+      "status": "active"
+    },
+    "oneapi:gpt-4o": {
+      "provider": "oneapi",
+      "verified": true,
+      "status": "active"
+    },
+    "github_models:gpt-4o": {
+      "provider": "github_models",
+      "verified": true,
+      "status": "active"
+    },
+    "modelscope:qwen-plus": {
+      "provider": "modelscope",
+      "verified": false,
+      "status": "active"
+    },
+    "huggingface:meta-llama/Meta-Llama-3-8B-Instruct": {
+      "provider": "huggingface",
+      "verified": false,
+      "status": "active"
+    }
+  }
+}

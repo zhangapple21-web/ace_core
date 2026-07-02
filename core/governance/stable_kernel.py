@@ -932,13 +932,28 @@ class StableRecursiveKernel:
         # 4. EVOLVE（记录到演化追踪器）
         if self.evolution_tracker:
             try:
-                self.evolution_tracker.record_decision_and_event(
-                    knowledge_id=knowledge.get("id", knowledge.get("title", "")) if knowledge else "",
-                    decision=stable_decision.get("decision", "unknown"),
-                    decision_type="kernel_cycle",
-                    event_type="kernel_stabilized" if stability_meta.get("stabilized") else "kernel_accepted",
-                    evidence={"cycle_id": cycle_id, "input_hash": input_hash},
+                from core.governance.knowledge_evolution import Actor
+                knowledge_id_val = knowledge.get("id", knowledge.get("title", "")) if knowledge else ""
+                old_status = knowledge.get("status", "HYPOTHESIS") if knowledge else "HYPOTHESIS"
+                new_status = "VALIDATED" if stable_decision.get("confidence", 0) >= 0.7 else "EVIDENCE"
+                
+                actor = Actor(
                     actor_type="kernel",
+                    actor_id="stable_kernel",
+                    actor_role="kernel",
+                    version="1.0",
+                    runtime="ace_runtime",
+                    authority="kernel_protocol",
+                )
+                
+                self.evolution_tracker.record_decision_and_event(
+                    knowledge_id=knowledge_id_val,
+                    old_status=old_status,
+                    new_status=new_status,
+                    reason=f"Kernel cycle {cycle_id}: {stable_decision.get('decision', 'unknown')}",
+                    actor=actor,
+                    decision_id=cycle_id,
+                    evidence_ids=[f"cycle:{cycle_id}", f"hash:{input_hash}"],
                 )
             except Exception as e:
                 logger.warning(f"[Kernel] EVOLVE 失败: {e}")

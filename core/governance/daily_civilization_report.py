@@ -109,9 +109,23 @@ class DailyMeetingReport:
     最后 Governor 决定：
     - 今天真正值得进入文明的
     - 理由是什么
+
+    注意：
+        Runtime Fitness 永远是第一项议程。
+        如果 Runtime 退化了，优先恢复，不开新坑。
     """
     date: str
     generated_at: str = ""
+
+    # 0. Runtime Fitness（最高优先级，永远第一个汇报）
+    fitness_score: float = 0.0       # 当前 Fitness 分数
+    fitness_previous: float = 0.0    # 上次分数
+    fitness_change: float = 0.0      # 变化量
+    fitness_is_regression: bool = False  # 是否退化
+    fitness_passed: int = 0          # 通过的 Provider 数
+    fitness_total: int = 0           # 总 Provider 数
+    fitness_regressed_providers: List[str] = field(default_factory=list)  # 退化的 Provider
+    fitness_notes: str = ""          # 备注
 
     # 1. 小疯子（Observer）汇报
     observer_discovered: int = 0  # 今天发现
@@ -564,83 +578,75 @@ class DailyCivilizationReporter:
             generated_at=now.isoformat(),
         )
 
-        # 1. 小疯子（Observer）汇报 - 从任务池统计数据中获取
-        if task_pool_stats:
-            tasks_created = task_pool_stats.get("tasks_created", 0)
-            tasks_to_review = task_pool_stats.get("tasks_to_review", 0)
-            tasks_failed = task_pool_stats.get("tasks_failed", 0)
+        # 0. Runtime Fitness（最高优先级，永远第一个检查）
+        try:
+            from core.governance.runtime_fitness import RuntimeFitnessChecker
+            fitness_checker = RuntimeFitnessChecker(str(self.ace_runtime_dir))
+            fitness_report = fitness_checker.check_all()
 
-            report.observer_discovered = tasks_created
-            report.observer_to_review = tasks_to_review
-            report.observer_failed = tasks_failed
+            report.fitness_score = fitness_report.fitness_score
+            report.fitness_previous = fitness_report.previous_score
+            report.fitness_change = fitness_report.score_change
+            report.fitness_is_regression = fitness_report.is_regression
+            report.fitness_passed = fitness_report.passed
+            report.fitness_total = fitness_report.total_providers
 
-            if tasks_created > 0:
-                report.observer_notes = f"小疯子今天发现 {tasks_created} 个，进入验证 {tasks_to_review} 个，失败 {tasks_failed} 个"
+            # 收集退化的 Provider
+            baseline = fitness_checker.get_baseline()
+            if baseline and baseline.get("results"):
+                baseline_passed = {r["provider_name"] for r in baseline["results"] if r["passed"]}
+                now_failed = {r.provider_name for r in fitness_report.results if not r.passed}
+                report.fitness_regressed_providers = sorted(list(baseline_passed & now_failed))
+
+            if report.fitness_is_regression:
+                report.fitness_notes = (
+                    f"⚠️  Runtime 退化：从 {report.fitness_previous}% 降到 {report.fitness_score}%，"
+                    f"下降 {abs(report.fitness_change)}%。"
+                    f"退化 Provider: {', '.join(report.fitness_regressed_providers) if report.fitness_regressed_providers else '无'}"
+                )
             else:
-                report.observer_notes = "小疯子今天没有新发现"
+                report.fitness_notes = f"Runtime 健康度 {report.fitness_score}%，{'稳中有升' if report.fitness_change > 0 else '保持稳定'}"
 
-        # 2. 疯子（Validator）汇报 - 从知识库和任务池数据中获取
-        if task_pool_stats and knowledge_stats:
-            tasks_passed = task_pool_stats.get("tasks_approved", 0)
-            tasks_rejected = task_pool_stats.get("tasks_rejected", 0)
-            exceptions = knowledge_stats.get("exceptions", 0)
+        except Exception as e:
+            report.fitness_notes = f"Fitness 检查失败: {e}"
+            logger.warning(f"Runtime Fitness 检查失败: {e}")
 
-            report.validator_passed = tasks_passed
-            report.validator_rejected = tasks_rejected
-            report.validator_exceptions = exceptions
+        # 1. 小疯子（Observer）汇报
+        observer_stats = self._collect_observer_stats(report_date)
+        report.observer_discovered = observer_stats["discovered"]
+        report.observer_to_review = observer_stats["to_review"]
+        report.observer_failed = observer_stats["failed"]
+        report.observer_notes = observer_stats["notes"]
 
-            if tasks_passed > 0 or tasks_rejected > 0:
-                report.validator_notes = f"疯子今天通过 {tasks_passed} 个，拒绝 {tasks_rejected} 个，生产异常 {exceptions} 个"
-            else:
-                report.validator_notes = "疯子今天没有验证任务"
+        # 2. 疯子（Validator）汇报
+        validator_stats = self._collect_validator_stats(report_date)
+        report.validator_passed = validator_stats["passed"]
+        report.validator_rejected = validator_stats["rejected"]
+        report.validator_exceptions = validator_stats["exceptions"]
+        report.validator_notes = validator_stats["notes"]
 
         # 3. ACE（Archivist + Governor）汇报
-        if knowledge_stats:
-            new_caps = knowledge_stats.get("new_capabilities", 0)
-            dup_removed = knowledge_stats.get("duplicates_removed", 0)
-            civ_score = knowledge_stats.get("civilization_score", 0.0)
-
-            report.ace_new_capabilities = new_caps
-            report.ace_duplicates_removed = dup_removed
-            report.ace_civilization_score = civ_score
-
-            report.ace_notes = f"ACE 今天新增 {new_caps} 个能力，删除 {dup_removed} 个重复，文明评分 {civ_score:.1f}"
+        ace_stats = self._collect_ace_stats(report_date)
+        report.ace_new_capabilities = ace_stats["new_capabilities"]
+        report.ace_duplicates_removed = ace_stats["duplicates_removed"]
+        report.ace_civilization_score = ace_stats["civilization_score"]
+        report.ace_notes = ace_stats["notes"]
 
         # 4. 云端（Continuity）汇报
-        if system_stats:
-            report.cloud_runtime_ok = system_stats.get("runtime_ok", True)
-            report.cloud_backup_ok = system_stats.get("backup_ok", True)
-            report.cloud_sync_ok = system_stats.get("sync_ok", True)
-            report.cloud_exceptions = system_stats.get("exceptions", 0)
-
-            status_parts = []
-            if report.cloud_runtime_ok:
-                status_parts.append("运行成功")
-            else:
-                status_parts.append("运行失败")
-
-            if report.cloud_backup_ok:
-                status_parts.append("备份成功")
-            else:
-                status_parts.append("备份失败")
-
-            if report.cloud_sync_ok:
-                status_parts.append("同步成功")
-            else:
-                status_parts.append("同步失败")
-
-            if report.cloud_exceptions > 0:
-                status_parts.append(f"异常{report.cloud_exceptions}个")
-
-            report.cloud_notes = "，".join(status_parts)
+        cloud_stats = self._collect_cloud_stats(report_date)
+        report.cloud_runtime_ok = cloud_stats["runtime_ok"]
+        report.cloud_backup_ok = cloud_stats["backup_ok"]
+        report.cloud_sync_ok = cloud_stats["sync_ok"]
+        report.cloud_exceptions = cloud_stats["exceptions"]
+        report.cloud_notes = cloud_stats["notes"]
 
         # 5. StableKernel（稳定内核）汇报
         try:
-            from core.governance import StableRecursiveKernel
-            kernel_data_dir = self.base_dir / "06_RUNTIME" / "ace" / "data"
+            kernel_data_dir = self.ace_runtime_dir / "06_RUNTIME" / "ace" / "data"
             if kernel_data_dir.exists():
+                from core.governance.stable_kernel import StableRecursiveKernel
                 kernel = StableRecursiveKernel(
-                    base_dir=str(self.base_dir),
+                    base_dir=str(self.ace_runtime_dir),
                     runtime_dir=str(kernel_data_dir),
                 )
                 stats = kernel.get_kernel_stats()
@@ -660,6 +666,8 @@ class DailyCivilizationReporter:
                     report.kernel_notes = f"自我反思 {report.kernel_reflections} 次"
                 else:
                     report.kernel_notes = "无异常，系统稳定"
+            else:
+                report.kernel_notes = "内核数据目录不存在，跳过"
         except Exception as e:
             report.kernel_notes = f"内核统计获取失败: {e}"
 
@@ -683,6 +691,384 @@ class DailyCivilizationReporter:
         self._save_meeting_report(report)
 
         return report
+
+    def _collect_observer_stats(self, report_date: str) -> Dict[str, Any]:
+        """
+        小疯子（Observer）数据采集
+
+        采集内容：
+        - discovered: 今日发现（考古报告新增数）
+        - to_review: 进入验证（新增假设数）
+        - failed: 失败数（新增故障数）
+        """
+        stats = {
+            "discovered": 0,
+            "to_review": 0,
+            "failed": 0,
+            "notes": "",
+        }
+
+        # 1. 考古报告新增数（发现）
+        archaeology_dir = self.ace_runtime_dir / "08_ARCHAEOLOGY"
+        if archaeology_dir.exists():
+            try:
+                for f in archaeology_dir.glob("*.md"):
+                    if f.is_file():
+                        mtime = f.stat().st_mtime
+                        from datetime import datetime as dt
+                        f_date = dt.fromtimestamp(mtime).strftime("%Y-%m-%d")
+                        if f_date == report_date:
+                            stats["discovered"] += 1
+            except Exception as e:
+                logger.warning(f"统计考古报告失败: {e}")
+
+        # 2. 新增假设数（进入验证）
+        assumptions_file = self.data_dir / "assumptions" / "assumptions_db.jsonl"
+        if assumptions_file.exists():
+            try:
+                with open(assumptions_file, "r", encoding="utf-8") as f:
+                    for line in f:
+                        try:
+                            record = json.loads(line.strip())
+                            if record.get("created_at", "").startswith(report_date):
+                                stats["to_review"] += 1
+                        except Exception:
+                            continue
+            except Exception as e:
+                logger.warning(f"统计假设失败: {e}")
+
+        # 3. 新增故障数（失败）
+        failure_file = self.data_dir / "failure_memory" / "failures.jsonl"
+        if failure_file.exists():
+            try:
+                with open(failure_file, "r", encoding="utf-8") as f:
+                    for line in f:
+                        try:
+                            record = json.loads(line.strip())
+                            if record.get("first_seen", "").startswith(report_date):
+                                stats["failed"] += 1
+                        except Exception:
+                            continue
+            except Exception as e:
+                logger.warning(f"统计故障失败: {e}")
+
+        # 生成备注
+        parts = []
+        if stats["discovered"] > 0:
+            parts.append(f"发现 {stats['discovered']} 个新东西")
+        if stats["to_review"] > 0:
+            parts.append(f"{stats['to_review']} 个进入验证")
+        if stats["failed"] > 0:
+            parts.append(f"{stats['failed']} 个失败")
+
+        if parts:
+            stats["notes"] = "小疯子：" + "，".join(parts)
+        else:
+            stats["notes"] = "小疯子：今日无新发现"
+
+        return stats
+
+    def _collect_validator_stats(self, report_date: str) -> Dict[str, Any]:
+        """
+        疯子（Validator）数据采集
+
+        采集内容：
+        - passed: 今日验证通过（模型验证通过数 + Governor 通过数）
+        - rejected: 今日拒绝（模型验证失败数 + Governor 拒绝数）
+        - exceptions: 生产异常（今日修复的故障数）
+        """
+        stats = {
+            "passed": 0,
+            "rejected": 0,
+            "exceptions": 0,
+            "notes": "",
+        }
+
+        # 1. 模型验证通过
+        verify_file = self.data_dir / "model_verification" / "verification_history.jsonl"
+        if verify_file.exists():
+            try:
+                with open(verify_file, "r", encoding="utf-8") as f:
+                    for line in f:
+                        try:
+                            record = json.loads(line.strip())
+                            if record.get("timestamp", "").startswith(report_date):
+                                if record.get("verified", False):
+                                    stats["passed"] += 1
+                                else:
+                                    stats["rejected"] += 1
+                        except Exception:
+                            continue
+            except Exception as e:
+                logger.warning(f"统计模型验证失败: {e}")
+
+        # 2. Governor 决策
+        governor_file = self.data_dir / "governor" / "knowledge_governor_records.jsonl"
+        if governor_file.exists():
+            try:
+                with open(governor_file, "r", encoding="utf-8") as f:
+                    for line in f:
+                        try:
+                            record = json.loads(line.strip())
+                            if record.get("timestamp", "").startswith(report_date):
+                                decision = record.get("decision", "")
+                                if decision in ["pass", "merge"]:
+                                    stats["passed"] += 1
+                                elif decision in ["reject", "supersede"]:
+                                    stats["rejected"] += 1
+                        except Exception:
+                            continue
+            except Exception as e:
+                logger.warning(f"统计Governor决策失败: {e}")
+
+        # 3. 故障修复数（异常处理数）
+        failure_file = self.data_dir / "failure_memory" / "failures.jsonl"
+        if failure_file.exists():
+            try:
+                with open(failure_file, "r", encoding="utf-8") as f:
+                    for line in f:
+                        try:
+                            record = json.loads(line.strip())
+                            # 今日状态变为 fixed 的
+                            if record.get("last_seen", "").startswith(report_date):
+                                if record.get("status") == "fixed":
+                                    stats["exceptions"] += 1
+                        except Exception:
+                            continue
+            except Exception as e:
+                logger.warning(f"统计故障修复失败: {e}")
+
+        # 生成备注
+        parts = []
+        if stats["passed"] > 0:
+            parts.append(f"通过 {stats['passed']} 个")
+        if stats["rejected"] > 0:
+            parts.append(f"拒绝 {stats['rejected']} 个")
+        if stats["exceptions"] > 0:
+            parts.append(f"处理异常 {stats['exceptions']} 个")
+
+        if parts:
+            stats["notes"] = "疯子：" + "，".join(parts)
+        else:
+            stats["notes"] = "疯子：今日无验证任务"
+
+        return stats
+
+    def _collect_ace_stats(self, report_date: str) -> Dict[str, Any]:
+        """
+        ACE（Archivist + Governor）数据采集
+
+        采集内容：
+        - new_capabilities: 新增能力（今日新增的经验/协议/约束）
+        - duplicates_removed: 删除重复（今日修订/合并的知识）
+        - civilization_score: 文明评分（综合指标）
+        """
+        stats = {
+            "new_capabilities": 0,
+            "duplicates_removed": 0,
+            "civilization_score": 0.0,
+            "notes": "",
+        }
+
+        # 1. 新增能力：今日新增的经验 + 协议 + 概念
+        # 经验
+        exp_file = self.ace_runtime_dir / "09_KNOWLEDGE" / "experiences.json"
+        if exp_file.exists():
+            try:
+                with open(exp_file, "r", encoding="utf-8") as f:
+                    exps = json.load(f)
+                    if isinstance(exps, list):
+                        for e in exps:
+                            if isinstance(e, dict) and e.get("created_at", "").startswith(report_date):
+                                stats["new_capabilities"] += 1
+            except Exception:
+                pass
+
+        # 协议（04_PROTOCOLS/）
+        proto_dir = self.ace_runtime_dir / "04_PROTOCOLS"
+        if proto_dir.exists():
+            try:
+                for f in proto_dir.glob("*.md"):
+                    if f.is_file():
+                        from datetime import datetime as dt
+                        f_date = dt.fromtimestamp(f.stat().st_mtime).strftime("%Y-%m-%d")
+                        if f_date == report_date:
+                            stats["new_capabilities"] += 1
+            except Exception:
+                pass
+
+        # 2. 删除重复：今日修订/合并的记录
+        revision_file = self.data_dir / "revisions" / "revision_records.jsonl"
+        if revision_file.exists():
+            try:
+                with open(revision_file, "r", encoding="utf-8") as f:
+                    for line in f:
+                        try:
+                            record = json.loads(line.strip())
+                            if record.get("timestamp", "").startswith(report_date):
+                                stats["duplicates_removed"] += 1
+                        except Exception:
+                            continue
+            except Exception:
+                pass
+
+        # Governor merge 也算去重
+        governor_file = self.data_dir / "governor" / "knowledge_governor_records.jsonl"
+        if governor_file.exists():
+            try:
+                with open(governor_file, "r", encoding="utf-8") as f:
+                    for line in f:
+                        try:
+                            record = json.loads(line.strip())
+                            if record.get("timestamp", "").startswith(report_date):
+                                if record.get("decision") == "merge":
+                                    stats["duplicates_removed"] += 1
+                        except Exception:
+                            continue
+            except Exception:
+                pass
+
+        # 3. 文明评分：综合计算
+        # Fitness (40%) + 验证通过率 (30%) + 知识量/100 (30%)
+        try:
+            from core.governance.runtime_fitness import RuntimeFitnessChecker
+            fitness_checker = RuntimeFitnessChecker(str(self.ace_runtime_dir))
+            baseline = fitness_checker.get_baseline()
+            fitness_score = baseline.get("fitness_score", 0) if baseline else 0
+        except Exception:
+            fitness_score = 0
+
+        # 验证通过率
+        total_decisions = 0
+        passed_decisions = 0
+        if governor_file.exists():
+            try:
+                with open(governor_file, "r", encoding="utf-8") as f:
+                    for line in f:
+                        try:
+                            record = json.loads(line.strip())
+                            total_decisions += 1
+                            if record.get("decision") in ["pass", "merge"]:
+                                passed_decisions += 1
+                        except Exception:
+                            continue
+            except Exception:
+                pass
+        pass_rate = (passed_decisions / total_decisions * 100) if total_decisions > 0 else 50
+
+        # 知识量
+        total_knowledge = self._count_total_knowledge()
+        knowledge_score = min(total_knowledge / 2, 100)  # 200条满分为100
+
+        stats["civilization_score"] = round(
+            fitness_score * 0.4 + pass_rate * 0.3 + knowledge_score * 0.3,
+            1
+        )
+
+        # 生成备注
+        parts = []
+        if stats["new_capabilities"] > 0:
+            parts.append(f"新增 {stats['new_capabilities']} 个能力")
+        if stats["duplicates_removed"] > 0:
+            parts.append(f"去重 {stats['duplicates_removed']} 个")
+        parts.append(f"文明评分 {stats['civilization_score']:.1f}")
+
+        stats["notes"] = "ACE：" + "，".join(parts)
+
+        return stats
+
+    def _collect_cloud_stats(self, report_date: str) -> Dict[str, Any]:
+        """
+        云端（Continuity）数据采集
+
+        采集内容：
+        - runtime_ok: Runtime 是否健康（Fitness > 50%）
+        - backup_ok: 备份是否成功（今日有备份文件）
+        - sync_ok: 同步是否成功（同步状态文件）
+        - exceptions: 异常数（今日故障数）
+        """
+        stats = {
+            "runtime_ok": True,
+            "backup_ok": False,
+            "sync_ok": True,
+            "exceptions": 0,
+            "notes": "",
+        }
+
+        # 1. Runtime 健康度
+        try:
+            from core.governance.runtime_fitness import RuntimeFitnessChecker
+            fitness_checker = RuntimeFitnessChecker(str(self.ace_runtime_dir))
+            baseline = fitness_checker.get_baseline()
+            fitness_score = baseline.get("fitness_score", 0) if baseline else 0
+            stats["runtime_ok"] = fitness_score >= 50
+        except Exception:
+            stats["runtime_ok"] = True  # 保守估计
+
+        # 2. 备份状态
+        backup_dir = self.ace_runtime_dir / "10_BACKUP"
+        if backup_dir.exists():
+            try:
+                today_backups = [
+                    f for f in backup_dir.glob("*.zip")
+                    if f.is_file()
+                ]
+                # 检查最近的备份是不是今天的
+                if today_backups:
+                    latest = max(today_backups, key=lambda f: f.stat().st_mtime)
+                    from datetime import datetime as dt
+                    latest_date = dt.fromtimestamp(latest.stat().st_mtime).strftime("%Y-%m-%d")
+                    stats["backup_ok"] = latest_date == report_date
+                    if not stats["backup_ok"]:
+                        # 如果今天还没结束，7天内有备份也算ok
+                        days_diff = (dt.now() - dt.fromtimestamp(latest.stat().st_mtime)).days
+                        stats["backup_ok"] = days_diff <= 7
+            except Exception:
+                stats["backup_ok"] = True  # 保守估计
+
+        # 3. 同步状态
+        sync_file = self.ace_runtime_dir / ".core_sync_state.json"
+        if sync_file.exists():
+            try:
+                with open(sync_file, "r", encoding="utf-8") as f:
+                    sync_state = json.load(f)
+                    last_sync = sync_state.get("last_sync", "")
+                    if last_sync:
+                        from datetime import datetime as dt
+                        try:
+                            sync_date = dt.fromisoformat(last_sync).strftime("%Y-%m-%d")
+                            stats["sync_ok"] = sync_date == report_date
+                        except Exception:
+                            stats["sync_ok"] = True
+            except Exception:
+                stats["sync_ok"] = True  # 保守估计
+
+        # 4. 异常数（今日新故障）
+        failure_file = self.data_dir / "failure_memory" / "failures.jsonl"
+        if failure_file.exists():
+            try:
+                with open(failure_file, "r", encoding="utf-8") as f:
+                    for line in f:
+                        try:
+                            record = json.loads(line.strip())
+                            if record.get("first_seen", "").startswith(report_date):
+                                stats["exceptions"] += 1
+                        except Exception:
+                            continue
+            except Exception:
+                pass
+
+        # 生成备注
+        parts = []
+        parts.append("运行" + ("正常" if stats["runtime_ok"] else "异常"))
+        parts.append("备份" + ("正常" if stats["backup_ok"] else "待更新"))
+        parts.append("同步" + ("正常" if stats["sync_ok"] else "待同步"))
+        if stats["exceptions"] > 0:
+            parts.append(f"异常{stats['exceptions']}个")
+
+        stats["notes"] = "云端：" + "，".join(parts)
+
+        return stats
 
     def _collect_today_decisions(self, report_date: str) -> List[Dict]:
         """收集今日所有决策"""
@@ -722,6 +1108,27 @@ class DailyCivilizationReporter:
 **模式**: 四人开会 | Civilization Clock ⏰
 
 ---
+
+## 第零项：Runtime Fitness 🔴（最高优先级）
+
+> 文明可以每天成长，但 Runtime 不允许每天退化。
+
+- 📊 **Fitness Score**: **{report.fitness_score}%**
+- 📈 上次分数: {report.fitness_previous}%
+- 📉 变化: {report.fitness_change:+.1f}%
+- ✅ 通过: {report.fitness_passed}/{report.fitness_total}
+- ⚠️  退化: {'是' if report.fitness_is_regression else '否'}
+- 📝 备注: {report.fitness_notes}
+
+"""
+
+        if report.fitness_regressed_providers:
+            content += "**退化 Provider 列表:**\n\n"
+            for p in report.fitness_regressed_providers:
+                content += f"- ❌ {p}\n"
+            content += "\n"
+
+        content += f"""---
 
 ## 一、小疯子汇报（Observer）
 

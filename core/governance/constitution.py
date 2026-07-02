@@ -53,6 +53,7 @@ class ConstitutionalPrinciple:
     REVISION_ABOVE_ADD = "revision_above_add"     # 修订优先于新增
     SEMANTIC_DEDUP = "semantic_dedup"             # 语义去重优先
     LINEAGE_TRACK = "lineage_track"               # 血缘追踪
+    RUNTIME_NON_REGRESSION = "runtime_non_regression"  # Runtime 能力不退化
 
     # 权限约束
     GOVERNOR_CAN_ACCEPT = "governor_can_accept"   # Governor 可以接受
@@ -60,6 +61,19 @@ class ConstitutionalPrinciple:
     GOVERNOR_CAN_OBSERVE = "governor_can_observe" # Governor 可以观察
     GOVERNOR_CAN_WAIT = "governor_can_wait"       # Governor 可以等待
     AGENTS_CANNOT_DECIDE = "agents_cannot_decide"  # Agent 不能决定
+
+    # ── 连续性修正案（Continuity Amendment, 2026-07-02）──
+    # 用户提出的 6 条连续性原则
+    MEMORY_PRIORITY_OVER_GENERATION = "memory_priority_over_generation"  # 记忆优先于生成
+    IDENTITY_ISOLATION = "identity_isolation"                            # 标识隔离
+    LONG_MEMORY_NON_RESET = "long_memory_non_reset"                      # 长期记忆不可重置
+    TRACEABILITY = "traceability"                                        # 可追溯性
+    MANDATORY_CONSISTENCY_CHECK = "mandatory_consistency_check"          # 强制一致性检查
+    CONTINUITY_METRICS = "continuity_metrics"                            # 连续性指标
+    # 我建议的 3 条增强
+    MEMORY_STRATIFICATION = "memory_stratification"                      # 记忆分层
+    MEMORY_COMPRESSION = "memory_compression"                            # 记忆压缩
+    WILL_ALIGNMENT = "will_alignment"                                    # 意志对齐
 
 
 @dataclass
@@ -208,6 +222,12 @@ class Constitution:
                 "name": "血缘追踪",
                 "description": "所有知识必须有清晰的父子关系和演化路径。",
                 "level": "important",
+            },
+            {
+                "id": ConstitutionalPrinciple.RUNTIME_NON_REGRESSION,
+                "name": "Runtime Capability Non-Regression（运行时能力不退化）",
+                "description": "任何 Runtime 在进入下一阶段演化之前，必须保持不少于上一版本的 Provider 可用能力。若 Runtime Fitness 下降，优先恢复执行能力，禁止继续新增功能。文明可以每天成长，但 Runtime 不允许每天退化。",
+                "level": "fundamental",
             },
         ]
 

@@ -339,3 +339,81 @@ class TgNotifier:
     def test_connection(self) -> bool:
         """测试连通性"""
         return self._send_message("🧪 ACE TG 通知测试 - 连通性验证通过")
+
+    # ── 会议摘要级 ────────────────────────────────────────
+
+    def meeting_summary(self, meeting_report) -> bool:
+        """
+        发送四人圆桌会议摘要。
+
+        meeting_report: DailyMeetingReport 对象
+        每天1条，和日报共用 LEVEL_DAILY 限制。
+        """
+        if not self._can_send(self.LEVEL_DAILY):
+            return False
+
+        text = self._build_meeting_summary(meeting_report)
+        ok = self._send_message(text)
+        if ok:
+            self._record_sent(self.LEVEL_DAILY)
+        return ok
+
+    def _build_meeting_summary(self, meeting_report) -> str:
+        """构建会议摘要文案"""
+        today = meeting_report.date
+
+        lines = []
+
+        # 开头：会议标题
+        lines.append(f"🏛️ <b>四人圆桌会议 · {today}</b>")
+        lines.append("")
+
+        # 第零项：Runtime Fitness（最关键）
+        fitness_icon = "✅" if meeting_report.fitness_score >= 70 else "⚠️" if meeting_report.fitness_score >= 50 else "🚨"
+        lines.append(f"{fitness_icon} Runtime Fitness: <b>{meeting_report.fitness_score}%</b> ({meeting_report.fitness_passed}/{meeting_report.fitness_total})")
+        if meeting_report.fitness_is_regression:
+            lines.append("    ⚠️ 退化检测：比上次下降了")
+        lines.append("")
+
+        # 四人汇报摘要（只说关键数字）
+        # Observer
+        obs_icon = "🆕" if meeting_report.observer_discovered > 0 else "💤"
+        lines.append(f"{obs_icon} 小疯子：发现 {meeting_report.observer_discovered} 个")
+
+        # Validator
+        val_icon = "✅" if meeting_report.validator_passed > 0 else "💤"
+        lines.append(f"{val_icon} 疯子：通过 {meeting_report.validator_passed} 个")
+
+        # ACE
+        ace_score = meeting_report.ace_civilization_score
+        ace_icon = "📈" if ace_score >= 50 else "📉"
+        lines.append(f"{ace_icon} ACE：文明评分 {ace_score:.1f}")
+
+        # 云端
+        cloud_ok = meeting_report.cloud_runtime_ok and meeting_report.cloud_backup_ok and meeting_report.cloud_sync_ok
+        cloud_icon = "☁️" if cloud_ok else "⚠️"
+        lines.append(f"{cloud_icon} 云端：{'全部正常' if cloud_ok else '有异常'}")
+        lines.append("")
+
+        # StableKernel（如果有）
+        if meeting_report.kernel_total_cycles > 0:
+            stab_rate = meeting_report.kernel_stability_rate
+            stab_icon = "🔒" if stab_rate >= 0.9 else "🔓"
+            lines.append(f"{stab_icon} StableKernel：稳定率 {stab_rate:.1%}")
+            if meeting_report.kernel_stabilizations > 0:
+                lines.append(f"    ⚡ 稳定化干预 {meeting_report.kernel_stabilizations} 次")
+            lines.append("")
+
+        # Governor 最终决定
+        if meeting_report.governor_winner:
+            lines.append(f"🏆 <b>今日优胜：{meeting_report.governor_winner}</b>")
+            if meeting_report.governor_reason:
+                lines.append(f"    理由：{meeting_report.governor_reason[:80]}")
+        else:
+            lines.append("📝 今日无重大决策")
+        lines.append("")
+
+        lines.append("─" * 15)
+        lines.append(f"<i>四人圆桌 · ACE · {today}</i>")
+
+        return "\n".join(lines)

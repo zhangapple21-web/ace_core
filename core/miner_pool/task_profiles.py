@@ -4,15 +4,17 @@
 不是按模型好坏排序。
 是按任务类型匹配最合适的算力。
 
-路由优先级（2026-06-30 实际可用性扫描后更新）：
+路由优先级（2026-07-01 模型验证后更新）：
   1. glm:glm-4-flash（智谱，当前唯一稳定可用的独立API）
   2. ace_proxy（ACE 本地代理，如已启动则自动接管）
-  3. github_models（GitHub Models，Token 失效待更新）
-  4. nim（NVIDIA NIM，模型路径待排查）
+  3. nim（NVIDIA NIM，已验证 deepseek-v4-flash + mistral-large 可用）
+  4. github_models（GitHub Models，Token 失效待更新）
   5. 其他提供商（OpenRouter、SambaNova 等，作为兜底）
 
-注意：模型顺序 = 尝试顺序。
-     第一个可用的会被直接使用，失败自动降级试下一个。
+注意：
+  1. 模型顺序 = 尝试顺序。第一个可用的会被直接使用，失败自动降级。
+  2. 模型名必须经过 Provider Registry 验证，禁止写死未验证的模型名。
+  3. 模型名变更时，只需修改这里的常量定义，不需要改其他文件。
 """
 
 from typing import Dict, List, Any
@@ -25,7 +27,7 @@ GITHUB_GPT4O = "github_models:gpt-4o"
 GITHUB_GPT4O_MINI = "github_models:gpt-4o-mini"
 NIM_NEMOTRON_ULTRA = "nim:nvidia/nemotron-3-ultra-550b-a55b"
 NIM_MISTRAL_LARGE = "nim:mistralai/mistral-large-3-675b-instruct-2512"
-NIM_DEEPSEEK_V4 = "nim:deepseek-ai/deepseek-v4"
+NIM_DEEPSEEK_V4 = "nim:deepseek-ai/deepseek-v4-flash"
 NIM_QWEN_397B = "nim:qwen/qwen3.5-397b-a17b"
 OPENROUTER_CLAUDE = "openrouter:anthropic/claude-3.5-sonnet"
 

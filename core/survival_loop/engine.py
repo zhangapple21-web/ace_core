@@ -28,6 +28,7 @@ Survival Loop Engine — 单循环执行内核（极简版）
 """
 
 import json
+import os
 import re
 import time
 import urllib.request
@@ -46,19 +47,21 @@ PROVIDER_ORDER = [
     "github_models",
     "modelscope",
     "huggingface",
+    "gemini",
     "ace_proxy",
 ]
 
 DEFAULT_MODEL = {
     "glm": "glm-4-flash",
-    "openrouter": "anthropic/claude-3.5-sonnet",
+    "openrouter": "qwen/qwen3.7-plus",
     "nim": "deepseek-ai/deepseek-v4-flash",
-    "apiyi": "gemini-pro",
-    "sambanova": "Meta-Llama-3.1-405B-Instruct",
+    "apiyi": "gpt-4o",
+    "sambanova": "DeepSeek-V3.1",
     "oneapi": "gpt-4o",
     "github_models": "gpt-4o",
-    "modelscope": "qwen-plus",
+    "modelscope": "Qwen/Qwen2.5-72B-Instruct",
     "huggingface": "meta-llama/Meta-Llama-3-8B-Instruct",
+    "gemini": "gemini-2.0-flash",
     "ace_proxy": "gpt-4o",
 }
 
@@ -72,6 +75,7 @@ DEFAULT_BASE_URL = {
     "github_models": "https://models.inference.ai.azure.com",
     "modelscope": "https://api-inference.modelscope.cn/v1",
     "huggingface": "https://api-inference.huggingface.co/v1",
+    "gemini": "https://generativelanguage.googleapis.com/v1beta",
     "ace_proxy": "http://localhost:3001/v1",
 }
 
@@ -140,23 +144,26 @@ class SurvivalLoopEngine:
 
         patterns = {
             "glm": {
-                "key": r"智谱 GLM[\s\S]*?Key:\s*`?([\w\.\-]+)",
+                "key": r"智谱 GLM[\s\S]*?Key:\s*`([^`]+)`",
                 "base": r"智谱 GLM[\s\S]*?Base:\s*`?(https?://[^\s`]+)",
             },
             "openrouter": {
-                "key": r"OpenRouter[\s\S]*?Key:\s*`?(sk-or-v1-[\w]+)",
+                "key": r"OpenRouter[\s\S]*?Key:\s*`([^`]+)`",
                 "base": r"OpenRouter[\s\S]*?Base:\s*`?(https?://[^\s`]+)",
             },
             "nim": {
-                "key": r"NVIDIA NIM[\s\S]*?Key:\s*`?([\w\-]+)",
-                "base": r"NVIDIA NIM[\s\S]*?\*?\*?Base:\*?\*?\s*`?(https?://[^\s`]+)",
+                # NIM 在 SECRET.md 中是表格格式，没有 "Key:" 词
+                # 直接从表格中提取第一个 nvapi- 开头的 Key
+                "key": r"NVIDIA NIM[\s\S]*?`?(nvapi-[a-zA-Z0-9_\-]+)",
+                "base": r"NVIDIA NIM[\s\S]*?Base:\*?\*?\s*`?(https?://[^\s`*]+)",
             },
             "apiyi": {
-                "key": r"API易[\s\S]*?Key:\s*`?(sk-[\w]+)",
+                "key": r"API易[\s\S]*?Key:\s*`([^`]+)`",
                 "base": r"API易[\s\S]*?Base:\s*`?(https?://[^\s`]+)",
+                "append_v1": True,
             },
             "sambanova": {
-                "key": r"SambaNova[\s\S]*?Key:\s*`?([\w\-]+)",
+                "key": r"SambaNova[\s\S]*?Key:\s*`([^`]+)`",
                 "base": r"SambaNova[\s\S]*?Base:\s*`?(https?://[^\s`]+)",
             },
             "oneapi": {
@@ -165,16 +172,22 @@ class SurvivalLoopEngine:
                 "append_v1": True,
             },
             "github_models": {
-                "key": r"GitHub Models[\s\S]*?Token:\s*`?([\w\-_]+)",
+                "key": r"GitHub Models[\s\S]*?Token:\s*`([^`]+)`",
                 "base": r"GitHub Models[\s\S]*?Base:\s*`?(https?://[^\s`]+)",
             },
             "modelscope": {
-                "key": r"魔搭 ModelScope[\s\S]*?Key:\s*`?([\w\-]+)",
+                "key": r"魔搭 ModelScope[\s\S]*?Key:\s*`([^`]+)`",
                 "base": r"魔搭 ModelScope[\s\S]*?Base:\s*`?(https?://[^\s`]+)",
             },
             "huggingface": {
-                "key": r"HuggingFace[\s\S]*?Key:\s*`?([\w]+)",
+                "key": r"HuggingFace[\s\S]*?Key:\s*`([^`]+)`",
                 "base": None,
+                "env_base": "HF_INFERENCE_ENDPOINT",
+            },
+            "gemini": {
+                "key": r"Google Gemini[\s\S]*?`?(AQ\.[A-Za-z0-9_\-]+)",
+                "base": None,
+                "env_base": "GEMINI_BASE_URL",
             },
             "ace_proxy": {
                 "key": r"ACE OpenAI 代理[\s\S]*?Token:\s*`?([\w\-]+)",
@@ -196,6 +209,13 @@ class SurvivalLoopEngine:
                     bm = re.search(pat["base"], content)
                     if bm:
                         base_url = bm.group(1).strip()
+
+                # 环境变量覆盖 base_url（用于代理/镜像场景）
+                env_key = pat.get("env_base")
+                if env_key:
+                    env_val = os.environ.get(env_key, "")
+                    if env_val:
+                        base_url = env_val
 
                 if pat.get("append_v1") and base_url and not base_url.endswith("/v1"):
                     base_url = base_url.rstrip("/") + "/v1"
@@ -348,11 +368,22 @@ class SurvivalLoopEngine:
             if not model:
                 return False, "", model, {}, 0, "model is required"
 
+            # Gemini 原生 API（Google AI Studio）
+            if name == "gemini":
+                return self._call_gemini(
+                    base_url=base_url,
+                    api_key=api_key,
+                    messages=messages,
+                    model=model,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                    timeout=timeout,
+                    start_time=start,
+                    **kwargs,
+                )
+
             base_url = base_url.rstrip("/")
-            if name == "apiyi":
-                chat_url = base_url + "/v1/chat/completions"
-            else:
-                chat_url = base_url + "/chat/completions"
+            chat_url = base_url + "/chat/completions"
 
             payload = {
                 "model": model,
@@ -408,6 +439,108 @@ class SurvivalLoopEngine:
             return False, "", model, {}, latency, f"URL Error: {e.reason}"
         except Exception as e:
             latency = int((time.time() - start) * 1000)
+            return False, "", model, {}, latency, str(e)
+
+    def _call_gemini(
+        self,
+        base_url: str,
+        api_key: str,
+        messages: List[Dict[str, str]],
+        model: str,
+        temperature: float,
+        max_tokens: int,
+        timeout: int,
+        start_time: float,
+        **kwargs,
+    ):
+        """
+        调用 Google Gemini 原生 API（Google AI Studio）
+
+        API 格式与 OpenAI 不同：
+          URL: {base_url}/models/{model}:generateContent?key={api_key}
+          Body: {contents: [{role: "user", parts: [{text: "..."}]}]}
+          Response: {candidates: [{content: {parts: [{text: "..."}]}}]}
+
+        返回: (ok, content, model, usage, latency_ms, error)
+        """
+        try:
+            base_url = base_url.rstrip("/")
+            chat_url = f"{base_url}/models/{model}:generateContent?key={api_key}"
+
+            # OpenAI messages → Gemini contents
+            contents = []
+            for msg in messages:
+                role = msg.get("role", "user")
+                text = msg.get("content", "")
+                # Gemini 用 "user" 和 "model"，OpenAI 用 "user" 和 "assistant"
+                gemini_role = "model" if role == "assistant" else "user"
+                contents.append({
+                    "role": gemini_role,
+                    "parts": [{"text": text}],
+                })
+
+            payload = {
+                "contents": contents,
+                "generationConfig": {
+                    "temperature": temperature,
+                    "maxOutputTokens": max_tokens,
+                },
+            }
+            for k in ["topP", "topK"]:
+                kw_key = k.lower()
+                if kw_key in kwargs:
+                    payload["generationConfig"][k] = kwargs[kw_key]
+
+            data = json.dumps(payload).encode("utf-8")
+
+            headers = {
+                "Content-Type": "application/json",
+            }
+
+            req = urllib.request.Request(chat_url, data=data, headers=headers, method="POST")
+
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                body = resp.read().decode("utf-8")
+                resp_data = json.loads(body)
+                latency = int((time.time() - start_time) * 1000)
+
+                if resp_data.get("error"):
+                    err = resp_data["error"]
+                    err_msg = err.get("message", str(err))
+                    return False, "", model, {}, latency, err_msg
+
+                candidates = resp_data.get("candidates", [])
+                if candidates:
+                    parts = candidates[0].get("content", {}).get("parts", [])
+                    content = "".join(p.get("text", "") for p in parts)
+                    resp_model = resp_data.get("modelVersion", model)
+                    usage = resp_data.get("usageMetadata", {})
+                    # 转换 usage 字段名，保持和 OpenAI 一致
+                    usage_out = {}
+                    if "promptTokenCount" in usage:
+                        usage_out["prompt_tokens"] = usage["promptTokenCount"]
+                    if "candidatesTokenCount" in usage:
+                        usage_out["completion_tokens"] = usage["candidatesTokenCount"]
+                    if "totalTokenCount" in usage:
+                        usage_out["total_tokens"] = usage["totalTokenCount"]
+                    return True, content, resp_model, usage_out, latency, ""
+                else:
+                    return False, "", model, {}, latency, "no candidates in response"
+
+        except urllib.error.HTTPError as e:
+            latency = int((time.time() - start_time) * 1000)
+            try:
+                err_body = e.read().decode("utf-8", errors="replace")
+                err_data = json.loads(err_body)
+                err_msg = err_data.get("error", {}).get("message", f"HTTP {e.code}")
+                return False, "", model, {}, latency, err_msg
+            except Exception:
+                return False, "", model, {}, latency, f"HTTP {e.code}: {e.reason}"
+        except urllib.error.URLError as e:
+            latency = int((time.time() - start_time) * 1000)
+            return False, "", model, {}, latency, f"URL Error: {e.reason}"
+        except Exception as e:
+            latency = int((time.time() - start_time) * 1000)
             return False, "", model, {}, latency, str(e)
 
     def _safe_fallback(self, tried: List[Dict], last_error: str) -> Dict[str, Any]:

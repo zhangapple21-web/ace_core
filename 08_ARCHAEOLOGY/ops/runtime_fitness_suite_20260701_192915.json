@@ -1,0 +1,314 @@
+{
+  "timestamp": "2026-07-01T19:28:54.048468",
+  "fitness": {
+    "timestamp": "2026-07-01T19:29:05.921187",
+    "total_providers": 9,
+    "passed": 2,
+    "failed": 7,
+    "fitness_score": 22.2,
+    "previous_score": 11.1,
+    "score_change": 11.1,
+    "is_regression": false,
+    "baseline_date": "2026-07-01",
+    "results": [
+      {
+        "provider_name": "glm",
+        "model": "glm-4-flash",
+        "base_url": "https://open.bigmodel.cn/api/paas/v4",
+        "passed": true,
+        "status": "PASS",
+        "latency_ms": 746,
+        "error": "",
+        "response_preview": "Hi 👋!",
+        "timestamp": "2026-07-01T19:28:54.093177",
+        "response_status": 200
+      },
+      {
+        "provider_name": "openrouter",
+        "model": "anthropic/claude-3.5-sonnet",
+        "base_url": "https://openrouter.ai/api/v1",
+        "passed": false,
+        "status": "FAIL",
+        "latency_ms": 547,
+        "error": "HTTP 401: {\"error\":{\"message\":\"User not found.\",\"code\":401}}",
+        "response_preview": "{\"error\":{\"message\":\"User not found.\",\"code\":401}}",
+        "timestamp": "2026-07-01T19:28:54.841087",
+        "response_status": 401
+      },
+      {
+        "provider_name": "nim",
+        "model": "deepseek-ai/deepseek-v4-flash",
+        "base_url": "https://integrate.api.nvidia.com/v1",
+        "passed": false,
+        "status": "FAIL",
+        "latency_ms": 411,
+        "error": "HTTP 401: {\"status\":401,\"title\":\"Unauthorized\",\"detail\":\"Authentication failed\"}",
+        "response_preview": "{\"status\":401,\"title\":\"Unauthorized\",\"detail\":\"Authentication failed\"}",
+        "timestamp": "2026-07-01T19:28:55.388316",
+        "response_status": 401
+      },
+      {
+        "provider_name": "apiyi",
+        "model": "gemini-pro",
+        "base_url": "https://api.apiyi.com",
+        "passed": false,
+        "status": "FAIL",
+        "latency_ms": 798,
+        "error": "响应解析失败: Expecting value: line 1 column 1 (char 0)",
+        "response_preview": "<!doctype html><html lang=\"zh-cn\"><head><meta charset=\"utf-8\"/><link href='https://static.apiyi.com/apiyi-logo.png' rel='icon'><link rel=\"manifest\" href=\"/manifest.json\"><meta content=\"width=device-wi",
+        "timestamp": "2026-07-01T19:28:55.801348",
+        "response_status": 200
+      },
+      {
+        "provider_name": "sambanova",
+        "model": "Meta-Llama-3.1-405B-Instruct",
+        "base_url": "https://api.sambanova.ai/v1",
+        "passed": false,
+        "status": "FAIL",
+        "latency_ms": 612,
+        "error": "HTTP 410: The requested model (Meta-Llama-3.1-405B-Instruct) is not available on SambaNova Cloud. For more information, please visit https://docs.sambanova.ai/c",
+        "response_preview": "The requested model (Meta-Llama-3.1-405B-Instruct) is not available on SambaNova Cloud. For more information, please visit https://docs.sambanova.ai/cloud/docs/resources/deprecations. For further inqu",
+        "timestamp": "2026-07-01T19:28:56.600211",
+        "response_status": 410
+      },
+      {
+        "provider_name": "oneapi",
+        "model": "gpt-4o",
+        "base_url": "http://localhost:3000/v1",
+        "passed": true,
+        "status": "PASS",
+        "latency_ms": 3872,
+        "error": "",
+        "response_preview": "Hello! How can I",
+        "timestamp": "2026-07-01T19:28:57.217340",
+        "response_status": 200
+      },
+      {
+        "provider_name": "github_models",
+        "model": "gpt-4o",
+        "base_url": "https://models.inference.ai.azure.com",
+        "passed": false,
+        "status": "FAIL",
+        "latency_ms": 1369,
+        "error": "HTTP 401: {\"error\":{\"code\":\"unauthorized\",\"message\":\"Bad credentials\",\"details\":\"Bad credentials\"}}",
+        "response_preview": "{\"error\":{\"code\":\"unauthorized\",\"message\":\"Bad credentials\",\"details\":\"Bad credentials\"}}",
+        "timestamp": "2026-07-01T19:29:01.090026",
+        "response_status": 401
+      },
+      {
+        "provider_name": "modelscope",
+        "model": "qwen-plus",
+        "base_url": "https://api-inference.modelscope.cn/v1",
+        "passed": false,
+        "status": "FAIL",
+        "latency_ms": 3361,
+        "error": "HTTP 400: {\"error\":{\"message\":\"Invalid model id: qwen-plus\",\"request_id\":\"77d2759a-7390-48d6-8b9c-7bb4e3e5c7b3\"}}",
+        "response_preview": "{\"error\":{\"message\":\"Invalid model id: qwen-plus\",\"request_id\":\"77d2759a-7390-48d6-8b9c-7bb4e3e5c7b3\"}}",
+        "timestamp": "2026-07-01T19:29:02.460937",
+        "response_status": 400
+      },
+      {
+        "provider_name": "huggingface",
+        "model": "meta-llama/Meta-Llama-3-8B-Instruct",
+        "base_url": "https://api-inference.huggingface.co/v1",
+        "passed": false,
+        "status": "FAIL",
+        "latency_ms": 80,
+        "error": "URL Error: [Errno 11001] getaddrinfo failed",
+        "response_preview": "",
+        "timestamp": "2026-07-01T19:29:05.822345",
+        "response_status": 0
+      }
+    ],
+    "details": {}
+  },
+  "model_verification": {
+    "timestamp": "2026-07-01T19:29:05.929220",
+    "total_models": 9,
+    "passed": 2,
+    "failed": 7,
+    "not_found_404": [],
+    "unauthorized": [
+      "openrouter:anthropic/claude-3.5-sonnet",
+      "nim:deepseek-ai/deepseek-v4-flash",
+      "github_models:gpt-4o"
+    ],
+    "results": [
+      {
+        "provider": "glm",
+        "model_id": "glm-4-flash",
+        "passed": true,
+        "status": "PASS",
+        "latency_ms": 625,
+        "http_status": 200,
+        "error": "",
+        "failure_code": "UNKNOWN_ERROR",
+        "verified_at": "2026-07-01T19:29:05.929220"
+      },
+      {
+        "provider": "openrouter",
+        "model_id": "anthropic/claude-3.5-sonnet",
+        "passed": false,
+        "status": "UNAUTHORIZED",
+        "latency_ms": 255,
+        "http_status": 401,
+        "error": "HTTP 401: {\"error\":{\"message\":\"User not found.\",\"code\":401}}",
+        "failure_code": "AUTH_INVALID",
+        "verified_at": "2026-07-01T19:29:06.597518"
+      },
+      {
+        "provider": "nim",
+        "model_id": "deepseek-ai/deepseek-v4-flash",
+        "passed": false,
+        "status": "UNAUTHORIZED",
+        "latency_ms": 365,
+        "http_status": 401,
+        "error": "HTTP 401: {\"status\":401,\"title\":\"Unauthorized\",\"detail\":\"Authentication failed\"}",
+        "failure_code": "AUTH_INVALID",
+        "verified_at": "2026-07-01T19:29:06.898380"
+      },
+      {
+        "provider": "apiyi",
+        "model_id": "gemini-pro",
+        "passed": false,
+        "status": "PARSE_ERROR",
+        "latency_ms": 672,
+        "http_status": 200,
+        "error": "响应解析失败: Expecting value: line 1 column 1 (char 0)",
+        "failure_code": "RESPONSE_PARSE_ERROR",
+        "verified_at": "2026-07-01T19:29:07.308848"
+      },
+      {
+        "provider": "sambanova",
+        "model_id": "Meta-Llama-3.1-405B-Instruct",
+        "passed": false,
+        "status": "HTTP_ERROR",
+        "latency_ms": 434,
+        "http_status": 410,
+        "error": "HTTP 410: The requested model (Meta-Llama-3.1-405B-Instruct) is not available on SambaNova Cloud. For more information, please visit https://docs.sambanova.ai/c",
+        "failure_code": "MODEL_DEPRECATED",
+        "verified_at": "2026-07-01T19:29:08.026600"
+      },
+      {
+        "provider": "oneapi",
+        "model_id": "gpt-4o",
+        "passed": true,
+        "status": "PASS",
+        "latency_ms": 4233,
+        "http_status": 200,
+        "error": "",
+        "failure_code": "UNKNOWN_ERROR",
+        "verified_at": "2026-07-01T19:29:08.507342"
+      },
+      {
+        "provider": "github_models",
+        "model_id": "gpt-4o",
+        "passed": false,
+        "status": "UNAUTHORIZED",
+        "latency_ms": 1418,
+        "http_status": 401,
+        "error": "HTTP 401: {\"error\":{\"code\":\"unauthorized\",\"message\":\"Bad credentials\",\"details\":\"Bad credentials\"}}",
+        "failure_code": "AUTH_INVALID",
+        "verified_at": "2026-07-01T19:29:12.784280"
+      },
+      {
+        "provider": "modelscope",
+        "model_id": "qwen-plus",
+        "passed": false,
+        "status": "HTTP_ERROR",
+        "latency_ms": 1134,
+        "http_status": 400,
+        "error": "HTTP 400: {\"error\":{\"message\":\"Invalid model id: qwen-plus\",\"request_id\":\"b3247cf9-eee1-4c18-bfdd-5632891d8052\"}}",
+        "failure_code": "MODEL_NOT_FOUND",
+        "verified_at": "2026-07-01T19:29:14.247405"
+      },
+      {
+        "provider": "huggingface",
+        "model_id": "meta-llama/Meta-Llama-3-8B-Instruct",
+        "passed": false,
+        "status": "NETWORK_ERROR",
+        "latency_ms": 77,
+        "http_status": 0,
+        "error": "URL Error: [Errno 11001] getaddrinfo failed",
+        "failure_code": "NETWORK_DNS",
+        "verified_at": "2026-07-01T19:29:15.426300"
+      }
+    ],
+    "details": {}
+  },
+  "failure_stats": {
+    "total_failures": 0,
+    "total_occurrences": 0,
+    "by_category": {},
+    "by_severity": {},
+    "by_status": {},
+    "open_count": 0,
+    "investigating_count": 0,
+    "fixed_count": 0,
+    "critical_count": 0
+  },
+  "key_health": {
+    "total_keys": 9,
+    "avg_health": 22.2,
+    "by_status": {
+      "healthy": 2,
+      "suspended": 7
+    },
+    "total_requests": 9,
+    "total_success": 2,
+    "total_failure": 7,
+    "overall_success_rate": 22.2
+  },
+  "registry_summary": {
+    "total_providers": 9,
+    "total_models": 9,
+    "verified_models": 0
+  },
+  "capability_matrix": {
+    "glm:glm-4-flash": {
+      "provider": "glm",
+      "verified": false,
+      "status": "active"
+    },
+    "openrouter:anthropic/claude-3.5-sonnet": {
+      "provider": "openrouter",
+      "verified": false,
+      "status": "active"
+    },
+    "nim:deepseek-ai/deepseek-v4-flash": {
+      "provider": "nim",
+      "verified": false,
+      "status": "active"
+    },
+    "apiyi:gemini-pro": {
+      "provider": "apiyi",
+      "verified": false,
+      "status": "active"
+    },
+    "sambanova:Meta-Llama-3.1-405B-Instruct": {
+      "provider": "sambanova",
+      "verified": false,
+      "status": "active"
+    },
+    "oneapi:gpt-4o": {
+      "provider": "oneapi",
+      "verified": false,
+      "status": "active"
+    },
+    "github_models:gpt-4o": {
+      "provider": "github_models",
+      "verified": false,
+      "status": "active"
+    },
+    "modelscope:qwen-plus": {
+      "provider": "modelscope",
+      "verified": false,
+      "status": "active"
+    },
+    "huggingface:meta-llama/Meta-Llama-3-8B-Instruct": {
+      "provider": "huggingface",
+      "verified": false,
+      "status": "active"
+    }
+  }
+}

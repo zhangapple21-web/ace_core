@@ -135,9 +135,9 @@ class ExperienceHealthMonitor:
             if not isinstance(exp, dict):
                 continue
 
-            exp_id = exp.get("id", "")
-            title = exp.get("title", "")
-            conclusion = exp.get("conclusion", "")[:100]
+            exp_id = exp.get("experience_id", "")
+            title = exp.get("conclusion", "")
+            conclusion = title[:100]
 
             # 构建唯一键
             key = (title, conclusion)
@@ -163,21 +163,35 @@ class ExperienceHealthMonitor:
             if not isinstance(exp, dict):
                 continue
 
-            updated_str = exp.get("updated", "")
+            updated_str = exp.get("date", "")
             if not updated_str:
                 continue
+
+            # 推断置信度
+            evidence = exp.get("evidence", [])
+            evidence_count = len(evidence) if isinstance(evidence, list) else (1 if evidence else 0)
+            if "confidence" in exp:
+                confidence = exp.get("confidence", 0)
+            elif evidence_count >= 5:
+                confidence = 0.9
+            elif evidence_count >= 3:
+                confidence = 0.7
+            elif evidence_count >= 1:
+                confidence = 0.5
+            else:
+                confidence = 0.3
 
             try:
                 updated = datetime.fromisoformat(updated_str.replace("Z", "+00:00"))
                 age_days = (now - updated).days
 
                 # 超过30天未更新且置信度低于0.7的经验视为失效
-                if age_days > 30 and exp.get("confidence", 0) < 0.7:
+                if age_days > 30 and confidence < 0.7:
                     expired.append({
-                        "id": exp.get("id", ""),
-                        "title": exp.get("title", ""),
+                        "id": exp.get("experience_id", ""),
+                        "title": exp.get("conclusion", ""),
                         "days_since_update": age_days,
-                        "current_confidence": exp.get("confidence", 0),
+                        "current_confidence": confidence,
                         "suggestion": "建议重新验证或更新",
                     })
             except Exception:
@@ -193,11 +207,11 @@ class ExperienceHealthMonitor:
             if not isinstance(exp, dict):
                 continue
 
-            source_task = exp.get("source_task", "")
-            if not source_task:
+            related_concepts = exp.get("related_concepts", [])
+            if not related_concepts:
                 orphans.append({
-                    "id": exp.get("id", ""),
-                    "title": exp.get("title", ""),
+                    "id": exp.get("experience_id", ""),
+                    "title": exp.get("conclusion", ""),
                     "suggestion": "建议关联来源任务",
                 })
 
@@ -215,10 +229,10 @@ class ExperienceHealthMonitor:
             conclusion = exp.get("conclusion", "")
             if any(keyword in conclusion.lower() for keyword in ["必须", "禁止", "不得", "约束", "规则"]):
                 # 检查是否已有对应的约束
-                title = exp.get("title", "")
+                title = conclusion
                 if any(keyword in title.lower() for keyword in ["约束", "规则", "限制"]):
                     covered.append({
-                        "id": exp.get("id", ""),
+                        "id": exp.get("experience_id", ""),
                         "title": title,
                         "suggestion": "内容为约束类，建议升级为Constraint或标记为SUPERSEDED",
                     })
@@ -233,11 +247,24 @@ class ExperienceHealthMonitor:
             if not isinstance(exp, dict):
                 continue
 
-            confidence = exp.get("confidence", 0)
+            # 推断置信度
+            evidence = exp.get("evidence", [])
+            evidence_count = len(evidence) if isinstance(evidence, list) else (1 if evidence else 0)
+            if "confidence" in exp:
+                confidence = exp.get("confidence", 0)
+            elif evidence_count >= 5:
+                confidence = 0.9
+            elif evidence_count >= 3:
+                confidence = 0.7
+            elif evidence_count >= 1:
+                confidence = 0.5
+            else:
+                confidence = 0.3
+
             if confidence < 0.3:
                 low_confidence.append({
-                    "id": exp.get("id", ""),
-                    "title": exp.get("title", ""),
+                    "id": exp.get("experience_id", ""),
+                    "title": exp.get("conclusion", ""),
                     "confidence": confidence,
                     "suggestion": "置信度过低，建议补充证据或标记为HYPOTHESIS",
                 })
@@ -252,14 +279,39 @@ class ExperienceHealthMonitor:
             if not isinstance(exp, dict):
                 continue
 
-            status = exp.get("status", "")
-            confidence = exp.get("confidence", 0)
+            # 推断状态
+            if "status" in exp:
+                status = exp.get("status", "")
+            else:
+                evidence = exp.get("evidence", [])
+                evidence_count = len(evidence) if isinstance(evidence, list) else (1 if evidence else 0)
+                constraints_updated = exp.get("constraints_updated", [])
+                if evidence_count >= 3 and constraints_updated:
+                    status = "VALIDATED"
+                elif evidence_count >= 1:
+                    status = "EVIDENCE"
+                else:
+                    status = "HYPOTHESIS"
+
+            # 推断置信度
+            evidence = exp.get("evidence", [])
+            evidence_count = len(evidence) if isinstance(evidence, list) else (1 if evidence else 0)
+            if "confidence" in exp:
+                confidence = exp.get("confidence", 0)
+            elif evidence_count >= 5:
+                confidence = 0.9
+            elif evidence_count >= 3:
+                confidence = 0.7
+            elif evidence_count >= 1:
+                confidence = 0.5
+            else:
+                confidence = 0.3
 
             # FACT状态需要高置信度
             if status == "FACT" and confidence < 0.9:
                 issues.append({
-                    "id": exp.get("id", ""),
-                    "title": exp.get("title", ""),
+                    "id": exp.get("experience_id", ""),
+                    "title": exp.get("conclusion", ""),
                     "status": status,
                     "confidence": confidence,
                     "issue": "FACT状态需要置信度>=0.9",
@@ -269,8 +321,8 @@ class ExperienceHealthMonitor:
             # VALIDATED状态需要中等置信度
             elif status == "VALIDATED" and confidence < 0.7:
                 issues.append({
-                    "id": exp.get("id", ""),
-                    "title": exp.get("title", ""),
+                    "id": exp.get("experience_id", ""),
+                    "title": exp.get("conclusion", ""),
                     "status": status,
                     "confidence": confidence,
                     "issue": "VALIDATED状态需要置信度>=0.7",
@@ -280,8 +332,8 @@ class ExperienceHealthMonitor:
             # 无状态
             elif not status:
                 issues.append({
-                    "id": exp.get("id", ""),
-                    "title": exp.get("title", ""),
+                    "id": exp.get("experience_id", ""),
+                    "title": exp.get("conclusion", ""),
                     "issue": "缺少状态字段",
                     "suggestion": "补充状态字段",
                 })
