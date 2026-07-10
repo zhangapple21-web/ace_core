@@ -212,6 +212,86 @@ Cloud Workers push to GitHub and ntfy.sh. TG push is handled by local Runtime.
 
 ---
 
+## Civilization Map (Git as City)
+
+Git is the civilization map, and the complete city.
+Each repository is a district with its own job.
+Independent but not isolated — they observe and learn from each other.
+Each has a public face and a private workspace.
+
+### Repository Roles (R2 era)
+
+```
+zhangapple21-web (GitHub org)
+│
+├── 🏠 mine-seed              ← Civilization Seed (main workspace, R2 HQ)
+│     Public · Active · 9.3MB
+│     Role: Everything happens here first. R2 development, protocols,
+│           archaeology fragments, memory, tools.
+│     Watch: push frequency = civilization heartbeat
+│
+├── ⚡ ace_core               ← Runtime Core (distilled精选)
+│     Public · Active · 1.5MB
+│     Role: Distilled runtime that actually runs.
+│           Curated from mine-seed by Repository Curator.
+│           Clone + fill keys = running system.
+│     Watch: lags mine-seed = curator is behind
+│
+├── 🏛️ r1-archaeology          ← Civilization Memory (archaeology)
+│     Public · Warming · 310KB
+│     Role: How R1 grew into R2. Archaeology reports,
+│           evolution paths, knowledge lifecycle.
+│     Watch: last update > 7 days = memory atrophying
+│
+├── 🌱 r1-open-source-seed    ← Open Source Seed
+│     Public · Stale · 32KB
+│     Role: Minimal public seed for external use.
+│           Sanitized, no private configs.
+│     Watch: basically empty, needs attention
+│
+├── 📜 R1                     ← Civilization Philosophy
+│     Public · Dormant · ~0KB
+│     Role: Manifesto, architecture blueprints, why R1 exists.
+│           Website/marketing face of the civilization.
+│     Watch: dormant since R2 era began
+│
+├── 🧪 -                      ← Test / Scratch
+│     Public · Dormant · 0KB
+│     Role: Unknown, likely test repo
+│
+└── 🔑 coze-assets            ← Civilization Assets (PRIVATE)
+      Private · Unknown
+      Role: The key. All secrets, all configs.
+            Without it nothing recovers. With it, 30min rebuild.
+      ABSOLUTELY NEVER PUBLIC.
+```
+
+### Data Flow Between Repos
+
+```
+coze-assets (private, keys)
+    │  (provides credentials, never leaves local)
+    ▼
+mine-seed (R2 HQ, everything starts here)
+    │
+    ├─ distill ──▶ ace_core     (curator picks runtime core)
+    │
+    ├─ archive ──▶ r1-archaeology  (mature findings get archived)
+    │
+    └─ publish ──▶ R1            (philosophy/website updates)
+                └──▶ r1-open-source-seed  (public seed)
+```
+
+### Cross-Repo Observation Principle
+
+- Each repo watches the others for changes
+- A stale repo is a problem, not just "inactive"
+- If mine-seed moves but ace_core doesn't → curator is down
+- If r1-archaeology doesn't update → knowledge not being distilled
+- Repos are organs, not silos
+
+---
+
 ## Open Problems (Known Gaps)
 
 - Heartbeat runs EnvSensor but doesn't run Awareness Loop (scan→question→task→miner not wired)

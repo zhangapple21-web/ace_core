@@ -63,6 +63,30 @@ It doesn't keep gaining new abilities — it keeps improving collaboration effic
 | Heartbeat doesn't run Awareness Loop | High | Scans but never generates questions/tasks | 🔴 High |
 | Awareness Loop rules too narrow | Medium | Only 6 categories, misses common observations | 🟡 Open |
 | RoundTable not wired into Awareness Loop | Low | Experience written but not reviewed | 🟡 Open |
+| Curator stopped (ace_core lagged mine-seed 8 days) | Medium | Runtime core repo not updated, distilled copy stale | 🟢 Fixed (manual sync 7/10) |
+| r1-archaeology stale (1 day) | Low | R1 archaeology repo not getting R2 findings | 🟡 Open |
+| r1-open-source-seed empty | Low | Public seed repo has only logs/ dir | 🟡 Open |
+| R1 repo dormant | Low | Philosophy/website repo is just a README | 🟡 Open |
+| coze-assets status unknown | Medium | Private key repo — need to verify it exists locally | 🟡 Open |
+
+---
+
+## Civilization Map (7 repos)
+
+```
+zhangapple21-web
+│
+├── 🏠 mine-seed              Active     9.3MB   R2 HQ (今天的主战场)
+├── ⚡ ace_core               Active     1.5MB   Runtime 精选 (刚从 8 天停更恢复)
+├── 🏛️ r1-archaeology          Warming    310KB   考古档案馆 (昨天更新过)
+├── 🌱 r1-open-source-seed    Stale       32KB   开源种子 (几乎空的)
+├── 📜 R1                     Dormant      0KB   文明思想/官网 (空壳)
+├── 🧪 -                      Dormant      0KB   测试仓库
+└── 🔑 coze-assets            PRIVATE      ?     文明钥匙 (密钥，绝不公开)
+```
+
+**Cross-repo observation:** Each repo is an organ, not a silo.
+When one is stale, it's a civilization health problem, not just "inactive".
 
 ---
 
