@@ -35,6 +35,10 @@ OPENROUTER_KEY = os.environ.get("OPENROUTER_KEY", "")
 OPENROUTER_BASE = "https://openrouter.ai/api/v1"
 HF_KEY = os.environ.get("HF_KEY", "")
 HF_BASE = "https://router.huggingface.co/v1"
+APIYI_KEY = os.environ.get("APIYI_KEY", "")
+APIYI_BASE = "https://api.apiyi.com/v1"
+SIXFINGER_KEY = os.environ.get("SIXFINGER_KEY", "")
+SIXFINGER_BASE = "https://api.sixfinger.live/v1"
 
 # Ollama 本地模型（默认 localhost:11434）
 OLLAMA_BASE = os.environ.get("OLLAMA_BASE", "http://localhost:11434")
@@ -43,8 +47,10 @@ OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "huihui_ai/qwen2.5-vl-abliterated:
 # 模型 fallback 链
 MODEL_FALLBACK_CHAIN = [
     ("ollama", OLLAMA_MODEL),
+    ("apiyi", "gpt-4o-mini"),
     ("hf", "openai/gpt-oss-120b"),
     ("github", "gpt-4o-mini"),
+    ("sixfinger", "claude-haiku-4-5"),
     ("zhipu", "glm-4-flash"),
     ("openrouter", "meta-llama/llama-3.3-70b-instruct:free"),
 ]
@@ -147,11 +153,41 @@ def call_hf(prompt, model="openai/gpt-oss-120b", max_tokens=500, temperature=0.7
     except Exception as e: return {"error": f"Error: {e}", "source": "hf"}
 
 
+def call_apiyi(prompt, model="gpt-4o-mini", max_tokens=500, temperature=0.7):
+    """调用 API易 (310+模型, 主力推荐)"""
+    if not APIYI_KEY: return {"error": "APIYI_KEY not set", "source": "apiyi"}
+    data = {"model": model, "messages": [{"role": "user", "content": prompt}], "max_tokens": max_tokens, "temperature": temperature}
+    headers = {"Authorization": f"Bearer {APIYI_KEY}", "Content-Type": "application/json"}
+    req = urllib.request.Request(f"{APIYI_BASE}/chat/completions", data=json.dumps(data).encode(), headers=headers)
+    try:
+        with urllib.request.urlopen(req, timeout=60) as r:
+            result = json.loads(r.read().decode())
+            result["source"] = "apiyi"
+            return result
+    except Exception as e: return {"error": f"Error: {e}", "source": "apiyi"}
+
+
+def call_sixfinger(prompt, model="claude-haiku-4-5", max_tokens=500, temperature=0.7):
+    """调用 Sixfinger (Claude 系列专用)"""
+    if not SIXFINGER_KEY: return {"error": "SIXFINGER_KEY not set", "source": "sixfinger"}
+    data = {"model": model, "messages": [{"role": "user", "content": prompt}], "max_tokens": max_tokens, "temperature": temperature}
+    headers = {"Authorization": f"Bearer {SIXFINGER_KEY}", "Content-Type": "application/json"}
+    req = urllib.request.Request(f"{SIXFINGER_BASE}/chat/completions", data=json.dumps(data).encode(), headers=headers)
+    try:
+        with urllib.request.urlopen(req, timeout=60) as r:
+            result = json.loads(r.read().decode())
+            result["source"] = "sixfinger"
+            return result
+    except Exception as e: return {"error": f"Error: {e}", "source": "sixfinger"}
+
+
 # Provider 注册表
 PROVIDERS = {
     "ollama": call_ollama,
+    "apiyi": call_apiyi,
     "hf": call_hf,
     "github": call_github_models,
+    "sixfinger": call_sixfinger,
     "zhipu": call_zhipu,
     "openrouter": call_openrouter,
 }
@@ -192,6 +228,19 @@ MODELS = {
         "model": OLLAMA_MODEL,
         "capabilities": ["vision", "summarize", "archaeology", "coding", "chinese", "fast", "reasoning"],
         "priority": 1,
+    },
+    # === API易 (主力推荐，310+模型) ===
+    "apiyi-gpt4omini": {
+        "provider": "apiyi",
+        "model": "gpt-4o-mini",
+        "capabilities": ["reasoning", "coding", "debate", "summarize", "chinese", "long_context"],
+        "priority": 2,
+    },
+    "apiyi-deepseek-v3": {
+        "provider": "apiyi",
+        "model": "DeepSeek-V3",
+        "capabilities": ["coding", "reasoning", "code_review", "long_context"],
+        "priority": 2,
     },
     # === HuggingFace Router (一个入口，多个模型) ===
     # reasoning → gpt-oss-120b (120B, OpenAI 开源, 推理最强)
@@ -234,6 +283,13 @@ MODELS = {
         "provider": "zhipu",
         "model": "glm-4-flash",
         "capabilities": ["fast", "chinese", "summarize", "reasoning", "coding"],
+        "priority": 6,
+    },
+    # === Sixfinger (Claude 系列专用) ===
+    "sixfinger-claude": {
+        "provider": "sixfinger",
+        "model": "claude-haiku-4-5",
+        "capabilities": ["summarize", "debate", "reasoning", "chinese"],
         "priority": 6,
     },
     # === OpenRouter (最后兜底) ===
