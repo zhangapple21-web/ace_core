@@ -120,6 +120,29 @@ def beat(log):
         report["steps"]["env_sensor"] = {"error": str(e)}
         log.error(f"EnvSensor error: {e}")
 
+    # CIV-001: Civilization Map Monitor
+    try:
+        civ_map_mod = import_module(WORKSPACE / "04_PROTOCOLS" / "civilization_map.py")
+        repos = civ_map_mod.fetch_repos()
+        if repos:
+            civ_report = civ_map_mod.analyze_repos(repos)
+            for repo in civ_report["repos"]:
+                if repo["days_stale"] > repo["max_stale_days"]:
+                    civ_map_mod.sediment_stale_experience(repo["name"], repo)
+            civ_map_mod.update_current_state(civ_report)
+            report["steps"]["civilization_map"] = {
+                "total_repos": civ_report["total_repos"],
+                "stale_count": civ_report["stale_count"],
+                "critical_stale": civ_report["critical_stale"],
+            }
+            if civ_report["stale_count"] > 0:
+                log.warning(f"CivMap: {civ_report['stale_count']} stale repos")
+            else:
+                log.info(f"CivMap: {civ_report['total_repos']} repos, all fresh")
+    except Exception as e:
+        report["steps"]["civilization_map"] = {"error": str(e)}
+        log.error(f"CivMap error: {e}")
+
     # Save
     mm.save_memory("heartbeat", f"beat_{beat_id}", report)
     log.info("Heartbeat saved")
