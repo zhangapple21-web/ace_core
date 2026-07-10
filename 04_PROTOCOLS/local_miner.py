@@ -184,36 +184,64 @@ CAPABILITY_GRAPH = {
 
 # Provider → 模型 → 支持的能力
 # 模型只是资源，挂在能力下面
+# HF Router 是一个 Provider 文明：一个入口，多个模型，按 capability 自动分工
 MODELS = {
+    # === Ollama (本地，优先级最高) ===
     "ollama-qwen-vl": {
         "provider": "ollama",
         "model": OLLAMA_MODEL,
         "capabilities": ["vision", "summarize", "archaeology", "coding", "chinese", "fast", "reasoning"],
         "priority": 1,
     },
+    # === HuggingFace Router (一个入口，多个模型) ===
+    # reasoning → gpt-oss-120b (120B, OpenAI 开源, 推理最强)
     "hf-gpt-oss-120b": {
         "provider": "hf",
         "model": "openai/gpt-oss-120b",
-        "capabilities": ["reasoning", "coding", "debate", "summarize", "long_context", "research", "planning"],
+        "capabilities": ["reasoning", "research", "planning", "debate", "long_context"],
         "priority": 2,
     },
+    # coding → DeepSeek-V3 (编码专精)
+    "hf-deepseek-v3": {
+        "provider": "hf",
+        "model": "deepseek-ai/DeepSeek-V3",
+        "capabilities": ["coding", "reasoning", "code_review", "long_context"],
+        "priority": 3,
+    },
+    # fast/chinese → Qwen2.5-7B (轻量, 中文好)
+    "hf-qwen-7b": {
+        "provider": "hf",
+        "model": "Qwen/Qwen2.5-7B-Instruct",
+        "capabilities": ["fast", "chinese", "summarize", "coding"],
+        "priority": 3,
+    },
+    # summarize/debate → Llama-3.3-70B (通用大模型)
+    "hf-llama-70b": {
+        "provider": "hf",
+        "model": "meta-llama/Llama-3.3-70B-Instruct",
+        "capabilities": ["summarize", "debate", "reasoning", "long_context", "execution"],
+        "priority": 4,
+    },
+    # === GitHub Models (备用) ===
     "github-gpt4omini": {
         "provider": "github",
         "model": "gpt-4o-mini",
         "capabilities": ["reasoning", "coding", "debate", "summarize", "chinese", "long_context"],
-        "priority": 3,
+        "priority": 5,
     },
+    # === Zhipu GLM (备用, 中文好) ===
     "glm-flash": {
         "provider": "zhipu",
         "model": "glm-4-flash",
         "capabilities": ["fast", "chinese", "summarize", "reasoning", "coding"],
-        "priority": 4,
+        "priority": 6,
     },
+    # === OpenRouter (最后兜底) ===
     "openrouter-llama": {
         "provider": "openrouter",
         "model": "meta-llama/llama-3.3-70b-instruct:free",
         "capabilities": ["debate", "long_context", "reasoning", "coding", "summarize"],
-        "priority": 5,
+        "priority": 7,
     },
 }
 
@@ -392,15 +420,20 @@ def call_model(prompt, max_tokens=500, temperature=0.7, prefer=None, capability=
     else:
         chain = list(MODEL_FALLBACK_CHAIN)
 
+    # 如果指定 prefer，把该 provider 的模型移到最前面（保留原 model 名）
     if prefer and prefer in PROVIDERS:
-        chain = [(prefer, chain[0][1])] + [(p, m) for p, m in chain if p != prefer]
+        prefer_chain = [(p, m) for p, m in chain if p == prefer]
+        other_chain = [(p, m) for p, m in chain if p != prefer]
+        chain = prefer_chain + other_chain
 
     # 按 Health Score 排序（跳过 down 的 provider）
+    # 但如果指定了 prefer，prefer 的 provider 永远在最前面
     def _sort_key(item):
         provider_name = item[0]
         if health.should_skip(provider_name):
-            return (1, 0)  # 排到最后
-        return (0, -health.get_score(provider_name))  # score 高的排前面
+            return (1, 0, 0)  # 排到最后
+        prefer_boost = 0 if (prefer and provider_name == prefer) else 1
+        return (prefer_boost, 0, -health.get_score(provider_name))
 
     chain.sort(key=_sort_key)
 
