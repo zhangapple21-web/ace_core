@@ -33,6 +33,8 @@ ZHIPU_KEY = os.environ.get("ZHIPU_KEY", "")
 ZHIPU_BASE = "https://open.bigmodel.cn/api/paas/v4"
 OPENROUTER_KEY = os.environ.get("OPENROUTER_KEY", "")
 OPENROUTER_BASE = "https://openrouter.ai/api/v1"
+HF_KEY = os.environ.get("HF_KEY", "")
+HF_BASE = "https://router.huggingface.co/v1"
 
 # Ollama 本地模型（默认 localhost:11434）
 OLLAMA_BASE = os.environ.get("OLLAMA_BASE", "http://localhost:11434")
@@ -41,6 +43,7 @@ OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "huihui_ai/qwen2.5-vl-abliterated:
 # 模型 fallback 链
 MODEL_FALLBACK_CHAIN = [
     ("ollama", OLLAMA_MODEL),
+    ("hf", "openai/gpt-oss-120b"),
     ("github", "gpt-4o-mini"),
     ("zhipu", "glm-4-flash"),
     ("openrouter", "meta-llama/llama-3.3-70b-instruct:free"),
@@ -125,9 +128,29 @@ def call_openrouter(prompt, model="meta-llama/llama-3.3-70b-instruct:free", max_
     except Exception as e: return {"error": f"Error: {e}", "source": "openrouter"}
 
 
+def call_hf(prompt, model="openai/gpt-oss-120b", max_tokens=500, temperature=0.7):
+    """调用 HuggingFace Inference Providers (OpenAI 兼容, router.huggingface.co)
+
+    测试结果 (2026-07-10): 30ms 延迟, gpt-oss-120b 可用
+    支持自动路由: :fastest / :cheapest / :preferred
+    注意: 必须带 User-Agent, 否则 Cloudflare 会拦截 (403)
+    """
+    if not HF_KEY: return {"error": "HF_KEY not set", "source": "hf"}
+    data = {"model": model, "messages": [{"role": "user", "content": prompt}], "max_tokens": max_tokens, "temperature": temperature, "stream": False}
+    headers = {"Authorization": f"Bearer {HF_KEY}", "Content-Type": "application/json", "User-Agent": "ACE-Miner/2.0"}
+    req = urllib.request.Request(f"{HF_BASE}/chat/completions", data=json.dumps(data).encode(), headers=headers)
+    try:
+        with urllib.request.urlopen(req, timeout=60) as r:
+            result = json.loads(r.read().decode())
+            result["source"] = "hf"
+            return result
+    except Exception as e: return {"error": f"Error: {e}", "source": "hf"}
+
+
 # Provider 注册表
 PROVIDERS = {
     "ollama": call_ollama,
+    "hf": call_hf,
     "github": call_github_models,
     "zhipu": call_zhipu,
     "openrouter": call_openrouter,
@@ -168,23 +191,29 @@ MODELS = {
         "capabilities": ["vision", "summarize", "archaeology", "coding", "chinese", "fast", "reasoning"],
         "priority": 1,
     },
+    "hf-gpt-oss-120b": {
+        "provider": "hf",
+        "model": "openai/gpt-oss-120b",
+        "capabilities": ["reasoning", "coding", "debate", "summarize", "long_context", "research", "planning"],
+        "priority": 2,
+    },
     "github-gpt4omini": {
         "provider": "github",
         "model": "gpt-4o-mini",
         "capabilities": ["reasoning", "coding", "debate", "summarize", "chinese", "long_context"],
-        "priority": 2,
+        "priority": 3,
     },
     "glm-flash": {
         "provider": "zhipu",
         "model": "glm-4-flash",
         "capabilities": ["fast", "chinese", "summarize", "reasoning", "coding"],
-        "priority": 3,
+        "priority": 4,
     },
     "openrouter-llama": {
         "provider": "openrouter",
         "model": "meta-llama/llama-3.3-70b-instruct:free",
         "capabilities": ["debate", "long_context", "reasoning", "coding", "summarize"],
-        "priority": 4,
+        "priority": 5,
     },
 }
 
