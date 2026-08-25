@@ -139,7 +139,12 @@ class AutonomousAudit:
                 reason = event.get("reason", "")
                 actor = event.get("actor", "")
                 target = event.get("to", "")
-                if reason == "lease_claimed":
+                if (
+                    event.get("event") == "transition"
+                    and reason == "lease_claimed"
+                    and event.get("from") == "pending"
+                    and target == "active"
+                ):
                     transitions["claim"] += 1
                 if actor == "researcher" and target == "review":
                     transitions["research"] += 1

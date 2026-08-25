@@ -26,8 +26,8 @@ def _claim_events(task):
     return [
         event for event in task.get("audit_log", [])
         if event.get("event") == "transition"
-        and event.get("actor") == "researcher"
         and event.get("reason") == "lease_claimed"
+        and event.get("from") == "pending"
         and event.get("to") == "active"
         and event.get("at")
     ]

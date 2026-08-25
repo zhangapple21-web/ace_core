@@ -3,7 +3,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from ops.taskpool_observer import replay_window
+from ops.taskpool_observer import _claim_events, replay_window
 
 
 POOL_DIR = Path(__file__).resolve().parent.parent / "task_pool"
@@ -35,6 +35,21 @@ def test_historical_window_replays_claims_and_following_transitions():
     assert medium_claim["last_claimed_at"] <= medium_claim["latest_claim_at"]
     assert medium_claim["last_claimed_at"] >= medium_claim["at"]
     assert report["inconsistencies"] == []
+
+
+def test_claim_events_follow_transition_contract_without_actor_filter():
+    task = {
+        "audit_log": [
+            {"event": "transition", "actor": "daily_learning", "reason": "lease_claimed", "from": "pending", "to": "active", "at": "2026-08-25T09:30:00+08:00"},
+            {"event": "transition", "actor": "researcher", "reason": "lease_claimed", "from": "review", "to": "active", "at": "2026-08-25T09:31:00+08:00"},
+            {"event": "action", "actor": "researcher", "reason": "lease_claimed", "from": "pending", "to": "active", "at": "2026-08-25T09:32:00+08:00"},
+        ]
+    }
+
+    events = _claim_events(task)
+
+    assert len(events) == 1
+    assert events[0]["actor"] == "daily_learning"
 
 
 if __name__ == "__main__":

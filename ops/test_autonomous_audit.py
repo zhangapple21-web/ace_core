@@ -179,6 +179,19 @@ def test_quarantined_blocked_tasks_do_not_block_taskpool_health(tmp_path):
     }
 
 
+def test_task_lifecycle_claim_count_uses_strict_transition_contract(tmp_path):
+    paths = audit_paths(tmp_path)
+    write_task(paths["task_pool"], task("strict-claims", audit_log=[
+        {"event": "transition", "reason": "lease_claimed", "from": "pending", "to": "active"},
+        {"event": "transition", "reason": "lease_claimed", "from": "review", "to": "active"},
+        {"event": "action", "reason": "lease_claimed", "from": "pending", "to": "active"},
+    ]))
+
+    report = AutonomousAudit(paths).collect()
+
+    assert report["task_lifecycle"]["transitions"]["claim"] == 1
+
+
 def test_data_health_uses_strict_admission_not_rejected_candidate_metrics(tmp_path):
     paths = audit_paths(tmp_path)
     write_json(paths["data_health"], {
