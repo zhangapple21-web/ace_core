@@ -27,3 +27,10 @@ def test_window_not_due_is_auditable_without_side_effects(tmp_path):
     assert report["window"] is None
     assert report["window_status"] == "WINDOW_NOT_DUE"
     assert report["model_call"] is False
+
+
+def test_daily_window_history_is_preserved(tmp_path):
+    windows = FinanceWorkWindows(str(tmp_path))
+    windows.build(datetime(2026, 8, 25, 9, 5, tzinfo=windows.timezone))
+    report = windows.build(datetime(2026, 8, 25, 15, 20, tzinfo=windows.timezone))
+    assert set(report["daily_windows"]) == {"morning_observation", "close_review"}

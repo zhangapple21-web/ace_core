@@ -13,7 +13,7 @@ from zoneinfo import ZoneInfo
 
 
 WINDOWS = {
-    "overnight_observation": (time(0, 0), time(9, 0)),
+    "morning_observation": (time(9, 0), time(9, 29, 59)),
     "open_validation": (time(9, 30), time(10, 0)),
     "midday_review": (time(12, 30), time(13, 0)),
     "close_review": (time(15, 15), time(16, 0)),
@@ -65,6 +65,24 @@ class FinanceWorkWindows:
             window_status = "RESEARCH_ONLY"
         else:
             window_status = "NO_VALID_OBSERVATION"
+        previous = {}
+        try:
+            previous = json.loads(self.report_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            pass
+        daily_windows = (
+            dict(previous.get("daily_windows", {}))
+            if previous.get("date") == observed_at.date().isoformat()
+            else {}
+        )
+        window_record = {
+            "observed_at": observed_at.isoformat(),
+            "window_status": window_status,
+            "finance_status": status,
+            "evidence_refs": [str(self.matrix_path)] if self.matrix_path.exists() else [],
+        }
+        if due:
+            daily_windows[due] = window_record
         report = {
             "schema_version": 1,
             "observed_at": observed_at.isoformat(),
@@ -77,6 +95,7 @@ class FinanceWorkWindows:
             "model_call": False,
             "recommendation_allowed": False,
             "evidence_refs": [str(self.matrix_path)] if self.matrix_path.exists() else [],
+            "daily_windows": daily_windows,
             "research_question": (
                 "在当前数据准入状态下，哪些金融观察仍可进行，哪些字段缺口阻断实时验证？"
                 if due else None
@@ -108,9 +127,9 @@ class FinanceWorkWindows:
                 auto_generated=True,
             )
             report["observation_id"] = observation.obs_id
-            report["observation_created"] = True
+            report["observation_recorded"] = True
         else:
-            report["observation_created"] = False
+            report["observation_recorded"] = False
         self.report_path.parent.mkdir(parents=True, exist_ok=True)
         self.report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
         return report

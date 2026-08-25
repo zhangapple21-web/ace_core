@@ -35,11 +35,15 @@ class DailyShift:
                     continue
                 if event.get("event") != "transition":
                     continue
+                if not str(event.get("at", "")).startswith(day):
+                    continue
                 pair = (event.get("from"), event.get("to"), event.get("reason"))
                 if pair == ("pending", "active", "lease_claimed"):
                     transitions["claim"] += 1
                 elif event.get("to") == "review":
                     transitions["research"] += 1
+                if event.get("from") == "review" and event.get("actor") == "validator":
+                    transitions["validation"] += 1
                 elif event.get("to") == "approved":
                     transitions["approved"] += 1
                 elif event.get("to") == "archived":
@@ -55,6 +59,7 @@ class DailyShift:
                 "stop_reason": state.get("cycle_progress", {}).get("stop_reason"),
             },
             "windows": window,
+            "hourly_service": self._read(self.data_dir / "hourly_task_service_latest.json"),
             "completed_work": {
                 "outcome": growth.get("outcome"),
                 "archived_task_count": growth.get("archived_task_count", 0),

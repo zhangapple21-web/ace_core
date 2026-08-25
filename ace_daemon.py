@@ -56,6 +56,7 @@ from core.model_work_discovery import ModelWorkDiscovery
 from core.daily_growth import DailyGrowthLedger
 from core.finance_work_windows import FinanceWorkWindows
 from core.daily_shift import DailyShift
+from core.hourly_service import HourlyTaskService
 from core.daily_learning import DailyLearningLoop
 from core.autonomous_work_allocation import AutonomousWorkAllocation
 from core.stock_discovery_sources import StockDiscoverySources
@@ -388,6 +389,9 @@ class AceDaemon:
             self.daily_shift = DailyShift(
                 self.task_pool,
                 str(self.base_dir / "06_RUNTIME" / "ace" / "data"),
+            )
+            self.hourly_task_service = HourlyTaskService(
+                str(self.base_dir / "06_RUNTIME" / "ace" / "data")
             )
             governance_dir = self.base_dir / "08_GOVERNANCE"
             self.daily_learning = DailyLearningLoop(
@@ -1689,6 +1693,7 @@ class AceDaemon:
         }
         production_policy = self._task_production_policy()
         result["production_policy"] = production_policy
+        pending_before = production_policy["pending_tasks"]
 
         try:
             recovered = self.recover_task_pool()
@@ -1841,6 +1846,13 @@ class AceDaemon:
             result["finance_work_window"] = self.finance_work_windows.build()
         except Exception as e:
             self._log_error("finance_work_window", str(e))
+
+        try:
+            result["hourly_task_service"] = self.hourly_task_service.record(
+                pending_before, result
+            )
+        except Exception as e:
+            self._log_error("hourly_task_service", str(e))
 
         try:
             result["daily_shift"] = self.daily_shift.build(
