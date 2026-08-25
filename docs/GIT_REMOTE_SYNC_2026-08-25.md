@@ -27,9 +27,18 @@ After fetch:
 | claw-soul | 0 | 0 | 0 | metadata synchronized; content remains restricted |
 | mine-seed-credentials | 0 | 0 | 0 | metadata synchronized; content remains excluded |
 
-No repository had a local commit ahead of its upstream, so no push was needed
-or performed.  Uncommitted files in `ace_core` and `mine-seed` are not remotely
-synchronized by Git and were deliberately not auto-committed.
+After regression, compile, whitespace, and staged credential checks, the
+validated durable changes were partitioned and published:
+
+| Repository | Commit | Remote result |
+|---|---|---|
+| ace_core | `a2d7fac` | `main -> origin/main` |
+| mine-seed | `de6e2fa` | `main -> origin/main` |
+
+The `ace_core` publication deliberately excludes task history, runtime output,
+temporary scripts, and nine unverified byte-identical `04_PROTOCOLS -> core`
+migration copies.  `mine-seed` is clean after publication.  A final fetch and
+comparison confirmed `HEAD...origin/main = 0/0` for all seven repositories.
 
 ## R1 Fast-forward
 
@@ -55,8 +64,8 @@ FAST_FORWARD_PULL                     1
 MERGE                                0
 REBASE                               0
 AUTO_STASH                           0
-AUTO_COMMIT                          0
-PUSH                                 0
+VALIDATED_COMMIT                      2
+PUSH                                 2
 DIRTY_WORKTREE_OVERWRITTEN           0
 SENSITIVE_CONTENT_READ_DURING_SYNC   0
 ```
