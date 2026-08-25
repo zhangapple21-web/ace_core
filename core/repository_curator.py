@@ -160,14 +160,23 @@ class RepositoryCurator:
         logger.info(f"Repository Curator 唤醒 (triggered_by={triggered_by})")
         
         start_time = datetime.now()
+        cursor_from = self._last_curation_cursor()
         
         try:
-            result = self.run_daily_curation()
+            result = self.run_daily_curation(
+                modified_after=cursor_from,
+                modified_before=start_time,
+            )
             
+            result["status"] = "completed"
             result["triggered_by"] = triggered_by
             result["started_at"] = start_time.isoformat()
             result["finished_at"] = datetime.now().isoformat()
             result["duration_seconds"] = (datetime.now() - start_time).total_seconds()
+            result["cursor_from"] = cursor_from.isoformat() if cursor_from else None
+            # Use scan start, not finish: changes made while curation is
+            # running must remain visible to the next incremental window.
+            result["cursor_to"] = start_time.isoformat()
             
             # 保存运行记录
             self._save_run_record(result)
@@ -187,7 +196,11 @@ class RepositoryCurator:
                 "finished_at": datetime.now().isoformat(),
             }
     
-    def run_daily_curation(self) -> Dict[str, Any]:
+    def run_daily_curation(
+        self,
+        modified_after: Optional[datetime] = None,
+        modified_before: Optional[datetime] = None,
+    ) -> Dict[str, Any]:
         """
         每日馆长流程
         
@@ -204,8 +217,21 @@ class RepositoryCurator:
         logger.info("开始每日馆长流程")
         
         # 1. 收集今日产物
-        artifacts = self._collect_today_artifacts()
+        artifacts = self._collect_today_artifacts(
+            modified_after=modified_after,
+            modified_before=modified_before,
+        )
         logger.info(f"收集到 {len(artifacts)} 个产物")
+
+        if not artifacts:
+            return {
+                "artifacts_scanned": 0,
+                "decisions": [],
+                "sync_plan_summary": "无新增产物",
+                "duplicates_found": [],
+                "split_candidates": [],
+                "summary": "无新增产物",
+            }
         
         # 2. 扫描目标仓库
         existing_docs = self._scan_target_repos()
@@ -269,7 +295,11 @@ class RepositoryCurator:
             "title": decision.artifact.get("title", "") if decision.artifact else "",
         }
     
-    def _collect_today_artifacts(self) -> List[Dict[str, Any]]:
+    def _collect_today_artifacts(
+        self,
+        modified_after: Optional[datetime] = None,
+        modified_before: Optional[datetime] = None,
+    ) -> List[Dict[str, Any]]:
         """
         收集今日新产物
         
@@ -281,8 +311,6 @@ class RepositoryCurator:
         - core/ (代码)
         """
         artifacts = []
-        today = datetime.now().strftime("%Y-%m-%d")
-        
         for dir_name in self.ARTIFACT_DIRS:
             artifact_dir = self.ace_runtime_dir / dir_name
             if not artifact_dir.exists():
@@ -300,10 +328,11 @@ class RepositoryCurator:
                 try:
                     # 获取文件元数据
                     stat = filepath.stat()
-                    mtime_str = datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d")
-                    
-                    # 只处理今天的文件（简化版：实际应该用日期比较）
-                    # 这里暂时处理所有文件，用于初始化
+                    modified_at = datetime.fromtimestamp(stat.st_mtime)
+                    if modified_after and modified_at <= modified_after:
+                        continue
+                    if modified_before and modified_at > modified_before:
+                        continue
                     
                     content = ""
                     if filepath.suffix in (".md", ".py", ".yaml", ".yml"):
@@ -544,6 +573,20 @@ class RepositoryCurator:
                 pass
         
         return []
+
+    def _last_curation_cursor(self) -> Optional[datetime]:
+        """Return the last persisted scan boundary across daemon restarts."""
+        for record in reversed(self._history):
+            if not isinstance(record, dict):
+                continue
+            value = record.get("cursor_to") or record.get("timestamp")
+            if not value:
+                continue
+            try:
+                return datetime.fromisoformat(str(value).replace("Z", "+00:00")).replace(tzinfo=None)
+            except (TypeError, ValueError):
+                continue
+        return None
     
     def _save_run_record(self, result: Dict[str, Any]):
         """保存运行记录"""
@@ -555,6 +598,11 @@ class RepositoryCurator:
             "status": result.get("status", "unknown"),
             "artifacts_scanned": result.get("artifacts_scanned", 0),
             "summary": result.get("summary", ""),
+            "cursor_from": result.get("cursor_from"),
+            "cursor_to": result.get("cursor_to"),
+            "started_at": result.get("started_at"),
+            "finished_at": result.get("finished_at"),
+            "duration_seconds": result.get("duration_seconds"),
         })
         
         # 只保留最近100条记录
