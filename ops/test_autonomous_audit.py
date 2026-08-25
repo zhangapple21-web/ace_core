@@ -146,6 +146,7 @@ def test_readonly_report_exposes_each_required_observation_domain(tmp_path):
         "shenwen_5_6",
         "shenwen_5_4",
         "data_health",
+        "finance",
         "advisor",
         "risk",
         "tg",
@@ -229,6 +230,39 @@ def test_data_health_does_not_admit_a_single_round_success(tmp_path):
 
     assert report["domains"]["data_health"]["state"] == "NOT_READY"
     assert report["domains"]["data_health"]["reasons"] == ["data_health_observation_window_insufficient"]
+
+
+def test_finance_readiness_is_degraded_when_some_operations_are_admitted(tmp_path):
+    paths = audit_paths(tmp_path)
+    write_json(paths["data_health"], {
+        "rounds": 5,
+        "summary": {"sources": {"source-a": {
+            "availability": 1.0, "field_completeness": 1.0, "coverage": 1.0, "consistency": 1.0,
+        }}},
+    })
+    operations = {}
+    for name in ("daily_kline", "minute_kline_5m"):
+        operations[name] = {
+            "production_sources": ["source-a", "source-b"],
+            "independence_groups": ["group-a", "group-b"],
+            "has_independent_cross_validation": True,
+        }
+    for name in ("quote", "minute_kline_1m", "index"):
+        operations[name] = {
+            "production_sources": [],
+            "independence_groups": [],
+            "has_independent_cross_validation": False,
+        }
+    write_json(paths["data_capability_matrix"], {
+        "phase_two_admission": {"status": "NOT_ADMITTED", "core_operations": operations},
+    })
+
+    report = AutonomousAudit(paths).collect()
+
+    assert report["domains"]["data_health"]["state"] == "BLOCKED"
+    assert report["domains"]["finance"]["state"] == "DEGRADED"
+    assert report["domains"]["finance"]["reasons"] == ["partial_core_operation_admission"]
+    assert report["domains"]["finance"]["recommended_action"] == "continue_financial_research_only"
 
 
 def test_missing_runtime_is_not_ready_and_backlog_growth_is_anomaly(tmp_path):

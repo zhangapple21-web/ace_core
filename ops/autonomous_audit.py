@@ -7,7 +7,14 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 
-READINESS_ORDER = {"READY": 0, "NOT_READY": 1, "BLOCKED": 2}
+READINESS_ORDER = {
+    "READY": 0,
+    "DEGRADED": 1,
+    "RESEARCH_ONLY": 1,
+    "WATCH_ONLY": 2,
+    "NOT_READY": 2,
+    "BLOCKED": 3,
+}
 TASK_STATES = ("pending", "active", "blocked", "review", "approved", "archived")
 
 
@@ -84,6 +91,7 @@ class AutonomousAudit:
             "shenwen_5_6": self._shenwen_domain("shenwen-5.6", production_activity),
             "shenwen_5_4": self._shenwen_domain("shenwen-5.4", production_activity),
             "data_health": data_health_domain,
+            "finance": self._finance_domain(data_health),
             "advisor": self._advisor_domain(),
             "risk": self._risk_domain(),
             "tg": self._telegram_domain(),
@@ -446,6 +454,37 @@ class AutonomousAudit:
                 "run_bounded_multi_round_data_observation",
             )
         return result, _domain("READY", evidence=evidence)
+
+    def _finance_domain(self, data_health):
+        """Expose application readiness without weakening the data gate.
+
+        A failed production admission blocks transaction-grade recommendation,
+        but it must not erase research work when a subset of core operations is
+        independently usable.
+        """
+        matrix_path = Path(self.paths.get(
+            "data_capability_matrix",
+            Path(self.paths["data_health"]).with_name("A_SHARE_DATA_CAPABILITY_MATRIX.json"),
+        ))
+        matrix, error = _read_json(matrix_path)
+        evidence = [str(self.paths["data_health"]), str(matrix_path)]
+        if error or not isinstance(matrix, dict):
+            return _domain("NOT_READY", ["finance_capability_evidence_unavailable"], evidence, "continue_watch_only")
+        operations = matrix.get("phase_two_admission", {}).get("core_operations", {})
+        required = {"quote", "daily_kline", "minute_kline_1m", "minute_kline_5m", "index"}
+        admitted = {
+            name for name in required
+            if isinstance(operations.get(name), dict)
+            and operations[name].get("production_sources")
+            and operations[name].get("has_independent_cross_validation") is True
+        }
+        if admitted == required:
+            return _domain("READY", evidence=evidence)
+        if admitted:
+            return _domain("DEGRADED", ["partial_core_operation_admission"], evidence, "continue_financial_research_only")
+        if data_health.get("observation_rounds"):
+            return _domain("RESEARCH_ONLY", ["no_core_operation_fully_admitted"], evidence, "continue_source_and_historical_research")
+        return _domain("WATCH_ONLY", ["finance_observation_not_started"], evidence, "continue_watch_only")
 
     def _advisor_domain(self):
         advisor, error = _read_json(self.paths["advisor_status"])
