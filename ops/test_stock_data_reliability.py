@@ -350,6 +350,20 @@ def test_health_reports_p95_timeout_rate_and_operation_coverage():
     assert source["operation_coverage"]["quote"] == 1.0
 
 
+def test_health_summary_preserves_observed_upstream_and_independence_lineage():
+    probes = [{
+        **quote("tencent"),
+        "operation": "quote",
+        "upstream_identity": "Tencent public quotation endpoints",
+        "independence_group": "tencent_public_http",
+    }]
+
+    source = evaluate_health(probes)["sources"]["tencent"]
+
+    assert source["upstream_identity"] == "Tencent public quotation endpoints"
+    assert source["independence_group"] == "tencent_public_http"
+
+
 def test_same_independence_group_does_not_count_as_cross_validation():
     probes = [
         {**quote("akshare"), "independence_group": "eastmoney_public_http"},
@@ -642,6 +656,108 @@ def test_degraded_multi_source_candidate_can_create_reasoning_work_with_local_ba
         decision = reasoning[0].outputs["model_task_admission"]
         assert decision["eligible"] is True
         assert len(decision["evidence_refs"]) == 2
+
+
+def test_fresh_independent_financial_evidence_creates_strategic_work():
+    with tempfile.TemporaryDirectory() as temp_dir:
+        root = Path(temp_dir)
+        observer = RuntimeObserver(str(root / "observations"))
+        pool = TaskPool(str(root / "task_pool"))
+        evidence = root / "evidence"
+        evidence.mkdir()
+        sources = {}
+        for name, upstream, group in (
+            ("tencent", "Tencent endpoints", "tencent_public_http"),
+            ("baostock", "BaoStock API", "baostock_tcp"),
+            ("pytdx", "TDX host pool", "tdx_tcp_protocol"),
+        ):
+            sources[name] = {
+                "availability": 1.0,
+                "lineage_observable": True,
+                "upstream_identity": upstream,
+                "independence_group": group,
+            }
+        (evidence / "stock_data_benchmark_latest.json").write_text(
+            json.dumps({
+                "completed_at": datetime.now(timezone.utc).isoformat(),
+                "summary": {"sources": sources},
+            }),
+            encoding="utf-8",
+        )
+        stock_sources = StockDiscoverySources(
+            observer, str(root), evidence_dir=str(evidence)
+        )
+        discovery = DiscoveryMode(
+            pool,
+            observer,
+            str(root),
+            candidate_sources=[stock_sources.financial_cross_validation_candidates],
+        )
+
+        found = discovery.discover(allow_existing_work=True)
+        observed = observer.get_unprocessed(limit=1)[0]
+        assert (observed.source, observed.category, observed.severity) == (
+            "discovery_mode", "improvement", "medium"
+        )
+        assert {
+            "fingerprint", "title", "reason", "objective",
+            "completion_criteria", "verification_method", "priority", "route",
+        } <= set(observed.system_state["discovery"]), observed.system_state["discovery"]
+        converter = ObservationToTaskConverter(observer, pool)
+        discovery_rule = next(
+            rule for rule in converter.rules if rule.name == "discovery_candidate"
+        )
+        assert discovery_rule.matches(observed)
+        converted = converter.convert()
+
+        assert found["status"] == "observed"
+        assert converted["skipped"] == 0, converted
+        assert converted["task_types_created"] == {"strategic": 1}, converted
+        strategic = pool.list_tasks(status="pending", limit=1)[0]
+        assert strategic.outputs["model_task_admission"] == {
+            "eligible": True,
+            "classification": "strategic",
+            "reasons": [],
+            "evidence_refs": [
+                str(evidence / "stock_data_benchmark_latest.json") + "#summary.sources.baostock",
+                str(evidence / "stock_data_benchmark_latest.json") + "#summary.sources.pytdx",
+                str(evidence / "stock_data_benchmark_latest.json") + "#summary.sources.tencent",
+            ],
+            "admission_basis": {
+                "source_ref": strategic.outputs["admission"]["source_ref"],
+                "source_type": "maintenance",
+            },
+        }
+
+
+def test_financial_strategic_work_requires_distinct_independence_groups():
+    with tempfile.TemporaryDirectory() as temp_dir:
+        root = Path(temp_dir)
+        observer = RuntimeObserver(str(root / "observations"))
+        evidence = root / "evidence"
+        evidence.mkdir()
+        sources = {
+            name: {
+                "availability": 1.0,
+                "lineage_observable": True,
+                "upstream_identity": f"wrapper-{name}",
+                "independence_group": "same_upstream",
+            }
+            for name in ("wrapper_a", "wrapper_b", "wrapper_c")
+        }
+        (evidence / "stock_data_benchmark_latest.json").write_text(
+            json.dumps({
+                "completed_at": datetime.now(timezone.utc).isoformat(),
+                "summary": {"sources": sources},
+            }),
+            encoding="utf-8",
+        )
+
+        stock_sources = StockDiscoverySources(
+            observer, str(root), evidence_dir=str(evidence)
+        )
+
+        assert stock_sources.financial_cross_validation_candidates() == []
 
 
 def main():

@@ -957,6 +957,26 @@ def evaluate_health(probes: Iterable[Dict[str, Any]]) -> Dict[str, Any]:
             if "timeout" in str(entry.get("error_type", "")).lower()
         ) / len(entries) if entries else 0.0
         lineage_observable = all(entry.get("lineage_observable", True) for entry in entries)
+        upstream_identities = {
+            str(entry.get("upstream_identity", "")).strip()
+            for entry in entries
+            if str(entry.get("upstream_identity", "")).strip()
+        }
+        independence_groups = {
+            str(entry.get("independence_group", "")).strip()
+            for entry in entries
+            if str(entry.get("independence_group", "")).strip()
+        }
+        upstream_identity = (
+            next(iter(upstream_identities))
+            if len(upstream_identities) == 1
+            else "UNVERIFIED"
+        )
+        independence_group = (
+            next(iter(independence_groups))
+            if len(independence_groups) == 1
+            else "UNVERIFIED"
+        )
         score = round(100 * (0.30 * availability + 0.20 * completeness + 0.15 * coverage + 0.20 * consistency + 0.15 * (1 if median_latency is not None and median_latency <= 5000 else 0)), 1)
         sources[source] = {
             "availability": round(availability, 3),
@@ -974,6 +994,8 @@ def evaluate_health(probes: Iterable[Dict[str, Any]]) -> Dict[str, Any]:
             "successful_data_types": dict(types),
             "failure_reasons": dict(failures),
             "lineage_observable": lineage_observable,
+            "upstream_identity": upstream_identity,
+            "independence_group": independence_group,
             "health_score": score,
             "recommended_role": _role(source, availability, completeness, coverage, consistency, lineage_observable),
         }

@@ -189,7 +189,7 @@ BUILTIN_RULES: List[ConversionRule] = [
     ConversionRule(
         name="discovery_candidate",
         category="improvement",
-        severity_min="high",
+        severity_min="medium",
         condition_fn=_discovery_candidate,
     ),
     ConversionRule(

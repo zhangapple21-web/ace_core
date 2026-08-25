@@ -161,11 +161,24 @@ class StockDiscoverySources:
         if not completed_at.startswith(datetime.now(timezone.utc).date().isoformat()):
             return []
         sources = health.get("summary", {}).get("sources", {})
-        eligible = [
-            (name, metrics) for name, metrics in sorted(sources.items())
-            if isinstance(metrics, dict) and metrics.get("lineage_observable") is True
-            and float(metrics.get("availability", 0) or 0) > 0
-        ]
+        invalid_lineage = {"", "UNVERIFIED", "UNVERIFIED_AGGREGATE"}
+        eligible = []
+        seen_groups = set()
+        for name, metrics in sorted(sources.items()):
+            if not isinstance(metrics, dict):
+                continue
+            upstream = str(metrics.get("upstream_identity", "")).strip()
+            group = str(metrics.get("independence_group", "")).strip()
+            if (
+                metrics.get("lineage_observable") is not True
+                or float(metrics.get("availability", 0) or 0) <= 0
+                or upstream in invalid_lineage
+                or group in invalid_lineage
+                or group in seen_groups
+            ):
+                continue
+            seen_groups.add(group)
+            eligible.append((name, metrics))
         if len(eligible) < 3:
             return []
         evidence = [{
@@ -175,7 +188,11 @@ class StockDiscoverySources:
             "confidence": 0.8,
             "author": "stock_data_benchmark",
             "source_location": health.get("path", "stock_data_benchmark_latest"),
-            "metadata": {"upstream_identity": name, "lineage_observable": True},
+            "metadata": {
+                "upstream_identity": metrics["upstream_identity"],
+                "independence_group": metrics["independence_group"],
+                "lineage_observable": True,
+            },
         } for name, metrics in eligible[:3]]
         signature = {"date": completed_at[:10], "refs": [item["source_ref"] for item in evidence]}
         return self._candidate_for_incident("financial_cross_validation", signature, lambda recovery_count: DiscoveryCandidate(
@@ -190,13 +207,7 @@ class StockDiscoverySources:
             task_type="strategic",
             severity="medium",
             candidate_source="financial_research",
-            metadata={"autonomous_maintenance": {
-                "why_now": "Fresh benchmark evidence contains three lineage-observable sources.",
-                "evidence": evidence,
-                "expected_result": "A market-state comparison with counter-evidence and invalidating conditions.",
-                "verification_method": "Validator compares the three source refs and next observation window.",
-                "risk": "Research only; no recommendation, risk approval, or Telegram delivery.",
-                "estimated_scope": "One bounded cross-validation study.",
+            metadata={
                 "model_work_contract": {
                     "value_level": "L2_STRATEGIC",
                     "alternatives": ["sources agree", "sources diverge"],
@@ -204,7 +215,17 @@ class StockDiscoverySources:
                     "counter_evidence": "Any freshness, coverage, or cross-source inconsistency invalidates the hypothesis.",
                     "decision_verification": "Recheck at the next observation window against the same lineage refs.",
                 },
-            }},
+                "autonomous_maintenance": {
+                    "why_now": "Fresh benchmark evidence contains three independently identified lineage groups.",
+                    "evidence": evidence,
+                    "priority": "medium",
+                    "expected_result": "A market-state comparison with counter-evidence and invalidating conditions.",
+                    "verification_method": "Validator compares the three source refs and next observation window.",
+                    "risk": "Research only; no recommendation, risk approval, or Telegram delivery.",
+                    "source": "stock_data_benchmark",
+                    "estimated_scope": "One bounded cross-validation study.",
+                },
+            },
         ))
 
     def advisor_status_candidates(self) -> List[DiscoveryCandidate]:
