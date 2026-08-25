@@ -1218,6 +1218,15 @@ def test_daemon_daily_learning_adapts_independent_data_health_evidence():
             category="health",
             auto_generated=True,
         )
+        for sequence in range(60):
+            daemon.runtime_observer.record(
+                description=f"Unrelated runtime observation {sequence}",
+                system_state={"sequence": sequence},
+                severity="low",
+                source="daemon_loop",
+                category="runtime",
+                auto_generated=True,
+            )
 
         candidates = daemon._daily_learning_candidates()
 

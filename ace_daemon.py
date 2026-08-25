@@ -1484,7 +1484,11 @@ class AceDaemon:
         if not self.runtime_observer:
             return []
         candidates = []
-        for observation in self.runtime_observer.get_recent(limit=50):
+        # Candidate discovery must not be crowded out by unrelated high-volume
+        # observations. RuntimeObserver already retains a bounded 200-record
+        # window, so inspect that full existing window without creating a new
+        # source index or an unbounded scan.
+        for observation in self.runtime_observer.get_recent(limit=200):
             candidate = self._data_health_learning_candidate(observation)
             if candidate is not None:
                 candidates.append(candidate)
