@@ -55,6 +55,7 @@ from core.discovery import DiscoveryCandidate, DiscoveryMode
 from core.model_work_discovery import ModelWorkDiscovery
 from core.daily_growth import DailyGrowthLedger
 from core.finance_work_windows import FinanceWorkWindows
+from core.daily_shift import DailyShift
 from core.daily_learning import DailyLearningLoop
 from core.autonomous_work_allocation import AutonomousWorkAllocation
 from core.stock_discovery_sources import StockDiscoverySources
@@ -382,6 +383,10 @@ class AceDaemon:
             )
             self.finance_work_windows = FinanceWorkWindows(
                 str(self.base_dir / "06_RUNTIME" / "ace" / "data")
+            )
+            self.daily_shift = DailyShift(
+                self.task_pool,
+                str(self.base_dir / "06_RUNTIME" / "ace" / "data"),
             )
             governance_dir = self.base_dir / "08_GOVERNANCE"
             self.daily_learning = DailyLearningLoop(
@@ -1835,6 +1840,13 @@ class AceDaemon:
             result["finance_work_window"] = self.finance_work_windows.build()
         except Exception as e:
             self._log_error("finance_work_window", str(e))
+
+        try:
+            result["daily_shift"] = self.daily_shift.build(
+                daemon_state_path=str(self.state_file)
+            )
+        except Exception as e:
+            self._log_error("daily_shift", str(e))
 
         try:
             buried = self.task_pool.check_graveyard()
