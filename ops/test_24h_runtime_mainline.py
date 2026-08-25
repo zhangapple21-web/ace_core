@@ -1147,6 +1147,10 @@ def test_run_once_persists_stage_progress_and_durations():
         assert {"decision", "task_lifecycle", "daily_summary", "curator"} <= set(completed)
         assert all(item["duration_seconds"] >= 0 for item in completed.values())
         assert all(item["completed_at"] for item in completed.values())
+        memory = json.loads(daemon.memory_index.index_file.read_text(encoding="utf-8"))
+        latest = memory["entries"][-1]
+        assert latest["type"] == "cycle_summary"
+        assert latest["title"].startswith("运行周期摘要 - ")
 
 
 def test_daemon_persists_heartbeat_model_and_backup_stage_progress():

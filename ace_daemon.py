@@ -2276,17 +2276,18 @@ class AceDaemon:
                 summary_content += "\n"
 
         summary_id = self.memory_index.add(
-            title=f"今日考古摘要 - {today}",
+            title=f"运行周期摘要 - {today}",
             content=summary_content,
-            memory_type="daily_summary",
+            memory_type="cycle_summary",
             category="系统运行记录",
             source="ace_daemon",
-            tags=["daemon", "daily", today],
+            tags=["daemon", "cycle", today],
         )
 
         daily_record = {
             "date": today,
             "summary_id": summary_id,
+            "summary_kind": "cycle_summary",
             "actions": [a.get("type") for a in decision.get("actions", [])],
             "concepts_added": total_concepts_added,
             "files_indexed": total_indexed,
