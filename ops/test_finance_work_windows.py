@@ -17,6 +17,7 @@ def test_window_reports_research_only_when_data_is_degraded(tmp_path):
     assert report["window_status"] == "RESEARCH_ONLY"
     assert report["task_created"] is False
     assert report["recommendation_allowed"] is False
+    assert report["cognitive_workstreams"]
 
 
 def test_window_not_due_is_auditable_without_side_effects(tmp_path):

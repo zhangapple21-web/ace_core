@@ -22,9 +22,10 @@ WINDOWS = {
 
 
 class FinanceWorkWindows:
-    def __init__(self, data_dir: str, timezone_name: str = "Asia/Shanghai"):
+    def __init__(self, data_dir: str, timezone_name: str = "Asia/Shanghai", observer=None):
         self.data_dir = Path(data_dir)
         self.timezone = ZoneInfo(timezone_name)
+        self.observer = observer
         self.matrix_path = self.data_dir / "stock_data_evidence" / "A_SHARE_DATA_CAPABILITY_MATRIX.json"
         self.report_path = self.data_dir / "finance_work_windows_latest.json"
 
@@ -81,7 +82,35 @@ class FinanceWorkWindows:
                 if due else None
             ),
             "next_action": "record_observation_and_wait_for_independent_evidence" if due else "wait_for_next_window",
+            "cognitive_workstreams": [
+                "market_state_research",
+                "data_lineage_audit",
+                "prediction_review",
+                "next_day_hypothesis",
+            ] if due else [],
         }
+        if due and self.observer is not None:
+            observation = self.observer.record(
+                description=f"Finance window {due} observation for {observed_at.date().isoformat()}",
+                system_state={
+                    "finance_window": due,
+                    "window_status": window_status,
+                    "finance_status": status,
+                    "research_question": report["research_question"],
+                    "expected_result": "A bounded market-state and data-quality finding; no recommendation.",
+                    "verification_method": "Compare existing source evidence at the next observation window.",
+                    "evidence_refs": report["evidence_refs"],
+                    "date": observed_at.date().isoformat(),
+                },
+                severity="medium",
+                source="finance_work_window",
+                category="financial_research",
+                auto_generated=True,
+            )
+            report["observation_id"] = observation.obs_id
+            report["observation_created"] = True
+        else:
+            report["observation_created"] = False
         self.report_path.parent.mkdir(parents=True, exist_ok=True)
         self.report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
         return report

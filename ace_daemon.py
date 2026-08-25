@@ -382,7 +382,8 @@ class AceDaemon:
                 str(self.base_dir / "06_RUNTIME" / "ace" / "data" / "daily_growth_latest.json"),
             )
             self.finance_work_windows = FinanceWorkWindows(
-                str(self.base_dir / "06_RUNTIME" / "ace" / "data")
+                str(self.base_dir / "06_RUNTIME" / "ace" / "data"),
+                observer=self.runtime_observer,
             )
             self.daily_shift = DailyShift(
                 self.task_pool,
