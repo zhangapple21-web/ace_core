@@ -1615,6 +1615,36 @@ def test_model_pipeline_metrics_are_read_only():
         assert metrics["production_task_calls"] == 0
 
 
+def test_cycle_terminal_checkpoint_refreshes_daily_shift_from_final_state():
+    from ace_daemon import AceDaemon
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        daemon = AceDaemon(Path(temp_dir), {})
+        observed = []
+
+        class CapturingDailyShift:
+            def build(self, *, daemon_state_path):
+                state = json.loads(Path(daemon_state_path).read_text(encoding="utf-8"))
+                observed.append({
+                    "cycle_status": state["cycle_progress"]["cycle_status"],
+                    "stop_reason": state["cycle_progress"]["stop_reason"],
+                })
+                return observed[-1]
+
+        daemon.daily_shift = CapturingDailyShift()
+        daemon.state["cycle_progress"] = {
+            "current_stage": "repository_sync",
+            "completed_stages": [],
+        }
+
+        daemon._finalize_cycle("completed", "cycle_complete")
+
+        assert observed == [{
+            "cycle_status": "completed",
+            "stop_reason": "cycle_complete",
+        }]
+
+
 if __name__ == "__main__":
     test_daemon_import_and_construction()
     test_daemon_service_entrypoint()

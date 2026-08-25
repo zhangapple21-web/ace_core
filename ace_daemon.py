@@ -585,6 +585,12 @@ class AceDaemon:
         progress["stop_reason"] = reason
         progress["finished_at"] = datetime.now().isoformat()
         self._save_state()
+        daily_shift = getattr(self, "daily_shift", None)
+        if daily_shift is not None:
+            try:
+                daily_shift.build(daemon_state_path=str(self.state_file))
+            except Exception as error:
+                self._log_error("daily_shift_terminal_refresh", str(error))
 
     def _recover_stale_cycle(self) -> None:
         """Close a cycle left open by an interrupted or killed prior run."""
