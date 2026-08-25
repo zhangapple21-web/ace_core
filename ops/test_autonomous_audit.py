@@ -1,0 +1,216 @@
+import hashlib
+import json
+import sys
+from datetime import datetime, timedelta
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from ops.autonomous_audit import AutonomousAudit, run_audit
+
+
+def write_json(path, payload):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+
+def audit_paths(root):
+    runtime = root / "runtime"
+    return {
+        "heartbeat": runtime / "memory" / "heartbeat.json",
+        "daemon_state": runtime / "memory" / "daemon_state.json",
+        "daemon_lock": runtime / "memory" / ".daemon.lock",
+        "task_pool": root / "task_pool",
+        "data_health": runtime / "stock_data_evidence" / "stock_data_benchmark_latest.json",
+        "advisor_status": root / "advisor" / "output" / "runner_status.json",
+        "risk_status": root / "advisor" / "output" / "risk_status.json",
+        "provider_watchdog": runtime / "miner_pool" / "provider_watchdog" / "watchdog_state.json",
+        "audits": runtime / "audits",
+        "environment": {},
+    }
+
+
+def task(task_id, status="pending", priority="medium", outputs=None, tags=None, created_at=None, **extra):
+    return {
+        "task_id": task_id,
+        "title": task_id,
+        "status": status,
+        "priority": priority,
+        "tags": tags or [],
+        "outputs": outputs or {},
+        "created_at": created_at or datetime.now().isoformat(),
+        "updated_at": datetime.now().isoformat(),
+        "audit_log": extra.pop("audit_log", []),
+        **extra,
+    }
+
+
+def write_task(pool, record):
+    task_id = record["task_id"]
+    if not task_id.startswith("RQ-"):
+        task_id = f"RQ-{task_id}"
+        record["task_id"] = task_id
+    write_json(pool / record["status"] / f"{task_id}.json", record)
+
+
+def source_hashes(paths):
+    digests = {}
+    for name, path in paths.items():
+        if isinstance(path, Path) and path.exists() and path.is_file():
+            digests[name] = hashlib.sha256(path.read_bytes()).hexdigest()
+    for path in paths["task_pool"].rglob("*.json"):
+        digests[str(path)] = hashlib.sha256(path.read_bytes()).hexdigest()
+    return digests
+
+
+def tree_hashes(root, excluded=None):
+    excluded = excluded or set()
+    digests = {}
+    for path in root.rglob("*"):
+        if path.is_file() and not any(path.is_relative_to(directory) for directory in excluded):
+            digests[str(path)] = hashlib.sha256(path.read_bytes()).hexdigest()
+    return digests
+
+
+def test_production_trace_requires_admitted_reasoning_task(tmp_path):
+    paths = audit_paths(tmp_path)
+    admitted = {
+        "model_task_admission": {"eligible": True, "classification": "reasoning"},
+        "model_execution": [{
+            "provider": "shenwen",
+            "selected_model": "shenwen-5.6",
+            "api_called": True,
+            "api_result": "success",
+            "fallback": False,
+            "trace_complete": True,
+        }],
+    }
+    write_task(paths["task_pool"], task("admitted", outputs=admitted, tags=["task_type:reasoning"]))
+    write_task(paths["task_pool"], task("rejected", outputs={
+        "model_task_admission": {"eligible": False, "classification": "reasoning"},
+        "model_execution": [{"selected_model": "shenwen-5.4", "api_called": True}],
+    }, tags=["task_type:reasoning"]))
+    write_json(paths["provider_watchdog"], {"providers": {"shenwen": {"status": "HEALTHY"}}})
+
+    report = AutonomousAudit(paths).collect()
+
+    assert report["model_calls"]["PRODUCTION_TASK_CALL"]["count"] == 1
+    assert report["model_calls"]["PRODUCTION_TASK_CALL"]["selected_models"] == {"shenwen-5.6": 1}
+    assert report["model_calls"]["HEALTH_PROBE"]["count"] == 1
+    assert report["model_calls"]["CONTROLLED_PROBE"]["count"] == 1
+    assert report["production_activity"] == {
+        "MODEL_POOL_PRODUCTION_ACTIVE": True,
+        "SHENWEN_5_6_PRODUCTION_ACTIVE": True,
+        "SHENWEN_5_4_PRODUCTION_ACTIVE": False,
+    }
+
+
+def test_production_activity_excludes_health_and_controlled_probes(tmp_path):
+    paths = audit_paths(tmp_path)
+    write_task(paths["task_pool"], task("controlled", outputs={
+        "model_task_admission": {"eligible": False, "classification": "reasoning"},
+        "model_execution": [{"selected_model": "shenwen-5.6", "api_called": True}],
+    }, tags=["task_type:reasoning"]))
+    write_json(paths["provider_watchdog"], {"providers": {"shenwen": {"status": "HEALTHY"}}})
+
+    report = AutonomousAudit(paths).collect()
+
+    assert report["model_calls"]["HEALTH_PROBE"]["count"] == 1
+    assert report["model_calls"]["CONTROLLED_PROBE"]["count"] == 1
+    assert report["model_calls"]["PRODUCTION_TASK_CALL"]["count"] == 0
+    assert report["production_activity"] == {
+        "MODEL_POOL_PRODUCTION_ACTIVE": False,
+        "SHENWEN_5_6_PRODUCTION_ACTIVE": False,
+        "SHENWEN_5_4_PRODUCTION_ACTIVE": False,
+    }
+
+
+def test_readonly_report_exposes_each_required_observation_domain(tmp_path):
+    paths = audit_paths(tmp_path)
+    write_json(paths["provider_watchdog"], {"providers": {"shenwen": {"status": "HEALTHY"}}})
+    write_task(paths["task_pool"], task("allocated", audit_log=[{
+        "actor": "allocator",
+        "reason": "selected",
+    }], outputs={"model_task_admission": {"eligible": False, "classification": "reasoning"}}))
+
+    report = AutonomousAudit(paths).collect()
+
+    assert set(report["domains"]) == {
+        "runtime",
+        "task_lifecycle",
+        "work_allocation",
+        "fairness",
+        "model_task",
+        "miner_pool",
+        "shenwen_5_6",
+        "shenwen_5_4",
+        "data_health",
+        "advisor",
+        "risk",
+        "tg",
+    }
+    assert report["domains"]["work_allocation"]["evidence"] == [str(paths["task_pool"])]
+    assert report["domains"]["model_task"]["evidence"] == [str(paths["task_pool"])]
+    assert report["domains"]["miner_pool"]["state"] == "READY"
+    assert report["domains"]["shenwen_5_6"]["state"] == "NOT_READY"
+    assert report["domains"]["shenwen_5_4"]["state"] == "NOT_READY"
+    assert report["domains"]["advisor"]["state"] == "NOT_READY"
+    assert report["domains"]["risk"]["state"] == "NOT_READY"
+
+
+def test_missing_runtime_is_not_ready_and_backlog_growth_is_anomaly(tmp_path):
+    paths = audit_paths(tmp_path)
+    old = (datetime.now() - timedelta(days=8)).isoformat()
+    write_task(paths["task_pool"], task("old-high", priority="high", created_at=old))
+    write_task(paths["task_pool"], task("current-medium"))
+    write_task(paths["task_pool"], task("current-low", priority="low"))
+    write_json(paths["audits"] / "history" / "2026-08-23" / "daily_health.json", {
+        "task_lifecycle": {"backlog": 1, "blocked": 0},
+        "fairness": {"starved_count": 0},
+    })
+    write_json(paths["audits"] / "history" / "2026-08-24" / "daily_health.json", {
+        "task_lifecycle": {"backlog": 2, "blocked": 0},
+        "fairness": {"starved_count": 0},
+    })
+
+    write_json(paths["data_health"], {
+        "summary": {"sources": {"source-a": {"availability": 0.9, "field_completeness": 0.8, "coverage": 0.7, "consistency": 0.6}}}
+    })
+
+    report = AutonomousAudit(paths).collect()
+
+    assert report["domains"]["runtime"]["state"] == "NOT_READY"
+    assert report["data_health"]["sources"]["source-a"]["availability"] == 0.9
+    assert report["fairness"]["starved_count"] == 1
+    assert "backlog_increasing" in report["trend"]["anomalies"]
+    assert report["recommended_action"]["code"] == "resolve_task_starvation"
+
+
+def test_run_writes_reports_and_preserves_runtime_sources(tmp_path):
+    paths = audit_paths(tmp_path)
+    write_json(paths["heartbeat"], {"status": "alive", "last_beat": datetime.now().isoformat(), "pid": 1})
+    write_json(paths["daemon_state"], {"last_run": datetime.now().isoformat(), "cycle_progress": {"stage": "complete"}})
+    write_json(paths["daemon_lock"], {"pid": 1})
+    write_json(paths["heartbeat"].parent / "unrelated_runtime_state.json", {"unchanged": True})
+    write_task(paths["task_pool"], task("pending"))
+    for days in (91, 1):
+        date = (datetime.now() - timedelta(days=days)).date().isoformat()
+        write_json(paths["audits"] / "history" / date / "daily_health.json", {})
+
+    before = source_hashes(paths)
+    runtime_before = tree_hashes(paths["heartbeat"].parents[1], {paths["audits"]})
+    result = run_audit(paths)
+
+    assert result["written"] == {
+        "daily_health.json",
+        "daily_health.md",
+        "blocking_reasons.json",
+        "trend_report.json",
+    }
+    assert source_hashes(paths) == before
+    assert tree_hashes(paths["heartbeat"].parents[1], {paths["audits"]}) == runtime_before
+    for filename in result["written"]:
+        assert (paths["audits"] / filename).is_file()
+    old_date = (datetime.now() - timedelta(days=91)).date().isoformat()
+    assert not (paths["audits"] / "history" / old_date).exists()
+    assert (paths["audits"] / "history" / datetime.now().date().isoformat() / "daily_health.json").is_file()

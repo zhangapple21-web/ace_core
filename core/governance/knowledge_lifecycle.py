@@ -142,6 +142,10 @@ class KnowledgeLifecycle:
             published_at=d.get("published_at"),
             archived_at=d.get("archived_at"),
         )
+        kl.stage_history = [
+            LifecycleTransition(**transition)
+            for transition in d.get("stage_history", [])
+        ]
         kl.observation_notes = d.get("observation_notes", [])
         kl.research_notes = d.get("research_notes", [])
         kl.validation_notes = d.get("validation_notes", [])

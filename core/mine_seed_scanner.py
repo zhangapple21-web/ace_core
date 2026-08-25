@@ -136,7 +136,10 @@ class MineSeedScanner:
             return ""
 
     def scan_and_create_tasks(
-        self, task_pool, max_tasks: int = 2
+        self,
+        task_pool,
+        max_tasks: int = 2,
+        allowed_priorities: Optional[Set[str]] = None,
     ) -> Dict[str, Any]:
         """
         扫描 mine-seed 新 commit，为新发现创建考古任务
@@ -178,7 +181,12 @@ class MineSeedScanner:
                 self._processed_commits.add(h)
                 continue
 
-            task = self._create_cross_agent_task(commit, md_files, task_pool)
+            task = self._create_cross_agent_task(
+                commit,
+                md_files,
+                task_pool,
+                allowed_priorities,
+            )
             if task:
                 tasks.append(task)
                 self._processed_commits.add(h)
@@ -198,9 +206,15 @@ class MineSeedScanner:
         return result
 
     def _create_cross_agent_task(
-        self, commit: Dict[str, Any], md_files: List[str], task_pool
+        self,
+        commit: Dict[str, Any],
+        md_files: List[str],
+        task_pool,
+        allowed_priorities: Optional[Set[str]] = None,
     ) -> Optional[Any]:
         """为跨智能体发现创建考古任务"""
+        if allowed_priorities is not None and "medium" not in allowed_priorities:
+            return None
         h = commit["hash"]
         subject = commit["subject"]
         author = commit["author"]
@@ -217,21 +231,35 @@ class MineSeedScanner:
         tags = ["cross_agent", "mine_seed", f"author:{author}"]
 
         try:
+            evidence = {
+                "commit_hash": h,
+                "subject": subject,
+                "author": author,
+                "markdown_files": list(md_files),
+            }
             task = task_pool.create_task(
                 title=title,
                 hypothesis=hypothesis,
                 creator="mine_seed_scanner",
                 priority="medium",
                 tags=tags,
-            )
-            if task:
-                task.outputs = {
+                admission={
+                    "source_type": "archaeology",
+                    "source_ref": h,
+                    "why_now": "A new mine-seed commit contains unprocessed Markdown material.",
+                    "evidence": [evidence],
+                    "expected_result": "The commit is compared against local work and its reusable gap is recorded.",
+                    "verification_method": "Review the commit hash, listed files, and resulting analysis record.",
+                    "risk": "External repository content may be incomplete or incompatible.",
+                    "estimated_scope": "one commit",
+                },
+                outputs={
                     "commit_hash": h,
                     "commit_subject": subject,
                     "commit_author": author,
                     "md_files": md_files,
-                }
-                task_pool.update_task(task)
+                },
+            )
             return task
         except Exception:
             return None

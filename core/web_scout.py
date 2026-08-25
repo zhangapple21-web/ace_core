@@ -207,7 +207,11 @@ class WebScout:
 
     # ── 执行层 ───────────────────────────────────────────────
 
-    def scout(self, force: bool = False) -> Dict[str, Any]:
+    def scout(
+        self,
+        force: bool = False,
+        allowed_priorities: Optional[set] = None,
+    ) -> Dict[str, Any]:
         """执行一次外网学习
 
         返回结构化数据，不输出日志。
@@ -259,7 +263,11 @@ class WebScout:
         if new_structures:
             concepts_added = self._deposit_concepts(new_structures, source_name)
             self._deposit_memory(new_structures, source_name)
-            tasks_created = self._maybe_create_task(new_structures, source_name)
+            tasks_created = self._maybe_create_task(
+                new_structures,
+                source_name,
+                allowed_priorities,
+            )
 
         # 更新 state
         self._state["today_sources"].append(source_name)
@@ -514,18 +522,49 @@ class WebScout:
         except Exception:
             pass
 
-    def _maybe_create_task(self, items: List[Dict[str, Any]], source: str) -> int:
+    def _maybe_create_task(
+        self,
+        items: List[Dict[str, Any]],
+        source: str,
+        allowed_priorities: Optional[set] = None,
+    ) -> int:
         """如果发现足够多，创建深入研究任务"""
-        if not self.task_pool or len(items) < 3:
+        if not self.task_pool or len(items) < 3 or (
+            allowed_priorities is not None and "medium" not in allowed_priorities
+        ):
             return 0
 
         try:
+            evidence_items = [
+                {
+                    "name": item.get("full_name") or item.get("name", ""),
+                    "url": item.get("html_url", ""),
+                    "description": item.get("description", ""),
+                    "stars": item.get("stargazers_count", 0),
+                    "novelty_score": item.get("novelty_score", 0),
+                }
+                for item in items
+            ]
+            batch_ref = hashlib.sha256(
+                json.dumps(evidence_items, ensure_ascii=False, sort_keys=True).encode("utf-8")
+            ).hexdigest()
             task = self.task_pool.create_task(
                 title=f"外网深挖: {source}",
                 hypothesis=f"来自{source}的{len(items)}个发现需要进一步研究和吸收",
                 creator="web_scout",
                 priority="medium",
                 tags=["external", "web_scout", source, "deep_research"],
+                admission={
+                    "source_type": "external_research",
+                    "source_ref": f"{source}:{batch_ref}",
+                    "why_now": "The existing scout run collected a bounded batch of related external findings.",
+                    "evidence": evidence_items,
+                    "expected_result": "The discovered materials are evaluated for relevance and recorded without automatic adoption.",
+                    "verification_method": "Recheck the recorded source URLs and the resulting research record.",
+                    "risk": "External materials can be stale, untrusted, or incompatible.",
+                    "estimated_scope": "one existing external discovery batch",
+                },
+                outputs={"web_scout_source": source, "findings": evidence_items},
             )
             return 1 if task else 0
         except Exception:

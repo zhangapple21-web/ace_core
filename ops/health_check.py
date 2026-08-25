@@ -21,6 +21,7 @@ ACE 健康检查脚本 (ID-05)
 """
 
 import json
+import subprocess
 import sys
 import os
 from pathlib import Path
@@ -29,6 +30,22 @@ from collections import defaultdict
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(BASE_DIR))
+
+from core.heartbeat import Heartbeat
+
+
+def _process_command_line(pid: int) -> str:
+    if os.name == "nt":
+        command = [
+            "powershell",
+            "-NoProfile",
+            "-Command",
+            f"(Get-CimInstance Win32_Process -Filter 'ProcessId = {pid}').CommandLine",
+        ]
+    else:
+        command = ["ps", "-p", str(pid), "-o", "command="]
+    result = subprocess.run(command, capture_output=True, text=True, timeout=5)
+    return result.stdout.strip()
 
 
 class HealthChecker:
@@ -58,6 +75,7 @@ class HealthChecker:
     def run_all(self) -> dict:
         self._check_filesystem()
         self._check_data_integrity()
+        self._check_runtime_liveness()
         self._check_task_pool()
         self._check_recent_errors()
         self._check_config()
@@ -152,6 +170,33 @@ class HealthChecker:
                 severity="warning",
                 detail=f"已归档 {archived} 个任务",
             )
+
+    def _check_runtime_liveness(self):
+        runtime_dir = BASE_DIR / "06_RUNTIME" / "ace" / "data" / "memory"
+        status = Heartbeat(runtime_dir).get_status(max_idle_seconds=3600)
+        self.check(
+            "daemon心跳存活",
+            status["is_alive"],
+            severity="error",
+            detail=(
+                f"status={status.get('status')}, pid={status.get('pid')}, "
+                f"seconds_since_last_beat={status.get('seconds_since_last_beat')}"
+            ),
+        )
+        if not status["is_alive"]:
+            return
+        pid = status.get("pid")
+        try:
+            command_line = _process_command_line(pid)
+        except (OSError, subprocess.SubprocessError):
+            command_line = ""
+        self.check(
+            "daemon进程归属",
+            "ace_daemon.py" in command_line
+            or ("ace.py" in command_line and "daemon" in command_line),
+            severity="error",
+            detail=f"pid={pid}, command_line={command_line or 'unavailable'}",
+        )
 
     def _check_task_pool(self):
         task_pool = BASE_DIR / "task_pool"

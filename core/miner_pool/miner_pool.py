@@ -19,6 +19,7 @@
 """
 
 import json
+import time
 from pathlib import Path
 from typing import Dict, List, Any, Optional
 from datetime import datetime
@@ -36,6 +37,8 @@ from .providers.openai_compatible import (
     SambaNovaProvider,
     OneAPIProvider,
     OpenAICompatibleProvider,
+    ShenwenProvider,
+    ShenwenImagesProvider,
 )
 
 
@@ -50,6 +53,8 @@ PROVIDER_FACTORY = {
     "modelscope": OpenAICompatibleProvider,
     "huggingface": OpenAICompatibleProvider,
     "ace_proxy": OpenAICompatibleProvider,  # ACE 自己的 OpenAI 兼容代理
+    "shenwen": ShenwenProvider,
+    "shenwen_images": ShenwenImagesProvider,
 }
 
 
@@ -157,6 +162,75 @@ class MinerPool:
                     test_models[provider] = model
         return self._watchdog.run_full_check(test_models=test_models)
 
+    @staticmethod
+    def _shenwen_cost(model: str, usage: Dict[str, Any]) -> Dict[str, Any]:
+        prices = {
+            "gpt-5.6-terra": {
+                "input": 0.44,
+                "cache_read": 0.044,
+                "cache_write": 0.55,
+                "output": 2.64,
+            },
+            "gpt-5.4-mini": {
+                "input": 0.165,
+                "cache_read": 0.0165,
+                "cache_write": 0.206,
+                "output": 0.99,
+            },
+        }
+        price = prices.get(model)
+        if not price or not isinstance(usage, dict):
+            return {}
+
+        def token_count(name: str) -> float:
+            value = usage.get(name, 0)
+            return value if isinstance(value, (int, float)) else 0
+
+        input_usd = token_count("prompt_tokens") * price["input"] / 1_000_000
+        cache_read_usd = token_count("cache_read_tokens") * price["cache_read"] / 1_000_000
+        cache_write_usd = token_count("cache_write_tokens") * price["cache_write"] / 1_000_000
+        output_usd = token_count("completion_tokens") * price["output"] / 1_000_000
+        return {
+            "currency": "USD",
+            "input_usd": input_usd,
+            "cache_read_usd": cache_read_usd,
+            "cache_write_usd": cache_write_usd,
+            "output_usd": output_usd,
+            "total_usd": round(input_usd + cache_read_usd + cache_write_usd + output_usd, 12),
+            "usage_source": "provider_response",
+        }
+
+    @staticmethod
+    def _is_retryable_error(error: str) -> bool:
+        normalized = error.lower()
+        permanent_markers = (
+            "http 400",
+            "http 401",
+            "http 403",
+            "unauthorized",
+            "forbidden",
+            "invalid api key",
+            "unsupported model",
+            "bad request",
+            "malformed",
+        )
+        if any(marker in normalized for marker in permanent_markers):
+            return False
+        transient_markers = (
+            "timeout",
+            "timed out",
+            "connection",
+            "stream ended",
+            "rate limit",
+            "http 429",
+            "http 500",
+            "http 502",
+            "http 503",
+            "http 504",
+            "temporarily unavailable",
+        )
+        return any(marker in normalized for marker in transient_markers)
+
     def chat(
         self,
         task_type: str,
@@ -198,6 +272,8 @@ class MinerPool:
             "latency_ms": 0,
             "error": "",
             "tried_models": [],
+            "attempts": [],
+            "cost": {},
             "task_type": task_type,
         }
 
@@ -218,24 +294,36 @@ class MinerPool:
 
         tried = []
         last_error = ""
+        spec: Optional[ModelSpec] = None
 
         for attempt in range(max_retries):
-            # 选模型
-            spec = self._router.select_model(
-                task_type=task_type,
-                exclude_models=tried,
-            )
-            if not spec:
-                last_error = last_error or "no available models for this task type"
-                break
+            if spec is None:
+                spec = self._router.select_model(
+                    task_type=task_type,
+                    exclude_models=tried,
+                )
+                if not spec:
+                    last_error = last_error or "no available models for this task type"
+                    break
+                tried.append(spec.full_id)
 
-            tried.append(spec.full_id)
             provider = self._providers.get(spec.provider)
             if not provider:
+                last_error = f"provider not configured: {spec.provider}"
+                result["attempts"].append({
+                    "number": attempt + 1,
+                    "model": spec.full_id,
+                    "provider": spec.provider,
+                    "timeout": timeout,
+                    "latency_ms": 0,
+                    "success": False,
+                    "retryable": False,
+                    "error": last_error,
+                })
                 self._router.mark_model_health(spec.full_id, False)
+                spec = None
                 continue
 
-            # 调用
             try:
                 call_result = provider.chat(
                     messages=full_messages,
@@ -245,34 +333,57 @@ class MinerPool:
                     timeout=timeout,
                     **kwargs,
                 )
-            except Exception as e:
-                call_result = {"success": False, "error": str(e), "latency_ms": 0}
+            except Exception as error:
+                call_result = {"success": False, "error": str(error), "latency_ms": 0}
 
-            # 记录
+            success = call_result.get("success", False)
+            latency_ms = call_result.get("latency_ms", 0)
+            error = call_result.get("error", "")
+            retryable = not success and self._is_retryable_error(error)
+            result["attempts"].append({
+                "number": attempt + 1,
+                "model": spec.full_id,
+                "provider": spec.provider,
+                "timeout": timeout,
+                "latency_ms": latency_ms,
+                "success": success,
+                "retryable": retryable,
+                "error": error,
+            })
             self._router.record_call(
                 model_id=spec.full_id,
                 task_type=task_type,
-                success=call_result.get("success", False),
-                latency_ms=call_result.get("latency_ms", 0),
+                success=success,
+                latency_ms=latency_ms,
             )
 
-            if call_result.get("success"):
+            if success:
                 result["success"] = True
                 result["content"] = call_result.get("content", "")
                 result["model"] = call_result.get("model", spec.model)
                 result["provider"] = spec.provider
                 result["usage"] = call_result.get("usage", {})
-                result["latency_ms"] = call_result.get("latency_ms", 0)
+                if spec.provider == "shenwen":
+                    result["cost"] = self._shenwen_cost(result["model"], result["usage"])
+                result["latency_ms"] = latency_ms
                 result["tried_models"] = tried
                 self._router.mark_model_health(spec.full_id, True)
                 if self._watchdog:
-                    self._watchdog.record_success(spec.provider, call_result.get("latency_ms", 0))
+                    self._watchdog.record_success(spec.provider, latency_ms)
                 return result
-            else:
-                last_error = call_result.get("error", "unknown error")
+
+            last_error = error or "unknown error"
+            if self._watchdog:
+                self._watchdog.record_failure(spec.provider, last_error)
+            if retryable and attempt + 1 < max_retries:
+                time.sleep(2 ** attempt)
+                continue
+            if retryable:
                 self._router.mark_model_health(spec.full_id, False)
-                if self._watchdog:
-                    self._watchdog.record_failure(spec.provider, last_error)
+                break
+
+            self._router.mark_model_health(spec.full_id, False)
+            spec = None
 
         result["error"] = last_error
         result["tried_models"] = tried
@@ -323,6 +434,48 @@ class MinerPool:
             results.append(result)
 
         return results
+
+    def generate_image(
+        self,
+        prompt: str,
+        model: str = "gpt-image-2",
+        timeout: int = 900,
+        **kwargs,
+    ) -> Dict[str, Any]:
+        if not self._initialized:
+            self.initialize()
+
+        result = {
+            "success": False,
+            "images": [],
+            "model": model,
+            "provider": "shenwen_images",
+            "usage": {},
+            "latency_ms": 0,
+            "error": "",
+        }
+        provider = self._providers.get("shenwen_images")
+        if not provider:
+            result["error"] = "shenwen image provider is not configured"
+            return result
+
+        try:
+            call_result = provider.generate_image(
+                prompt=prompt,
+                model=model,
+                timeout=timeout,
+                **kwargs,
+            )
+        except Exception as e:
+            call_result = {"success": False, "error": str(e), "latency_ms": 0}
+
+        result.update(call_result)
+        if self._watchdog:
+            if result["success"]:
+                self._watchdog.record_success("shenwen_images", result["latency_ms"])
+            else:
+                self._watchdog.record_failure("shenwen_images", result["error"])
+        return result
 
     def cross_validate(
         self,

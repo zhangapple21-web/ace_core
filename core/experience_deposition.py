@@ -17,7 +17,9 @@
   - observation: 观察（弱结论，供参考）
 """
 
+import hashlib
 import json
+import re
 from pathlib import Path
 from datetime import datetime
 from typing import Dict, List, Any, Optional
@@ -69,7 +71,13 @@ class Experience:
 
     @classmethod
     def from_dict(cls, data: Dict) -> "Experience":
-        return cls(**data)
+        value = dict(data)
+        reference_count = int(value.pop("reference_count", 0) or 0)
+        last_used_at = value.pop("last_used_at", None)
+        experience = cls(**value)
+        experience.reference_count = reference_count
+        experience.last_used_at = last_used_at or experience.created_at
+        return experience
 
     def touch(self):
         self.last_used_at = datetime.now().isoformat()
@@ -119,6 +127,65 @@ class ExperienceDeposition:
         with open(self.index_path, "w", encoding="utf-8") as f:
             json.dump(index, f, ensure_ascii=False, indent=2)
 
+    @staticmethod
+    def _experience_id(source_task_id: str, experience_type: str) -> str:
+        """Return a stable, filesystem-safe identity for one deposition kind."""
+        identity = f"{source_task_id}|{experience_type}"
+        safe_task_id = re.sub(r"[^A-Za-z0-9._-]+", "_", source_task_id).strip("._-")
+        safe_task_id = (safe_task_id or "task")[:48]
+        digest = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:12]
+        return f"EXP-{safe_task_id}-{experience_type}-{digest}"
+
+    @staticmethod
+    def _load_experience(path: Path) -> Optional[Experience]:
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                value = json.load(f)
+            return Experience.from_dict(value) if isinstance(value, dict) else None
+        except (OSError, TypeError, ValueError, json.JSONDecodeError):
+            return None
+
+    def _find_existing(self, source_task_id: str, experience_type: str) -> Optional[Experience]:
+        """Find current or legacy deposition without creating a duplicate."""
+        index = self._load_index()
+        for experience_id, record in index.items():
+            if not isinstance(record, dict):
+                continue
+            if (
+                record.get("source_task") != source_task_id
+                or record.get("type") != experience_type
+            ):
+                continue
+            path = Path(record.get("path", ""))
+            experience = self._load_experience(path)
+            if (
+                experience
+                and experience.source_task_id == source_task_id
+                and experience.experience_type == experience_type
+            ):
+                return experience
+
+        subdir = self.EXPERIENCE_DIRS.get(experience_type, "observation")
+        for path in sorted((self.knowledge_dir / subdir).glob("EXP-*.json")):
+            experience = self._load_experience(path)
+            if (
+                experience
+                and experience.source_task_id == source_task_id
+                and experience.experience_type == experience_type
+            ):
+                return experience
+        return None
+
+    def _index_experience(self, experience: Experience, path: Path) -> None:
+        index = self._load_index()
+        index[experience.experience_id] = {
+            "path": str(path),
+            "type": experience.experience_type,
+            "conclusion": experience.conclusion[:100],
+            "source_task": experience.source_task_id,
+        }
+        self._save_index(index)
+
     def deposit(
         self,
         task,
@@ -135,8 +202,14 @@ class ExperienceDeposition:
                 experience_type = task.guardian_decision
             else:
                 experience_type = "observation"
+        if experience_type not in Experience.EXPERIENCE_TYPES:
+            experience_type = "observation"
 
-        exp_id = f"EXP-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+        existing = self._find_existing(task.task_id, experience_type)
+        if existing is not None:
+            return existing
+
+        exp_id = self._experience_id(task.task_id, experience_type)
 
         evidence = []
         for ev in (task.evidence or [])[:10]:
@@ -159,17 +232,20 @@ class ExperienceDeposition:
 
         subdir = self.EXPERIENCE_DIRS.get(experience_type, "observation")
         exp_path = self.knowledge_dir / subdir / f"{exp_id}.json"
-        with open(exp_path, "w", encoding="utf-8") as f:
-            json.dump(exp.to_dict(), f, ensure_ascii=False, indent=2)
+        try:
+            with open(exp_path, "x", encoding="utf-8") as f:
+                json.dump(exp.to_dict(), f, ensure_ascii=False, indent=2)
+        except FileExistsError:
+            concurrent = self._load_experience(exp_path)
+            if (
+                not concurrent
+                or concurrent.source_task_id != task.task_id
+                or concurrent.experience_type != experience_type
+            ):
+                raise RuntimeError(f"experience_identity_collision:{exp_id}")
+            exp = concurrent
 
-        index = self._load_index()
-        index[exp_id] = {
-            "path": str(exp_path),
-            "type": experience_type,
-            "conclusion": exp.conclusion[:100],
-            "source_task": task.task_id,
-        }
-        self._save_index(index)
+        self._index_experience(exp, exp_path)
 
         return exp
 

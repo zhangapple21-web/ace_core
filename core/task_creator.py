@@ -21,6 +21,7 @@ Task Creator — 自发现考古任务生成器
 """
 
 import json
+import hashlib
 from pathlib import Path
 from datetime import datetime, timedelta
 from typing import Dict, List, Any, Optional, Set
@@ -291,25 +292,46 @@ class TaskCreator:
                 task_params = self._apply_skill_template(task_params, matched_skill, cand)
                 self.skill_generator.record_usage(matched_skill["skill_name"])
 
-            task = self.task_pool.create_task(**task_params)
-
-            if cand.get("source_task"):
-                task.parent_task = cand["source_task"]
-                self.task_pool.update_task(task)
-
-            task.outputs = {
-                "source_type": cand["type"],
-                "trigger": {k: v for k, v in cand.items() if k not in ("type", "task_title", "priority", "hypothesis", "tags")},
+            candidate_type = cand["type"]
+            source_type = {
+                "archaeology_report": "archaeology",
+                "experience_pattern": "evidence",
+                "lexicon_gap": "system_observation",
+            }.get(candidate_type, "maintenance")
+            trigger = {
+                key: value for key, value in cand.items()
+                if key not in ("type", "task_title", "priority", "hypothesis", "tags")
             }
-
+            source_ref = str(
+                cand.get("path")
+                or cand.get("experience_id")
+                or cand.get("category")
+                or hashlib.sha256(
+                    json.dumps(trigger, ensure_ascii=False, sort_keys=True, default=str).encode("utf-8")
+                ).hexdigest()
+            )
+            task_params["parent_task"] = cand.get("source_task", "")
+            task_params["admission"] = {
+                "source_type": source_type,
+                "source_ref": source_ref,
+                "why_now": f"A new {candidate_type} candidate was found by the local task creator.",
+                "evidence": [{"candidate_type": candidate_type, "trigger": trigger}],
+                "expected_result": cand.get("hypothesis", "Candidate evidence is reviewed and bounded."),
+                "verification_method": "Recheck the original candidate source and its recorded trigger.",
+                "risk": "Candidate metadata may require validation before any implementation work.",
+                "estimated_scope": "one discovered candidate",
+            }
             if matched_skill:
-                task.outputs["used_skill"] = matched_skill["skill_name"]
-                task.outputs["skill_type"] = matched_skill["skill_type"]
-                if "tags" not in task.tags or "skill_based" not in task.tags:
-                    task.tags = list(set(task.tags + ["skill_based"]))
-                self.task_pool.update_task(task)
-
-            self.task_pool.update_task(task)
+                task_params["tags"] = list(set(task_params["tags"] + ["skill_based"]))
+            task_params["outputs"] = {
+                "candidate_type": candidate_type,
+                "trigger": trigger,
+                **({
+                    "used_skill": matched_skill["skill_name"],
+                    "skill_type": matched_skill["skill_type"],
+                } if matched_skill else {}),
+            }
+            task = self.task_pool.create_task(**task_params)
             created_tasks.append(task)
         return created_tasks
 
@@ -330,7 +352,11 @@ class TaskCreator:
 
         return task_params
 
-    def scan_and_create(self, max_new: int = 3) -> Dict[str, Any]:
+    def scan_and_create(
+        self,
+        max_new: int = 3,
+        allowed_priorities: Optional[Set[str]] = None,
+    ) -> Dict[str, Any]:
         """
         完整流程：扫描 → 去重 → 创建 → 返回结果
         """
@@ -341,6 +367,11 @@ class TaskCreator:
             + candidates["new_lexicon_gaps"]
         )
 
+        if allowed_priorities is not None:
+            all_candidates = [
+                candidate for candidate in all_candidates
+                if candidate.get("priority", "medium") in allowed_priorities
+            ]
         created = self.create_tasks_from_candidates(all_candidates[:max_new])
 
         candidates["tasks_created"] = [t.task_id for t in created]

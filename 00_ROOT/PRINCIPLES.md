@@ -570,6 +570,129 @@ M4类型: 边界与守卫
 
 *TG收藏夹全量考古于2026-06-18完成。1条新公理(#021)+4个结构提取+3条PENDING解决。公理总数21条。原始收藏已蒸馏，不存档。全量蒸馏确认：公理体系已收敛。*
 
+## 收敛原则 #022：工作守恒——工作来自发现，而不是为了活跃度而制造
+
+```yaml
+status: FROZEN_CONSOLIDATED_PRINCIPLE
+governance_class: Principle
+foundational_axiom_added: false
+recovered_from:
+  - Capability First, Provider Second
+  - OPS-007 Work Discovery
+  - PR-005 Work Discovery
+  - R2 Autonomous Loop Framework
+  - MODEL_PIPELINE_IDLE_BY_DESIGN
+production_rationale:
+  - LOCAL backlog must not suppress MODEL work discovery
+  - available miners/models must not create demand
+  - zero admitted work is a valid bounded outcome
+conflict_resolved:
+  - "actively find work" does not mean recursively manufacture tasks
+  - Candidate Work may be incomplete; Accepted Work must pass Admission
+```
+
+> **Work is discovered, not manufactured. Execution resources serve valuable Workloads; Workloads do not define ACE's identity. ACE may execute, learn, observe, or remain idle according to evidence and value.**
+>
+> **工作来自发现，而不是制造。执行资源服务于有价值的工作负载，而工作负载不定义 ACE 的身份。ACE 根据证据与价值决定执行、学习、观察或等待。**
+
+操作性定义：**Work is discovered, assessed, and accepted—not manufactured merely to satisfy activity quotas.** ACE 可以主动提出研究方向和 Candidate；禁止的是为了填充矿池、满足每日调用数或证明系统活跃而制造伪 Work。
+
+### 四个不可混淆的对象
+
+| 对象 | 定义 | 例子 |
+|------|------|------|
+| Capability | 稳定、可复用、与领域和供应商解耦的能力 | 观察、研究、验证、蒸馏、治理 |
+| Workload | 应用或领域提出的一类需求 | Finance、Archaeology、Research、Self-Evaluation |
+| Work | 一次有来源、有证据、有价值、有边界的具体需求 | 一个可验证的研究问题或运行缺口 |
+| Execution Resource | 承接 Work 的可替换资源 | 模型、工具、本地计算、API、Human |
+
+每个 Candidate Work 至少应能表达身份、来源、原因和观察时间；下面是完整逻辑契约，其中 Evidence、Value、Budget 可以在 Candidate 阶段尚未完备：
+
+```yaml
+work_id:
+source:
+type:
+reason:
+evidence:
+value:
+priority:
+budget:
+status:
+created_at:
+last_observed:
+```
+
+字段可以由既有 Observation、Admission 和 Task 数据共同承载，不要求复制到一个新对象。Candidate 可以是不完整的研究疑问；只有具备执行所需的 source、value、evidence、budget 和 lifecycle，并通过 Admission，才是 Accepted Work，才能进入生产 TaskPool。
+
+因果方向只能是：
+
+```text
+ACE Capability
+    ↓
+Work Discovery
+    ↓
+Valuable Workload / Work
+    ↓
+Governed Allocation
+    ↓
+Execution Resource
+```
+
+不能反推：拥有矿工、模型、API、预算或空闲算力，不构成创建 Work 的理由；Finance、荐股、考古或某个具体模型，也不能进入 ACE 身份或核心能力定义。
+
+### 有界发现与合法空闲
+
+OPS-007 的“主动找工作”是一次有边界的观察与评估，不是无限递归地产生任务：
+
+```text
+Reality → Observation → Work Discovery → Assessment
+                                      ├─ Valuable Work → Allocation
+                                      └─ No Valuable Work → Idle / Watch
+                                                               ↓
+                                                    Next Observation Window
+```
+
+观察本身可以持续，执行型 Work 可以为零。`Idle / Watch` 是证据表明当前无值得执行工作时的正确状态，不是失败。
+
+Idle 合法，但不能成为长期失去认知供给的默认解释。连续三个已完成、彼此独立的 Discovery Window 都没有 Candidate 时，应记录 `INVESTIGATE_DISCOVERY_CHAIN`，区分观察链静默、没有 Candidate、Candidate 被拒绝和合格 Work 未获服务。该诊断是健康信号，不是自动创建 Task 或调用模型的配额。
+
+### 应用隔离
+
+Application 只能：
+
+```text
+Request Work → Receive Capability → Produce Result → Feed Evidence
+```
+
+Application 不得改变 ACE Core，不得以自身领域扩张 Capability，不得绕过 Admission、Validation、Guardian 或数据/风险边界。
+
+### 与现有系统的映射
+
+本公理不创建第二套 WorkPool 或状态机。概念生命周期映射到既有生产链：
+
+```text
+Observed
+→ Candidate
+→ Scored / Admission
+→ Accepted (TaskPool pending)
+→ Executing (active)
+→ Validated (review / approved)
+→ Distilled (Archivist / Knowledge)
+→ Closed (archived)
+
+Candidate → Rejected / Deferred / NO_VALID_AUTONOMOUS_WORK
+```
+
+现有 TaskPool 仍是唯一生产任务池。Scheduler 可以按时间触发 Observation / Discovery，但“时间到了”本身不构成 Valuable Work 的证据。MinerPool/ModelPool 属于 Execution Fabric；Repository 是经验证和蒸馏后的文明真相源；Git 只是 Repository 的版本化传输与可追溯机制，不是文明主体，也不提供未经治理的发布授权。
+
+Repository 角色保持分离：`mine-seed` 是广义文明工作区与 R2 HQ，`ace_core` 是经蒸馏后实际运行的生产核心。同步是有方向、有准入、有证据的蒸馏，不是两个仓库相互覆盖。
+
+**与现有公理关系**：本条是 Capability First、#008 认知主循环、#015 记忆写入门槛、#019 意图投资组合、#020 语义版 Git 与 OPS-007 的边界收敛，不引入新的核心模块。
+
+---
+
+*2026-08-25 从 TaskPool / Model Work Discovery 生产证据与 R2 历史资产中恢复、冲突消解并收敛。此项冻结为 Principle，不新增 L0 基础公理；既有基础公理仍为21条。*
+
 
 ## 协议层（2026-07-10 老板与GPT对话蒸馏）
 

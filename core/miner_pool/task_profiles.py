@@ -30,6 +30,8 @@ NIM_MISTRAL_LARGE = "nim:mistralai/mistral-large-3-675b-instruct-2512"
 NIM_DEEPSEEK_V4 = "nim:deepseek-ai/deepseek-v4-flash"
 NIM_QWEN_397B = "nim:qwen/qwen3.5-397b-a17b"
 OPENROUTER_CLAUDE = "openrouter:anthropic/claude-3.5-sonnet"
+SHENWEN_TERRA = "shenwen:gpt-5.6-terra"
+SHENWEN_GPT54_MINI = "shenwen:gpt-5.4-mini"
 
 
 TASK_PROFILES: Dict[str, Dict[str, Any]] = {
@@ -150,6 +152,8 @@ TASK_PROFILES: Dict[str, Dict[str, Any]] = {
     },
     "reasoning": {
         "description": "深度推理",
+        "expected_model": "",
+        "model_enabled": True,
         "preferred_traits": ["logical", "step_by_step", "thorough"],
         "avoid_traits": ["superficial", "fast_but_wrong"],
         "temperature": 0.5,
@@ -161,6 +165,56 @@ TASK_PROFILES: Dict[str, Dict[str, Any]] = {
             GITHUB_GPT4O,
             NIM_NEMOTRON_ULTRA,
             NIM_MISTRAL_LARGE,
+        ],
+        "fallback_models": [
+            NIM_QWEN_397B,
+        ],
+        "strategy": "quality_first",
+    },
+    "strategic": {
+        "description": "战略推理",
+        "expected_model": "gpt-5.6-terra",
+        "model_enabled": True,
+        "allowed_providers": {"shenwen"},
+        "allowed_models": {SHENWEN_TERRA},
+        "preferred_traits": ["strategic", "logical", "thorough"],
+        "avoid_traits": ["fast_but_wrong", "superficial"],
+        "temperature": 0.5,
+        "max_tokens": 4096,
+        "timeout": 240,
+        "preferred_models": [SHENWEN_TERRA],
+        "fallback_models": [],
+        "strategy": "quality_first",
+    },
+    "execution": {
+        "description": "执行推理",
+        "expected_model": "gpt-5.4-mini",
+        "model_enabled": True,
+        "allowed_providers": {"shenwen"},
+        "allowed_models": {SHENWEN_GPT54_MINI},
+        "preferred_traits": ["implementation", "precise", "concise"],
+        "avoid_traits": ["strategic", "verbose"],
+        "temperature": 0.4,
+        "max_tokens": 4096,
+        "timeout": 180,
+        "preferred_models": [SHENWEN_GPT54_MINI],
+        "fallback_models": [],
+        "strategy": "quality_first",
+    },
+    "free_exploration": {
+        "description": "Free Zone 探索",
+        "expected_model": "free_zone",
+        "model_enabled": True,
+        "allowed_providers": {"glm", "nim", "ollama"},
+        "preferred_traits": ["breadth", "exploration", "cost_effective"],
+        "avoid_traits": ["strategic", "paid_channel"],
+        "temperature": 0.7,
+        "max_tokens": 2048,
+        "timeout": 120,
+        "preferred_models": [
+            GLM_FLASH,
+            NIM_DEEPSEEK_V4,
+            NIM_NEMOTRON_ULTRA,
         ],
         "fallback_models": [
             NIM_QWEN_397B,

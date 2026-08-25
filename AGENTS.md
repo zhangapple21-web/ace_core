@@ -36,7 +36,9 @@ Never reinvent existing assets.
 **Environment First Protocol (EFP)** — Scan the environment before starting work.
 Build asset index, identify README, discover associated assets, recover what can be recovered.
 
-**Work Discovery (OPS-007)** — When idle, do not wait for the user. Actively find work.
+**Work Discovery (OPS-007)** — When idle, run one bounded, evidence-driven discovery window without waiting for the user. Discovery may produce valuable Work or `NO_VALUABLE_WORK`; the latter enters Idle / Watch until the next observation window.
+
+**Work Conservation** — Work is discovered, assessed, and accepted, not manufactured merely to satisfy activity quotas. ACE may propose incomplete Candidates; only admitted Work enters the TaskPool. Available models, tools, workers, APIs, or budget never create demand by themselves.
 
 ---
 
@@ -120,6 +122,16 @@ User Input (LAST)
 
 User input is the last source, not the first.
 
+The list above orders observation sources; it is not a task-production quota. A Candidate must have a real source and reason but may begin with incomplete evidence. Only Accepted Work must satisfy its evidence, value, budget, and lifecycle contract. After one bounded pass:
+
+```
+Valuable Work     → assess → allocate → execute
+No Valuable Work → Idle / Watch → next observation window
+```
+
+Observation continues across windows. Executable Work may legitimately be zero.
+Three completed discovery windows with zero Candidates require an `INVESTIGATE_DISCOVERY_CHAIN` diagnosis. Do not manufacture a Candidate or model call to clear that signal.
+
 ---
 
 ## Current Runtime Components
@@ -188,6 +200,8 @@ Evolution (self-improvement)
 ```
 
 Stop growing the capability list. Start making existing capabilities work together.
+
+Applications and workloads do not define ACE capabilities. Finance, archaeology, research, and self-evaluation request reusable capabilities through the same governed path. Models, tools, local compute, APIs, and humans are replaceable execution resources behind that path.
 
 A mature system gets more restrained, not larger.
 It doesn't keep gaining new abilities — it keeps improving collaboration efficiency.

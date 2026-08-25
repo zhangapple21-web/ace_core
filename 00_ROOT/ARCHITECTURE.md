@@ -10,6 +10,37 @@
 - 不需要多人协作 → 单用户，单身份，持续记忆
 - 不需要合规层 → 约束来自老张，不是来自外部
 
+### 认知底座边界（2026-08-25 收敛）
+
+ACE 是认知底座，不是某个 Application、Workload 或模型的外壳。
+
+| 层 | 回答的问题 | 内容 |
+|----|------------|------|
+| ACE Core / Capability | 系统稳定地会做什么 | Observation、Discovery、Research、Validation、Governance、Distillation、Knowledge |
+| Workload / Application | 哪个领域提出需求 | Finance、Archaeology、Research、Self-Evaluation |
+| Work | 现在具体什么值得做 | 有 source、reason、evidence、value、budget、lifecycle 的需求 |
+| Execution Fabric | 谁或什么来执行 | Local、Tool、ModelPool、API、Human |
+
+```text
+Reality
+  ↓
+Observation
+  ↓
+Work Discovery
+  ↓
+Assessment ── No Valuable Work ──→ Idle / Watch
+  ↓                                      │
+Allocation                               │
+  ↓                                      │
+Execution Fabric                         │
+  ↓                                      │
+Validation → Distillation → Repository ──┘
+                          ↓
+                 Next Observation
+```
+
+模型、工具和 Worker 是可替换的执行资源。Scheduler 可以按时间触发 Observation / Discovery，但时钟事件本身不是 Valuable Work 的证据；TaskPool 仍是唯一生产任务池。应用只能请求 Work、接收 Capability、产出结果并回灌 Evidence；不能修改 ACE Core。
+
 ---
 
 ## 三层架构（来自九层架构的收敛）
@@ -47,18 +78,24 @@
 
 ---
 
-## 数据流
+## 生产数据流
 
 ```
-外部输入（对话、文件、事件）
+Reality（对话、文件、事件、运行态、Repository）
     ↓
 Observer 观察记录
     ↓
-TaskCreator 创建任务
+Work Discovery 形成有证据的 Candidate
     ↓
-Scheduler 调度任务
+Assessment / Admission
+    ├─ 无价值工作 → Idle / Watch
+    └─ 合格 Work → 唯一 TaskPool
+                         ↓
+Scheduler 提供服务机会
     ↓
-Worker 执行任务（可递归）
+Work Allocation 选择执行类别
+    ↓
+Execution Fabric 执行（Local / Tool / Model / Human）
     ↓
 Validator 验证结果
     ↓
@@ -92,8 +129,11 @@ ExperienceDeposition 经验沉淀
 
 同步是备份，不是依赖。本地数据永远优先。
 
+Repository 是 source of truth；Git 只提供版本化传输、diff、lineage 和同步能力。Git 行为不自动等价于文明行为，Discovery 也不自动授权 Commit / Push。
+
 ---
 
-版本：0.1.0
+版本：0.2.0
 建立日期：2026-06-27
+更新日期：2026-08-25
 来源：九层架构考古发现收敛

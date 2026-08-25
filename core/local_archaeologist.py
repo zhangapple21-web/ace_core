@@ -176,7 +176,11 @@ class LocalArchaeologist:
 
     # ── 执行层 ─────────────────────────────────────────────
 
-    def scan(self, force: bool = False) -> Dict[str, Any]:
+    def scan(
+        self,
+        force: bool = False,
+        allowed_priorities: Optional[Set[str]] = None,
+    ) -> Dict[str, Any]:
         """执行一次本地考古扫描
 
         返回结构化数据，不输出日志。
@@ -213,7 +217,11 @@ class LocalArchaeologist:
                     # 吸收率低于阈值 → 创建考古任务
                     if result["absorption_rate"] < self._budget["min_absorption_gap"]:
                         if len(created_tasks) < self._budget["max_tasks_per_scan"]:
-                            task = self._create_absorption_task(file_info, result)
+                            task = self._create_absorption_task(
+                                file_info,
+                                result,
+                                allowed_priorities,
+                            )
                             if task:
                                 created_tasks.append(task)
                 else:
@@ -421,6 +429,7 @@ class LocalArchaeologist:
         self,
         file_info: Dict[str, Any],
         analysis: Dict[str, Any],
+        allowed_priorities: Optional[Set[str]] = None,
     ) -> Optional[Any]:
         """创建吸收任务"""
         if not self.task_pool:
@@ -438,8 +447,17 @@ class LocalArchaeologist:
         )
 
         priority = "high" if rate < 0.3 else "medium"
+        if allowed_priorities is not None and priority not in allowed_priorities:
+            return None
 
         try:
+            evidence = {
+                "path": str(path),
+                "category": file_info["category"],
+                "absorption_rate": rate,
+                "total_structures": analysis["total_structures"],
+                "missing_structures": missing[:20],
+            }
             task = self.task_pool.create_task(
                 title=title,
                 hypothesis=hypothesis,
@@ -451,15 +469,24 @@ class LocalArchaeologist:
                     f"category:{file_info['category']}",
                     f"rate_{rate:.0f}",
                 ],
-            )
-            if task:
-                task.outputs = {
+                admission={
+                    "source_type": "archaeology",
+                    "source_ref": f"{path.resolve()}:{rate:.6f}:{','.join(missing[:20])}",
+                    "why_now": "The local archaeology scan found structures not absorbed by current knowledge assets.",
+                    "evidence": [evidence],
+                    "expected_result": "Missing structures are absorbed or explicitly classified as out of scope.",
+                    "verification_method": "Re-run absorption analysis for the same source file.",
+                    "risk": "Local knowledge interpretation may require later validation.",
+                    "estimated_scope": "one source file and its identified structures",
+                },
+                outputs={
                     "source_file": str(path),
                     "absorption_rate": rate,
                     "total_structures": analysis["total_structures"],
                     "missing_structures": missing[:20],
-                }
-                self.task_pool.update_task(task)
+                },
+            )
+            if task:
                 return task
         except Exception:
             pass

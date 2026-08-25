@@ -11,6 +11,7 @@ import json
 import time
 import urllib.request
 import urllib.error
+import uuid
 from typing import Dict, List, Any, Optional
 
 from . import BaseProvider
@@ -126,6 +127,108 @@ class OpenAICompatibleProvider(BaseProvider):
                 return [m.get("id", "") for m in data.get("data", [])]
         except Exception:
             return []
+
+
+class ShenwenProvider(OpenAICompatibleProvider):
+    provider_name = "shenwen"
+
+    def __init__(self, api_key: str, base_url: str = "https://api.shenwenai.com/v1", **kwargs):
+        super().__init__(api_key, base_url, provider_name="shenwen", **kwargs)
+
+
+class ShenwenImagesProvider(OpenAICompatibleProvider):
+    provider_name = "shenwen_images"
+
+    def __init__(self, api_key: str, base_url: str = "https://api.shenwenai.com/v1", **kwargs):
+        super().__init__(api_key, base_url, provider_name="shenwen_images", **kwargs)
+
+    def generate_image(
+        self,
+        prompt: str,
+        model: str = "gpt-image-2",
+        n: int = 1,
+        size: str = "1024x1024",
+        quality: str = "medium",
+        timeout: int = 900,
+        idempotency_key: str = "",
+        **kwargs,
+    ) -> Dict[str, Any]:
+        start_time = time.time()
+        result = {
+            "success": False,
+            "images": [],
+            "model": model,
+            "usage": {},
+            "error": "",
+            "latency_ms": 0,
+            "provider": self.provider_name,
+        }
+
+        if not prompt:
+            result["error"] = "prompt is required"
+            return result
+        if not 1 <= n <= 5:
+            result["error"] = "n must be between 1 and 5"
+            return result
+
+        try:
+            payload = {
+                "model": model,
+                "prompt": prompt,
+                "n": n,
+                "size": size,
+                "quality": quality,
+            }
+            for key in [
+                "background",
+                "output_format",
+                "output_compression",
+                "moderation",
+                "partial_images",
+                "response_format",
+                "stream",
+                "user",
+            ]:
+                if key in kwargs:
+                    payload[key] = kwargs[key]
+
+            headers = self._build_headers({
+                "Idempotency-Key": idempotency_key or str(uuid.uuid4()),
+            })
+            req = urllib.request.Request(
+                f"{self.base_url}/images/generations",
+                data=json.dumps(payload).encode("utf-8"),
+                headers=headers,
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                response = json.loads(resp.read().decode("utf-8"))
+
+            if response.get("error"):
+                result["error"] = str(response["error"])
+            else:
+                result["images"] = response.get("data", [])
+                result["model"] = response.get("model", model)
+                result["usage"] = response.get("usage", {})
+                result["success"] = bool(result["images"])
+                if not result["success"]:
+                    result["error"] = "no images in response"
+        except urllib.error.HTTPError as e:
+            try:
+                error_data = json.loads(e.read().decode("utf-8", errors="replace"))
+                error = error_data.get("error", {})
+                result["error"] = error.get("message", str(error)) if isinstance(error, dict) else str(error)
+            except Exception:
+                result["error"] = f"HTTP {e.code}: {e.reason}"
+        except urllib.error.URLError as e:
+            result["error"] = f"URL Error: {e.reason}"
+        except json.JSONDecodeError as e:
+            result["error"] = f"JSON decode error: {e}"
+        except Exception as e:
+            result["error"] = str(e)
+
+        result["latency_ms"] = int((time.time() - start_time) * 1000)
+        return result
 
 
 class NIMProvider(OpenAICompatibleProvider):

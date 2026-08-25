@@ -28,6 +28,7 @@ from dataclasses import dataclass
 
 from .observation import RuntimeObserver, Observation
 from .task import TaskPool
+from .model_task_admission import ModelTaskAdmission
 
 
 @dataclass
@@ -48,7 +49,7 @@ class ConversionRule:
     """
     name: str
     category: str
-    severity_min: str  # low / medium / high / critical
+    severity_min: str
     condition_fn: Optional[Callable[[Observation], bool]] = None
 
     task_title: str = ""
@@ -57,6 +58,8 @@ class ConversionRule:
     task_hypothesis: str = ""
 
     def matches(self, obs: Observation) -> bool:
+        if not isinstance(obs.system_state, dict):
+            return False
         if obs.category != self.category:
             return False
 
@@ -72,16 +75,11 @@ class ConversionRule:
 
     def generate_task_from(self, obs: Observation) -> Dict[str, Any]:
         """从 Observation 生成 Task 参数字典"""
-        # 替换模板变量
         title = self.task_title.format(
             obs_id=obs.obs_id,
             description=obs.description[:50],
         )
-        hypothesis = self.task_hypothesis.format(
-            obs_id=obs.obs_id,
-            description=obs.description,
-            state=json.dumps(obs.system_state, ensure_ascii=False),
-        )
+        hypothesis = self.task_hypothesis
         tags = [f"from_obs:{obs.obs_id}"] + (self.task_tags or [])
         return {
             "title": title,
@@ -93,17 +91,12 @@ class ConversionRule:
         }
 
 
-# ============================================================
-# 内置规则集
-# ============================================================
-
 def _review_bottleneck(obs: Observation) -> bool:
     """review 队列积压是系统瓶颈"""
     state = obs.system_state
     review_count = state.get("review", 0)
     pending_count = state.get("pending", 0)
     active_count = state.get("active", 0)
-    # 积压超过 5 个，或者 review + pending = 0 但 review > 0
     if review_count >= 5:
         return True
     if review_count > 0 and active_count == 0 and pending_count == 0:
@@ -136,9 +129,69 @@ def _cross_agent_idle(obs: Observation) -> bool:
     return False
 
 
-# 规则列表（按优先级从高到低排序）
+def _discovery_candidate(obs: Observation) -> bool:
+    discovery = obs.system_state.get("discovery", {})
+    required = {
+        "fingerprint",
+        "title",
+        "reason",
+        "objective",
+        "completion_criteria",
+        "verification_method",
+        "priority",
+        "route",
+    }
+    return obs.source == "discovery_mode" and isinstance(discovery, dict) and required.issubset(discovery)
+
+
+def _valid_learning_contract(contract: Any) -> bool:
+    required = {"why_learn", "learning_objective", "required_evidence", "mastery_criteria"}
+    if not isinstance(contract, dict) or not required.issubset(contract):
+        return False
+    for field in required:
+        value = contract[field]
+        if isinstance(value, str) and value.strip():
+            continue
+        if isinstance(value, list) and any(isinstance(item, str) and item.strip() for item in value):
+            continue
+        return False
+    return True
+
+
+def _valid_autonomous_maintenance_contract(contract: Any) -> bool:
+    required = {
+        "why_now",
+        "evidence",
+        "priority",
+        "expected_result",
+        "verification_method",
+        "risk",
+        "source",
+        "estimated_scope",
+    }
+    if not isinstance(contract, dict) or not required.issubset(contract):
+        return False
+    if contract["priority"] not in {"critical", "high", "medium", "low"}:
+        return False
+    evidence = contract["evidence"]
+    # Candidate Work may record an unresolved question before supporting
+    # evidence has formed.  Admission, not candidate parsing, decides whether
+    # the evidence is sufficient to create a production Task.
+    if not isinstance(evidence, list):
+        return False
+    for field in required - {"evidence", "priority"}:
+        if not isinstance(contract[field], str) or not contract[field].strip():
+            return False
+    return True
+
+
 BUILTIN_RULES: List[ConversionRule] = [
-    # === 瓶颈类 (bottleneck) ===
+    ConversionRule(
+        name="discovery_candidate",
+        category="improvement",
+        severity_min="high",
+        condition_fn=_discovery_candidate,
+    ),
     ConversionRule(
         name="review_queue_bottleneck",
         category="bottleneck",
@@ -152,7 +205,6 @@ BUILTIN_RULES: List[ConversionRule] = [
                         "需要快速清理 review 队列，恢复任务流动。"
                         "来源：{obs_id}",
     ),
-    # === 缺口类 (gap) ===
     ConversionRule(
         name="lexicon_category_gap",
         category="gap",
@@ -191,7 +243,6 @@ BUILTIN_RULES: List[ConversionRule] = [
                         "需要配置 mine-seed 路径并激活扫描循环。"
                         "来源：{obs_id}",
     ),
-    # === 异常类 (anomaly) ===
     ConversionRule(
         name="recent_errors",
         category="anomaly",
@@ -205,7 +256,6 @@ BUILTIN_RULES: List[ConversionRule] = [
                         "需要逐一分析根因，修复或降级处理。"
                         "来源：{obs_id}",
     ),
-    # === 改进类 (improvement) ===
     ConversionRule(
         name="scheduled_task_inactive",
         category="improvement",
@@ -218,7 +268,6 @@ BUILTIN_RULES: List[ConversionRule] = [
                         "系统失去了自动巡检和恢复能力。"
                         "来源：{obs_id}",
     ),
-    # === 健康类 (health) ===
     ConversionRule(
         name="disk_space_low",
         category="health",
@@ -260,6 +309,7 @@ class ObservationToTaskConverter:
         self.observer = observer
         self.task_pool = task_pool
         self.rules = rules or BUILTIN_RULES
+        self.model_task_admission = ModelTaskAdmission()
         self._triggered_cache = self._load_triggered_cache()
 
     def _load_triggered_cache(self) -> set:
@@ -280,51 +330,187 @@ class ObservationToTaskConverter:
         except Exception:
             pass
 
-    def convert(self) -> Dict[str, Any]:
-        """
-        执行 Observation → Task 转换
+    def _convert_discovery_candidate(
+        self,
+        obs: Observation,
+        allowed_priorities: Optional[set] = None,
+    ) -> Dict[str, Any]:
+        discovery = obs.system_state["discovery"]
+        if (
+            allowed_priorities is not None
+            and discovery.get("priority", "medium") not in allowed_priorities
+        ):
+            raise ValueError("priority_suppressed")
+        contract = discovery.get("autonomous_maintenance")
+        if not _valid_autonomous_maintenance_contract(contract):
+            raise ValueError("invalid_autonomous_maintenance_contract")
+        learning = discovery.get("learning")
+        if learning is not None and not _valid_learning_contract(learning):
+            raise ValueError("invalid_learning_contract")
+        task_type = discovery.get("task_type", "reasoning")
+        if task_type not in {"reasoning", "strategic", "execution"}:
+            return {
+                "obs_id": obs.obs_id,
+                "rule": "discovery_candidate",
+                "status": "rejected",
+                "reasons": ["discovery_task_type_not_allowed"],
+            }
+        tags = [
+            f"from_obs:{obs.obs_id}",
+            "discovery",
+            discovery.get("candidate_source", "repository_gap"),
+            f"task_type:{task_type}",
+        ]
+        if learning is not None:
+            tags.append("learning")
+        source_type = "learning" if learning is not None else "maintenance"
+        if discovery.get("candidate_source") == "archaeology":
+            source_type = "archaeology"
+        source_ref = str(discovery["fingerprint"])
+        admission = {
+            "source_type": source_type,
+            "source_ref": source_ref,
+            "why_now": contract["why_now"],
+            "evidence": list(contract["evidence"]),
+            "expected_result": contract["expected_result"],
+            "verification_method": contract["verification_method"],
+            "risk": contract["risk"],
+            "estimated_scope": contract["estimated_scope"],
+            **(
+                {"model_work_contract": dict(discovery["model_work_contract"])}
+                if isinstance(discovery.get("model_work_contract"), dict)
+                else {}
+            ),
+        }
+        if learning is not None:
+            admission["learning_contract"] = dict(learning)
+        model_task_candidate = {
+            "source_type": source_type,
+            "source_ref": source_ref,
+            "evidence": admission["evidence"],
+            "research_question": discovery["objective"],
+            "expected_result": contract["expected_result"],
+            "verification_method": contract["verification_method"],
+            "tags": tags,
+            "local_evidence_only": discovery.get("local_evidence_only") is True,
+            "task_type": task_type,
+            "model_work_contract": discovery.get("model_work_contract"),
+        }
+        decision = self.model_task_admission.evaluate(model_task_candidate)
+        if not decision["eligible"] or decision["classification"] != task_type:
+            return {
+                "obs_id": obs.obs_id,
+                "rule": "discovery_candidate",
+                "status": "rejected",
+                "reasons": decision["reasons"],
+                "model_task_admission": decision,
+            }
+        task = self.task_pool.create_task(
+            title=discovery["title"],
+            hypothesis=discovery["objective"],
+            creator="discovery_mode",
+            priority=discovery["priority"],
+            tags=tags,
+            admission=admission,
+            outputs={
+                "source_obs_id": obs.obs_id,
+                "source_obs_description": obs.description,
+                "discovery": dict(discovery),
+                "autonomous_maintenance": dict(contract),
+                "model_task_admission": decision,
+                **({"learning": dict(learning)} if learning is not None else {}),
+            },
+        )
+        self.observer.mark_consumed(obs.obs_id, task.task_id)
+        self._triggered_cache.add(obs.obs_id)
+        return {
+            "obs_id": obs.obs_id,
+            "rule": "discovery_candidate",
+            "task_id": task.task_id,
+            "task_title": task.title,
+            "task_priority": task.priority,
+            "status": "created",
+            "task_type": task_type,
+            "model_task_admission": decision,
+        }
 
-        Returns:
-          {
-            "observations_checked": int,
-            "rules_matched": int,
-            "tasks_created": int,
-            "skipped": int,
-            "details": [...]
-          }
-        """
+    def convert(self, allowed_priorities: Optional[set] = None) -> Dict[str, Any]:
         result = {
             "observations_checked": 0,
             "rules_matched": 0,
             "tasks_created": 0,
+            "candidate_count": 0,
+            "eligible_count": 0,
+            "rejected_count": 0,
+            "reasoning_tasks_created": 0,
+            "model_tasks_created": 0,
+            "task_types_created": {},
+            "rejection_reasons": {},
             "skipped": 0,
             "details": [],
         }
 
-        # 获取所有未处理的 Observation
         unprocessed = self.observer.get_unprocessed(limit=100)
         result["observations_checked"] = len(unprocessed)
 
         for obs in unprocessed:
-            # 检查是否已触发过
             if obs.obs_id in self._triggered_cache:
                 result["skipped"] += 1
                 continue
 
-            # 尝试匹配规则
             for rule in self.rules:
                 if not rule.matches(obs):
                     continue
 
-                # 生成 Task 参数
-                task_params = rule.generate_task_from(obs)
+                if rule.name == "discovery_candidate":
+                    try:
+                        detail = self._convert_discovery_candidate(obs, allowed_priorities)
+                        result["candidate_count"] += 1
+                        result["rules_matched"] += 1
+                        if detail["status"] == "created":
+                            result["eligible_count"] += 1
+                            result["tasks_created"] += 1
+                            result["model_tasks_created"] += 1
+                            created_type = detail.get("task_type", "reasoning")
+                            result["task_types_created"][created_type] = (
+                                result["task_types_created"].get(created_type, 0) + 1
+                            )
+                            if created_type == "reasoning":
+                                result["reasoning_tasks_created"] += 1
+                        else:
+                            result["rejected_count"] += 1
+                            for reason in detail["reasons"]:
+                                reasons = result["rejection_reasons"]
+                                reasons[reason] = reasons.get(reason, 0) + 1
+                        result["details"].append(detail)
+                    except ValueError as error:
+                        result["details"].append({
+                            "obs_id": obs.obs_id,
+                            "rule": rule.name,
+                            "reason": str(error),
+                        })
+                    except Exception as error:
+                        result["details"].append({
+                            "obs_id": obs.obs_id,
+                            "rule": rule.name,
+                            "error": str(error),
+                        })
+                    break
 
-                # 补充动态参数（安全访问，避免类型错误）
+                task_params = rule.generate_task_from(obs)
+                if (
+                    allowed_priorities is not None
+                    and task_params["priority"] not in allowed_priorities
+                ):
+                    result["skipped"] += 1
+                    break
                 state = obs.system_state if isinstance(obs.system_state, dict) else {}
                 gap_categories_raw = state.get("gap_categories")
                 gap_categories = gap_categories_raw if isinstance(gap_categories_raw, list) else []
-                
                 format_args = {
+                    "obs_id": obs.obs_id,
+                    "description": obs.description,
+                    "state": json.dumps(state, ensure_ascii=False),
                     "review": state.get("review", 0),
                     "pending": state.get("pending", 0),
                     "active": state.get("active", 0),
@@ -341,8 +527,29 @@ class ObservationToTaskConverter:
                     "task_never_run": state.get("task_never_run", False),
                 }
                 task_params["hypothesis"] = task_params["hypothesis"].format(**format_args)
+                admission = {
+                    "source_type": "system_observation",
+                    "source_ref": obs.obs_id,
+                    "why_now": (
+                        f"Observation {obs.obs_id} matched rule {rule.name} at "
+                        f"{obs.severity} severity."
+                    ),
+                    "evidence": [{
+                        "observation_id": obs.obs_id,
+                        "category": obs.category,
+                        "severity": obs.severity,
+                        "description": obs.description,
+                        "system_state": state,
+                        "rule": rule.name,
+                    }],
+                    "expected_result": task_params["hypothesis"],
+                    "verification_method": (
+                        f"Re-observe the runtime condition for rule {rule.name}."
+                    ),
+                    "risk": "Internal observation-driven maintenance only.",
+                    "estimated_scope": "one observation and one conversion rule",
+                }
 
-                # 创建 Task
                 try:
                     task = self.task_pool.create_task(
                         title=task_params["title"],
@@ -350,17 +557,15 @@ class ObservationToTaskConverter:
                         creator=task_params["creator"],
                         priority=task_params["priority"],
                         tags=task_params["tags"],
+                        admission=admission,
+                        outputs={
+                            "source_obs_id": task_params["source_obs_id"],
+                            "source_obs_description": obs.description,
+                            "conversion_rule": rule.name,
+                        },
                     )
-
-                    # 记录 source_obs_id
-                    task.outputs["source_obs_id"] = task_params["source_obs_id"]
-                    task.outputs["source_obs_description"] = obs.description
-                    self.task_pool.update_task(task)
-
-                    # 标记 Observation 已处理
                     self.observer.mark_consumed(obs.obs_id, task.task_id)
                     self._triggered_cache.add(obs.obs_id)
-
                     result["rules_matched"] += 1
                     result["tasks_created"] += 1
                     result["details"].append({
@@ -370,7 +575,6 @@ class ObservationToTaskConverter:
                         "task_title": task.title,
                         "task_priority": task.priority,
                     })
-
                 except Exception as e:
                     result["details"].append({
                         "obs_id": obs.obs_id,
@@ -378,7 +582,9 @@ class ObservationToTaskConverter:
                         "error": str(e),
                     })
 
-                break  # 一个 Observation 只匹配一条规则
+                break
 
         self._save_triggered_cache()
+        if result["candidate_count"] and not result["eligible_count"]:
+            result["outcome"] = "NO_VALID_MODEL_TASK_TARGET"
         return result

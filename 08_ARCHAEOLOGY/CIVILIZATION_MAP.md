@@ -1,11 +1,85 @@
-# ACE 文明地图 — 2026-06-29
+# ACE 文明地图
 
-**版本**：v0.1
+**版本**：v0.2（2026-08-25 生产收敛叠加层）
 **目标**：定义 R2 Phase-2：Civilization Convergence
+
+> 下方 v0.1 分层与角色收敛建议保留为 2026-06-29 考古快照，不等同于当前生产实现。当前规范以本节、`00_ROOT/ARCHITECTURE.md` 和真实运行链为准；历史建议不得据此删除或重建生产角色。
+
+## 零、当前文明边界与生产闭环
+
+```text
+Reality
+  ↓
+Observation
+  ↓
+Work Discovery
+  ↓
+Work Assessment
+  ├─ No Valuable Work → Idle / Watch → Next Observation Window
+  └─ Valuable Work
+       ↓
+     Work Allocation
+       ↓
+     Existing TaskPool
+       ↓
+     Researcher
+       ↓
+     Execution Fabric
+       ├─ Local Compute
+       ├─ Tools / APIs
+       ├─ ModelPool / MinerPool
+       └─ Human (explicit authorization)
+       ↓
+     Validator → Guardian → Archivist / Knowledge
+       ↓
+     Repository → Git observation/synchronization network
+       ↓
+     Next Observation
+```
+
+### 稳定身份与可替换负载
+
+| 类型 | 当前定位 | 不允许发生的反向定义 |
+|------|----------|----------------------|
+| ACE | 通用认知底座 | 被 Finance、荐股、考古或某个模型定义 |
+| Capability | 可复用的观察、研究、验证、治理、蒸馏能力 | 因新增应用而无限扩张 |
+| Workload | Finance、Archaeology、Research、Self-Evaluation 等领域需求 | 被提升为 ACE Core |
+| Work | 有来源、证据、价值、预算和生命周期的具体需求 | 为消耗空闲资源而制造 |
+| Execution Fabric | 模型、工具、本地计算、API、Human | 反向决定系统必须做什么 |
+
+Work 的完整逻辑契约包含 `work_id`、`source`、`type`、`reason`、`evidence`、`value`、`priority`、`budget`、`status`、`created_at`、`last_observed`。Candidate Work 允许 evidence/value/budget 尚未完备；Accepted Work 必须补齐执行契约并通过 Admission。这些字段由现有 Observation / Admission / Task 结构共同承载，不要求新增平行实体。
+
+### Git 文明区划
+
+| Repository | 角色 | 同步边界 |
+|------------|------|----------|
+| `mine-seed` | 广义文明工作区、考古与 R2 HQ | 原材料和候选先在此发现、治理、蒸馏 |
+| `ace_core` | 精选生产 Runtime Core | 只接收经验证、适合生产运行的核心结构 |
+
+Repository 是 source of truth。Git 是其版本化传输、diff、lineage 和同步机制，不是 ACE 的独立抽象能力。同步不等于镜像覆盖；Commit / Push 不由 Discovery 自动授权。
+
+### Work 的唯一生命周期映射
+
+本地图描述的是概念层，不新建第二套状态机：
+
+```text
+Observed → Candidate → Scored / Admission
+         → Accepted = TaskPool pending
+         → Executing = active
+         → Validated = review / approved
+         → Distilled = Archivist / Knowledge
+         → Closed = archived
+
+Candidate → Rejected / Deferred / NO_VALID_AUTONOMOUS_WORK
+```
+
+`Idle / Watch` 是合法状态。工作发现每次必须有界；没有 Valuable Work 时等待下一观察窗口。ACE 可以主动提出 Candidate，但拥有模型、矿工、Worker、API 或预算，不是接受 Work 的证据。
+
+连续三个独立 Discovery Window 没有 Candidate 时，文明日报进入 `INVESTIGATE_DISCOVERY_CHAIN`。诊断必须区分：`OBSERVATION_PIPELINE_SILENT`、`NO_CANDIDATE_DISCOVERED`、`CANDIDATE_FOUND_BUT_REJECTED`、`ELIGIBLE_WORK_NOT_SERVICED`；它不自动制造 Work。
 
 ---
 
-## 一、文明分层架构
+## 一、2026-06-29 文明分层架构（历史快照）
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -391,6 +465,6 @@ R2 Phase-3：Civilization Growth（文明生长）
 
 ---
 
-*地图版本：v0.1*
-*更新日期：2026-06-29*
+*地图版本：v0.2；历史主体：v0.1*
+*更新日期：2026-08-25*
 *负责人：ACE*

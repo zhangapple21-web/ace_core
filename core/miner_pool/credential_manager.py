@@ -93,15 +93,13 @@ class CredentialManager:
         if self._loaded:
             return True
 
-        if not self._coze_assets_path or not self._coze_assets_path.exists():
-            return False
-
         try:
-            self._load_from_secret_md()
-            self._load_from_miner_env()
+            if self._coze_assets_path and self._coze_assets_path.exists():
+                self._load_from_secret_md()
+                self._load_from_miner_env()
             self._load_from_env_override()
-            self._loaded = True
-            return True
+            self._loaded = bool(self._credentials)
+            return self._loaded
         except Exception:
             return False
 
@@ -373,6 +371,8 @@ class CredentialManager:
             "openrouter": ("OPENROUTER_KEY", "OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"),
             "oneapi": ("ONEAPI_KEY", "ONEAPI_BASE_URL", "http://localhost:3000/v1"),
             "sambanova": ("SAMBANOVA_KEY", "SAMBANOVA_BASE_URL", "https://api.sambanova.ai/v1"),
+            "shenwen": ("SHENWEN_API_KEY", "SHENWEN_BASE_URL", "https://api.shenwenai.com/v1"),
+            "shenwen_images": ("SHENWEN_IMAGE_API_KEY", "SHENWEN_IMAGE_BASE_URL", "https://api.shenwenai.com/v1"),
         }
 
         for provider, (key_env, base_env, default_base) in provider_env_map.items():

@@ -26,11 +26,7 @@ def load_config(base_dir: Path) -> dict:
 
 def main():
     base_dir = Path(__file__).parent
-
-    from core.scheduler import Scheduler
-
     config = load_config(base_dir)
-    scheduler = Scheduler(base_dir, config)
 
     if len(sys.argv) < 2:
         print("ACE Runtime v0.1")
@@ -62,6 +58,20 @@ def main():
         return
 
     cmd = sys.argv[1]
+
+    if cmd == "daemon":
+        handle_daemon(base_dir, config, sys.argv[2:])
+        return
+
+    if cmd == "status":
+        from ace_daemon import AceDaemon
+
+        print(json.dumps(AceDaemon(base_dir, config).get_status(), ensure_ascii=False, indent=2))
+        return
+
+    from core.scheduler import Scheduler
+
+    scheduler = Scheduler(base_dir, config)
 
     if cmd == "run":
         scheduler.start()
@@ -102,9 +112,6 @@ def main():
 
     elif cmd == "scan-fragments":
         handle_scan_fragments(scheduler, sys.argv[2:])
-
-    elif cmd == "daemon":
-        handle_daemon(base_dir, config, sys.argv[2:])
 
     else:
         print(f"未知命令: {cmd}")

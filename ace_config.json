@@ -41,6 +41,9 @@
     "poll_interval_seconds": 2,
     "max_concurrent_tasks": 1
   },
+  "runtime": {
+    "miner_pool_assets_path": "C:\\tmp\\private_coze-assets"
+  },
   "event_types": ["OBS", "TASK", "RFC", "CONST"],
   "task_statuses": ["pending", "running", "done", "failed", "archived"]
 }

@@ -13,12 +13,174 @@ Guardian    → 决定进入公理/约束/经验/废弃
 
 import re
 import json
+import hashlib
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Dict, List, Any, Optional
 from collections import Counter
 
 from .task import Task, TaskPool
+from .miner_pool.task_profiles import get_task_profile
+
+
+LOCAL_ARCHAEOLOGY_TAGS = {"archaeology", "local_archaeology", "fragment", "碎片考古", "考古"}
+
+
+def _model_task_type(task: Task) -> str:
+    discovery = task.outputs.get("discovery", {}) if isinstance(task.outputs, dict) else {}
+    if isinstance(discovery, dict):
+        task_type = discovery.get("task_type", "")
+        if isinstance(task_type, str) and task_type:
+            return task_type.lower()
+    for tag in task.tags or []:
+        if isinstance(tag, str) and tag.startswith("task_type:"):
+            return tag.split(":", 1)[1].lower()
+    return ""
+
+
+def _is_local_only_task(task: Task) -> bool:
+    outputs = task.outputs if isinstance(task.outputs, dict) else {}
+    admission = outputs.get("admission", {})
+    model_task_admission = outputs.get("model_task_admission", {})
+    source_type = admission.get("source_type", "") if isinstance(admission, dict) else ""
+    tags = {tag.lower() for tag in task.tags or [] if isinstance(tag, str)}
+    return (
+        isinstance(model_task_admission, dict)
+        and model_task_admission.get("classification") == "local_evidence_only"
+    ) or source_type == "archaeology" or bool(tags & LOCAL_ARCHAEOLOGY_TAGS)
+
+
+def _task_source_type(task: Task) -> str:
+    outputs = task.outputs if isinstance(task.outputs, dict) else {}
+    admission = outputs.get("admission", {})
+    if isinstance(admission, dict) and admission.get("source_type"):
+        return str(admission["source_type"])
+    discovery = outputs.get("discovery", {})
+    if isinstance(discovery, dict) and discovery.get("candidate_source"):
+        return str(discovery["candidate_source"])
+    return "unknown"
+
+
+def _is_admitted_model_task(task: Task) -> bool:
+    outputs = task.outputs if isinstance(task.outputs, dict) else {}
+    decision = outputs.get("model_task_admission", {})
+    return (
+        isinstance(decision, dict)
+        and decision.get("eligible") is True
+        and decision.get("classification") in {"reasoning", "strategic", "execution"}
+    )
+
+
+def _model_result_allowed(profile: Dict[str, Any], provider: str, model: str) -> bool:
+    allowed_providers = profile.get("allowed_providers", set())
+    if allowed_providers and provider not in allowed_providers:
+        return False
+    allowed_models = profile.get("allowed_models", set())
+    if allowed_models and f"{provider}:{model}" not in allowed_models:
+        return False
+    return True
+
+
+def _quality_gate(response: Dict[str, Any], allowed: bool) -> Dict[str, Any]:
+    content = response.get("content", "")
+    executed = bool(response.get("success") and allowed and isinstance(content, str) and content)
+    return {
+        "executed": executed,
+        "status": "pass" if executed else "not_run",
+    }
+
+
+def _record_model_execution(task: Task, role: str, llm_router, prompt: str) -> Optional[Dict[str, Any]]:
+    task_type = _model_task_type(task)
+    profile = get_task_profile(task_type)
+    if not llm_router or not profile.get("model_enabled") or _is_local_only_task(task):
+        return None
+    trace = {
+        "task_id": task.task_id,
+        "source_type": _task_source_type(task),
+        "task_type": task_type,
+        "role": role,
+        "profile": task_type,
+        "expected_model": str(profile.get("expected_model", "")),
+        "selected_model": "",
+        "expected_role": role,
+        "actual_role": role,
+        "router_decision": {
+            "eligible": True,
+            "pool_task_type": task_type,
+            "reason": "registered_task_profile",
+        },
+        "request": {
+            "task_type": task_type,
+            "message_count": 1,
+            "max_retries": 3,
+        },
+        "provider": "",
+        "model": "",
+        "api_called": True,
+        "api_result": "failed",
+        "fallback": False,
+        "fallback_chain": [],
+        "tried_models": [],
+        "usage": {},
+        "cost": {},
+        "latency_ms": 0,
+        "attempts": [],
+        "result": "failed",
+        "quality_gate": {"executed": False, "status": "not_run"},
+        "error": "",
+        "response_sha256": "",
+        "at": datetime.now().isoformat(),
+    }
+    try:
+        response = llm_router.chat(
+            task_type=task_type,
+            messages=[{"role": "user", "content": prompt}],
+            system_prompt="Return concise task analysis grounded in the supplied task context.",
+            max_retries=3,
+        )
+    except Exception as error:
+        response = {"success": False, "error": str(error)}
+    trace["provider"] = str(response.get("provider", ""))
+    trace["model"] = str(response.get("model", ""))
+    trace["selected_model"] = trace["model"]
+    trace["tried_models"] = list(response.get("tried_models", []))
+    trace["usage"] = dict(response.get("usage", {}))
+    trace["cost"] = dict(response.get("cost", {}))
+    trace["latency_ms"] = response.get("latency_ms", 0)
+    trace["attempts"] = list(response.get("attempts", []))
+    trace["fallback_chain"] = list(trace["tried_models"])
+    trace["fallback"] = len(trace["tried_models"]) > 1
+    if not trace["selected_model"] and trace["tried_models"]:
+        selected_provider, trace["selected_model"] = trace["tried_models"][-1].split(":", 1)
+        if not trace["provider"]:
+            trace["provider"] = selected_provider
+    trace["error"] = str(response.get("error", ""))
+    trace["api_result"] = "success" if response.get("success") else "failed"
+    allowed = _model_result_allowed(profile, trace["provider"], trace["selected_model"])
+    if response.get("success") and not allowed:
+        trace["error"] = "selected provider/model violates task profile"
+    trace["result"] = "success" if response.get("success") and allowed else "failed"
+    trace["quality_gate"] = _quality_gate(response, allowed)
+    content = response.get("content", "")
+    if isinstance(content, str) and content:
+        trace["response_sha256"] = hashlib.sha256(content.encode("utf-8")).hexdigest()
+    required_trace_fields = (
+        "task_id",
+        "task_type",
+        "role",
+        "provider",
+        "selected_model",
+        "api_result",
+        "latency_ms",
+        "response_sha256",
+    )
+    trace["trace_complete"] = (
+        trace.get("api_called") is True
+        and all(trace.get(field) not in (None, "") for field in required_trace_fields)
+    )
+    task.outputs.setdefault("model_execution", []).append(trace)
+    return response
 
 
 class BaseWorker:
@@ -51,19 +213,47 @@ class Observer:
         self.daemon_state = daemon_state or {}
         self.experience_deposition = experience_deposition
 
-    def observe_and_create(self, max_new: int = 3) -> List[Task]:
+    def observe_and_create(
+        self,
+        max_new: int = 3,
+        allowed_priorities: Optional[set] = None,
+    ) -> List[Task]:
         """观察系统状态，自动创建任务"""
         candidates = self._generate_candidates()
+        if allowed_priorities is not None:
+            candidates = [
+                candidate for candidate in candidates
+                if candidate.get("priority", "medium") in allowed_priorities
+            ]
         new_tasks = []
 
         for cand in candidates[:max_new]:
             if not self._task_exists(cand["title"]):
+                evidence = cand.get("evidence", [])
+                if not evidence:
+                    continue
+                source_ref = cand.get("source_ref")
+                if not source_ref:
+                    source_ref = hashlib.sha256(
+                        json.dumps(evidence, ensure_ascii=False, sort_keys=True).encode("utf-8")
+                    ).hexdigest()
                 task = self.task_pool.create_task(
                     title=cand["title"],
                     hypothesis=cand.get("hypothesis", ""),
                     creator="observer",
                     priority=cand.get("priority", "medium"),
                     tags=cand.get("tags", []),
+                    admission={
+                        "source_type": "system_observation",
+                        "source_ref": source_ref,
+                        "why_now": cand.get("why_now", cand.get("hypothesis", "")),
+                        "evidence": evidence,
+                        "expected_result": cand.get("expected_result", cand.get("hypothesis", "")),
+                        "verification_method": cand.get("verification_method", "Recheck the originating internal system state."),
+                        "risk": cand.get("risk", "Internal observation may become stale before execution."),
+                        "estimated_scope": cand.get("estimated_scope", "one observed system gap"),
+                    },
+                    outputs={"observer_candidate": dict(cand)},
                 )
                 new_tasks.append(task)
 
@@ -79,9 +269,11 @@ class Observer:
 
     def _generate_candidates(self) -> List[Dict[str, Any]]:
         candidates = []
+        evidence_context = {"daemon_state": self.daemon_state}
 
         if self.lexicon:
             stats = self.lexicon.get_stats()
+            evidence_context["lexicon_stats"] = stats
             weak_cats = [
                 cat for cat, count in stats.get("categories", {}).items()
                 if count <= 2
@@ -188,6 +380,19 @@ class Observer:
                     "tags": ["experience", "pattern_promotion", "feedback_loop"],
                 })
 
+        for cand in candidates:
+            evidence = {
+                "source": "observer_internal_state",
+                "title": cand["title"],
+                "hypothesis": cand.get("hypothesis", ""),
+                "tags": cand.get("tags", []),
+                "lexicon_stats": evidence_context.get("lexicon_stats", {}),
+                "daemon_state": evidence_context["daemon_state"],
+            }
+            cand["evidence"] = [evidence]
+            cand["source_ref"] = hashlib.sha256(
+                json.dumps(evidence, ensure_ascii=False, sort_keys=True, default=str).encode("utf-8")
+            ).hexdigest()
         return candidates
 
 
@@ -208,6 +413,196 @@ class Researcher:
         self.llm_router = llm_router
         self.experience_deposition = experience_deposition
 
+    FAIRNESS_REWORK_LIMIT = 2
+    FAIRNESS_MEDIUM_AGE_LIMIT = 3
+
+    @staticmethod
+    def _admission_evidence(task: Task, limit: int = 5) -> List[Dict[str, Any]]:
+        outputs = task.outputs if isinstance(task.outputs, dict) else {}
+        admission = outputs.get("admission", {})
+        records = admission.get("evidence", []) if isinstance(admission, dict) else []
+        evidence = []
+        seen = set()
+        for item in records if isinstance(records, list) else []:
+            if not isinstance(item, dict):
+                continue
+            source = item.get("source_ref") or item.get("source")
+            content = item.get("content") or item.get("detail") or item.get("description")
+            if not isinstance(source, str) or not source.strip() or source in seen:
+                continue
+            if not isinstance(content, str) or not content.strip():
+                continue
+            seen.add(source)
+            evidence.append({
+                "content": content[:2000],
+                "source": source,
+                "type": "admission",
+                "title": str(item.get("title", "")),
+            })
+            if len(evidence) >= limit:
+                break
+        return evidence
+
+    def _is_rework_candidate(self, task: Task) -> bool:
+        rework_streak = task.consecutive_rework_claims
+        if not task.last_claimed_at:
+            rework_streak = max(rework_streak, task.rework_count)
+        return (
+            rework_streak >= self.FAIRNESS_REWORK_LIMIT
+            and task.outputs.get("last_validator_result", {}).get("outcome") == "rework_pending"
+        )
+
+    def _untouched_candidate(self, check_order: List[str], exclude_task_id: str) -> Optional[Task]:
+        now = datetime.now()
+        model_untouched = []
+        untouched = []
+        model_rework = []
+        rework = []
+        for priority in check_order:
+            # Service the complete bounded pool, not merely the oldest page.
+            # Otherwise 100 rework tasks at one priority can permanently hide
+            # every untouched task behind them, including an admitted model
+            # task, while the selector keeps reclaiming the same old work.
+            for task in self.task_pool.list_tasks(status="pending", priority=priority, limit=10000):
+                if task.task_id == exclude_task_id or task.last_claimed_at:
+                    continue
+                if task.retry_after:
+                    try:
+                        if datetime.fromisoformat(task.retry_after) > now:
+                            continue
+                    except ValueError:
+                        continue
+                if not task.last_claimed_at:
+                    (model_untouched if _is_admitted_model_task(task) else untouched).append(task)
+                elif (
+                    self._is_rework_candidate(task)
+                    or (
+                        _is_admitted_model_task(task)
+                        and task.outputs.get("last_validator_result", {}).get("outcome")
+                        == "rework_pending"
+                    )
+                ):
+                    (model_rework if _is_admitted_model_task(task) else rework).append(task)
+        if model_untouched:
+            return sorted(model_untouched, key=lambda task: task.created_at)[0]
+        if untouched:
+            return sorted(untouched, key=lambda task: task.created_at)[0]
+        if model_rework:
+            return sorted(model_rework, key=lambda task: task.created_at)[0]
+        if rework:
+            return sorted(rework, key=lambda task: task.created_at)[0]
+        return None
+
+    @staticmethod
+    def _is_claim_eligible(task: Task, now: datetime) -> bool:
+        if task.outputs.get("terminal_non_convergent"):
+            return False
+        if not task.retry_after:
+            return True
+        try:
+            return datetime.fromisoformat(task.retry_after) <= now
+        except ValueError:
+            return False
+
+    def _is_completion_candidate(self, task: Task) -> bool:
+        last_result = task.outputs.get("last_validator_result", {})
+        return (
+            isinstance(last_result, dict)
+            and last_result.get("outcome") == "rework_pending"
+            and last_result.get("hard_objections") == []
+            and bool(task.hypothesis.strip())
+            and len(Validator._unique_evidence(task)) >= 3
+            and task.consecutive_rework_claims < self.FAIRNESS_REWORK_LIMIT
+        )
+
+    def _first_eligible_task(self, statuses: List[str], priority: str, now: datetime) -> Optional[Task]:
+        for status in statuses:
+            for task in self.task_pool.list_tasks(status=status, priority=priority, limit=100):
+                if self._is_claim_eligible(task, now):
+                    return task
+        return None
+
+    def _aging_medium_candidate(self, priority: str) -> Optional[Task]:
+        if priority != "any":
+            return None
+        now = datetime.now()
+        if self._first_eligible_task(["pending"], "critical", now):
+            return None
+        if not self._first_eligible_task(["pending"], "high", now):
+            return None
+        # A medium task that already satisfied every hard validation gate must
+        # receive a bounded second service opportunity.  Otherwise the entire
+        # untouched medium backlog permanently sits ahead of it and the pool
+        # can claim/research forever without ever converging to approved.
+        qualified_rework = []
+        for task in self.task_pool.list_tasks(
+            status="pending", priority="medium", limit=10000
+        ):
+            if (
+                self._is_claim_eligible(task, now)
+                and self._is_completion_candidate(task)
+            ):
+                qualified_rework.append(task)
+        if qualified_rework:
+            return sorted(
+                qualified_rework,
+                key=lambda task: (task.retry_after or task.created_at, task.created_at),
+            )[0]
+        # Fairness must rotate through the whole untouched medium backlog.
+        # The old implementation inspected only the first medium task (and
+        # therefore kept aging/reselecting the same file), while the remaining
+        # medium tasks never received a selection opportunity.  Keep the
+        # existing age threshold semantics, but choose the oldest eligible
+        # untouched candidate with the greatest observed starvation age.
+        candidates = [
+            task
+            for task in self.task_pool.list_tasks(
+                status="pending", priority="medium", limit=10000
+            )
+            if not task.last_claimed_at and self._is_claim_eligible(task, now)
+        ]
+        if candidates:
+            return sorted(
+                candidates,
+                key=lambda task: (
+                    -int(task.starvation_age or 0),
+                    task.created_at,
+                ),
+            )[0]
+        return self._first_eligible_task(["pending"], "medium", now)
+
+    def _record_high_competition(self, medium: Optional[Task], high: Task):
+        if medium is None:
+            return
+        medium.starvation_age += 1
+        medium.record_selection(
+            "researcher_claim",
+            high.task_id,
+            alternatives=[medium.task_id],
+            reason="aging_competition",
+            actor="researcher",
+        )
+        self.task_pool.update_task(medium)
+
+    def _record_aging_yield(self, high: Task, medium: Task) -> None:
+        high.record_selection(
+            "researcher_claim",
+            medium.task_id,
+            alternatives=[high.task_id],
+            reason="aging_yield",
+            actor="researcher",
+        )
+        self.task_pool.update_task(high)
+        medium.starvation_age = 0
+        medium.record_selection(
+            "researcher_claim",
+            medium.task_id,
+            alternatives=[high.task_id],
+            reason="aging_reset",
+            actor="researcher",
+        )
+        self.task_pool.update_task(medium)
+
     def pick_up_task(self, priority: str = "high") -> Optional[Task]:
         """领取最高优先级的待办任务（含卡住的active任务）"""
         priority_order = ["critical", "high", "medium", "low"]
@@ -219,13 +614,67 @@ class Researcher:
 
         for status in ["active", "pending"]:
             for pri in check_order:
-                tasks = self.task_pool.list_tasks(status=status, priority=pri, limit=5)
-                if tasks:
-                    task = tasks[0]
-                    task.assignee = "researcher"
-                    if status == "pending":
-                        self.task_pool.move_task(task.task_id, "active", actor="researcher")
-                    return task
+                # The service decision must see the complete bounded priority
+                # queue.  A five-item page can hide an already-claimed model
+                # task behind old rework tasks indefinitely.
+                tasks = self.task_pool.list_tasks(status=status, priority=pri, limit=10000)
+                for task in tasks:
+                    medium = (
+                        self._aging_medium_candidate(priority)
+                        if status == "pending" and pri == "high"
+                        else None
+                    )
+                    untouched = (
+                        self._untouched_candidate(check_order, task.task_id)
+                        if self._is_rework_candidate(task)
+                        else None
+                    )
+                    aging_yield = (
+                        medium is not None
+                        and (
+                            medium.starvation_age >= self.FAIRNESS_MEDIUM_AGE_LIMIT
+                            or self._is_completion_candidate(medium)
+                        )
+                    )
+                    candidate = medium if aging_yield else untouched or task
+                    if self._is_rework_candidate(task):
+                        model_candidates = [
+                            item for item in self.task_pool.list_tasks(
+                                status="pending", priority=pri, limit=10000
+                            )
+                            if _is_admitted_model_task(item)
+                            and self._is_claim_eligible(item, datetime.now())
+                            and (
+                                not item.last_claimed_at
+                                or item.outputs.get("last_validator_result", {}).get("outcome")
+                                == "rework_pending"
+                            )
+                        ]
+                        if model_candidates:
+                            candidate = sorted(model_candidates, key=lambda item: item.created_at)[0]
+                    claimed = self.task_pool.claim_task(candidate.task_id, "researcher")
+                    if not claimed:
+                        continue
+                    if aging_yield:
+                        self._record_aging_yield(task, claimed)
+                    elif untouched:
+                        task.record_selection(
+                            "researcher_claim",
+                            claimed.task_id,
+                            alternatives=[task.task_id],
+                            reason="fairness_yield",
+                            actor="researcher",
+                        )
+                        self.task_pool.update_task(task)
+                        if (
+                            status == "pending"
+                            and pri == "high"
+                            and claimed.priority == "high"
+                        ):
+                            self._record_high_competition(medium, claimed)
+                    elif status == "pending" and pri == "high":
+                        self._record_high_competition(medium, claimed)
+                    return claimed
         return None
 
     def generate_candidates(self, task: Task, max_candidates: int = 3) -> List[Dict[str, Any]]:
@@ -354,6 +803,15 @@ class Researcher:
 
     def research_task(self, task: Task, max_evidence: int = 5) -> Dict[str, Any]:
         """对任务进行研究，收集证据"""
+        if task.claim_id:
+            renewed = self.task_pool.renew_lease(
+                task.task_id,
+                "researcher",
+                task.claim_id,
+            )
+            if renewed is None:
+                raise RuntimeError("research_lease_renewal_failed")
+            task = renewed
         result = {
             "task_id": task.task_id,
             "evidence_found": 0,
@@ -361,12 +819,42 @@ class Researcher:
             "research_summary": "",
             "status": "review",
         }
+        admitted_evidence = self._admission_evidence(task, limit=max_evidence)
+        evidence_context = "\n".join(
+            f"- [{item['source']}] {item['content'][:500]}"
+            for item in admitted_evidence
+        )
+        model_response = _record_model_execution(
+            task,
+            "researcher",
+            self.llm_router,
+            (
+                f"Task: {task.title}\nHypothesis: {task.hypothesis}\n"
+                "Role: analyze the supplied evidence, identify alternatives and "
+                "invalidating conditions. Do not invent evidence.\n"
+                f"Admitted evidence:\n{evidence_context or '(none)'}"
+            ),
+        )
+        if isinstance(model_response, dict):
+            content = model_response.get("content")
+            if isinstance(content, str) and content.strip():
+                task.outputs["model_research_result"] = {
+                    "content": content[:4000],
+                    "response_sha256": hashlib.sha256(
+                        content.encode("utf-8")
+                    ).hexdigest(),
+                    "at": datetime.now().isoformat(),
+                }
 
         title_lower = task.title.lower()
         hypothesis_lower = task.hypothesis.lower()
         keywords = self._extract_keywords(title_lower + " " + hypothesis_lower)
 
-        evidence = []
+        # Admission evidence is the reason this task was allowed onto the model
+        # path.  Preserve it as the first-class research basis before optional
+        # broad memory/lexicon enrichment; otherwise an admitted task can lose
+        # all of its real inputs and be validated against unrelated search hits.
+        evidence = list(admitted_evidence)
         counter_examples = []
 
         if self.eco_parser and any(k in title_lower for k in ["eco", "生态", "行为", "叙事", "自由区"]):
@@ -377,9 +865,13 @@ class Researcher:
             for kw in keywords[:5]:
                 hits = self.memory_index.search(keyword=kw, limit=10)
                 for hit in hits[:2]:
+                    content = hit.get("content") or hit.get("summary") or ""
+                    source = hit.get("source_path") or hit.get("source", "memory")
+                    if not hit.get("source_path") and hit.get("id"):
+                        source = f"{source}:{hit['id']}"
                     evidence.append({
-                        "content": hit.get("content", "")[:300],
-                        "source": hit.get("source", "memory"),
+                        "content": content[:300],
+                        "source": source,
                         "type": "memory",
                         "title": hit.get("title", ""),
                     })
@@ -407,7 +899,17 @@ class Researcher:
                         "experience_id": exp.experience_id,
                     })
 
-        evidence = evidence[:max_evidence]
+        # Empty search hits are not evidence.  Persisting them created the
+        # illusion of a larger evidence set while Validator correctly counted
+        # only meaningful independent records, causing avoidable rework loops.
+        evidence = [
+            ev for ev in evidence
+            if isinstance(ev, dict)
+            and isinstance(ev.get("content"), str)
+            and ev.get("content", "").strip()
+            and isinstance(ev.get("source", ""), str)
+            and ev.get("source", "").strip()
+        ][:max_evidence]
 
         for ev in evidence:
             task.add_evidence(ev.get("content", "")[:300], source=ev.get("source", ""))
@@ -494,14 +996,55 @@ class Validator:
     至少提出一个反对意见。
     """
 
+    MAX_UNCHANGED_REVIEWS = 4
+    EVIDENCE_SIGNATURE_VERSION = 2
+
     def __init__(self, task_pool: TaskPool, lexicon=None, memory_index=None, llm_router=None):
         self.task_pool = task_pool
         self.lexicon = lexicon
         self.memory_index = memory_index
         self.llm_router = llm_router
 
+    @staticmethod
+    def _unique_evidence(task: Task) -> set:
+        return {
+            (
+                item.get("source", "") if isinstance(item, dict) else "",
+                item.get("content", "") if isinstance(item, dict) else str(item),
+            )
+            for item in task.evidence
+        }
+
+    @classmethod
+    def evidence_signature(cls, task: Task) -> str:
+        return hashlib.sha256(
+            json.dumps(sorted(cls._unique_evidence(task)), ensure_ascii=False).encode("utf-8")
+        ).hexdigest()
+
+    @staticmethod
+    def validation_signature(value: Any) -> str:
+        return hashlib.sha256(
+            json.dumps(value, ensure_ascii=False, sort_keys=True).encode("utf-8")
+        ).hexdigest()
+
+    @staticmethod
+    def non_convergent_disposition(task: Task) -> str:
+        if "permanent_dead_end" in task.tags or task.outputs.get("terminal_disposition") == "graveyard":
+            return "graveyard"
+        admission = task.outputs.get("admission", {})
+        if "external" in task.tags or admission.get("source_type") == "external_research":
+            return "observe"
+        return "blocked"
+
     def validate_task(self, task: Task) -> Dict[str, Any]:
         """验证一个任务的研究结论，至少找一个反例或疑点"""
+        evidence_signature = self.evidence_signature(task)
+        previous_result = task.outputs.get("last_validator_result", {})
+        if not isinstance(previous_result, dict):
+            previous_result = {}
+        previous_signature = task.outputs.get("last_validated_evidence_signature", "")
+        previous_signature = previous_signature or previous_result.get("evidence_signature", "")
+        previous_signature_version = task.outputs.get("evidence_signature_version")
         review_count = getattr(task, "review_count", 0)
         task.review_count = review_count + 1
         self.task_pool.update_task(task)
@@ -514,32 +1057,57 @@ class Validator:
             "verdict": "",
             "review_count": task.review_count,
         }
+        _record_model_execution(
+            task,
+            "validator",
+            self.llm_router,
+            f"Task: {task.title}\nHypothesis: {task.hypothesis}\nRole: identify counterexamples and validation risks.",
+        )
 
         objections = []
+        hard_objections = []
+        advisory_objections = []
 
-        evidence_count = len(task.evidence)
+        evidence_count = len(self._unique_evidence(task))
         if evidence_count == 0:
-            objections.append("没有任何证据支持，研究不充分")
+            objection = "没有任何证据支持，研究不充分"
+            objections.append(objection)
+            hard_objections.append(objection)
         elif evidence_count < 3:
-            objections.append(f"仅{evidence_count}条证据，样本量不足")
+            objection = f"仅{evidence_count}条证据，样本量不足"
+            objections.append(objection)
+            hard_objections.append(objection)
 
         if not task.hypothesis:
-            objections.append("任务没有明确的假设，无法验证")
+            objection = "任务没有明确的假设，无法验证"
+            objections.append(objection)
+            hard_objections.append(objection)
 
         if not task.counter_examples:
-            objections.append("未主动寻找反例，存在确认偏误风险")
+            objection = "未主动寻找反例，存在确认偏误风险"
+            objections.append(objection)
+            advisory_objections.append(objection)
 
         if self.memory_index and task.evidence:
             first_ev = task.evidence[0]
             ev_content = first_ev.get("content", "") if isinstance(first_ev, dict) else str(first_ev)
             if len(ev_content) < 50:
-                objections.append("第一条证据内容过短，可信度存疑")
+                objection = "第一条证据内容过短，可信度存疑"
+                objections.append(objection)
+                # A short first item is not by itself fatal when the complete
+                # evidence set meets the independent-evidence minimum.
+                if evidence_count < 3:
+                    hard_objections.append(objection)
+                else:
+                    advisory_objections.append(objection)
 
         keywords = re.findall(r"[\u4e00-\u9fffA-Za-z_][\u4e00-\u9fffA-Za-z0-9_]{2,}", task.title)
         if self.lexicon and keywords:
             matched_concepts = sum(1 for kw in keywords[:5] if self.lexicon.get_concept(kw))
             if matched_concepts == 0 and len(keywords) >= 2:
-                objections.append("核心关键词在词库中无对应概念，研究背景薄弱")
+                objection = "核心关键词在词库中无对应概念，研究背景薄弱"
+                objections.append(objection)
+                advisory_objections.append(objection)
 
         genuine_objections = [o for o in objections if "未发现明显逻辑漏洞" not in o]
 
@@ -552,34 +1120,129 @@ class Validator:
 
         result["objections"] = genuine_objections
         result["counter_examples"] = len(genuine_objections)
+        result["hard_objections"] = list(hard_objections)
+        result["advisory_objections"] = list(advisory_objections)
 
-        if len(genuine_objections) <= 1 and evidence_count >= 3:
+        objections_signature = self.validation_signature(sorted(genuine_objections))
+        validator_outcome_signature = self.validation_signature("rework_pending")
+        previous_outcome = previous_result.get("outcome", "")
+        repeated_rework = not previous_outcome or previous_outcome == "rework_pending"
+        legacy_rework_migration = (
+            repeated_rework
+            and previous_signature_version != self.EVIDENCE_SIGNATURE_VERSION
+            and previous_signature != evidence_signature
+        )
+        previous_objections_signature = task.outputs.get("objections_signature", "")
+        previous_outcome_signature = task.outputs.get("validator_outcome_signature", "")
+        stable_validation = (
+            previous_signature == evidence_signature
+            and previous_objections_signature == objections_signature
+            and previous_outcome_signature == validator_outcome_signature
+        )
+        legacy_format = previous_signature_version != self.EVIDENCE_SIGNATURE_VERSION
+        if legacy_format and repeated_rework:
+            if previous_signature == evidence_signature:
+                task.unchanged_review_count = min(
+                    max(task.review_count, 0),
+                    self.MAX_UNCHANGED_REVIEWS,
+                )
+            else:
+                task.unchanged_review_count = min(
+                    max(task.review_count, 1),
+                    self.MAX_UNCHANGED_REVIEWS - 1,
+                )
+        else:
+            task.unchanged_review_count = (
+                task.unchanged_review_count + 1 if stable_validation else 1
+            )
+        task.outputs["last_validated_evidence_signature"] = evidence_signature
+        task.outputs["evidence_signature_version"] = self.EVIDENCE_SIGNATURE_VERSION
+        task.outputs["objections_signature"] = objections_signature
+        task.outputs["validator_outcome_signature"] = validator_outcome_signature
+        validator_result = {
+            "review_count": task.review_count,
+            "evidence_signature": evidence_signature,
+            "objections": list(genuine_objections),
+            "hard_objections": list(hard_objections),
+            "advisory_objections": list(advisory_objections),
+            "validated_at": datetime.now().isoformat(),
+        }
+
+        if task.unchanged_review_count >= self.MAX_UNCHANGED_REVIEWS:
+            task.retry_after = ""
+            task.assignee = None
+            task.outputs["terminal_non_convergent"] = True
+            disposition = self.non_convergent_disposition(task)
+            result["passed"] = False
+            if disposition == "graveyard":
+                result["verdict"] = "相同证据集重复验证达到上限，已确认永久无效"
+                validator_result["outcome"] = "graveyard_non_convergent"
+                task.outputs["last_validator_result"] = validator_result
+                task.outputs["rework_reason"] = result["verdict"]
+                self.task_pool.update_task(task)
+                self.task_pool.move_task(
+                    task.task_id,
+                    "graveyard",
+                    actor="validator",
+                    reason="validator_non_convergent_permanent_dead_end",
+                    task=task,
+                )
+            elif disposition == "observe":
+                result["verdict"] = "相同证据集重复验证达到上限，等待外部新证据"
+                validator_result["outcome"] = "observe_non_convergent"
+                task.outputs["last_validator_result"] = validator_result
+                task.outputs["rework_reason"] = result["verdict"]
+                self.task_pool.update_task(task)
+                self.task_pool.block_task(
+                    task.task_id,
+                    result["verdict"],
+                    actor="validator",
+                    block_type="external_condition_blocked",
+                )
+            else:
+                result["verdict"] = "相同证据集重复验证达到上限，等待人工或外部新证据"
+                validator_result["outcome"] = "blocked_non_convergent"
+                task.outputs["last_validator_result"] = validator_result
+                task.outputs["rework_reason"] = result["verdict"]
+                self.task_pool.update_task(task)
+                self.task_pool.block_task(
+                    task.task_id,
+                    result["verdict"],
+                    actor="validator",
+                    block_type="manual_gate_blocked",
+                )
+
+        elif (
+            not legacy_rework_migration
+            and not hard_objections
+            and evidence_count >= 3
+        ):
             result["passed"] = True
             result["verdict"] = "初步通过，可进入终审"
+            validator_result["outcome"] = "approved"
+            task.outputs["last_validator_result"] = validator_result
             self.task_pool.update_task(task)
             self.task_pool.move_task(task.task_id, "approved", actor="validator", task=task)
-
-        elif task.review_count >= 3:
-            result["passed"] = True
-            result["verdict"] = f"重审{ task.review_count}次后强制通过（异议{len(genuine_objections)}个，但证据已充分）"
-            task.add_validation_note(f"[终审保护] 重审{task.review_count}次，强制进入终审", validator="validator")
-            self.task_pool.update_task(task)
-            self.task_pool.move_task(task.task_id, "approved", actor="validator", task=task)
-
-        elif evidence_count >= 2:
-            result["passed"] = False
-            result["verdict"] = f"需补充研究，退回active（第{task.review_count}次重审）"
-            task.add_research_note(f"验证员提出{len(genuine_objections)}个质疑，需补充研究")
-            task.assignee = "researcher"
-            self.task_pool.update_task(task)
-            self.task_pool.move_task(task.task_id, "active", actor="validator", task=task)
 
         else:
             result["passed"] = False
-            result["verdict"] = "证据不足，退回待重新研究"
-            task.assignee = "researcher"
+            result["verdict"] = f"需补充研究，回到pending（第{task.review_count}次重审）"
+            task.add_research_note(f"验证员提出{len(genuine_objections)}个质疑，需补充研究")
+            task.assignee = None
+            task.rework_count += 1
+            task.retry_after = (datetime.now() + timedelta(minutes=5)).isoformat()
+            validator_result["outcome"] = "rework_pending"
+            validator_result["retry_after"] = task.retry_after
+            task.outputs["rework_reason"] = "；".join(genuine_objections)
+            task.outputs["last_validator_result"] = validator_result
             self.task_pool.update_task(task)
-            self.task_pool.move_task(task.task_id, "active", actor="validator", task=task)
+            self.task_pool.move_task(
+                task.task_id,
+                "pending",
+                actor="validator",
+                reason="validator_rework_pending",
+                task=task,
+            )
 
         return result
 
@@ -739,12 +1402,22 @@ class Archivist:
 
     def archive_task(self, task: Task) -> bool:
         """归档已批准的任务，写入记忆索引"""
-        if task.status != "approved":
+        if task.status != "approved" or task.guardian_decision not in {
+            "axiom", "constraint", "experience"
+        }:
             return False
 
-        archive_note = self._format_task_archive(task)
+        archived = self.task_pool.move_task(
+            task.task_id,
+            "archived",
+            actor="archivist",
+            task=task,
+        )
+        if archived is None:
+            return False
 
         if self.memory_index:
+            archive_note = self._format_task_archive(task)
             self.memory_index.add(
                 title=f"[任务归档] {task.title}",
                 content=archive_note,
@@ -754,7 +1427,6 @@ class Archivist:
                 tags=task.tags + ["archived", task.task_id],
             )
 
-        self.task_pool.move_task(task.task_id, "archived", actor="archivist")
         return True
 
     def _format_task_archive(self, task: Task) -> str:

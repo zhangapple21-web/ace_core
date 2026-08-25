@@ -64,7 +64,11 @@ class FileScanner:
         self.scan_roots = [Path(r) for r in scan_roots if Path(r).exists()]
         self.max_depth = max_depth
 
-    def scan_and_create(self, max_new: int = 3) -> Dict[str, Any]:
+    def scan_and_create(
+        self,
+        max_new: int = 3,
+        allowed_priorities: Optional[Set[str]] = None,
+    ) -> Dict[str, Any]:
         result = {
             "scanned": 0,
             "new_files": 0,
@@ -85,6 +89,11 @@ class FileScanner:
             key=lambda p: self._priority_score(p),
             reverse=True,
         )
+        if allowed_priorities is not None:
+            sorted_new = [
+                path for path in sorted_new
+                if EXT_PRIORITY.get(path.suffix.lower(), "low") in allowed_priorities
+            ]
 
         created = 0
         for frag_path in sorted_new:
@@ -215,22 +224,38 @@ class FileScanner:
 
         tags = ["fragment_archaeology", f"ext:{ext[1:]}"]
 
+        file_size = int(path.stat().st_size)
+        file_mtime = datetime.fromtimestamp(path.stat().st_mtime).isoformat()
+        evidence = {
+            "path": str(path),
+            "extension": ext,
+            "size_bytes": file_size,
+            "modified_at": file_mtime,
+            "preview": preview,
+        }
         task = self.task_pool.create_task(
             title=title,
             hypothesis=hypothesis,
             creator="file_scanner",
             priority=pri,
             tags=tags,
-        )
-
-        if task:
-            task.outputs = {
+            admission={
+                "source_type": "archaeology",
+                "source_ref": f"{path.resolve()}:{file_mtime}:{file_size}",
+                "why_now": "A new or changed local fragment matched the archaeology scan.",
+                "evidence": [evidence],
+                "expected_result": "The fragment is analyzed and its reusable structures are recorded or bounded.",
+                "verification_method": "Recheck the source file and the resulting archaeology record.",
+                "risk": "Read-only local fragment analysis.",
+                "estimated_scope": "one local file",
+            },
+            outputs={
                 "source_file": str(path),
-                "file_size": int(path.stat().st_size),
-                "file_mtime": datetime.fromtimestamp(path.stat().st_mtime).isoformat(),
+                "file_size": file_size,
+                "file_mtime": file_mtime,
                 "preview": preview,
-            }
-            self.task_pool.update_task(task)
+            },
+        )
 
         return task
 

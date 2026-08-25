@@ -1,0 +1,490 @@
+{
+  "schema": "ACE.CapabilityCensus.v1",
+  "snapshot_at": "2026-08-25T14:00:00+08:00",
+  "mode": "read_only_census",
+  "status_definitions": {
+    "PRODUCTION_ACTIVE": "Current daemon wiring and current runtime artifact exist.",
+    "PRODUCTION_DEGRADED": "Current path executes but an observed defect or readiness gate remains.",
+    "CODE_READY_RELOAD_PENDING": "Focused tests pass but the live process predates the change.",
+    "TESTED_NOT_WIRED": "Implementation has regression evidence but is absent from the current production call path.",
+    "IMPLEMENTED_UNVERIFIED": "Code exists but current production use and sufficient regression evidence were not established.",
+    "HISTORICAL_RUNTIME": "A historical runtime artifact exists but no current process or current-run trace exists.",
+    "DESIGN_ONLY": "Only design, declaration, or unexecuted contract evidence was established.",
+    "BLOCKED": "Implementation exists but a required production gate is not ready.",
+    "DISABLED": "The current configuration intentionally disables the side effect.",
+    "SUPERSEDED_OR_DUPLICATE": "A byte-identical or functionally superseded implementation exists outside the proposed owner.",
+    "SENSITIVE_EXCLUDED": "The repository or capability is intentionally excluded from ordinary discovery and model context."
+  },
+  "capabilities": [
+    {
+      "id": "OBS-RUNTIME-HEALTH",
+      "name": "Runtime heartbeat and cycle closure",
+      "primitive": "Observe",
+      "owner": "ace_core/ace_daemon.py + core/heartbeat.py",
+      "status": "PRODUCTION_ACTIVE",
+      "evidence_class": ["PRODUCTION_CODE", "CURRENT_RUNTIME"],
+      "evidence": ["06_RUNTIME/ace/data/memory/heartbeat.json", "06_RUNTIME/ace/data/memory/daemon_state.json", "ops/test_24h_runtime_mainline.py"],
+      "note": "Current heartbeat, run_id, stage completion, repository_sync and cycle_complete evidence exist."
+    },
+    {
+      "id": "OBS-FILESYSTEM",
+      "name": "Local filesystem and fragment observation",
+      "primitive": "Observe",
+      "owner": "core/file_scanner.py + core/local_archaeologist.py + core/fragment_index.py",
+      "status": "PRODUCTION_ACTIVE",
+      "evidence_class": ["PRODUCTION_CODE", "CURRENT_RUNTIME"],
+      "evidence": ["task_pool", "02_FRAGMENT_INDEX", "ace_daemon.py"],
+      "note": "FileScanner and archaeology sources have created and received service in the TaskPool."
+    },
+    {
+      "id": "OBS-OBSERVATION",
+      "name": "Runtime Observation ledger",
+      "primitive": "Observe",
+      "owner": "core/observation.py",
+      "status": "PRODUCTION_ACTIVE",
+      "evidence_class": ["PRODUCTION_CODE", "CURRENT_RUNTIME"],
+      "evidence": ["06_RUNTIME/ace/data/observations", "core/observation_to_task.py", "ops/test_observation_admission.py"],
+      "note": "Observation-to-task conversion is present and tested."
+    },
+    {
+      "id": "OBS-GIT-MINE-SEED",
+      "name": "Mine-seed Git increment observation",
+      "primitive": "Observe",
+      "owner": "core/mine_seed_scanner.py",
+      "status": "PRODUCTION_ACTIVE",
+      "evidence_class": ["PRODUCTION_CODE", "CURRENT_RUNTIME"],
+      "evidence": ["02_FRAGMENT_INDEX/.mine_seed_state.json", "ops/test_mine_seed.py"],
+      "note": "Current implementation is mine-seed-specific and is not a complete civilization repository catalog."
+    },
+    {
+      "id": "OBS-GIT-CIVILIZATION",
+      "name": "Cross-repository civilization observation",
+      "primitive": "Observe",
+      "owner": "unassigned",
+      "status": "HISTORICAL_RUNTIME",
+      "evidence_class": ["DESIGN_EVIDENCE", "PRODUCTION_CODE", "HISTORICAL_RUNTIME"],
+      "evidence": ["R1/research_logs/cross_civilization_observation_20260719.md", "mine-seed/05_TOOLS/miner/civilization_index_sync.py", "docs/ACE_REPOSITORY_IDENTITY_CATALOG_2026-08-25.json"],
+      "note": "R1 persisted a real cross-civilization observation and mine-seed has an index-sync implementation. Neither is wired to the current daemon or safe to run as the current seven-repository catalog."
+    },
+    {
+      "id": "OBS-EXTERNAL-LEARNING",
+      "name": "External web learning and scouting",
+      "primitive": "Observe",
+      "owner": "core/web_scout.py",
+      "status": "IMPLEMENTED_UNVERIFIED",
+      "evidence_class": ["PRODUCTION_CODE"],
+      "evidence": ["core/web_scout.py", "ace_daemon.py"],
+      "note": "Initialized by the daemon; no current successful governed learning artifact was established."
+    },
+    {
+      "id": "OBS-A-SHARE-DATA",
+      "name": "A-share quote, kline and index observation",
+      "primitive": "Observe",
+      "owner": "core/stock_data_reliability.py + mine-seed Advisor data adapters",
+      "status": "PRODUCTION_DEGRADED",
+      "evidence_class": ["PRODUCTION_CODE", "CURRENT_RUNTIME"],
+      "evidence": ["06_RUNTIME/ace/data/stock_data_evidence/stock_data_benchmark_latest.json", "ops/test_stock_data_reliability.py"],
+      "note": "Benchmarking works; independent-source, freshness, completeness and coverage admission remain insufficient."
+    },
+    {
+      "id": "OBS-BROWSER-DESKTOP-TG",
+      "name": "Browser, desktop and Telegram reality interfaces",
+      "primitive": "Observe",
+      "owner": "historical repositories / application boundary",
+      "status": "HISTORICAL_RUNTIME",
+      "evidence_class": ["DESIGN_EVIDENCE", "HISTORICAL_RUNTIME"],
+      "evidence": ["mine-seed/03_DATA/research/r1_capability_archaeology", "r1-archaeology"],
+      "note": "Historical implementations and reports exist; no current ACE daemon integration was established."
+    },
+    {
+      "id": "WORK-DISCOVERY",
+      "name": "Evidence-backed Work Discovery",
+      "primitive": "Transform",
+      "owner": "core/discovery.py + core/model_work_discovery.py",
+      "status": "PRODUCTION_ACTIVE",
+      "evidence_class": ["PRODUCTION_CODE", "CURRENT_RUNTIME"],
+      "evidence": ["06_RUNTIME/ace/data/model_work_discovery_latest.json", "ops/test_discovery_mode.py", "ops/test_model_work_discovery.py"],
+      "note": "Backlog-independent model Work discovery produced a real admitted reasoning Work."
+    },
+    {
+      "id": "WORK-ALLOCATION",
+      "name": "Autonomous Work Allocation",
+      "primitive": "Transform",
+      "owner": "core/autonomous_work_allocation.py",
+      "status": "PRODUCTION_ACTIVE",
+      "evidence_class": ["PRODUCTION_CODE", "CURRENT_RUNTIME"],
+      "evidence": ["06_RUNTIME/ace/data/memory/daemon_state.json", "ops/test_daily_autonomous_learning.py"],
+      "note": "Classifies existing Local, Learning, Reasoning, Strategic, Execution, Exploration and Financial Research work."
+    },
+    {
+      "id": "WORK-ADMISSION",
+      "name": "Task and model-task admission",
+      "primitive": "Transform",
+      "owner": "core/task_admission.py + core/model_task_admission.py + core/evidence_admission.py",
+      "status": "PRODUCTION_ACTIVE",
+      "evidence_class": ["PRODUCTION_CODE", "CURRENT_RUNTIME"],
+      "evidence": ["ops/test_task_admission.py", "ops/test_model_task_admission.py", "ops/test_evidence_admission.py"],
+      "note": "Current model Work passed admission without lowering gates."
+    },
+    {
+      "id": "TASKPOOL-LIFECYCLE",
+      "name": "TaskPool state machine and lease lifecycle",
+      "primitive": "Transform",
+      "owner": "core/task.py",
+      "status": "PRODUCTION_ACTIVE",
+      "evidence_class": ["PRODUCTION_CODE", "CURRENT_RUNTIME"],
+      "evidence": ["task_pool", "ops/test_24h_runtime_mainline.py", "ops/test_taskpool_observer.py"],
+      "note": "Claim, research, validation, rework, approval and archive transitions are occurring."
+    },
+    {
+      "id": "TASKPOOL-FAIRNESS",
+      "name": "Bounded fairness, aging and source coverage",
+      "primitive": "Transform",
+      "owner": "core/task.py + core/task_roles.py",
+      "status": "PRODUCTION_ACTIVE",
+      "evidence_class": ["PRODUCTION_CODE", "CURRENT_RUNTIME"],
+      "evidence": ["ops/test_taskpool_nonconvergence.py", "task_pool/archived"],
+      "note": "High and medium tasks from multiple sources have received service; multi-day stability is not yet proven."
+    },
+    {
+      "id": "RESEARCH-LOCAL",
+      "name": "Local evidence research",
+      "primitive": "Transform",
+      "owner": "core/task_roles.py::Researcher",
+      "status": "PRODUCTION_ACTIVE",
+      "evidence_class": ["PRODUCTION_CODE", "CURRENT_RUNTIME"],
+      "evidence": ["task_pool/archived", "ops/test_24h_runtime_mainline.py"],
+      "note": "Local archaeology work is consumed, though much of its evidence relevance is generic or duplicated."
+    },
+    {
+      "id": "EXECUTION-MODEL-POOL",
+      "name": "Model execution fabric and provider routing",
+      "primitive": "Transform",
+      "owner": "core/miner_pool",
+      "status": "PRODUCTION_ACTIVE",
+      "evidence_class": ["PRODUCTION_CODE", "CURRENT_RUNTIME"],
+      "evidence": ["task_pool/archived/RQ-20260825-021.json", "ops/test_model_pool_mainline.py"],
+      "note": "One real reasoning Work produced four successful NIM production-task calls; probes are excluded."
+    },
+    {
+      "id": "EXECUTION-SHENWEN-STRATEGIC",
+      "name": "Shenwen strategic execution route",
+      "primitive": "Transform",
+      "owner": "core/miner_pool",
+      "status": "IMPLEMENTED_UNVERIFIED",
+      "evidence_class": ["PRODUCTION_CODE", "HISTORICAL_RUNTIME"],
+      "evidence": ["06_RUNTIME/ace/data/memory/daemon_state.json"],
+      "note": "Health calls exist, but no verified current production-task call exists."
+    },
+    {
+      "id": "EXECUTION-SHENWEN-EXECUTION",
+      "name": "Shenwen execution workload route",
+      "primitive": "Transform",
+      "owner": "core/miner_pool",
+      "status": "IMPLEMENTED_UNVERIFIED",
+      "evidence_class": ["PRODUCTION_CODE", "HISTORICAL_RUNTIME"],
+      "evidence": ["06_RUNTIME/ace/data/memory/daemon_state.json"],
+      "note": "Health calls exist, but no verified current production-task call exists."
+    },
+    {
+      "id": "EXECUTION-PROVIDER-HEALTH",
+      "name": "Provider health, fallback and watchdog",
+      "primitive": "Observe",
+      "owner": "core/miner_pool/provider_watchdog.py + providers",
+      "status": "PRODUCTION_ACTIVE",
+      "evidence_class": ["PRODUCTION_CODE", "CURRENT_RUNTIME"],
+      "evidence": ["06_RUNTIME/ace/data/miner_pool/provider_watchdog/watchdog_state.json", "ops/test_model_pool_mainline.py"],
+      "note": "Health and production-task traces are distinguishable."
+    },
+    {
+      "id": "VALIDATION-TASK",
+      "name": "Task Validator and rework loop",
+      "primitive": "Transform",
+      "owner": "core/task_roles.py::Validator",
+      "status": "PRODUCTION_ACTIVE",
+      "evidence_class": ["PRODUCTION_CODE", "CURRENT_RUNTIME"],
+      "evidence": ["task_pool/archived", "ops/test_24h_runtime_mainline.py"],
+      "note": "Natural approvals now exist; evidence quality remains uneven."
+    },
+    {
+      "id": "GOVERNANCE-GUARDIAN",
+      "name": "Guardian knowledge classification",
+      "primitive": "Transform",
+      "owner": "core/task_roles.py::Guardian",
+      "status": "PRODUCTION_ACTIVE",
+      "evidence_class": ["PRODUCTION_CODE", "CURRENT_RUNTIME"],
+      "evidence": ["task_pool/archived", "09_KNOWLEDGE"],
+      "note": "Guardian decisions reach Archivist; approval alone is insufficient for contaminated historical backfill."
+    },
+    {
+      "id": "VALIDATION-EVIDENCE-RELEVANCE",
+      "name": "Evidence relevance and duplication diagnosis",
+      "primitive": "Transform",
+      "owner": "core/evidence_relevance_shadow.py",
+      "status": "TESTED_NOT_WIRED",
+      "evidence_class": ["PRODUCTION_CODE", "TEST_EVIDENCE"],
+      "evidence": ["docs/EVIDENCE_RELEVANCE_SHADOW_AUDIT_003.md", "ops/test_evidence_relevance_shadow.py"],
+      "note": "Strictly shadow-only; not a Validator or Admission gate."
+    },
+    {
+      "id": "GOVERNANCE-ROUNDTABLE",
+      "name": "Multi-perspective Roundtable review",
+      "primitive": "Transform",
+      "owner": "unassigned",
+      "status": "HISTORICAL_RUNTIME",
+      "evidence_class": ["DESIGN_EVIDENCE", "PRODUCTION_CODE", "HISTORICAL_RUNTIME"],
+      "evidence": ["core/roundtable.py", "core/governance/governor_protocol.py", "mine-seed/02_MEMORY/ops_logs/ops_20260710T154013.json"],
+      "note": "Several incompatible implementations exist; none is wired into the current daemon."
+    },
+    {
+      "id": "GOVERNANCE-LAW-DISCOVERY",
+      "name": "Law discovery, replay and policy admission",
+      "primitive": "Transform",
+      "owner": "mine-seed historical governance",
+      "status": "HISTORICAL_RUNTIME",
+      "evidence_class": ["PRODUCTION_CODE", "HISTORICAL_RUNTIME"],
+      "evidence": ["mine-seed/04_PROTOCOLS/law_discovery.py", "mine-seed/02_MEMORY/evidence/replay"],
+      "note": "Not established as part of the current ACE daemon production path."
+    },
+    {
+      "id": "KNOWLEDGE-ARCHIVE",
+      "name": "Archivist task archive",
+      "primitive": "Act",
+      "owner": "core/task_roles.py::Archivist",
+      "status": "PRODUCTION_ACTIVE",
+      "evidence_class": ["PRODUCTION_CODE", "CURRENT_RUNTIME"],
+      "evidence": ["task_pool/archived", "ops/test_24h_runtime_mainline.py"],
+      "note": "Natural approved-to-archived transitions occur."
+    },
+    {
+      "id": "KNOWLEDGE-EXPERIENCE",
+      "name": "Experience deposition identity and retention",
+      "primitive": "Act",
+      "owner": "core/experience_deposition.py",
+      "status": "CODE_READY_RELOAD_PENDING",
+      "evidence_class": ["PRODUCTION_CODE", "TEST_EVIDENCE"],
+      "evidence": ["ops/test_experience_deposition.py", "docs/TODAY_IN_THE_LAB_2026-08-25.md"],
+      "note": "Identity, idempotency, legacy loading and failure observability pass tests; live daemon predates the repair."
+    },
+    {
+      "id": "KNOWLEDGE-SKILL-GENERATION",
+      "name": "Skill extraction from archived work",
+      "primitive": "Transform",
+      "owner": "core/skill_generator.py",
+      "status": "PRODUCTION_DEGRADED",
+      "evidence_class": ["PRODUCTION_CODE", "CURRENT_RUNTIME"],
+      "evidence": ["09_KNOWLEDGE/skills", "docs/TODAY_IN_THE_LAB_2026-08-25.md"],
+      "note": "Generation ran, but generic archaeology evidence makes output quality provisional."
+    },
+    {
+      "id": "KNOWLEDGE-MEMORY-INDEX",
+      "name": "Local memory and knowledge retrieval",
+      "primitive": "Transform",
+      "owner": "core/memory_index.py + core/memory.py",
+      "status": "PRODUCTION_ACTIVE",
+      "evidence_class": ["PRODUCTION_CODE", "CURRENT_RUNTIME"],
+      "evidence": ["06_RUNTIME/ace/data/memory", "ace_daemon.py"],
+      "note": "Current daemon reads and writes its local memory index; Repository remains the authority."
+    },
+    {
+      "id": "KNOWLEDGE-DAILY-LEARNING",
+      "name": "Daily governed learning",
+      "primitive": "Transform",
+      "owner": "core/daily_learning.py",
+      "status": "BLOCKED",
+      "evidence_class": ["PRODUCTION_CODE", "CURRENT_RUNTIME"],
+      "evidence": ["ops/test_daily_autonomous_learning.py", "06_RUNTIME/ace/data/memory/daemon_state.json"],
+      "note": "Current outcome is NO_VALID_LEARNING_TARGET because a priority task globally blocks the window."
+    },
+    {
+      "id": "KNOWLEDGE-SEMANTIC-SLICE",
+      "name": "Semantic slicing and clustering",
+      "primitive": "Transform",
+      "owner": "core/slice_clusterer.py",
+      "status": "IMPLEMENTED_UNVERIFIED",
+      "evidence_class": ["PRODUCTION_CODE"],
+      "evidence": ["core/slice_clusterer.py", "ace_daemon.py"],
+      "note": "Conditionally initialized when a source corpus is found; no current governed output was established."
+    },
+    {
+      "id": "KNOWLEDGE-RECONCILIATION",
+      "name": "Knowledge governance, lifecycle and reconciliation",
+      "primitive": "Transform",
+      "owner": "core/governance",
+      "status": "IMPLEMENTED_UNVERIFIED",
+      "evidence_class": ["PRODUCTION_CODE"],
+      "evidence": ["core/governance/knowledge_governor.py", "core/governance/knowledge_lifecycle.py", "08_GOVERNANCE"],
+      "note": "Parts support DailyLearning; the broader governance package is not established as one current production chain."
+    },
+    {
+      "id": "KNOWLEDGE-DAILY-GROWTH",
+      "name": "Daily cognitive work supply and growth ledger",
+      "primitive": "Observe",
+      "owner": "core/daily_growth.py",
+      "status": "PRODUCTION_ACTIVE",
+      "evidence_class": ["PRODUCTION_CODE", "CURRENT_RUNTIME"],
+      "evidence": ["06_RUNTIME/ace/data/daily_growth_latest.json", "ops/test_daily_growth.py"],
+      "note": "Measures discovery, service, model calls and archived work; retention counts require Experience repair verification."
+    },
+    {
+      "id": "REPOSITORY-CURATOR",
+      "name": "Repository curation and handoff",
+      "primitive": "Transform",
+      "owner": "core/repository_curator.py",
+      "status": "PRODUCTION_DEGRADED",
+      "evidence_class": ["PRODUCTION_CODE", "CURRENT_RUNTIME"],
+      "evidence": ["06_RUNTIME/ace/data/curator", "06_RUNTIME/ace/data/memory/daemon_state.json"],
+      "note": "Current cycles complete, but the Curator repeatedly reports roughly the whole repository as new rather than an incremental daily handoff."
+    },
+    {
+      "id": "REPOSITORY-SYNC",
+      "name": "Repository synchronization",
+      "primitive": "Act",
+      "owner": "core/repo_syncer.py + core/core_syncer.py + core/sync_manager.py",
+      "status": "DISABLED",
+      "evidence_class": ["PRODUCTION_CODE", "CURRENT_RUNTIME"],
+      "evidence": ["ace_daemon.py", "ace_config.json"],
+      "note": "Current runtime config keeps repository synchronization side effects disabled."
+    },
+    {
+      "id": "REPOSITORY-RECOVERY",
+      "name": "Repository recovery and backup",
+      "primitive": "Act",
+      "owner": "core/recovery_protocol.py + ops/backup_data.py",
+      "status": "IMPLEMENTED_UNVERIFIED",
+      "evidence_class": ["PRODUCTION_CODE", "HISTORICAL_RUNTIME"],
+      "evidence": ["06_RUNTIME/ace/data/backups", "core/recovery_protocol.py"],
+      "note": "Backup artifacts exist; full current recovery capability was not exercised in this census."
+    },
+    {
+      "id": "OPS-READONLY-AUDIT",
+      "name": "Read-only health, lifecycle and autonomous audits",
+      "primitive": "Observe",
+      "owner": "ops",
+      "status": "TESTED_NOT_WIRED",
+      "evidence_class": ["PRODUCTION_CODE", "TEST_EVIDENCE"],
+      "evidence": ["ops/autonomous_audit.py", "ops/taskpool_observer.py", "ops/health_check.py", "ops/test_autonomous_audit.py"],
+      "note": "Useful operator tools exist; they are not a second runtime."
+    },
+    {
+      "id": "OPS-HISTORICAL-CYCLE",
+      "name": "Historical daily Ops Cycle",
+      "primitive": "Transform",
+      "owner": "mine-seed historical runtime",
+      "status": "HISTORICAL_RUNTIME",
+      "evidence_class": ["PRODUCTION_CODE", "HISTORICAL_RUNTIME"],
+      "evidence": ["mine-seed/04_PROTOCOLS/ops_cycle.py", "mine-seed/02_MEMORY/ops_logs/ops_20260710T154013.json"],
+      "note": "Daily handoff semantics are valuable; direct model governance and a second loop must not be restored."
+    },
+    {
+      "id": "APPLICATION-ADVISOR",
+      "name": "A-share Advisor analysis",
+      "primitive": "Transform",
+      "owner": "mine-seed/05_TOOLS/advisor",
+      "status": "BLOCKED",
+      "evidence_class": ["PRODUCTION_CODE", "HISTORICAL_RUNTIME"],
+      "evidence": ["mine-seed/05_TOOLS/mine_output/advisor/runner_status.json"],
+      "note": "Persisted last run is stale and failed; Data, Risk and Advisor readiness are not satisfied."
+    },
+    {
+      "id": "APPLICATION-RISK",
+      "name": "Advisor risk decision",
+      "primitive": "Transform",
+      "owner": "mine-seed Advisor boundary",
+      "status": "BLOCKED",
+      "evidence_class": ["PRODUCTION_CODE"],
+      "evidence": ["mine-seed/05_TOOLS/advisor"],
+      "note": "Required production risk_status.json is missing."
+    },
+    {
+      "id": "ACT-OWNER-TG",
+      "name": "Owner-controlled Telegram output",
+      "primitive": "Act",
+      "owner": "application notifier boundary",
+      "status": "DISABLED",
+      "evidence_class": ["PRODUCTION_CODE"],
+      "evidence": ["core/notifier/tg_notifier.py", "mine-seed Advisor"],
+      "note": "No controlled readiness evidence; no send was authorized or performed."
+    },
+    {
+      "id": "ACT-AUTO-PUSH",
+      "name": "Automatic recommendation push",
+      "primitive": "Act",
+      "owner": "application boundary",
+      "status": "DISABLED",
+      "evidence_class": ["DESIGN_EVIDENCE"],
+      "evidence": ["ace_config.json", "docs/TODAY_IN_THE_LAB_2026-08-25.md"],
+      "note": "Must remain off until Data, Model, Validator, Risk, Advisor and owner-controlled gates pass."
+    },
+    {
+      "id": "LAB-DAILY-HANDOFF",
+      "name": "Today in the Lab daily handoff",
+      "primitive": "Transform",
+      "owner": "unassigned",
+      "status": "DESIGN_ONLY",
+      "evidence_class": ["DESIGN_EVIDENCE", "HISTORICAL_RUNTIME"],
+      "evidence": ["docs/TODAY_IN_THE_LAB_2026-08-25.md", "mine-seed/02_MEMORY/ops_logs/ops_20260710T154013.json"],
+      "note": "The current report is a manual convergence artifact, not an automated Roundtable or new runtime."
+    },
+    {
+      "id": "EXPERIMENT-WORK-CONTRACT",
+      "name": "Experiment Work lifecycle",
+      "primitive": "Transform",
+      "owner": "unassigned",
+      "status": "DESIGN_ONLY",
+      "evidence_class": ["DESIGN_EVIDENCE"],
+      "evidence": ["R1 and mine-seed archaeology discussions"],
+      "note": "Implementation remains explicitly paused."
+    },
+    {
+      "id": "OPTIONAL-BINARY-SENSE",
+      "name": "Binary sensing and protocol analysis",
+      "primitive": "Transform",
+      "owner": "core/binary_sense + core/protocols",
+      "status": "IMPLEMENTED_UNVERIFIED",
+      "evidence_class": ["PRODUCTION_CODE"],
+      "evidence": ["core/binary_sense", "core/protocols"],
+      "note": "Substantial code exists but no current daemon wiring or runtime artifact was established."
+    },
+    {
+      "id": "OPTIONAL-COMPANION",
+      "name": "Companion and desktop-pet interaction",
+      "primitive": "Act",
+      "owner": "core/companion",
+      "status": "IMPLEMENTED_UNVERIFIED",
+      "evidence_class": ["PRODUCTION_CODE"],
+      "evidence": ["core/companion"],
+      "note": "Code family exists outside the current production daemon path."
+    },
+    {
+      "id": "OPTIONAL-AUTONOMOUS-KERNEL",
+      "name": "Alternative autonomous and survival kernels",
+      "primitive": "Transform",
+      "owner": "core/autonomous + core/survival_loop + core/agent",
+      "status": "IMPLEMENTED_UNVERIFIED",
+      "evidence_class": ["PRODUCTION_CODE"],
+      "evidence": ["core/autonomous", "core/survival_loop", "core/agent"],
+      "note": "Code exists but must not become a second scheduler or worker architecture."
+    },
+    {
+      "id": "DUPLICATE-PROTOCOL-COPIES",
+      "name": "Duplicated protocol implementations",
+      "primitive": "Transform",
+      "owner": "pending canonical-owner decision",
+      "status": "SUPERSEDED_OR_DUPLICATE",
+      "evidence_class": ["PRODUCTION_CODE"],
+      "evidence": ["docs/CROSS_REPO_FORGOTTEN_CAPABILITIES_AUDIT_2026-08-25.md"],
+      "note": "Exact duplicates include Roundtable, Awareness Loop, Governor helper and cross-repository Recovery Protocol copies."
+    },
+    {
+      "id": "REPOSITORY-SENSITIVE-CREDENTIALS",
+      "name": "Sensitive credential continuity repository",
+      "primitive": "Act",
+      "owner": "mine-seed-credentials",
+      "status": "SENSITIVE_EXCLUDED",
+      "evidence_class": ["REPOSITORY_METADATA"],
+      "evidence": ["local Git metadata only"],
+      "note": "Excluded from content census, model context, ordinary scanners, publication and cross-repository copying."
+    }
+  ]
+}

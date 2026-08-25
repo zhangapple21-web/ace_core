@@ -14,20 +14,27 @@ TRAE 负责叫醒，ACE 自己决定今天挖什么、怎么挖、挖多少。
 """
 
 import json
+import os
+import signal
 import sys
+import time
 import traceback
+import uuid
 from pathlib import Path
 from datetime import datetime
 from typing import Dict, List, Any, Optional
 from collections import defaultdict
+from threading import Event, Thread
 
 base_dir = Path(__file__).parent
 sys.path.insert(0, str(base_dir))
 
-from core.scheduler import Scheduler
+from core.identity import Identity
+from core.lexicon import Lexicon
+from core.memory_index import MemoryIndex
+from core.disk_scanner import DiskScanner
 from core.eco_parser import EcoLayerParser
 from core.slice_clusterer import SliceClusterer
-from core.concept_miner import ConceptMiner
 from core.archaeology_exporter import ArchaeologyExporter
 from core.repo_syncer import RepoSyncer
 from core.core_syncer import CoreSyncer
@@ -44,21 +51,23 @@ from core.local_archaeologist import LocalArchaeologist
 from core.skill_generator import SkillGenerator
 from core.observation import RuntimeObserver
 from core.observation_to_task import ObservationToTaskConverter
+from core.discovery import DiscoveryCandidate, DiscoveryMode
+from core.model_work_discovery import ModelWorkDiscovery
+from core.daily_growth import DailyGrowthLedger
+from core.daily_learning import DailyLearningLoop
+from core.autonomous_work_allocation import AutonomousWorkAllocation
+from core.stock_discovery_sources import StockDiscoverySources
+from core.governance.evidence_registry import EvidenceRegistry
+from core.governance.knowledge_governor import Governor
+from core.governance.knowledge_lifecycle import LifecycleManager
+from core.miner_pool.miner_pool import MinerPool
+from core.miner_pool.model_router import ModelRouter
 from core.repository_curator import RepositoryCurator
 from core.similarity_engine import SimilarityEngine
 from core.value_scorer import ValueScorer
 from core.sync_manager import SyncManager
 
-import sys
-_events_module = str(Path(__file__).parent / "08_EVENTS")
-if _events_module not in sys.path:
-    sys.path.insert(0, _events_module)
-from event_listener import EventListener
-
-_knowledge_module = str(Path(__file__).parent / "09_KNOWLEDGE")
-if _knowledge_module not in sys.path:
-    sys.path.insert(0, _knowledge_module)
-from experience_deposition import ExperienceDeposition
+from core.experience_deposition import ExperienceDeposition
 
 
 def load_config(base_dir: Path) -> dict:
@@ -90,17 +99,26 @@ class AceDaemon:
     def __init__(self, base_dir: Path, config: dict):
         self.base_dir = base_dir
         self.config = config
-        self.scheduler = Scheduler(base_dir, config)
-
+        self.repository_sync_enabled = bool(
+            config.get("runtime", {}).get("allow_repository_sync", False)
+        )
         data_cfg = config.get("data", {})
-        self.data_dir = base_dir / data_cfg.get("memory_cache_dir", "06_RUNTIME/ace/data/memory")
-        self.data_dir = self.data_dir.resolve()
+        self.data_dir = (base_dir / data_cfg.get("memory_cache_dir", "06_RUNTIME/ace/data/memory")).resolve()
         self.data_dir.mkdir(parents=True, exist_ok=True)
+        self.identity = Identity(base_dir, config)
+        self.lexicon = Lexicon(self.data_dir, self.identity)
+        self.memory_index = MemoryIndex(self.data_dir, self.identity, self.lexicon)
+        self.disk_scanner = DiskScanner(self.identity, self.lexicon, self.memory_index)
 
         self.state_file = self.data_dir / "daemon_state.json"
         self.state = self._load_state()
 
-        self.concept_miner = ConceptMiner(self.scheduler.lexicon)
+        self.concept_miner = None
+        try:
+            from core.concept_miner import ConceptMiner
+            self.concept_miner = ConceptMiner(self.lexicon)
+        except ImportError as error:
+            self._log_error("concept_miner_init", str(error))
 
         self.eco_parser = None
         self.slice_clusterer = None
@@ -124,7 +142,17 @@ class AceDaemon:
         self.skill_generator = None
         self.runtime_observer = None  # RO：持续观察者
         self.obs_to_task_converter = None  # Observation → Task 转换器
+        self.discovery_mode = None
+        self.daily_learning = None
+        self.miner_pool = None
+        self.model_router = None
         self.repository_curator = None  # 仓库馆长（唯一有权决定同步的 Agent）
+        self.lifecycle_lock_token = None
+        self.daemon_lock_token = None
+        self.daemon_lock_file = self.data_dir / ".daemon.lock"
+        self.shutdown_event = Event()
+        self.shutdown_reason = ""
+        self.run_id = ""
         self._init_miners()
         self._init_export_sync()
         self._init_task_lifecycle()
@@ -136,8 +164,8 @@ class AceDaemon:
             try:
                 self.eco_parser = EcoLayerParser(
                     eco_candidates[0],
-                    lexicon=self.scheduler.lexicon,
-                    memory_index=self.scheduler.memory_index,
+                    lexicon=self.lexicon,
+                    memory_index=self.memory_index,
                 )
                 if self.eco_parser.load():
                     pass
@@ -151,8 +179,8 @@ class AceDaemon:
             try:
                 self.slice_clusterer = SliceClusterer(
                     omega_candidates[0],
-                    lexicon=self.scheduler.lexicon,
-                    memory_index=self.scheduler.memory_index,
+                    lexicon=self.lexicon,
+                    memory_index=self.memory_index,
                 )
                 if self.slice_clusterer.load():
                     pass
@@ -168,17 +196,18 @@ class AceDaemon:
         mine_seed_path = self._find_mine_seed()
         if mine_seed_path:
             self.mine_seed_path = mine_seed_path
-            try:
-                self.exporter = ArchaeologyExporter(
-                    ace_base_dir=self.base_dir,
-                    mine_seed_path=mine_seed_path,
-                )
-                self.syncer = RepoSyncer(repo_path=mine_seed_path)
-            except Exception:
-                self.exporter = None
-                self.syncer = None
+            if self.repository_sync_enabled:
+                try:
+                    self.exporter = ArchaeologyExporter(
+                        ace_base_dir=self.base_dir,
+                        mine_seed_path=mine_seed_path,
+                    )
+                    self.syncer = RepoSyncer(repo_path=mine_seed_path)
+                except Exception:
+                    self.exporter = None
+                    self.syncer = None
 
-        if (self.base_dir / ".git").exists():
+        if (self.base_dir / ".git").exists() and self.repository_sync_enabled:
             try:
                 self.core_syncer = CoreSyncer(
                     repo_path=str(self.base_dir),
@@ -190,15 +219,18 @@ class AceDaemon:
                 self._log_error("core_syncer_init", str(e))
                 self.core_syncer = None
 
-            # 初始化仓库馆长 + 同步管理器（唯一有权同步的 Agent）
+        if (self.base_dir / ".git").exists():
             try:
                 curator_data_dir = self.base_dir / "06_RUNTIME" / "ace" / "data" / "curator"
                 mine_seed_str = str(self.mine_seed_path) if self.mine_seed_path else ""
                 ace_core_str = str(self.base_dir)
-
                 sim_engine = SimilarityEngine(str(curator_data_dir))
                 val_scorer = ValueScorer(data_dir=str(curator_data_dir))
-                sync_mgr = SyncManager(data_dir=str(curator_data_dir))
+                sync_mgr = (
+                    SyncManager(data_dir=str(curator_data_dir))
+                    if self.repository_sync_enabled
+                    else None
+                )
 
                 self.repository_curator = RepositoryCurator(
                     ace_runtime_dir=ace_core_str,
@@ -214,7 +246,6 @@ class AceDaemon:
                 self._log_error("curator_init", str(e))
                 self.repository_curator = None
                 print(f"[Curator] 初始化失败: {e}")
-
     def _init_task_lifecycle(self):
         """初始化任务生命周期系统"""
         try:
@@ -222,37 +253,41 @@ class AceDaemon:
             self.task_pool = TaskPool(str(task_pool_dir))
             self.observer = Observer(
                 task_pool=self.task_pool,
-                lexicon=self.scheduler.lexicon,
-                memory_index=self.scheduler.memory_index,
+                lexicon=self.lexicon,
+                memory_index=self.memory_index,
                 daemon_state=self.state,
+            )
+            model_state_dir = self.base_dir / "06_RUNTIME" / "ace" / "data" / "miner_pool"
+            miner_assets_path = self.config.get("runtime", {}).get("miner_pool_assets_path")
+            self.miner_pool = MinerPool(
+                coze_assets_path=miner_assets_path,
+                state_dir=str(model_state_dir),
             )
             self.researcher = Researcher(
                 task_pool=self.task_pool,
-                lexicon=self.scheduler.lexicon,
-                memory_index=self.scheduler.memory_index,
+                lexicon=self.lexicon,
+                memory_index=self.memory_index,
                 eco_parser=self.eco_parser,
                 slice_clusterer=self.slice_clusterer,
+                llm_router=self.miner_pool,
             )
             self.validator = Validator(
                 task_pool=self.task_pool,
-                lexicon=self.scheduler.lexicon,
-                memory_index=self.scheduler.memory_index,
+                lexicon=self.lexicon,
+                memory_index=self.memory_index,
+                llm_router=self.miner_pool,
             )
             self.archivist = Archivist(
                 task_pool=self.task_pool,
-                memory_index=self.scheduler.memory_index,
-                lexicon=self.scheduler.lexicon,
+                memory_index=self.memory_index,
+                lexicon=self.lexicon,
             )
             self.guardian = Guardian(
                 task_pool=self.task_pool,
-                lexicon=self.scheduler.lexicon,
-                memory_index=self.scheduler.memory_index,
+                lexicon=self.lexicon,
+                memory_index=self.memory_index,
             )
-            events_dir = self.base_dir / "08_EVENTS"
-            self.event_listener = EventListener(
-                task_pool=self.task_pool,
-                base_dir=self.base_dir,
-            )
+            self.event_listener = None
             knowledge_dir = self.base_dir / "09_KNOWLEDGE"
             self.experience_deposition = ExperienceDeposition(str(knowledge_dir))
             fragment_dir = self.base_dir / "02_FRAGMENT_INDEX"
@@ -279,8 +314,8 @@ class AceDaemon:
             local_arch_state = self.base_dir / "06_RUNTIME" / "ace" / "data" / "local_archaeologist_state.json"
             self.local_archaeologist = LocalArchaeologist(
                 base_dir=self.base_dir,
-                lexicon=self.scheduler.lexicon,
-                memory_index=self.scheduler.memory_index,
+                lexicon=self.lexicon,
+                memory_index=self.memory_index,
                 task_pool=self.task_pool,
                 state_file=local_arch_state,
             )
@@ -289,8 +324,8 @@ class AceDaemon:
             web_scout_state = self.base_dir / "06_RUNTIME" / "ace" / "data" / "web_scout_state.json"
             self.web_scout = WebScout(
                 base_dir=self.base_dir,
-                lexicon=self.scheduler.lexicon,
-                memory_index=self.scheduler.memory_index,
+                lexicon=self.lexicon,
+                memory_index=self.memory_index,
                 task_pool=self.task_pool,
                 state_file=web_scout_state,
             )
@@ -306,8 +341,8 @@ class AceDaemon:
             self.task_creator = TaskCreator(
                 task_pool=self.task_pool,
                 base_dir=self.base_dir,
-                lexicon=self.scheduler.lexicon,
-                memory_index=self.scheduler.memory_index,
+                lexicon=self.lexicon,
+                memory_index=self.memory_index,
                 skill_generator=self.skill_generator,
             )
 
@@ -318,6 +353,44 @@ class AceDaemon:
                 observer=self.runtime_observer,
                 task_pool=self.task_pool,
             )
+            self.model_router = ModelRouter()
+            stock_discovery = StockDiscoverySources(
+                observer=self.runtime_observer,
+                base_dir=str(self.base_dir),
+            )
+            self.discovery_mode = DiscoveryMode(
+                task_pool=self.task_pool,
+                observer=self.runtime_observer,
+                base_dir=str(self.base_dir),
+                model_router=self.model_router,
+                candidate_sources=stock_discovery.candidate_sources(),
+            )
+            self.model_work_discovery = ModelWorkDiscovery(
+                discovery=self.discovery_mode,
+                report_path=str(
+                    self.base_dir
+                    / "06_RUNTIME"
+                    / "ace"
+                    / "data"
+                    / "model_work_discovery_latest.json"
+                ),
+            )
+            self.daily_growth = DailyGrowthLedger(
+                self.task_pool,
+                str(self.base_dir / "06_RUNTIME" / "ace" / "data" / "daily_growth_latest.json"),
+            )
+            governance_dir = self.base_dir / "08_GOVERNANCE"
+            self.daily_learning = DailyLearningLoop(
+                data_dir=str(self.data_dir / "daily_learning"),
+                discovery=self.discovery_mode,
+                converter=self.obs_to_task_converter,
+                task_pool=self.task_pool,
+                evidence_registry=EvidenceRegistry(str(governance_dir)),
+                knowledge_governor=Governor(str(self.base_dir / "06_RUNTIME" / "ace")),
+                lifecycle_manager=LifecycleManager(str(governance_dir / "daily_learning_lifecycle.jsonl")),
+                internal_candidate_sources=[self._daily_learning_candidates],
+            )
+            self.lifecycle_lock_file = task_pool_dir / ".lifecycle.lock"
         except Exception as e:
             self._log_error("task_lifecycle_init", str(e))
             self.task_pool = None
@@ -412,29 +485,233 @@ class AceDaemon:
         return candidates
 
     def _load_state(self) -> dict:
-        if self.state_file.exists():
-            try:
-                with open(self.state_file, "r", encoding="utf-8") as f:
-                    return json.load(f)
-            except Exception:
-                pass
-        return {
-            "last_run": None,
-            "last_scan_paths": {},
-            "last_lexicon_count": 0,
-            "last_memory_count": 0,
-            "daily_summaries": [],
-            "discovered_paths": [],
-            "mining_progress": {
-                "eco_layer": {},
-                "slices": {},
-            },
-            "errors": [],
-        }
+        if not self.state_file.exists():
+            for temporary in self.data_dir.glob(f"{self.state_file.name}.*.tmp"):
+                try:
+                    with open(temporary, "r", encoding="utf-8") as f:
+                        state = json.load(f)
+                    os.replace(temporary, self.state_file)
+                    return state
+                except (OSError, ValueError, json.JSONDecodeError):
+                    continue
+            return {
+                "last_run": None,
+                "last_backup": None,
+                "last_scan_paths": {},
+                "last_lexicon_count": 0,
+                "last_memory_count": 0,
+                "daily_summaries": [],
+                "discovered_paths": [],
+                "mining_progress": {
+                    "eco_layer": {},
+                    "slices": {},
+                },
+                "errors": [],
+            }
+        try:
+            with open(self.state_file, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except (OSError, ValueError, json.JSONDecodeError) as error:
+            for temporary in self.data_dir.glob(f"{self.state_file.name}.*.tmp"):
+                try:
+                    with open(temporary, "r", encoding="utf-8") as f:
+                        state = json.load(f)
+                    os.replace(temporary, self.state_file)
+                    return state
+                except (OSError, ValueError, json.JSONDecodeError):
+                    continue
+            raise RuntimeError(f"无法恢复 daemon_state.json: {error}") from error
 
     def _save_state(self):
-        with open(self.state_file, "w", encoding="utf-8") as f:
+        temporary = self.state_file.with_suffix(f".json.{uuid.uuid4().hex}.tmp")
+        with open(temporary, "w", encoding="utf-8") as f:
             json.dump(self.state, f, ensure_ascii=False, indent=2)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(temporary, self.state_file)
+
+    def _begin_cycle_progress(self) -> None:
+        self.state["cycle_progress"] = {
+            "current_stage": None,
+            "started_at": datetime.now().isoformat(),
+            "completed_stages": [],
+        }
+        self._save_state()
+
+    def _start_cycle_stage(self, stage: str) -> float:
+        progress = self.state.setdefault("cycle_progress", {})
+        progress["current_stage"] = stage
+        self._save_state()
+        return time.monotonic()
+
+    def _complete_cycle_stage(self, stage: str, started_at: float) -> None:
+        progress = self.state.setdefault("cycle_progress", {})
+        completed = progress.setdefault("completed_stages", [])
+        completed.append({
+            "stage": stage,
+            "duration_seconds": round(time.monotonic() - started_at, 6),
+            "completed_at": datetime.now().isoformat(),
+        })
+        progress["current_stage"] = None
+        self._save_state()
+
+    def _finalize_cycle(self, outcome: str, reason: str = "") -> None:
+        """Persist an explicit cycle terminal state for every exit path."""
+        progress = self.state.setdefault("cycle_progress", {})
+        current = progress.get("current_stage")
+        if current:
+            progress.setdefault("completed_stages", []).append({
+                "stage": current,
+                "outcome": outcome,
+                "reason": reason,
+                "completed_at": datetime.now().isoformat(),
+            })
+        progress["current_stage"] = None
+        progress["cycle_status"] = outcome
+        progress["stop_reason"] = reason
+        progress["finished_at"] = datetime.now().isoformat()
+        self._save_state()
+
+    def _recover_stale_cycle(self) -> None:
+        """Close a cycle left open by an interrupted or killed prior run."""
+        progress = self.state.get("cycle_progress", {})
+        if not isinstance(progress, dict) or not progress.get("current_stage"):
+            return
+        stale_run_id = self.state.get("run_id")
+        reason = f"stale_cycle_recovered:{progress.get('current_stage')}"
+        progress.setdefault("completed_stages", []).append({
+            "stage": progress.get("current_stage"),
+            "outcome": "interrupted",
+            "reason": reason,
+            "previous_run_id": stale_run_id,
+            "completed_at": datetime.now().isoformat(),
+        })
+        progress["current_stage"] = None
+        progress["cycle_status"] = "interrupted"
+        progress["stop_reason"] = reason
+        progress["finished_at"] = datetime.now().isoformat()
+        self.state["last_exit_reason"] = reason
+        self.state["last_exit_time"] = datetime.now().isoformat()
+        self._save_state()
+
+    def _start_stage_heartbeat(self, stage: str, interval_seconds: float = 15.0):
+        """Keep the liveness proof fresh while a synchronous stage is running.
+
+        Curator work can legitimately take minutes.  The daemon loop must not
+        block the only heartbeat writer during that interval, otherwise an
+        external observer cannot distinguish slow work from a dead process.
+        This is a liveness-only pulse; it does not schedule work or alter the
+        cycle state machine.
+        """
+        stop_event = Event()
+
+        def pulse():
+            while not stop_event.wait(interval_seconds):
+                self.heartbeat.beat(reason=f"stage:{stage}")
+                self.heartbeat.status["current_stage"] = stage
+                self.heartbeat.status["stage_heartbeat_at"] = datetime.now().isoformat()
+                self.heartbeat._save()
+
+        self.heartbeat.beat(reason=f"stage:{stage}")
+        self.heartbeat.status["current_stage"] = stage
+        self.heartbeat.status["stage_heartbeat_at"] = datetime.now().isoformat()
+        self.heartbeat._save()
+        thread = Thread(target=pulse, name=f"ace-{stage}-heartbeat", daemon=True)
+        thread.start()
+        return stop_event, thread
+
+    @staticmethod
+    def _stop_stage_heartbeat(handle) -> None:
+        if not handle:
+            return
+        stop_event, thread = handle
+        stop_event.set()
+        thread.join(timeout=2.0)
+
+    def request_shutdown(self, reason: str) -> None:
+        if not self.shutdown_event.is_set():
+            self.shutdown_reason = reason
+            self.shutdown_event.set()
+
+    def _handle_shutdown_signal(self, signum, frame) -> None:
+        self.shutdown_event.set()
+
+    def _install_shutdown_handlers(self) -> Dict[int, Any]:
+        handlers = {}
+        for signal_name in ("SIGINT", "SIGTERM", "SIGBREAK"):
+            value = getattr(signal, signal_name, None)
+            if value is None:
+                continue
+            try:
+                handlers[value] = signal.getsignal(value)
+                signal.signal(value, self._handle_shutdown_signal)
+            except (ValueError, OSError):
+                pass
+        return handlers
+
+    def _restore_shutdown_handlers(self, handlers: Dict[int, Any]) -> None:
+        for signum, handler in handlers.items():
+            try:
+                signal.signal(signum, handler)
+            except (ValueError, OSError):
+                pass
+
+    def _checkpoint_shutdown(self, reason: str) -> None:
+        exit_time = datetime.now().isoformat()
+        self.heartbeat.mark_stopping(
+            reason=reason,
+            pid=os.getpid(),
+            run_id=self.run_id,
+            exit_time=exit_time,
+        )
+        self.state["last_exit_reason"] = reason
+        self.state["last_exit_time"] = exit_time
+        self.state["pid"] = os.getpid()
+        self.state["run_id"] = self.run_id
+        outcome = "failed" if reason.startswith("fatal_error:") else (
+            "interrupted" if reason in {"keyboard_interrupt", "shutdown_requested"} else "completed"
+        )
+        self._finalize_cycle(outcome, reason)
+        self._save_state()
+        if reason.startswith("fatal_error:"):
+            self.heartbeat.mark_dead(
+                reason=reason,
+                pid=os.getpid(),
+                run_id=self.run_id,
+                exit_time=exit_time,
+            )
+
+    def run_periodic_backup(self) -> Dict[str, Any]:
+        from ops.backup_data import backup_runtime
+
+        backup_dir, manifest = backup_runtime(self.base_dir)
+        result = {
+            "path": str(backup_dir),
+            "manifest": manifest,
+            "completed_at": datetime.now().isoformat(),
+        }
+        self.state["last_backup"] = {
+            "path": result["path"],
+            "completed_at": result["completed_at"],
+            "asset_count": len(manifest["assets"]),
+            "manifest_version": manifest["version"],
+        }
+        self._save_state()
+        return result
+
+    def _backup_due(self) -> bool:
+        interval = self.config.get("runtime", {}).get("backup_interval_seconds", 86400)
+        if interval <= 0:
+            return True
+        last_backup = self.state.get("last_backup") or {}
+        completed_at = last_backup.get("completed_at")
+        if not completed_at:
+            return True
+        try:
+            elapsed = (datetime.now() - datetime.fromisoformat(completed_at)).total_seconds()
+        except (TypeError, ValueError):
+            return True
+        return elapsed >= interval
 
     def _log_error(self, module: str, error: str, context: str = ""):
         """记录错误，但不中断主循环"""
@@ -449,9 +726,65 @@ class AceDaemon:
         self.state["errors"].insert(0, err_entry)
         self.state["errors"] = self.state["errors"][:50]
 
+    def _model_pipeline_metrics(self) -> Dict[str, Any]:
+        metrics = {
+            "reasoning_tasks_created": 0,
+            "model_tasks_created": 0,
+            "task_types": {},
+            "production_task_calls": 0,
+            "providers": {},
+            "selected_models": {},
+            "api_called": 0,
+            "api_result": {},
+            "fallback": {},
+            "trace_complete": 0,
+        }
+        for task in self.task_pool.list_tasks(limit=10000):
+            outputs = task.outputs if isinstance(task.outputs, dict) else {}
+            admission = outputs.get("model_task_admission")
+            if not isinstance(admission, dict) or admission.get("eligible") is not True:
+                continue
+            classification = str(admission.get("classification", ""))
+            if classification not in {"reasoning", "strategic", "execution"}:
+                continue
+            if f"task_type:{classification}" not in task.tags:
+                continue
+            metrics["model_tasks_created"] += 1
+            metrics["task_types"][classification] = metrics["task_types"].get(classification, 0) + 1
+            if classification == "reasoning":
+                metrics["reasoning_tasks_created"] += 1
+            traces = outputs.get("model_execution", [])
+            if not isinstance(traces, list):
+                continue
+            for trace in traces:
+                if not isinstance(trace, dict):
+                    continue
+                metrics["production_task_calls"] += 1
+                provider = trace.get("provider")
+                if isinstance(provider, str) and provider:
+                    providers = metrics["providers"]
+                    providers[provider] = providers.get(provider, 0) + 1
+                selected_model = trace.get("selected_model")
+                if isinstance(selected_model, str) and selected_model:
+                    selected_models = metrics["selected_models"]
+                    selected_models[selected_model] = selected_models.get(selected_model, 0) + 1
+                if trace.get("api_called") is True:
+                    metrics["api_called"] += 1
+                api_result = trace.get("api_result")
+                if isinstance(api_result, str) and api_result:
+                    api_results = metrics["api_result"]
+                    api_results[api_result] = api_results.get(api_result, 0) + 1
+                if "fallback" in trace:
+                    fallback = str(bool(trace["fallback"])).lower()
+                    fallbacks = metrics["fallback"]
+                    fallbacks[fallback] = fallbacks.get(fallback, 0) + 1
+                if trace.get("trace_complete") is True:
+                    metrics["trace_complete"] += 1
+        return metrics
+
     def get_status(self) -> dict:
-        lex_stats = self.scheduler.lexicon.get_stats()
-        mem_stats = self.scheduler.memory_index.get_stats()
+        lex_stats = self.lexicon.get_stats()
+        mem_stats = self.memory_index.get_stats()
 
         eco_info = None
         if self.eco_parser:
@@ -468,7 +801,7 @@ class AceDaemon:
             }
 
         export_info = None
-        if self.exporter and self.syncer:
+        if self.repository_sync_enabled and self.exporter and self.syncer:
             export_info = {
                 "mine_seed_found": True,
                 "target_dir": "03_DATA/research/r1_archaeology",
@@ -540,7 +873,7 @@ class AceDaemon:
         targets = []
         already_scanned = set(self.state.get("last_scan_paths", {}).keys())
 
-        for entry in self.scheduler.memory_index.search(limit=500):
+        for entry in self.memory_index.search(limit=500):
             src = entry.get("source_path", "")
             if src and src not in already_scanned:
                 parent = str(Path(src).parent)
@@ -605,8 +938,8 @@ class AceDaemon:
         4. 词库有明显缺口 → 从已有材料中补全
         5. 都没有 → 今日无新增
         """
-        lex_stats = self.scheduler.lexicon.get_stats()
-        mem_stats = self.scheduler.memory_index.get_stats()
+        lex_stats = self.lexicon.get_stats()
+        mem_stats = self.memory_index.get_stats()
         current_concepts = lex_stats.get("total_concepts", 0)
         current_memories = mem_stats.get("total", 0)
 
@@ -766,7 +1099,7 @@ class AceDaemon:
                 report = self.eco_parser.generate_deep_report(mining_progress)
                 if "error" not in report:
                     report_json = json.dumps(report, ensure_ascii=False)[:3000]
-                    self.scheduler.memory_index.add(
+                    self.memory_index.add(
                         title=f"eco_layer深度考古报告",
                         content=report_json,
                         memory_type="eco_analysis_report",
@@ -785,7 +1118,7 @@ class AceDaemon:
 
     def _mine_concepts_from_eco(self, eco_result: Dict, action: Dict) -> int:
         """从eco挖矿结果中提炼新概念并加入词库"""
-        if not self.eco_parser:
+        if not self.eco_parser or not self.concept_miner:
             return 0
 
         layer = action.get("layer", "")
@@ -854,7 +1187,7 @@ class AceDaemon:
         for target in targets:
             path = target["path"]
             try:
-                scan_result = self.scheduler.disk_scanner.scan_path(
+                scan_result = self.disk_scanner.scan_path(
                     path,
                     max_depth=3,
                     max_files=150,
@@ -890,8 +1223,14 @@ class AceDaemon:
         从最近索引的记忆中提取新概念。
         使用 concept_miner 真正提炼，不是占位。
         """
+        if not self.concept_miner:
+            return 0
+
+        if not self.concept_miner:
+            return 0
+
         try:
-            recent_entries = self.scheduler.memory_index.search(limit=200)
+            recent_entries = self.memory_index.search(limit=200)
             if not recent_entries:
                 return 0
 
@@ -917,7 +1256,7 @@ class AceDaemon:
 
     def auto_archive_files(self) -> List[Dict[str, Any]]:
         archived = []
-        recent = self.scheduler.memory_index.search(limit=50)
+        recent = self.memory_index.search(limit=50)
 
         for entry in recent:
             concepts = [c.get("name", "") for c in entry.get("related_concepts", [])]
@@ -952,7 +1291,7 @@ class AceDaemon:
         }
 
         for concept in concepts:
-            concept_data = self.scheduler.lexicon.get_concept(concept) or {}
+            concept_data = self.lexicon.get_concept(concept) or {}
             cat = concept_data.get("category", "")
             if cat in category_map:
                 return category_map[cat]
@@ -962,7 +1301,343 @@ class AceDaemon:
 
         return "00_INBOX"
 
+    def _lifecycle_lock_owner_alive(self, pid: int) -> bool:
+        if pid <= 0:
+            return False
+        if pid == os.getpid():
+            return True
+        if os.name == "nt":
+            import ctypes
+
+            handle = ctypes.windll.kernel32.OpenProcess(0x1000, False, pid)
+            if not handle:
+                return False
+            try:
+                exit_code = ctypes.c_ulong()
+                if not ctypes.windll.kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code)):
+                    return False
+                return exit_code.value == 259
+            finally:
+                ctypes.windll.kernel32.CloseHandle(handle)
+        try:
+            os.kill(pid, 0)
+        except OSError:
+            return False
+        return True
+
+    def _publish_lock(self, lock_file: Path, token: str) -> bool:
+        temporary = lock_file.with_name(f"{lock_file.name}.{uuid.uuid4().hex}.tmp")
+        try:
+            with open(temporary, "w", encoding="utf-8") as handle:
+                json.dump({"pid": os.getpid(), "token": token, "created_at": time.time()}, handle)
+                handle.flush()
+                os.fsync(handle.fileno())
+            try:
+                os.link(temporary, lock_file)
+            except FileExistsError:
+                return False
+            return True
+        finally:
+            try:
+                temporary.unlink()
+            except FileNotFoundError:
+                pass
+
+    def _read_lock_owner(self, lock_file: Path) -> dict:
+        try:
+            return json.loads(lock_file.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            return json.loads(lock_file.read_text(encoding="utf-8"))
+
+    def _acquire_daemon_lock(self) -> bool:
+        lock_file = self.daemon_lock_file
+        token = f"{os.getpid()}:{time.time_ns()}"
+        for _ in range(2):
+            try:
+                owner = self._read_lock_owner(lock_file)
+            except FileNotFoundError:
+                if self._publish_lock(lock_file, token):
+                    self.daemon_lock_token = token
+                    return True
+                continue
+            except (json.JSONDecodeError, OSError, ValueError):
+                try:
+                    lock_file.unlink()
+                except FileNotFoundError:
+                    pass
+                continue
+            if self._lifecycle_lock_owner_alive(int(owner.get("pid", 0))):
+                return False
+            try:
+                lock_file.unlink()
+            except FileNotFoundError:
+                pass
+        return False
+
+    def _release_daemon_lock(self) -> None:
+        if not self.daemon_lock_token:
+            return
+        try:
+            owner = json.loads(self.daemon_lock_file.read_text(encoding="utf-8"))
+            if owner.get("token") == self.daemon_lock_token:
+                self.daemon_lock_file.unlink()
+        except (FileNotFoundError, json.JSONDecodeError):
+            pass
+        finally:
+            self.daemon_lock_token = None
+
+    def _acquire_lifecycle_lock(self) -> bool:
+        lock_file = getattr(self, "lifecycle_lock_file", None)
+        if not lock_file:
+            return True
+        token = f"{os.getpid()}:{time.time_ns()}"
+        for _ in range(2):
+            try:
+                descriptor = os.open(str(lock_file), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            except FileExistsError:
+                try:
+                    owner = json.loads(lock_file.read_text(encoding="utf-8"))
+                    if self._lifecycle_lock_owner_alive(int(owner.get("pid", 0))):
+                        return False
+                    lock_file.unlink()
+                except (FileNotFoundError, json.JSONDecodeError, OSError, ValueError):
+                    try:
+                        lock_file.unlink()
+                    except FileNotFoundError:
+                        pass
+                continue
+            with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+                json.dump({"pid": os.getpid(), "token": token, "created_at": time.time()}, handle)
+            self.lifecycle_lock_token = token
+            return True
+        return False
+
+    def _release_lifecycle_lock(self) -> None:
+        lock_file = getattr(self, "lifecycle_lock_file", None)
+        if not lock_file or not self.lifecycle_lock_token:
+            return
+        try:
+            owner = json.loads(lock_file.read_text(encoding="utf-8"))
+            if owner.get("token") == self.lifecycle_lock_token:
+                lock_file.unlink()
+        except (FileNotFoundError, json.JSONDecodeError):
+            pass
+        finally:
+            self.lifecycle_lock_token = None
+
+    def recover_task_pool(self, now: Optional[str] = None) -> List[str]:
+        if not self.task_pool:
+            return []
+        self.task_pool.recover_incomplete_transitions()
+        reclaimed = self.task_pool.reclaim_stale_leases(now=now)
+        return [task.task_id for task in reclaimed]
+
+    def _daily_learning_candidates(self) -> List[Any]:
+        if not self.runtime_observer:
+            return []
+        candidates = []
+        for observation in self.runtime_observer.get_recent(limit=50):
+            candidate = self._data_health_learning_candidate(observation)
+            if candidate is not None:
+                candidates.append(candidate)
+        return candidates
+
+    def _data_health_learning_candidate(self, observation) -> Optional[Any]:
+        if not observation.auto_generated or observation.source != "stock_discovery":
+            return None
+        state = observation.system_state if isinstance(observation.system_state, dict) else {}
+        health = state.get("stock_data_health")
+        degraded = state.get("degraded_sources")
+        if not isinstance(health, dict) or not isinstance(degraded, dict):
+            return None
+        source_metrics = health.get("summary", {}).get("sources", {})
+        if not isinstance(source_metrics, dict):
+            return None
+        evidence = []
+        for source, metrics in degraded.items():
+            if not isinstance(source, str) or not isinstance(metrics, dict):
+                continue
+            measured = source_metrics.get(source, metrics)
+            if not isinstance(measured, dict):
+                continue
+            evidence.append({
+                "source": source,
+                "source_ref": f"{health.get('path', 'runtime_observation')}#{source}",
+                "content": json.dumps({
+                    "availability": measured.get("availability"),
+                    "field_completeness": measured.get("field_completeness"),
+                    "coverage": measured.get("coverage"),
+                    "consistency": measured.get("consistency"),
+                }, ensure_ascii=False, sort_keys=True),
+                "confidence": 0.95,
+                "author": "stock_data_benchmark",
+                "source_location": health.get("path", "runtime_observation"),
+                "metadata": {
+                    "source_tier": "technical_primary",
+                    "publisher": source,
+                    "upstream_identity": source,
+                    "independence_group": source,
+                    "directness": "primary",
+                    "retrieval_method": "runtime_benchmark",
+                    "cross_validation_source": "internal",
+                    "observation_id": observation.obs_id,
+                },
+            })
+        if len(evidence) < 2:
+            return None
+        fingerprint = f"stock_data_health_learning:{observation.signature or observation.obs_id}"
+        learning = {
+            "why_learn": "Independent runtime measurements show multiple data sources below production thresholds.",
+            "learning_objective": "Establish the measured failure boundaries and permitted offline fallback roles for degraded data sources.",
+            "required_evidence": ["two independent degraded source measurements"],
+            "mastery_criteria": ["Record each source metric, failure boundary, and verification result in the governed learning outcome."],
+        }
+        candidate = DiscoveryCandidate(
+            fingerprint=fingerprint,
+            title="学习多源数据退化的运行边界",
+            description=observation.description,
+            reason=learning["why_learn"],
+            objective=learning["learning_objective"],
+            completion_criteria=learning["mastery_criteria"][0],
+            verification_method="Reinspect the recorded benchmark path and compare each source metric with its production threshold.",
+            priority="medium",
+            task_type="reasoning",
+            severity="high",
+            candidate_source="stock_data_health",
+            metadata={"learning": learning},
+        )
+        return candidate, evidence
+
+    def run_daily_learning(self, run_date: Optional[str] = None) -> Dict[str, Any]:
+        date = run_date or datetime.now().date().isoformat()
+        if not self.daily_learning:
+            return {
+                "date": date,
+                "mode": "none",
+                "outcome": "NO_VALID_LEARNING_TARGET",
+                "reason": "daily_learning_unavailable",
+                "no_side_effects": True,
+            }
+        return self.daily_learning.run(date)
+
+    def _refresh_shenwen_daily_cost(self, run_date: Optional[str] = None) -> Dict[str, Any]:
+        date = run_date or datetime.now().date().isoformat()
+        health_calls = self.state.get("shenwen_daily_health", {}).get(date, {}).get("calls", [])
+        health_total = 0.0
+        health_successful = 0
+        for call in health_calls:
+            if not isinstance(call, dict) or not call.get("success"):
+                continue
+            cost = call.get("cost", {})
+            amount = cost.get("total_usd", 0) if isinstance(cost, dict) else 0
+            if isinstance(amount, (int, float)):
+                health_total += amount
+                health_successful += 1
+
+        task_total = 0.0
+        task_successful = 0
+        task_call_count = 0
+        for task in self.task_pool.list_tasks(limit=10000):
+            traces = task.outputs.get("model_execution", []) if isinstance(task.outputs, dict) else []
+            for trace in traces:
+                if not isinstance(trace, dict):
+                    continue
+                if trace.get("provider") != "shenwen":
+                    continue
+                if not str(trace.get("at", "")).startswith(date):
+                    continue
+                task_call_count += 1
+                if trace.get("api_result") != "success":
+                    continue
+                cost = trace.get("cost", {})
+                amount = cost.get("total_usd", 0) if isinstance(cost, dict) else 0
+                if isinstance(amount, (int, float)):
+                    task_total += amount
+                    task_successful += 1
+
+        summary = {
+            "currency": "USD",
+            "total_usd": round(health_total + task_total, 12),
+            "successful_calls": health_successful + task_successful,
+            "total_calls": len(health_calls) + task_call_count,
+            "health_call_count": health_successful,
+            "task_call_count": task_call_count,
+            "updated_at": datetime.now().isoformat(),
+        }
+        self.state.setdefault("shenwen_daily_cost", {})[date] = summary
+        return summary
+
+    def _run_shenwen_daily_health(self, run_date: Optional[str] = None) -> Dict[str, Any]:
+        date = run_date or datetime.now().date().isoformat()
+        records = self.state.setdefault("shenwen_daily_health", {})
+        if date in records:
+            return {"date": date, "executed": False, "record": records[date]}
+
+        calls = []
+        for task_type, model in (
+            ("strategic", "gpt-5.6-terra"),
+            ("execution", "gpt-5.4-mini"),
+        ):
+            try:
+                response = self.miner_pool.chat(
+                    task_type=task_type,
+                    messages=[{"role": "user", "content": "Return OK."}],
+                    system_prompt="Daily provider health check. Return only OK.",
+                    max_retries=1,
+                    max_tokens=8,
+                )
+            except Exception as error:
+                response = {"success": False, "error": str(error)}
+            calls.append({
+                "task_type": task_type,
+                "expected_model": model,
+                "success": bool(response.get("success")),
+                "provider": str(response.get("provider", "")),
+                "model": str(response.get("model", "")),
+                "usage": dict(response.get("usage", {})),
+                "cost": dict(response.get("cost", {})),
+                "latency_ms": response.get("latency_ms", 0),
+                "attempts": list(response.get("attempts", [])),
+                "error": str(response.get("error", "")),
+                "at": datetime.now().isoformat(),
+            })
+
+        record = {"date": date, "calls": calls, "completed_at": datetime.now().isoformat()}
+        records[date] = record
+        self._refresh_shenwen_daily_cost(date)
+        self._save_state()
+        return {"date": date, "executed": True, "record": record}
+
+    def _task_production_policy(self) -> Dict[str, bool]:
+        pending_tasks = len(self.task_pool.list_tasks(status="pending", limit=10000)) if self.task_pool else 0
+        high_priority_tasks = sum(
+            len(self.task_pool.list_tasks(status="pending", priority=priority, limit=10000))
+            for priority in ("critical", "high")
+        ) if self.task_pool else 0
+        backlog_protected = pending_tasks >= 20
+        return {
+            "backlog_protected": backlog_protected,
+            "file_scanner": not backlog_protected,
+            "observer": not backlog_protected,
+            "discovery": not backlog_protected,
+            "task_creator": not backlog_protected,
+            "priority_producers": True,
+            "low_value_production": not backlog_protected,
+            "daily_learning": True,
+            "dependency_recovery": True,
+            "pending_tasks": pending_tasks,
+            "high_priority_tasks": high_priority_tasks,
+        }
+
     def _run_task_lifecycle(self) -> Dict[str, Any]:
+        if not self._acquire_lifecycle_lock():
+            return {"skipped": True, "reason": "lifecycle_locked"}
+        try:
+            return self._run_task_lifecycle_unlocked()
+        finally:
+            self._release_lifecycle_lock()
+
+    def _run_task_lifecycle_unlocked(self) -> Dict[str, Any]:
         """
         运行一轮完整任务生命周期：
         事件监听 → Observer发现 → 依赖检查 → Researcher研究 → Validator验证 → Archivist归档 → Guardian判决 → 经验沉积 → 墓地清理
@@ -976,18 +1651,42 @@ class AceDaemon:
             "mine_seed_commits": 0,
             "mine_seed_tasks": 0,
             "blocked_unblocked": 0,
+            "stale_leases_reclaimed": 0,
             "researched": 0,
             "validated": 0,
             "archived": 0,
             "judged": 0,
             "experiences_deposited": 0,
+            "experience_deposition_failures": 0,
             "graveyarded": 0,
+            "discovery": None,
+            "discovery_tasks": 0,
+            "model_pipeline": {},
+            "daily_learning": None,
+            "production_policy": {},
         }
+        production_policy = self._task_production_policy()
+        result["production_policy"] = production_policy
+
+        try:
+            recovered = self.recover_task_pool()
+            result["stale_leases_reclaimed"] = len(recovered)
+        except Exception as e:
+            self._log_error("task_pool_recovery", str(e))
+
+        try:
+            result["daily_learning"] = self.run_daily_learning()
+        except Exception as e:
+            self._log_error("daily_learning", str(e))
 
         try:
             if self.mine_seed_scanner:
                 ms_result = self.mine_seed_scanner.scan_and_create_tasks(
-                    self.task_pool, max_tasks=1
+                    self.task_pool,
+                    max_tasks=1,
+                    allowed_priorities=(
+                        None if production_policy["low_value_production"] else {"critical", "high"}
+                    ),
                 )
                 result["mine_seed_commits"] = ms_result.get("new_commits", 0)
                 result["mine_seed_tasks"] = ms_result.get("tasks_created", 0)
@@ -996,31 +1695,57 @@ class AceDaemon:
 
         try:
             if self.file_scanner:
-                scan_result = self.file_scanner.scan_and_create(max_new=2)
+                scan_result = self.file_scanner.scan_and_create(
+                    max_new=2,
+                    allowed_priorities=None if production_policy["file_scanner"] else {"critical", "high"},
+                )
                 result["fragment_scanned"] = scan_result.get("scanned", 0)
                 result["fragment_new"] = scan_result.get("new_files", 0)
                 result["fragment_tasks"] = scan_result.get("tasks_created", 0)
         except Exception as e:
             self._log_error("file_scanner", str(e))
 
-        try:
-            evt_result = self.event_listener.scan_and_process()
-            result["events_processed"] = len(evt_result.get("processed", []))
-        except Exception as e:
-            self._log_error("event_listener", str(e))
+        if self.event_listener:
+            try:
+                evt_result = self.event_listener.scan_and_process()
+                result["events_processed"] = len(evt_result.get("processed", []))
+            except Exception as e:
+                self._log_error("event_listener", str(e))
 
         try:
-            new_tasks = self.observer.observe_and_create(max_new=2)
+            new_tasks = self.observer.observe_and_create(
+                max_new=2,
+                allowed_priorities=None if production_policy["observer"] else {"critical", "high"},
+            )
             result["new_tasks"] = len(new_tasks)
         except Exception as e:
             self._log_error("observer", str(e))
 
         try:
-            blocked = self.task_pool.get_blocked()
-            for task in blocked:
-                if self.task_pool.check_depends_satisfied(task):
-                    self.task_pool.unblock_task(task.task_id, actor="lifecycle")
-                    result["blocked_unblocked"] += 1
+            if self.discovery_mode and self.obs_to_task_converter:
+                allowed_priorities = (
+                    None if production_policy["discovery"] else {"critical", "high"}
+                )
+                result["model_work_discovery"] = self.model_work_discovery.discover_daily(
+                    allowed_priorities=allowed_priorities,
+                )
+                result["discovery"] = result["model_work_discovery"].get(
+                    "discovery",
+                    {"status": "not_run", "reason": "already_discovered_today"},
+                )
+                conversion = self.obs_to_task_converter.convert(
+                    allowed_priorities=allowed_priorities,
+                )
+                result["model_work_admission"] = (
+                    self.model_work_discovery.record_admission(conversion)
+                )
+                result["discovery_tasks"] = conversion.get("tasks_created", 0)
+        except Exception as e:
+            self._log_error("discovery_mode", str(e))
+
+        try:
+            unblocked = self.task_pool.unblock_ready_dependencies()
+            result["blocked_unblocked"] = len(unblocked)
         except Exception as e:
             self._log_error("blocked_check", str(e))
 
@@ -1029,18 +1754,26 @@ class AceDaemon:
                 task = self.researcher.pick_up_task(priority="any")
                 if not task:
                     break
-                if task.depends_on and not self.task_pool.check_depends_satisfied(task):
-                    self.task_pool.block_task(
+                try:
+                    if task.depends_on and not self.task_pool.check_depends_satisfied(task):
+                        self.task_pool.block_task(
+                            task.task_id,
+                            reason=f"依赖未满足: {task.depends_on}",
+                            actor="lifecycle",
+                        )
+                        continue
+                    self.researcher.research_task(task)
+                    result["researched"] += 1
+                except Exception as e:
+                    self.task_pool.fail_task(
                         task.task_id,
-                        reason=f"依赖未满足: {task.depends_on}",
-                        actor="lifecycle",
+                        str(e),
+                        actor="researcher",
+                        failure_type="retryable",
                     )
-                    continue
-                self.researcher.research_task(task)
-                result["researched"] += 1
+                    self._log_error("researcher_task", str(e), task.task_id)
         except Exception as e:
             self._log_error("researcher", str(e))
-
         try:
             review_tasks = self.task_pool.list_tasks(status="review", limit=3)
             for task in review_tasks:
@@ -1061,17 +1794,10 @@ class AceDaemon:
         try:
             approved_tasks = self.task_pool.list_tasks(status="approved", limit=5)
             for task in approved_tasks:
-                self.archivist.archive_task(task)
+                if not self.archivist.archive_task(task):
+                    continue
                 result["archived"] += 1
-                if self.experience_deposition:
-                    try:
-                        exp = self.experience_deposition.deposit_from_task(
-                            task, lexicon=self.scheduler.lexicon
-                        )
-                        if exp:
-                            result["experiences_deposited"] += 1
-                    except Exception:
-                        pass
+                self._deposit_archived_experience(task, result)
                 if self.skill_generator:
                     try:
                         skill = self.skill_generator.generate_skill_from_task(task)
@@ -1083,6 +1809,11 @@ class AceDaemon:
                         self._log_error("skill_generation", str(e))
         except Exception as e:
             self._log_error("archivist", str(e))
+
+        try:
+            result["daily_growth"] = self.daily_growth.build()
+        except Exception as e:
+            self._log_error("daily_growth", str(e))
 
         try:
             buried = self.task_pool.check_graveyard()
@@ -1098,201 +1829,67 @@ class AceDaemon:
             pass
 
         try:
-            creator_result = self.task_creator.scan_and_create(max_new=2)
-            result["task_creator_tasks"] = len(creator_result.get("tasks_created", []))
-            result["task_creator_summary"] = creator_result.get("scan_summary", "")
+            if self.task_creator:
+                creator_result = self.task_creator.scan_and_create(
+                    max_new=2,
+                    allowed_priorities=None if production_policy["task_creator"] else {"critical", "high"},
+                )
+                result["task_creator_tasks"] = len(creator_result.get("tasks_created", []))
+                result["task_creator_summary"] = creator_result.get("scan_summary", "")
         except Exception as e:
             self._log_error("task_creator", str(e))
 
+        result["model_pipeline"] = self._model_pipeline_metrics()
         return result
 
+    def _deposit_archived_experience(self, task, result: Dict[str, Any]) -> None:
+        """Deposit one archived task and make any retention failure observable."""
+        if not self.experience_deposition:
+            return
+        try:
+            exp = self.experience_deposition.deposit_from_task(
+                task, lexicon=self.lexicon
+            )
+            if exp:
+                result["experiences_deposited"] += 1
+        except Exception as exc:
+            result["experience_deposition_failures"] += 1
+            self._log_error("experience_deposition", str(exc), task.task_id)
+
     def _run_autonomous_loop(self, max_depth: int = 20) -> Dict[str, Any]:
-        """
-        自主循环模式：持续扫描 pending → 领取 → Worker执行 → 直到阻塞或无可执行任务
-
-        使用递归深度跟踪代替硬编码迭代上限。
-        每个任务知道自己的 recursion_depth，派生任务时深度+1。
-        max_depth 是安全上限，可观测、可配置，不是隐藏的魔法数字。
-
-        用户指令："从现在开始，我不再手动派单。
-        你自行完成当前任务后，自动扫描 pending/，
-        按优先级领取下一个任务并执行。执行完后再次扫描，
-        直到所有可执行任务完成或遇到必须阻塞的任务。"
-
-        返回执行统计
-        """
-        result = {
-            "iterations": 0,
+        lifecycle = self._run_task_lifecycle()
+        if lifecycle.get("skipped"):
+            return {
+                "iterations": 0,
+                "max_depth_reached": max_depth,
+                "tasks_executed": 0,
+                "tasks_blocked": 0,
+                "tasks_failed": 0,
+                "events_emitted": 0,
+                "depth_distribution": {},
+                "stop_reason": lifecycle["reason"],
+                "delegated_to": "task_lifecycle",
+            }
+        return {
+            "iterations": 1,
             "max_depth_reached": max_depth,
-            "tasks_executed": 0,
+            "tasks_executed": lifecycle.get("researched", 0),
             "tasks_blocked": 0,
             "tasks_failed": 0,
             "events_emitted": 0,
-            "depth_distribution": {},
-            "stop_reason": "",
+            "depth_distribution": {"lifecycle_round": 1},
+            "stop_reason": "delegated_to_task_lifecycle",
+            "delegated_to": "task_lifecycle",
+            "lifecycle": lifecycle,
         }
 
-        for i in range(max_depth):
-            current_depth = i + 1
-            result["iterations"] = current_depth
-
-            task = self.researcher.pick_up_task(priority="high")
-            if not task:
-                task = self.researcher.pick_up_task(priority="any")
-            if not task:
-                result["stop_reason"] = "no_more_pending_tasks"
-                break
-
-            task.recursion_depth = current_depth
-            task.record_selection(
-                decision_point="loop_pickup",
-                selected=task.task_id,
-                alternatives=[],
-                reason=f"第{current_depth}层自主循环领取，优先级{task.priority}",
-                actor="autonomous_loop",
-            )
-            self.task_pool.update_task(task)
-
-            depth_key = f"depth_{current_depth}"
-            result["depth_distribution"][depth_key] = result["depth_distribution"].get(depth_key, 0) + 1
-
-            if task.depends_on and not self.task_pool.check_depends_satisfied(task):
-                self.task_pool.block_task(
-                    task.task_id,
-                    reason=f"依赖未满足: {task.depends_on}",
-                    actor="autonomous_loop",
-                )
-                result["tasks_blocked"] += 1
-                result["stop_reason"] = "dependency_blocked"
-                break
-
-            worker_result = self._execute_task_with_worker(task)
-
-            if worker_result.get("status") == "blocked":
-                self.task_pool.block_task(
-                    task.task_id,
-                    reason=worker_result.get("reason", "Worker阻塞"),
-                    actor="autonomous_loop",
-                )
-                result["tasks_blocked"] += 1
-                result["stop_reason"] = "worker_blocked"
-                break
-
-            elif worker_result.get("status") == "failed":
-                self.task_pool.fail_task(
-                    task.task_id,
-                    reason=worker_result.get("error", "Worker执行失败"),
-                    actor="autonomous_loop",
-                )
-                result["tasks_failed"] += 1
-                if task.retry_count >= 3:
-                    continue
-
-            else:
-                result["tasks_executed"] += 1
-
-                for next_task_def in worker_result.get("next_tasks", []):
-                    new_t = self.task_pool.create_task(
-                        title=next_task_def.get("title", "派生任务"),
-                        hypothesis=next_task_def.get("hypothesis", ""),
-                        creator="autonomous_loop",
-                        priority=next_task_def.get("priority", "medium"),
-                        depends_on=next_task_def.get("depends_on", []),
-                        tags=["derived", task.task_id],
-                    )
-                    if new_t:
-                        new_t.recursion_depth = current_depth + 1
-                        new_t.parent_task = task.task_id
-                        new_t.record_selection(
-                            decision_point="task_derivation",
-                            selected=new_t.task_id,
-                            alternatives=[],
-                            reason=f"由{task.task_id}派生，深度{current_depth+1}",
-                            actor="autonomous_loop",
-                        )
-                        self.task_pool.update_task(new_t)
-                        if self.event_listener:
-                            self.event_listener.emit(
-                                event_type="task_completed",
-                                source="autonomous_loop",
-                                payload={
-                                    "completed_task": task.task_id,
-                                    "derived_task": new_t.task_id,
-                                    "outputs": worker_result.get("outputs", {}),
-                                    "recursion_depth": current_depth + 1,
-                                },
-                            )
-                            result["events_emitted"] += 1
-
-            blocked_count = len(self.task_pool.get_blocked())
-            pending_count = len(self.task_pool.list_tasks(status="pending", limit=10))
-            if pending_count == 0 and blocked_count > 0:
-                result["stop_reason"] = "all_blocked_no_pending"
-                break
-
-        if not result["stop_reason"] and result["iterations"] >= max_depth:
-            result["stop_reason"] = "max_depth_reached"
-
-        if "recursion_depths" not in self.state:
-            self.state["recursion_depths"] = []
-        self.state["recursion_depths"].insert(0, {
-            "date": datetime.now().strftime("%Y-%m-%d"),
-            "depth": result["iterations"],
-            "tasks_executed": result["tasks_executed"],
-            "stop_reason": result["stop_reason"],
-        })
-        self.state["recursion_depths"] = self.state["recursion_depths"][:30]
-
-        return result
-
     def _execute_task_with_worker(self, task) -> Dict[str, Any]:
-        """
-        根据任务类型路由到对应 Worker，执行后更新任务状态
-        """
-        task_tags = set(task.tags or [])
-
-        if "archaeology" in task_tags or "report" in task_tags:
-            worker_type = "synthesis"
-        elif "pattern" in task_tags or "eco" in task_tags:
-            worker_type = "pattern"
-        else:
-            worker_type = "research"
-
-        import importlib
-        workers_mod = importlib.import_module("06_RUNTIME.workers.base_worker")
-        create_worker = getattr(workers_mod, "create_worker")
-        worker = create_worker(
-            worker_type,
-            lexicon=self.scheduler.lexicon,
-            memory_index=self.scheduler.memory_index,
-            eco_parser=self.eco_parser,
-            slice_clusterer=self.slice_clusterer,
-        )
-
-        worker_result = worker.execute(task)
-
-        task.outputs = worker_result.get("outputs", {})
-        if worker_result.get("error"):
-            task.failure_reason = worker_result["error"]
-
-        if worker_result.get("evidence"):
-            for ev in worker_result["evidence"][:10]:
-                if isinstance(ev, dict):
-                    task.add_evidence(
-                        ev.get("content", "")[:300],
-                        source=ev.get("source", "worker"),
-                    )
-
-        if worker_result.get("status") == "failed":
-            self.task_pool.fail_task(
-                task.task_id,
-                reason=worker_result.get("error", "Worker failed"),
-                actor="autonomous_loop",
-            )
-        elif task.status in ("pending", "active"):
-            self.task_pool.move_task(task.task_id, "review", actor="autonomous_loop", task=task)
-
-        return worker_result
+        return {
+            "status": "blocked",
+            "reason": "superseded_by_task_lifecycle",
+            "task_id": task.task_id,
+            "delegated_to": "task_lifecycle",
+        }
 
     def _record_system_observations(self) -> int:
         """
@@ -1334,7 +1931,7 @@ class AceDaemon:
             obs_count += 1
 
         # === 词库缺口 Observation ===
-        lex_stats = self.scheduler.lexicon.get_stats()
+        lex_stats = self.lexicon.get_stats()
         gap_categories = [
             cat for cat, cnt in lex_stats.get("categories", {}).items()
             if cnt < 5
@@ -1373,14 +1970,16 @@ class AceDaemon:
         # === 碎片积压 Observation ===
         if self.fragment_index:
             fi_stats = self.fragment_index.get_stats()
-            pending_scan = fi_stats.get("pending_scan", 0)
+            fragment_statuses = fi_stats.get("by_status", {})
+            pending_scan = fragment_statuses.get("pending_scan", 0)
+            archaeologized = fragment_statuses.get("archaeologized", 0)
             if pending_scan > 500:
                 self.runtime_observer.record(
-                    description=f"碎片索引积压 {pending_scan} 个未考古文件，已考古 0 个。",
+                    description=f"碎片索引积压 {pending_scan} 个未考古文件，已考古 {archaeologized} 个。",
                     system_state={
                         "total": fi_stats.get("total", 0),
                         "pending_scan": pending_scan,
-                        "archaeologized": fi_stats.get("archaeologized", 0),
+                        "archaeologized": archaeologized,
                     },
                     severity="medium",
                     source="daemon_loop",
@@ -1499,9 +2098,9 @@ class AceDaemon:
             return result
 
         try:
-            lex_data = self.scheduler.lexicon.to_dict() if hasattr(self.scheduler.lexicon, 'to_dict') else {
-                "concepts": {c["name"]: c for c in self.scheduler.lexicon.list_concepts(limit=10000)},
-                "categories": {cat: self.scheduler.lexicon._categories.get(cat, []) for cat in self.scheduler.lexicon.list_categories()},
+            lex_data = self.lexicon.to_dict() if hasattr(self.lexicon, 'to_dict') else {
+                "concepts": {c["name"]: c for c in self.lexicon.list_concepts(limit=10000)},
+                "categories": {cat: self.lexicon._categories.get(cat, []) for cat in self.lexicon.list_categories()},
                 "version": "auto_export",
                 "exported_at": datetime.now().isoformat(),
             }
@@ -1510,7 +2109,7 @@ class AceDaemon:
             lex_data = {"error": str(e)}
 
         try:
-            mem_entries = self.scheduler.memory_index.search(limit=5000)
+            mem_entries = self.memory_index.search(limit=5000)
             mem_data = {
                 "total": len(mem_entries),
                 "entries": mem_entries,
@@ -1540,8 +2139,8 @@ class AceDaemon:
             f"- 行动: {', '.join(actions_list)}\n"
             f"- 新增概念: {total_concepts_added}\n"
             f"- 新增索引: {total_indexed}\n"
-            f"- 词库总量: {len(self.scheduler.lexicon.list_concepts(limit=10000))}\n"
-            f"- 记忆索引总量: {self.scheduler.memory_index.get_stats().get('total', 0)}\n"
+            f"- 词库总量: {len(self.lexicon.list_concepts(limit=10000))}\n"
+            f"- 记忆索引总量: {self.memory_index.get_stats().get('total', 0)}\n"
         )
 
         try:
@@ -1609,8 +2208,8 @@ class AceDaemon:
             else:
                 actions_summary.append(f"{atype}: {reason}")
 
-        lex_stats = self.scheduler.lexicon.get_stats()
-        mem_stats = self.scheduler.memory_index.get_stats()
+        lex_stats = self.lexicon.get_stats()
+        mem_stats = self.memory_index.get_stats()
 
         mining_progress = self.state.get("mining_progress", {})
         eco_prog = mining_progress.get("eco_layer", {})
@@ -1667,7 +2266,7 @@ class AceDaemon:
                     summary_content += f"- 主要类型: {', '.join(f'{k}({v})' for k, v in top_types)}\n"
                 summary_content += "\n"
 
-        summary_id = self.scheduler.memory_index.add(
+        summary_id = self.memory_index.add(
             title=f"今日考古摘要 - {today}",
             content=summary_content,
             memory_type="daily_summary",
@@ -1713,7 +2312,15 @@ class AceDaemon:
         - force: 每轮都强制运行
         - dry_run: 只看决策不执行
         """
-        import time
+        if not self._acquire_daemon_lock():
+            return {
+                "iterations": 0,
+                "total_tasks_executed": 0,
+                "uptime": 0,
+                "stop_reason": "daemon_locked",
+                "healing_stats": self.self_healing.get_healing_stats(),
+                "final_health": self.self_healing.diagnose(self.base_dir)["health_score"],
+            }
 
         print("=" * 60)
         print(f"ACE 守护模式启动 — {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
@@ -1721,16 +2328,24 @@ class AceDaemon:
         print("=" * 60)
         print()
 
-        self.heartbeat.beat(reason="startup")
-        print(f"心跳已启动。当前存活: {self.heartbeat.get_uptime_string()}")
-        print()
-
         iteration = 0
         total_tasks_executed = 0
         stop_reason = ""
+        self._recover_stale_cycle()
+        self.run_id = uuid.uuid4().hex
+        handlers = self._install_shutdown_handlers()
 
         try:
+            self.heartbeat.mark_starting(pid=os.getpid(), run_id=self.run_id)
+            self.heartbeat.beat(reason="startup")
+            print(f"心跳已启动。当前存活: {self.heartbeat.get_uptime_string()}")
+            print()
+
             while True:
+                if self.shutdown_event.is_set():
+                    stop_reason = self.shutdown_reason or "shutdown_requested"
+                    break
+
                 iteration += 1
                 if max_iterations > 0 and iteration > max_iterations:
                     stop_reason = "reached_max_iterations"
@@ -1740,7 +2355,10 @@ class AceDaemon:
                 print(f"第 {iteration} 轮 — {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
                 print("-" * 60)
 
+                self._begin_cycle_progress()
+                stage_started = self._start_cycle_stage("heartbeat")
                 self.heartbeat.beat(reason="regular")
+                self._complete_cycle_stage("heartbeat", stage_started)
 
                 diagnosis = self.self_healing.diagnose(self.base_dir)
                 health = diagnosis["health_score"]
@@ -1753,39 +2371,79 @@ class AceDaemon:
                     if heal_result["fixed"] > 0:
                         self.heartbeat.beat(reason="recovery")
 
+                if self.shutdown_event.is_set():
+                    stop_reason = self.shutdown_reason or "shutdown_requested"
+                    break
+
                 print()
+                stage_started = self._start_cycle_stage("model_health")
                 try:
-                    result = self.run_once(force=force, dry_run=dry_run)
+                    health_result = self._run_shenwen_daily_health()
+                    if health_result.get("executed"):
+                        successful = sum(
+                            1 for call in health_result["record"]["calls"] if call["success"]
+                        )
+                        print(f"神隐每日健康调用: {successful}/2 成功")
+                except Exception as e:
+                    self._log_error("shenwen_daily_health", str(e))
+                self._complete_cycle_stage("model_health", stage_started)
+
+                try:
+                    result = self.run_once(
+                        force=force,
+                        dry_run=dry_run,
+                        _preserve_cycle_progress=True,
+                    )
+                    self._refresh_shenwen_daily_cost()
+                    self._save_state()
                     tasks_done = result.get("auto_result", {}).get("tasks_executed", 0)
                     total_tasks_executed += tasks_done
                     print(f"本轮执行任务: {tasks_done} | 累计: {total_tasks_executed}")
+                    if self._backup_due():
+                        stage_started = self._start_cycle_stage("backup")
+                        backup_result = self.run_periodic_backup()
+                        print(f"运行时备份完成: {backup_result['path']}")
+                        self._complete_cycle_stage("backup", stage_started)
                 except Exception as e:
                     print(f"本轮执行出错: {e}")
                     traceback.print_exc()
                     self._log_error(f"daemon_iteration_{iteration}", str(e))
+                    stop_reason = f"fatal_error: {e}"
+                    break
 
                 print()
                 print(f"存活时长: {self.heartbeat.get_uptime_string()}")
                 print(f"下一轮: {interval_seconds}秒后")
                 print()
 
-                time.sleep(interval_seconds)
+                if self.shutdown_event.wait(interval_seconds):
+                    stop_reason = self.shutdown_reason or "shutdown_requested"
+                    break
 
         except KeyboardInterrupt:
-            print()
-            print("收到中断信号，优雅退出...")
-            stop_reason = "keyboard_interrupt"
+            self.request_shutdown("keyboard_interrupt")
+            stop_reason = self.shutdown_reason
 
         except Exception as e:
             print(f"守护模式异常退出: {e}")
             traceback.print_exc()
-            self.heartbeat.mark_dead(reason=f"fatal_error: {e}")
             stop_reason = f"fatal_error: {e}"
 
-        self.heartbeat.mark_dead(reason=stop_reason)
+        finally:
+            stop_reason = stop_reason or self.shutdown_reason or "shutdown_requested"
+            try:
+                self._checkpoint_shutdown(stop_reason)
+            finally:
+                self._release_lifecycle_lock()
+                self._release_daemon_lock()
+                self._restore_shutdown_handlers(handlers)
 
         final_status = self.heartbeat.get_status()
         healing_stats = self.self_healing.get_healing_stats()
+        try:
+            final_health = self.self_healing.diagnose(self.base_dir)["health_score"]
+        except Exception:
+            final_health = None
 
         print()
         print("=" * 60)
@@ -1805,10 +2463,21 @@ class AceDaemon:
             "uptime": final_status.get("current_uptime_seconds", 0),
             "stop_reason": stop_reason,
             "healing_stats": healing_stats,
-            "final_health": self.self_healing.diagnose(self.base_dir)["health_score"],
+            "final_health": final_health,
         }
 
-    def run_once(self, force: bool = False, dry_run: bool = False) -> Dict[str, Any]:
+    def run_once(
+        self,
+        force: bool = False,
+        dry_run: bool = False,
+        _preserve_cycle_progress: bool = False,
+    ) -> Dict[str, Any]:
+        if not _preserve_cycle_progress:
+            self._begin_cycle_progress()
+        production_policy = self._task_production_policy()
+        allowed_priorities = (
+            None if production_policy["low_value_production"] else {"critical", "high"}
+        )
         print("=" * 60)
         print(f"ACE 自动考古主循环 v2 — {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
         print("=" * 60)
@@ -1866,6 +2535,7 @@ class AceDaemon:
         print()
 
         # === 第零步：技能注册（每日扫描技能目录，更新清单） ===
+        stage_started = self._start_cycle_stage("skill_registration")
         if self.skill_generator and not dry_run:
             print("【技能注册中...】")
             try:
@@ -1880,13 +2550,17 @@ class AceDaemon:
                 self._log_error("skill_registration", str(e))
                 print(f"  [错误] {e}")
             print()
+        self._complete_cycle_stage("skill_registration", stage_started)
 
         # === 第一步：本地考古（优先，检查家里抽屉） ===
+        stage_started = self._start_cycle_stage("local_archaeology")
         local_arch_result = None
         if self.local_archaeologist and not dry_run:
             print("【本地考古中...】")
             try:
-                local_arch_result = self.local_archaeologist.scan()
+                local_arch_result = self.local_archaeologist.scan(
+                    allowed_priorities=allowed_priorities,
+                )
                 status_l = local_arch_result["status"]
                 if status_l == "found_new_structures":
                     print(f"  扫描文件: {local_arch_result['files_scanned']} 个")
@@ -1921,7 +2595,9 @@ class AceDaemon:
             if not has_local_findings:
                 print("【外网学习中...】")
                 try:
-                    web_scout_result = self.web_scout.scout()
+                    web_scout_result = self.web_scout.scout(
+                        allowed_priorities=allowed_priorities,
+                    )
                     ws_status = web_scout_result["status"]
                     if ws_status == "success":
                         print(f"  来源: {web_scout_result['source']}")
@@ -1947,6 +2623,9 @@ class AceDaemon:
             print("【外网学习: DRY-RUN 模式，不执行】")
             print()
 
+        self._complete_cycle_stage("local_archaeology", stage_started)
+
+        stage_started = self._start_cycle_stage("decision")
         print("【决策中...】")
         decision = self.decide_today_task()
         print(f"  决策日期: {decision['date']}")
@@ -1955,11 +2634,13 @@ class AceDaemon:
         for action in decision["actions"]:
             print(f"    - {action['type']}: {action.get('reason', '')}")
         print()
+        self._complete_cycle_stage("decision", stage_started)
 
         if dry_run:
             print("【DRY-RUN 模式，不执行】")
             return {"decision": decision, "executed": False}
 
+        stage_started = self._start_cycle_stage("actions")
         action_results = []
         total_concepts_added = 0
         total_indexed = 0
@@ -2047,6 +2728,9 @@ class AceDaemon:
             print(f"  从新索引内容中提取新概念: {added} 个")
             print()
 
+        self._complete_cycle_stage("actions", stage_started)
+
+        stage_started = self._start_cycle_stage("task_lifecycle")
         print("【任务生命周期运转】")
         lifecycle_result = {}
         if self.task_pool and self.observer:
@@ -2076,22 +2760,23 @@ class AceDaemon:
             print(f"  任务池总数: {pool_stats['total']} 个")
         else:
             print("  (任务生命周期系统未初始化)")
+        self.state.setdefault("cycle_progress", {})["model_pipeline"] = lifecycle_result.get(
+            "model_pipeline", {}
+        )
+        work_allocation = AutonomousWorkAllocation(self.task_pool).report(lifecycle_result)
+        lifecycle_result["work_allocation"] = work_allocation
+        self.state.setdefault("cycle_progress", {})["work_allocation"] = work_allocation
+        self._save_state()
         print()
+        self._complete_cycle_stage("task_lifecycle", stage_started)
 
-        print("【自主循环执行】")
-        auto_result = {}
-        if self.task_pool and self.researcher:
-            auto_result = self._run_autonomous_loop(max_depth=10)
-            if auto_result.get("iterations", 0) > 0:
-                print(f"  循环迭代: {auto_result['iterations']} 次")
-                print(f"  Worker执行: {auto_result['tasks_executed']} 个任务")
-                print(f"  阻塞停止: {auto_result['tasks_blocked']} 次")
-                print(f"  失败跳过: {auto_result['tasks_failed']} 次")
-                print(f"  派生事件: {auto_result['events_emitted']} 个")
-            else:
-                print("  无待执行任务")
-        print()
+        auto_result = {
+            "delegated_to": "task_lifecycle",
+            "tasks_executed": lifecycle_result.get("researched", 0),
+            "stop_reason": "run_once_uses_task_lifecycle",
+        }
 
+        stage_started = self._start_cycle_stage("archive_analysis")
         print("【自动归档分析】")
         archived = self.auto_archive_files()
         print(f"  分析了 {len(archived)} 条记忆的归档位置")
@@ -2102,13 +2787,17 @@ class AceDaemon:
             for cat, count in sorted(cat_counts.items(), key=lambda x: -x[1]):
                 print(f"    {cat}: {count} 条")
         print()
+        self._complete_cycle_stage("archive_analysis", stage_started)
 
+        stage_started = self._start_cycle_stage("daily_summary")
         print("【写入今日考古摘要】")
         summary_id = self.write_daily_summary(decision, action_results, total_concepts_added, total_indexed)
         print(f"  摘要ID: {summary_id}")
         print()
+        self._complete_cycle_stage("daily_summary", stage_started)
 
         # === RO：记录系统 Observation → 自动生成 Task ===
+        stage_started = self._start_cycle_stage("runtime_observations")
         print("【RO 观察记录与自动转换】")
         obs_recorded = 0
         obs_converted = 0
@@ -2119,9 +2808,15 @@ class AceDaemon:
             self._log_error("runtime_observer", str(e))
             print(f"  [错误] {e}")
 
+        observation_policy = self._task_production_policy()
+        observation_priorities = (
+            None if observation_policy["observer"] else {"critical", "high"}
+        )
         if obs_recorded > 0 and self.obs_to_task_converter:
             try:
-                convert_result = self.obs_to_task_converter.convert()
+                convert_result = self.obs_to_task_converter.convert(
+                    allowed_priorities=observation_priorities,
+                )
                 obs_converted = convert_result.get("tasks_created", 0)
                 obs_checked = convert_result.get("observations_checked", 0)
                 obs_matched = convert_result.get("rules_matched", 0)
@@ -2139,18 +2834,23 @@ class AceDaemon:
                 print(f"  [错误] {e}")
         elif self.obs_to_task_converter:
             try:
-                convert_result = self.obs_to_task_converter.convert()
+                convert_result = self.obs_to_task_converter.convert(
+                    allowed_priorities=observation_priorities,
+                )
                 obs_converted = convert_result.get("tasks_created", 0)
                 print(f"  无新增 Observation，转换跳过")
                 print(f"  历史 Observations 检查: {convert_result.get('observations_checked', 0)} 条，生成 Tasks: {obs_converted} 条")
             except Exception as e:
                 self._log_error("obs_to_task_converter", str(e))
         print()
+        self._complete_cycle_stage("runtime_observations", stage_started)
 
         self._save_state()
 
         # === Curator：Today's Work Finished — 馆长唤醒 ===
+        stage_started = self._start_cycle_stage("curator")
         print("【Repository Curator：今日产物整理】")
+        curator_heartbeat = self._start_stage_heartbeat("curator")
         try:
             if self.repository_curator:
                 curator_result = self.repository_curator.wakeup(triggered_by="daemon_loop")
@@ -2167,9 +2867,15 @@ class AceDaemon:
         except Exception as e:
             self._log_error("repository_curator", str(e))
             print(f"  [错误] {e}")
+        finally:
+            self._stop_stage_heartbeat(curator_heartbeat)
+            self.heartbeat.status.pop("current_stage", None)
+            self.heartbeat.status.pop("stage_heartbeat_at", None)
+            self.heartbeat.beat(reason="stage:curator_complete")
         print()
+        self._complete_cycle_stage("curator", stage_started)
 
-        if self.core_syncer:
+        if self.repository_sync_enabled and self.core_syncer:
             try:
                 cs_result = self.core_syncer.sync()
                 if cs_result.get("skipped"):
@@ -2183,9 +2889,10 @@ class AceDaemon:
             except Exception as e:
                 self._log_error("core_syncer", str(e))
 
+        stage_started = self._start_cycle_stage("repository_sync")
         print("【导出考古产物到 mine-seed】")
         sync_result = {}
-        if self.exporter and self.syncer:
+        if self.repository_sync_enabled and self.exporter and self.syncer:
             try:
                 sync_result = self.export_artifacts_and_sync(
                     decision, action_results, total_concepts_added, total_indexed
@@ -2209,6 +2916,9 @@ class AceDaemon:
         else:
             print("  (未找到 mine-seed 仓库，跳过导出同步)")
         print()
+        self._complete_cycle_stage("repository_sync", stage_started)
+
+        self._finalize_cycle("completed", "cycle_complete")
 
         print("=" * 60)
         print("主循环结束")
@@ -2217,6 +2927,8 @@ class AceDaemon:
         return {
             "decision": decision,
             "action_results": action_results,
+            "auto_result": auto_result,
+            "lifecycle": lifecycle_result,
             "concepts_added": total_concepts_added,
             "summary_id": summary_id,
             "archived": len(archived),

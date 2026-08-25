@@ -1,0 +1,124 @@
+"""Bounded coordinator for evidence-backed model-work discovery.
+
+This is deliberately not a scheduler or a router.  It gives the existing
+DiscoveryMode one backlog-independent opportunity per day and records what
+happened.  Candidate creation and admission remain in the existing
+DiscoveryMode -> ObservationToTaskConverter -> ModelTaskAdmission path.
+"""
+
+import json
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Dict, Optional, Set
+
+
+class ModelWorkDiscovery:
+    def __init__(self, discovery, report_path: str):
+        self.discovery = discovery
+        self.report_path = Path(report_path)
+
+    def _read_report(self) -> Dict[str, Any]:
+        try:
+            value = json.loads(self.report_path.read_text(encoding="utf-8"))
+            return value if isinstance(value, dict) else {}
+        except (OSError, json.JSONDecodeError):
+            return {}
+
+    def _write_report(self, report: Dict[str, Any]) -> None:
+        self.report_path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = self.report_path.with_suffix(self.report_path.suffix + ".tmp")
+        temporary.write_text(
+            json.dumps(report, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        temporary.replace(self.report_path)
+
+    def discover_daily(
+        self,
+        *,
+        day: Optional[str] = None,
+        allowed_priorities: Optional[Set[str]] = None,
+    ) -> Dict[str, Any]:
+        today = day or datetime.now().date().isoformat()
+        previous = self._read_report()
+        if previous.get("discovery_date") == today:
+            return {
+                "status": "not_run",
+                "outcome": "ALREADY_DISCOVERED_TODAY",
+                "discovery_date": today,
+                "report_path": str(self.report_path),
+                "previous_outcome": previous.get("outcome"),
+            }
+
+        result = self.discovery.discover(
+            allow_existing_work=True,
+            allowed_priorities=allowed_priorities,
+        )
+        outcome = (
+            "MODEL_WORK_CANDIDATE_OBSERVED"
+            if result.get("status") == "observed"
+            else "NO_VALID_MODEL_WORK"
+        )
+        report = {
+            "schema_version": 1,
+            "discovery_date": today,
+            "recorded_at": datetime.now(timezone.utc).isoformat(),
+            "outcome": outcome,
+            "local_backlog_is_not_a_stop_condition": True,
+            # A bounded observation cap prevents recursive discovery.  It is
+            # not a quota that must be filled and creates no activity target.
+            "candidate_observation_cap": 1,
+            "discovery": result,
+            "report_path": str(self.report_path),
+        }
+        self._write_report(report)
+        return report
+
+    def record_admission(self, conversion: Dict[str, Any]) -> Dict[str, Any]:
+        """Attach the existing converter decision to today's discovery report."""
+        report = self._read_report()
+        if not report:
+            return {"status": "not_recorded", "reason": "discovery_report_missing"}
+        funnel = {
+            "candidate_count": int(conversion.get("candidate_count", 0)),
+            "eligible_count": int(conversion.get("eligible_count", 0)),
+            "rejected_count": int(conversion.get("rejected_count", 0)),
+            "reasoning_tasks_created": int(
+                conversion.get("reasoning_tasks_created", 0)
+            ),
+            "model_tasks_created": int(
+                conversion.get("model_tasks_created", conversion.get("reasoning_tasks_created", 0))
+            ),
+            "task_types_created": dict(conversion.get("task_types_created", {})),
+            "rejection_reasons": dict(conversion.get("rejection_reasons", {})),
+        }
+        if funnel["candidate_count"] == 0 and isinstance(report.get("admission_funnel"), dict):
+            previous = dict(report["admission_funnel"])
+            if previous.get("candidate_count", 0) > 0:
+                return previous
+            observation_id = report.get("discovery", {}).get("observation_id")
+            for task in self.discovery.task_pool.list_tasks(limit=10000):
+                outputs = task.outputs if isinstance(task.outputs, dict) else {}
+                if outputs.get("source_obs_id") != observation_id:
+                    continue
+                decision = outputs.get("model_task_admission", {})
+                task_type = str(decision.get("classification", "reasoning"))
+                recovered = {
+                    "candidate_count": 1,
+                    "eligible_count": 1 if decision.get("eligible") is True else 0,
+                    "rejected_count": 0 if decision.get("eligible") is True else 1,
+                    "reasoning_tasks_created": 1 if task_type == "reasoning" else 0,
+                    "model_tasks_created": 1 if decision.get("eligible") is True else 0,
+                    "task_types_created": {task_type: 1} if decision.get("eligible") is True else {},
+                    "rejection_reasons": {},
+                    "recovered_from_task_id": task.task_id,
+                }
+                report["admission_funnel"] = recovered
+                report["admission_recorded_at"] = datetime.now(timezone.utc).isoformat()
+                self._write_report(report)
+                return recovered
+            return previous
+        report["admission_funnel"] = funnel
+        report["admission_recorded_at"] = datetime.now(timezone.utc).isoformat()
+        self._write_report(report)
+        return funnel

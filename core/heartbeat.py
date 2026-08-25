@@ -14,6 +14,7 @@
 """
 
 import json
+import os
 import time
 from pathlib import Path
 from datetime import datetime, timedelta
@@ -54,11 +55,21 @@ class Heartbeat:
             "last_start": None,
             "death_count": 0,
             "last_death_reason": None,
+            "last_exit_reason": None,
+            "last_exit_time": None,
+            "pid": None,
+            "run_id": None,
         }
 
     def _save(self):
         with open(self.heartbeat_file, "w", encoding="utf-8") as f:
             json.dump(self.status, f, ensure_ascii=False, indent=2)
+
+    def mark_starting(self, pid: int, run_id: str) -> None:
+        self.status["status"] = "starting"
+        self.status["pid"] = pid
+        self.status["run_id"] = run_id
+        self._save()
 
     def beat(self, reason: str = "regular") -> Dict[str, Any]:
         """
@@ -89,6 +100,50 @@ class Heartbeat:
         self._save()
         return self.status
 
+    def _process_is_alive(self, pid: int) -> bool:
+        if pid <= 0:
+            return False
+        if pid == os.getpid():
+            return True
+        if os.name == "nt":
+            import ctypes
+
+            handle = ctypes.windll.kernel32.OpenProcess(0x1000, False, pid)
+            if not handle:
+                return False
+            try:
+                exit_code = ctypes.c_ulong()
+                if not ctypes.windll.kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code)):
+                    return False
+                return exit_code.value == 259
+            finally:
+                ctypes.windll.kernel32.CloseHandle(handle)
+        try:
+            os.kill(pid, 0)
+        except OSError:
+            return False
+        return True
+
+    def _mark_host_termination_if_stale(self, max_idle_seconds: int) -> bool:
+        if self.status.get("status") not in {"starting", "alive", "recovered"}:
+            return False
+        if not self.status.get("run_id"):
+            return False
+        last_beat = self.status.get("last_beat")
+        if not last_beat:
+            return False
+        try:
+            elapsed = (datetime.now() - datetime.fromisoformat(last_beat)).total_seconds()
+        except Exception:
+            return False
+        if self._process_is_alive(int(self.status.get("pid") or 0)):
+            return False
+        self.status["status"] = "stale"
+        self.status["last_exit_reason"] = "host_termination"
+        self.status["last_exit_time"] = datetime.now().isoformat()
+        self._save()
+        return True
+
     def is_alive(self, max_idle_seconds: int = 3600) -> bool:
         """
         检查系统是否还活着。
@@ -99,6 +154,11 @@ class Heartbeat:
         - 太长了，真死了发现不了
         - 1小时是一个合理的平衡
         """
+        if self.status.get("status") in {"dead", "stopping", "stale"}:
+            return False
+        if self._mark_host_termination_if_stale(max_idle_seconds):
+            return False
+
         last_beat = self.status.get("last_beat")
         if not last_beat:
             return False
@@ -110,7 +170,27 @@ class Heartbeat:
         except Exception:
             return False
 
-    def mark_dead(self, reason: str = "unknown"):
+    def mark_stopping(
+        self,
+        reason: str,
+        pid: int,
+        run_id: str,
+        exit_time: Optional[str] = None,
+    ) -> None:
+        self.status["status"] = "stopping"
+        self.status["last_exit_reason"] = reason
+        self.status["last_exit_time"] = exit_time or datetime.now().isoformat()
+        self.status["pid"] = pid
+        self.status["run_id"] = run_id
+        self._save()
+
+    def mark_dead(
+        self,
+        reason: str = "unknown",
+        pid: Optional[int] = None,
+        run_id: Optional[str] = None,
+        exit_time: Optional[str] = None,
+    ):
         """
         标记系统死亡。
 
@@ -122,6 +202,12 @@ class Heartbeat:
         self.status["death_count"] = self.status.get("death_count", 0) + 1
         self.status["last_death_reason"] = reason
         self.status["last_death_at"] = datetime.now().isoformat()
+        self.status["last_exit_reason"] = reason
+        self.status["last_exit_time"] = exit_time or datetime.now().isoformat()
+        if pid is not None:
+            self.status["pid"] = pid
+        if run_id is not None:
+            self.status["run_id"] = run_id
 
         last_start = self.status.get("last_start")
         if last_start:
@@ -142,8 +228,9 @@ class Heartbeat:
         self._save()
         return self.status["consecutive_misses"]
 
-    def get_status(self) -> Dict[str, Any]:
+    def get_status(self, max_idle_seconds: int = 3600) -> Dict[str, Any]:
         """获取完整心跳状态。"""
+        self._mark_host_termination_if_stale(max_idle_seconds)
         status = dict(self.status)
 
         last_beat = status.get("last_beat")
@@ -170,7 +257,7 @@ class Heartbeat:
         else:
             status["current_uptime_seconds"] = None
 
-        status["is_alive"] = self.is_alive()
+        status["is_alive"] = self.is_alive(max_idle_seconds)
 
         return status
 

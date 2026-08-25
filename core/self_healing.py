@@ -26,6 +26,8 @@ from pathlib import Path
 from datetime import datetime, timedelta
 from typing import Dict, Any, List, Optional, Callable
 
+from core.task import TaskPool
+
 
 class SelfHealing:
     """
@@ -135,7 +137,7 @@ class SelfHealing:
             "ace_config.json",
             "01_CORE/identity.json",
             "02_MEMORY/recent/daily",
-            "05_TASKS",
+            "task_pool",
         ]
 
         for rel_path in critical_files:
@@ -154,35 +156,30 @@ class SelfHealing:
     def _check_task_deadlocks(self, base_dir: Path) -> Dict[str, Any]:
         """检查是否有死锁任务（处于active状态超过1小时）。"""
         issues = []
-        tasks_dir = base_dir / "05_TASKS"
-
-        if not tasks_dir.exists():
-            return {"issues": issues}
-
-        active_dir = tasks_dir / "active"
-        if not active_dir.exists():
+        pool_dir = base_dir / "task_pool"
+        if not pool_dir.exists():
             return {"issues": issues}
 
         now = datetime.now()
-        for task_file in active_dir.glob("*.json"):
+        task_pool = TaskPool(pool_dir)
+        for task in task_pool.list_tasks(status="active", limit=10000):
+            updated_at = task.updated_at or task.created_at
             try:
-                with open(task_file, "r", encoding="utf-8") as f:
-                    task = json.load(f)
-                updated_at = task.get("updated_at") or task.get("created_at")
-                if updated_at:
-                    updated = datetime.fromisoformat(updated_at)
-                    elapsed = (now - updated).total_seconds()
-                    if elapsed > 3600:
-                        issues.append({
-                            "type": "task_deadlock",
-                            "severity": "medium",
-                            "description": f"任务疑似死锁: {task.get('task_id', task_file.stem)} (活跃{int(elapsed/60)}分钟)",
-                            "task_id": task.get("task_id", task_file.stem),
-                            "file": str(task_file),
-                            "fixable": True,
-                        })
-            except Exception:
-                pass
+                updated = datetime.fromisoformat(updated_at)
+            except ValueError:
+                continue
+            elapsed = (now - updated).total_seconds()
+            if elapsed > 3600:
+                issues.append({
+                    "type": "task_deadlock",
+                    "severity": "medium",
+                    "description": (
+                        f"任务疑似死锁: {task.task_id} "
+                        f"(活跃{int(elapsed / 60)}分钟)"
+                    ),
+                    "task_id": task.task_id,
+                    "fixable": True,
+                })
 
         return {"issues": issues}
 
@@ -389,35 +386,31 @@ class SelfHealing:
     def _fix_task_deadlock(self, issue: Dict[str, Any], base_dir: Path) -> Dict[str, Any]:
         """修复死锁任务（移回pending）。"""
         task_id = issue.get("task_id", "")
-        task_file = Path(issue.get("file", ""))
+        task_pool = TaskPool(base_dir / "task_pool")
+        task = task_pool.load_task(task_id)
+        if not task or task.status != "active":
+            return {"success": False, "action": "not_found", "error": "任务不存在或不再活跃"}
 
-        if not task_file.exists():
-            return {"success": False, "action": "not_found", "error": "任务文件不存在"}
+        task.retry_count += 1
+        task.assignee = None
+        task.blocked_reason = (
+            f"{task.blocked_reason} [自动解锁: 死锁恢复]"
+        ).strip()
+        recovered = task_pool.move_task(
+            task.task_id,
+            "pending",
+            actor="self_healing",
+            reason="stale_active_recovered",
+            task=task,
+        )
+        if not recovered:
+            return {"success": False, "action": "unlock_failed", "error": "状态转换被拒绝"}
 
-        try:
-            with open(task_file, "r", encoding="utf-8") as f:
-                task = json.load(f)
-
-            task["status"] = "pending"
-            task["blocked_reason"] = task.get("blocked_reason", "") + f" [自动解锁: 死锁恢复]"
-            task["retry_count"] = task.get("retry_count", 0) + 1
-
-            pending_dir = base_dir / "05_TASKS" / "pending"
-            pending_dir.mkdir(parents=True, exist_ok=True)
-
-            new_path = pending_dir / task_file.name
-            with open(new_path, "w", encoding="utf-8") as f:
-                json.dump(task, f, ensure_ascii=False, indent=2)
-
-            task_file.unlink()
-
-            return {
-                "success": True,
-                "action": "unlock_to_pending",
-                "details": {"task_id": task_id},
-            }
-        except Exception as e:
-            return {"success": False, "action": "unlock_failed", "error": str(e)}
+        return {
+            "success": True,
+            "action": "unlock_to_pending",
+            "details": {"task_id": task_id},
+        }
 
     def _fix_state_corruption(self, issue: Dict[str, Any], base_dir: Path) -> Dict[str, Any]:
         """修复状态文件损坏（备份后重建）。"""
