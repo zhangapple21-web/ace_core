@@ -26,7 +26,10 @@ class DailyLearningLoop:
         "mastery_criteria",
     }
     blocking_priorities = {"critical", "high"}
-    blocking_statuses = {"pending", "active", "blocked", "review", "approved"}
+    # Only work that can consume execution/review capacity should defer the
+    # learning execution window. Externally blocked work and already-approved
+    # work are not runnable and must not silence discovery for the whole day.
+    blocking_statuses = {"pending", "active", "review"}
 
     def __init__(
         self,
@@ -59,23 +62,47 @@ class DailyLearningLoop:
 
     def run(self, run_date: str) -> Dict[str, Any]:
         existing = self._load_result(run_date)
-        if existing is not None:
+        legacy_blocked_result = (
+            isinstance(existing, dict)
+            and existing.get("outcome") == "NO_VALID_LEARNING_TARGET"
+            and existing.get("reason") == "learning_blocked_by_priority_task"
+            and existing.get("discovery_evaluated") is not True
+        )
+        if existing is not None and not legacy_blocked_result:
             return existing
 
         blocking_task = self._blocking_task()
+        mode, selection = self._choose_candidate(
+            allow_external=blocking_task is None
+        )
         if blocking_task is not None:
+            if selection is not None:
+                candidate, _ = selection
+                result = {
+                    "date": run_date,
+                    "mode": mode,
+                    "outcome": "LEARNING_CANDIDATE_DEFERRED",
+                    "reason": "learning_blocked_by_priority_task",
+                    "blocking_task_id": blocking_task.task_id,
+                    "candidate": candidate.title,
+                    "candidate_fingerprint": candidate.fingerprint,
+                    "discovery_evaluated": True,
+                    "no_side_effects": True,
+                }
+                self._record_daily_result(run_date, result)
+                return result
             result = {
                 "date": run_date,
                 "mode": "none",
                 "outcome": "NO_VALID_LEARNING_TARGET",
                 "reason": "learning_blocked_by_priority_task",
                 "blocking_task_id": blocking_task.task_id,
+                "discovery_evaluated": True,
                 "no_side_effects": True,
             }
             self._record_daily_result(run_date, result)
             return result
 
-        mode, selection = self._choose_candidate()
         if selection is None:
             result = {
                 "date": run_date,
@@ -208,12 +235,15 @@ class DailyLearningLoop:
                     return task
         return None
 
-    def _choose_candidate(self) -> Tuple[str, Optional[Tuple[Any, List[Dict[str, Any]]]]]:
+    def _choose_candidate(
+        self,
+        allow_external: bool = True,
+    ) -> Tuple[str, Optional[Tuple[Any, List[Dict[str, Any]]]]]:
         for source in self.internal_candidate_sources:
             candidates = source() or []
             if candidates:
                 return "internal", candidates[0]
-        if self.external_discoverer is None:
+        if not allow_external or self.external_discoverer is None:
             return "none", None
         objective = "Find a currently evidence-backed ACE learning objective not satisfied by internal assets."
         candidates = self.external_discoverer(objective, list(self.source_tiers)) or []

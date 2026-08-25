@@ -1179,7 +1179,13 @@ def test_daemon_daily_learning_is_date_idempotent():
 
         assert first == second
         assert first["date"] == "2026-08-23"
-        assert first["outcome"] in {"NO_VALID_LEARNING_TARGET", "observe", "reject", "adopt"}
+        assert first["outcome"] in {
+            "NO_VALID_LEARNING_TARGET",
+            "LEARNING_CANDIDATE_DEFERRED",
+            "observe",
+            "reject",
+            "adopt",
+        }
 
 
 def test_daemon_daily_learning_adapts_independent_data_health_evidence():
