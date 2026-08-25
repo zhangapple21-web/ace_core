@@ -53,6 +53,75 @@ def test_daily_growth_counts_archives_and_production_but_not_health_probes():
         assert report["health_probes_excluded"] is True
 
 
+def test_daily_growth_builds_shadow_model_performance_from_production_traces():
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        pool = TaskPool(str(root / "task_pool"))
+        task = pool.create_task("Model performance", creator="test")
+        task.outputs["model_task_admission"] = {
+            "eligible": True,
+            "classification": "reasoning",
+        }
+        task.outputs["model_execution"] = [
+            {
+                "task_type": "reasoning",
+                "provider": "nim",
+                "selected_model": "model-a",
+                "api_called": True,
+                "api_result": "success",
+                "result": "success",
+                "fallback": True,
+                "latency_ms": 10,
+                "cost": {"currency": "USD", "total_usd": 0.25},
+                "at": "2026-08-25T10:00:00",
+            },
+            {
+                "task_type": "reasoning",
+                "provider": "nim",
+                "selected_model": "model-a",
+                "api_called": True,
+                "api_result": "failed",
+                "result": "failed",
+                "fallback": False,
+                "latency_ms": 30,
+                "cost": {},
+                "at": "2026-08-25T10:01:00",
+            },
+        ]
+        task.outputs["last_validator_result"] = {"outcome": "approved"}
+        pool.update_task(task)
+
+        report = DailyGrowthLedger(
+            pool, str(root / "daily_growth.json")
+        ).build("2026-08-25")
+
+        ledger = report["model_performance_ledger"]
+        assert ledger["shadow_only"] is True
+        assert ledger["routing_effect"] is False
+        assert ledger["production_call_count"] == 2
+        assert ledger["group_count"] == 1
+        group = ledger["groups"][0]
+        assert group["task_type"] == "reasoning"
+        assert group["provider"] == "nim"
+        assert group["model"] == "model-a"
+        assert group["sample_count"] == 2
+        assert group["success_rate"] == 0.5
+        assert group["fallback_rate"] == 0.5
+        assert group["latency_ms"] == {"count": 2, "average": 20.0, "p95": 30.0}
+        assert group["cost"] == {
+            "currency": "USD",
+            "known_call_count": 1,
+            "unknown_call_count": 1,
+            "total": 0.25,
+        }
+        assert group["validator"] == {
+            "task_count": 1,
+            "assessed_task_count": 1,
+            "accepted_task_count": 1,
+            "accept_rate": 1.0,
+        }
+
+
 def test_daily_growth_records_degraded_finance_without_creating_work(tmp_path):
     data = tmp_path / "data"
     evidence = data / "stock_data_evidence"

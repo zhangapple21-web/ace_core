@@ -44,9 +44,9 @@ class DailyShift:
                     transitions["research"] += 1
                 if event.get("from") == "review" and event.get("actor") == "validator":
                     transitions["validation"] += 1
-                elif event.get("to") == "approved":
+                if event.get("to") == "approved":
                     transitions["approved"] += 1
-                elif event.get("to") == "archived":
+                if event.get("to") == "archived":
                     transitions["archived"] += 1
         report = {
             "schema_version": 1,
@@ -66,6 +66,7 @@ class DailyShift:
                 "production_model_call_count": growth.get("production_model_call_count", 0),
                 "experience_deposition": growth.get("archived_task_count", 0) > 0,
             },
+            "model_performance": growth.get("model_performance_ledger", {}),
             "taskpool": {"status_counts": counts, "lifecycle_transitions": transitions},
             "finance_status": growth.get("finance_status", window.get("finance_status", "UNKNOWN")),
             "advisor_status": "BLOCKED",
@@ -83,6 +84,7 @@ class DailyShift:
                 f"- Cycle: `{report['daemon']['cycle_status']}` / `{report['daemon']['stop_reason']}`",
                 f"- Finance: `{report['finance_status']}`; window `{window.get('window_status', 'UNKNOWN')}`",
                 f"- Completed: `{report['completed_work']['archived_task_count']}` archived tasks, `{report['completed_work']['production_model_call_count']}` production model calls",
+                f"- Model performance: `{report['model_performance'].get('group_count', 0)}` groups, shadow-only `{report['model_performance'].get('shadow_only', True)}`",
                 f"- TaskPool transitions: `{transitions}`",
                 "- Advisor: `BLOCKED`; Risk: `NOT_READY`; Owner TG: `OFF`",
                 f"- Next observation: `{report['next_observation']}`",

@@ -14,4 +14,26 @@ def test_daily_shift_is_evidence_only(tmp_path):
     assert report["no_synthetic_work"] is True
     assert report["taskpool"]["lifecycle_transitions"]["claim"] == 1
     assert report["taskpool"]["lifecycle_transitions"]["validation"] == 1
+    assert report["taskpool"]["lifecycle_transitions"]["approved"] == 1
     assert len(pool.list_tasks()) == 1
+
+
+def test_daily_shift_surfaces_shadow_model_performance(tmp_path):
+    data = tmp_path / "data"
+    data.mkdir()
+    (data / "daily_growth_latest.json").write_text(
+        '{"model_performance_ledger":{"shadow_only":true,"group_count":1}}',
+        encoding="utf-8",
+    )
+
+    report = DailyShift(TaskPool(str(tmp_path / "task_pool")), str(data)).build(
+        "2026-08-25"
+    )
+
+    assert report["model_performance"] == {
+        "shadow_only": True,
+        "group_count": 1,
+    }
+    assert "Model performance: `1` groups" in (data / "daily_shift_latest.md").read_text(
+        encoding="utf-8"
+    )

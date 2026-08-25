@@ -113,6 +113,128 @@ class DailyGrowthLedger:
             "p95": round(float(ordered[p95_index]), 3),
         }
 
+    @classmethod
+    def _model_performance(cls, tasks: List[Any], day: str) -> Dict[str, Any]:
+        """Aggregate production traces without influencing model routing."""
+        groups: Dict[Any, Dict[str, Any]] = {}
+        production_call_count = 0
+        for task in tasks:
+            outputs = task.outputs if isinstance(task.outputs, dict) else {}
+            admission = outputs.get("model_task_admission", {})
+            if not isinstance(admission, dict) or admission.get("eligible") is not True:
+                continue
+            validator = outputs.get("last_validator_result", {})
+            validator_outcome = (
+                str(validator.get("outcome", ""))
+                if isinstance(validator, dict)
+                else ""
+            )
+            traces = outputs.get("model_execution", [])
+            if not isinstance(traces, list):
+                continue
+            task_groups = set()
+            for trace in traces:
+                if (
+                    not isinstance(trace, dict)
+                    or trace.get("api_called") is not True
+                    or not str(trace.get("at", "")).startswith(day)
+                ):
+                    continue
+                key = (
+                    str(trace.get("task_type") or admission.get("classification") or "unknown"),
+                    str(trace.get("provider") or "unknown"),
+                    str(trace.get("selected_model") or trace.get("model") or "unknown"),
+                )
+                group = groups.setdefault(key, {
+                    "calls": 0,
+                    "successful_calls": 0,
+                    "fallback_calls": 0,
+                    "latencies": [],
+                    "known_costs": [],
+                    "unknown_costs": 0,
+                    "currency": "",
+                    "task_ids": set(),
+                    "assessed_task_ids": set(),
+                    "accepted_task_ids": set(),
+                })
+                production_call_count += 1
+                group["calls"] += 1
+                trace_result = trace.get("result", trace.get("api_result"))
+                if trace_result == "success":
+                    group["successful_calls"] += 1
+                if trace.get("fallback") is True:
+                    group["fallback_calls"] += 1
+                latency = trace.get("latency_ms")
+                if isinstance(latency, (int, float)) and not isinstance(latency, bool):
+                    group["latencies"].append(float(latency))
+                cost = trace.get("cost", {})
+                total_cost = cost.get("total_usd") if isinstance(cost, dict) else None
+                if isinstance(total_cost, (int, float)) and not isinstance(total_cost, bool):
+                    group["known_costs"].append(float(total_cost))
+                    currency = str(cost.get("currency") or "USD")
+                    if group["currency"] and group["currency"] != currency:
+                        group["currency"] = "MIXED"
+                    elif not group["currency"]:
+                        group["currency"] = currency
+                else:
+                    group["unknown_costs"] += 1
+                group["task_ids"].add(task.task_id)
+                task_groups.add(key)
+            for key in task_groups:
+                if validator_outcome:
+                    groups[key]["assessed_task_ids"].add(task.task_id)
+                if validator_outcome == "approved":
+                    groups[key]["accepted_task_ids"].add(task.task_id)
+
+        result_groups = []
+        for (task_type, provider, model), group in sorted(groups.items()):
+            latencies = sorted(group["latencies"])
+            p95_index = max(0, math.ceil(len(latencies) * 0.95) - 1) if latencies else 0
+            assessed = len(group["assessed_task_ids"])
+            accepted = len(group["accepted_task_ids"])
+            result_groups.append({
+                "task_type": task_type,
+                "provider": provider,
+                "model": model,
+                "sample_count": group["calls"],
+                "successful_call_count": group["successful_calls"],
+                "success_rate": cls._ratio(group["successful_calls"], group["calls"]),
+                "fallback_call_count": group["fallback_calls"],
+                "fallback_rate": cls._ratio(group["fallback_calls"], group["calls"]),
+                "latency_ms": {
+                    "count": len(latencies),
+                    "average": round(sum(latencies) / len(latencies), 3) if latencies else None,
+                    "p95": round(latencies[p95_index], 3) if latencies else None,
+                },
+                "cost": {
+                    "currency": group["currency"] or "USD",
+                    "known_call_count": len(group["known_costs"]),
+                    "unknown_call_count": group["unknown_costs"],
+                    "total": round(sum(group["known_costs"]), 8),
+                },
+                "validator": {
+                    "task_count": len(group["task_ids"]),
+                    "assessed_task_count": assessed,
+                    "accepted_task_count": accepted,
+                    "accept_rate": cls._ratio(accepted, assessed),
+                },
+            })
+        return {
+            "schema_version": 1,
+            "date": day,
+            "shadow_only": True,
+            "routing_effect": False,
+            "health_probes_excluded": True,
+            "production_call_count": production_call_count,
+            "group_count": len(result_groups),
+            "groups": result_groups,
+            "coverage": {
+                "source": "admitted_task_model_execution_traces",
+                "validator_attribution": "latest_task_outcome",
+                "cost_unknown_is_not_zero": True,
+            },
+        }
+
     def _finance_status(self) -> str:
         matrix_path = self.report_path.parent / "stock_data_evidence" / "A_SHARE_DATA_CAPABILITY_MATRIX.json"
         try:
@@ -190,7 +312,8 @@ class DailyGrowthLedger:
         financial_research_work = 0
         served_model_work = 0
         service_latencies = []
-        for task in self.task_pool.list_tasks(limit=10000):
+        all_tasks = self.task_pool.list_tasks(limit=10000)
+        for task in all_tasks:
             outputs = task.outputs if isinstance(task.outputs, dict) else {}
             admission = outputs.get("model_task_admission", {})
             is_model = isinstance(admission, dict) and admission.get("eligible") is True
@@ -336,6 +459,7 @@ class DailyGrowthLedger:
             "archived_model_task_ids": sorted(model_tasks),
             "production_model_call_count": len(production_calls),
             "production_model_calls": production_calls,
+            "model_performance_ledger": self._model_performance(all_tasks, date),
             "health_probes_excluded": True,
             "no_growth_quota": True,
             "finance_status": self._finance_status(),
