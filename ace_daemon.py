@@ -671,6 +671,7 @@ class AceDaemon:
         outcome = "failed" if reason.startswith("fatal_error:") else (
             "interrupted" if reason in {"keyboard_interrupt", "shutdown_requested"} else "completed"
         )
+        self.state["run_status"] = outcome
         self._finalize_cycle(outcome, reason)
         self._save_state()
         if reason.startswith("fatal_error:"):
@@ -680,6 +681,14 @@ class AceDaemon:
                 run_id=self.run_id,
                 exit_time=exit_time,
             )
+
+    def _checkpoint_startup(self) -> None:
+        """Persist the identity of the live run before its first cycle starts."""
+        self.state["pid"] = os.getpid()
+        self.state["run_id"] = self.run_id
+        self.state["run_started_at"] = datetime.now().isoformat()
+        self.state["run_status"] = "alive"
+        self._save_state()
 
     def run_periodic_backup(self) -> Dict[str, Any]:
         from ops.backup_data import backup_runtime
@@ -2337,6 +2346,7 @@ class AceDaemon:
 
         try:
             self.heartbeat.mark_starting(pid=os.getpid(), run_id=self.run_id)
+            self._checkpoint_startup()
             self.heartbeat.beat(reason="startup")
             print(f"心跳已启动。当前存活: {self.heartbeat.get_uptime_string()}")
             print()

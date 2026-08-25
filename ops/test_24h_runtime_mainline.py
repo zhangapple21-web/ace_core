@@ -143,6 +143,22 @@ def test_daemon_lock_releases_when_startup_raises():
         assert not daemon.daemon_lock_file.exists()
 
 
+def test_daemon_startup_persists_current_run_identity_before_first_cycle():
+    from ace_daemon import AceDaemon
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        daemon = AceDaemon(Path(temp_dir), {})
+        daemon.run_id = "current-production-run"
+
+        daemon._checkpoint_startup()
+
+        state = json.loads(daemon.state_file.read_text(encoding="utf-8"))
+        assert state["pid"] == os.getpid()
+        assert state["run_id"] == "current-production-run"
+        assert state["run_status"] == "alive"
+        assert state["run_started_at"]
+
+
 def test_graceful_shutdown_does_not_count_as_death_and_releases_locks():
     from ace_daemon import AceDaemon
 

@@ -467,6 +467,40 @@ def test_researcher_drops_empty_search_hits_before_persisting_evidence():
         assert all(item["content"].strip() for item in stored.evidence)
 
 
+def test_researcher_does_not_promote_cycle_daily_summaries_to_research_evidence():
+    from core.task_roles import Researcher
+
+    class Memory:
+        def search(self, keyword, limit=10):
+            return [
+                {
+                    "summary": "generic daemon cycle summary",
+                    "source": "ace_daemon",
+                    "id": "daily-1",
+                    "type": "daily_summary",
+                },
+                {
+                    "summary": "specific independent finding for " + keyword,
+                    "source": "archivist",
+                    "id": "finding-1",
+                    "type": "task_archive",
+                },
+            ]
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        pool = TaskPool(temp_dir)
+        task = pool.create_task("research evidence", creator="test")
+        task.hypothesis = "a clear hypothesis"
+        pool.update_task(task)
+        claimed = pool.claim_task(task.task_id, "researcher")
+
+        Researcher(pool, memory_index=Memory()).research_task(claimed)
+
+        stored = pool.load_task(task.task_id)
+        assert any(item["source"].startswith("archivist") for item in stored.evidence)
+        assert all(not item["source"].startswith("ace_daemon") for item in stored.evidence)
+
+
 def test_fairness_yield_to_aging_medium_preserves_the_new_lease():
     from core.task_roles import Researcher
 

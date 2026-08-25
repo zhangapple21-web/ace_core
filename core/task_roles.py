@@ -865,6 +865,12 @@ class Researcher:
             for kw in keywords[:5]:
                 hits = self.memory_index.search(keyword=kw, limit=10)
                 for hit in hits[:2]:
+                    # Per-cycle daemon summaries are operational telemetry, not
+                    # independent evidence for an arbitrary research question.
+                    # Promoting them inflated evidence counts and repeatedly
+                    # injected the same generic runtime text into rework tasks.
+                    if hit.get("type") in {"daily_summary", "cycle_summary"}:
+                        continue
                     content = hit.get("content") or hit.get("summary") or ""
                     source = hit.get("source_path") or hit.get("source", "memory")
                     if not hit.get("source_path") and hit.get("id"):
