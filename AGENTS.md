@@ -136,19 +136,19 @@ Three completed discovery windows with zero Candidates require an `INVESTIGATE_D
 
 ## Current Runtime Components
 
-- **Environment Sensor** — Scan local/providers/github/models, build situation reports
+- **Environment observation (production)** — RuntimeObserver, DiscoveryMode, provider health, and stock-data health provide the wired observation paths. The legacy `environment_sensor.py` copies are not daemon consumers.
 - **Situation Builder** — Aggregate observations, deduplicate, score priority
 - **Heartbeat** — 15-min self-loop, runs EFP/Recovery/Signal/Archivist/EnvSensor
-- **Awareness Loop** — Sensor→Question→Task→Miner→Experience closed loop
+- **Awareness Loop (historical, not wired)** — Preserved Sensor→Question→Task→Miner→Experience design; the production daemon currently realizes the lifecycle through Observation, Admission, TaskPool, Researcher, Validator, Guardian, Archivist, and ExperienceDeposition.
 - **Capability Graph** — 13 capabilities with inheritance, capability-first routing
 - **Provider Health Monitor** — Track latency/success_rate/status, health-score-driven routing
 - **Provider Failure Sediment** — Auto-write Experience when provider degrades (failure→experience→constraint)
 - **Model Registry** — 4 providers: Ollama → GitHub Models → Zhipu GLM → OpenRouter
 - **Local Miner** — Unified `call_model()` with auto-fallback, no TRAE dependency
 - **Experience Sediment** — Write findings to `02_MEMORY/experience/`
-- **RoundTable** — 3-party review (Archivist + Governor + Validator)
+- **RoundTable (historical, not wired)** — The duplicate protocol implementation has no production consumer. Validator, Guardian, and Archivist remain separate wired lifecycle roles; do not infer a running council from file presence.
 - **Governor** — Invariant enforcement, security constraints
-- **Recovery Protocol** — Auto-recover from backups/zips/snapshots
+- **Runtime recovery (production)** — SelfHealing, lifecycle-lock recovery, atomic state writes, and periodic backup are wired. The legacy `recovery_protocol.py` copies are retained historical implementations, not the production owner.
 
 ---
 
