@@ -125,3 +125,14 @@ def test_all_pre_fix_blocked_result_shapes_are_reassessed():
         "reason": "learning_blocked_by_priority_task",
         "task_id": "RQ-existing",
     })
+
+
+def test_pre_expanded_scan_no_candidate_result_is_reassessed_only_once():
+    legacy = {
+        "outcome": "NO_VALID_LEARNING_TARGET",
+        "reason": "no_evidence_backed_internal_candidate_or_external_candidate",
+    }
+    current = {**legacy, "candidate_scan_limit": 200}
+
+    assert DailyLearningLoop._is_legacy_blocked_result(legacy)
+    assert not DailyLearningLoop._is_legacy_blocked_result(current)

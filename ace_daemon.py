@@ -57,7 +57,7 @@ from core.daily_growth import DailyGrowthLedger
 from core.finance_work_windows import FinanceWorkWindows
 from core.daily_shift import DailyShift
 from core.hourly_service import HourlyTaskService
-from core.daily_learning import DailyLearningLoop
+from core.daily_learning import DAILY_LEARNING_OBSERVATION_LIMIT, DailyLearningLoop
 from core.autonomous_work_allocation import AutonomousWorkAllocation
 from core.stock_discovery_sources import StockDiscoverySources
 from core.stock_data_reliability import StockDataBenchmark
@@ -1488,7 +1488,9 @@ class AceDaemon:
         # observations. RuntimeObserver already retains a bounded 200-record
         # window, so inspect that full existing window without creating a new
         # source index or an unbounded scan.
-        for observation in self.runtime_observer.get_recent(limit=200):
+        for observation in self.runtime_observer.get_recent(
+            limit=DAILY_LEARNING_OBSERVATION_LIMIT
+        ):
             candidate = self._data_health_learning_candidate(observation)
             if candidate is not None:
                 candidates.append(candidate)

@@ -11,6 +11,9 @@ from .governance.knowledge_governor import AdmissionDecision
 from .governance.knowledge_lifecycle import LifecycleStage
 
 
+DAILY_LEARNING_OBSERVATION_LIMIT = 200
+
+
 class DailyLearningLoop:
     source_tiers = [
         "official",
@@ -196,6 +199,13 @@ class DailyLearningLoop:
     def _is_legacy_blocked_result(existing: Any) -> bool:
         if not isinstance(existing, dict):
             return False
+        if (
+            existing.get("outcome") == "NO_VALID_LEARNING_TARGET"
+            and existing.get("reason")
+            == "no_evidence_backed_internal_candidate_or_external_candidate"
+            and existing.get("candidate_scan_limit") != DAILY_LEARNING_OBSERVATION_LIMIT
+        ):
+            return True
         if existing.get("reason") != "learning_blocked_by_priority_task":
             return False
         if existing.get("task_id"):
@@ -392,4 +402,5 @@ class DailyLearningLoop:
 
     def _record_daily_result(self, run_date: str, result: Dict[str, Any]) -> None:
         path = self.results_dir / f"{run_date}.json"
+        result.setdefault("candidate_scan_limit", DAILY_LEARNING_OBSERVATION_LIMIT)
         path.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
