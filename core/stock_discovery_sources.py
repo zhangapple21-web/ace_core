@@ -34,6 +34,76 @@ class StockDiscoverySources:
     def _enabled(name: str) -> bool:
         return os.environ.get(name, "").strip().lower() in {"1", "true", "yes", "on"}
 
+    @staticmethod
+    def _timestamp(value: Any) -> Optional[datetime]:
+        if not value:
+            return None
+        try:
+            parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=timezone.utc)
+            return parsed.astimezone(timezone.utc)
+        except (TypeError, ValueError):
+            return None
+
+    def evidence_revision(self) -> Dict[str, Optional[str]]:
+        """Return a stable revision for the evidence read by candidate sources.
+
+        Content hashes are used instead of mtimes so copying an unchanged
+        artifact cannot reopen discovery.  ``observed_at`` exists only for
+        migrating a same-day legacy report that predates newer evidence.
+        """
+        paths = {
+            "benchmark": self.evidence_dir / "stock_data_benchmark_latest.json",
+            "lexicon": self.base_dir / "06_RUNTIME" / "ace" / "data" / "memory" / "lexicon.json",
+        }
+        if self.advisor_workspace:
+            paths.update({
+                "advisor_status": self.advisor_workspace / "05_TOOLS" / "mine_output" / "advisor" / "runner_status.json",
+                "advisor_delivery": self.advisor_workspace / "02_MEMORY" / "advisor_delivery.json",
+            })
+
+        inputs: Dict[str, Any] = {
+            "flags": {
+                "auto_run": self._enabled("ACE_STOCK_ADVISOR_AUTO_RUN"),
+                "auto_push": self._enabled("ACE_STOCK_ADVISOR_AUTO_PUSH"),
+            },
+            "artifacts": {},
+        }
+        observed_times = []
+        timestamp_fields = (
+            "completed_at",
+            "generated_at",
+            "updated_at",
+            "last_run_time",
+            "recorded_at",
+        )
+        for name, path in paths.items():
+            try:
+                raw = path.read_bytes()
+            except OSError:
+                continue
+            payload = self._read_json(path)
+            inputs["artifacts"][name] = hashlib.sha256(raw).hexdigest()
+            for field in timestamp_fields:
+                parsed = self._timestamp(payload.get(field))
+                if parsed:
+                    observed_times.append(parsed)
+            summary = payload.get("summary")
+            if isinstance(summary, dict):
+                parsed = self._timestamp(summary.get("generated_at"))
+                if parsed:
+                    observed_times.append(parsed)
+
+        if not inputs["artifacts"]:
+            return {"revision": None, "observed_at": None}
+        revision_payload = json.dumps(inputs, ensure_ascii=False, sort_keys=True)
+        observed_at = max(observed_times).isoformat() if observed_times else None
+        return {
+            "revision": hashlib.sha256(revision_payload.encode("utf-8")).hexdigest(),
+            "observed_at": observed_at,
+        }
+
     def _find_workspace(self) -> Optional[Path]:
         configured = os.environ.get("ACE_ADVISOR_WORKSPACE", "").strip()
         candidates = [Path(configured)] if configured else []

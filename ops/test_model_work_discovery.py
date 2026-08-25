@@ -5,6 +5,7 @@ from core.discovery import DiscoveryCandidate, DiscoveryMode
 from core.model_work_discovery import ModelWorkDiscovery
 from core.observation import RuntimeObserver
 from core.observation_to_task import ObservationToTaskConverter
+from core.stock_discovery_sources import StockDiscoverySources
 from core.task import TaskPool
 from core.task_roles import Researcher
 
@@ -35,7 +36,7 @@ def _candidate(fingerprint="real-model-work", evidence=None):
     )
 
 
-def _runtime(root, source):
+def _runtime(root, source, evidence_revision_provider=None):
     pool = TaskPool(str(root / "task_pool"))
     observer = RuntimeObserver(str(root / "observations"))
     discovery = DiscoveryMode(
@@ -48,6 +49,7 @@ def _runtime(root, source):
     coordinator = ModelWorkDiscovery(
         discovery,
         str(root / "model_work_discovery_latest.json"),
+        evidence_revision_provider=evidence_revision_provider,
     )
     return pool, observer, coordinator
 
@@ -91,6 +93,171 @@ def test_daily_discovery_is_bounded_and_fingerprint_is_not_recreated():
         next_day = coordinator.discover_daily(day="2026-08-26")
         assert next_day["outcome"] == "NO_VALID_MODEL_WORK"
         assert len(pool.list_tasks(status="pending")) == 1
+
+
+def test_same_day_same_evidence_revision_is_bounded():
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        calls = []
+
+        def source():
+            calls.append(True)
+            return [_candidate()]
+
+        pool, observer, coordinator = _runtime(
+            root,
+            source,
+            evidence_revision_provider=lambda: {
+                "revision": "revision-a",
+                "observed_at": "2026-08-25T01:00:00+00:00",
+            },
+        )
+        first = coordinator.discover_daily(day="2026-08-25")
+        second = coordinator.discover_daily(day="2026-08-25")
+
+        assert first["evidence_revision"] == "revision-a"
+        assert second["status"] == "not_run"
+        assert second["outcome"] == "ALREADY_DISCOVERED_FOR_EVIDENCE_REVISION"
+        assert len(calls) == 1
+
+
+def test_same_day_changed_evidence_revision_allows_rediscovery():
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        calls = []
+        revision = {"value": "revision-a"}
+
+        def source():
+            calls.append(True)
+            return [_candidate(fingerprint=f"candidate-{len(calls)}")]
+
+        _, _, coordinator = _runtime(
+            root,
+            source,
+            evidence_revision_provider=lambda: {
+                "revision": revision["value"],
+                "observed_at": "2026-08-25T02:00:00+00:00",
+            },
+        )
+        first = coordinator.discover_daily(day="2026-08-25")
+        revision["value"] = "revision-b"
+        second = coordinator.discover_daily(day="2026-08-25")
+
+        assert first["evidence_revision"] == "revision-a"
+        assert second["evidence_revision"] == "revision-b"
+        assert second["previous_evidence_revision"] == "revision-a"
+        assert second["rediscovery_reason"] == "evidence_revision_changed"
+        assert len(calls) == 2
+
+
+def test_legacy_same_day_report_rechecks_once_for_newer_evidence():
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        calls = []
+
+        def source():
+            calls.append(True)
+            return []
+
+        _, _, coordinator = _runtime(
+            root,
+            source,
+            evidence_revision_provider=lambda: {
+                "revision": "revision-new",
+                "observed_at": "2026-08-25T12:57:05+00:00",
+            },
+        )
+        coordinator._write_report({
+            "discovery_date": "2026-08-25",
+            "recorded_at": "2026-08-25T02:49:10+00:00",
+            "outcome": "NO_VALID_MODEL_WORK",
+        })
+
+        migrated = coordinator.discover_daily(day="2026-08-25")
+        bounded = coordinator.discover_daily(day="2026-08-25")
+
+        assert migrated["evidence_revision"] == "revision-new"
+        assert migrated["rediscovery_reason"] == "new_evidence_after_legacy_report"
+        assert bounded["outcome"] == "ALREADY_DISCOVERED_FOR_EVIDENCE_REVISION"
+        assert len(calls) == 1
+
+
+def test_changed_revision_does_not_recreate_same_candidate_fingerprint():
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        revision = {"value": "revision-a"}
+        pool, observer, coordinator = _runtime(
+            root,
+            lambda: [_candidate()],
+            evidence_revision_provider=lambda: {
+                "revision": revision["value"],
+                "observed_at": "2026-08-25T12:57:05+00:00",
+            },
+        )
+        assert coordinator.discover_daily(day="2026-08-25")["outcome"] == "MODEL_WORK_CANDIDATE_OBSERVED"
+        ObservationToTaskConverter(observer, pool).convert()
+        revision["value"] = "revision-b"
+
+        rediscovered = coordinator.discover_daily(day="2026-08-25")
+
+        assert rediscovered["outcome"] == "NO_VALID_MODEL_WORK"
+        assert len(pool.list_tasks(status="pending")) == 1
+
+
+def test_evidence_revision_failure_fails_closed_to_daily_boundary():
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        calls = []
+
+        def source():
+            calls.append(True)
+            return []
+
+        def broken_revision():
+            raise OSError("revision source unavailable")
+
+        _, _, coordinator = _runtime(
+            root,
+            source,
+            evidence_revision_provider=broken_revision,
+        )
+        first = coordinator.discover_daily(day="2026-08-25")
+        second = coordinator.discover_daily(day="2026-08-25")
+
+        assert first["evidence_revision"] is None
+        assert second["outcome"] == "ALREADY_DISCOVERED_TODAY"
+        assert len(calls) == 1
+
+
+def test_stock_evidence_revision_is_content_stable_and_changes_with_benchmark():
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        evidence_dir = root / "evidence"
+        evidence_dir.mkdir()
+        benchmark = evidence_dir / "stock_data_benchmark_latest.json"
+        benchmark.write_text(
+            '{"completed_at":"2026-08-25T12:57:05+00:00","summary":{"sources":{"sina":{"availability":0.8}}}}',
+            encoding="utf-8",
+        )
+        observer = RuntimeObserver(str(root / "observations"))
+        sources = StockDiscoverySources(
+            observer,
+            str(root),
+            evidence_dir=str(evidence_dir),
+        )
+
+        first = sources.evidence_revision()
+        second = sources.evidence_revision()
+        benchmark.write_text(
+            '{"completed_at":"2026-08-25T13:10:00+00:00","summary":{"sources":{"sina":{"availability":0.9}}}}',
+            encoding="utf-8",
+        )
+        changed = sources.evidence_revision()
+
+        assert first == second
+        assert first["observed_at"] == "2026-08-25T12:57:05+00:00"
+        assert changed["revision"] != first["revision"]
+        assert changed["observed_at"] == "2026-08-25T13:10:00+00:00"
 
 
 def test_no_candidate_records_no_valid_model_work_without_task_side_effects():

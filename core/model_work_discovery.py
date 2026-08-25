@@ -9,13 +9,54 @@ DiscoveryMode -> ObservationToTaskConverter -> ModelTaskAdmission path.
 import json
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, Optional, Set
+from typing import Any, Callable, Dict, Optional, Set
 
 
 class ModelWorkDiscovery:
-    def __init__(self, discovery, report_path: str):
+    def __init__(
+        self,
+        discovery,
+        report_path: str,
+        evidence_revision_provider: Optional[Callable[[], Any]] = None,
+    ):
         self.discovery = discovery
         self.report_path = Path(report_path)
+        self.evidence_revision_provider = evidence_revision_provider
+
+    @staticmethod
+    def _parse_timestamp(value: Any) -> Optional[datetime]:
+        if not value:
+            return None
+        try:
+            parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=timezone.utc)
+            return parsed.astimezone(timezone.utc)
+        except (TypeError, ValueError):
+            return None
+
+    def _evidence_revision(self) -> Dict[str, Optional[str]]:
+        if self.evidence_revision_provider is None:
+            return {"revision": None, "observed_at": None, "error": None}
+        try:
+            value = self.evidence_revision_provider()
+        except Exception as exc:
+            return {
+                "revision": None,
+                "observed_at": None,
+                "error": type(exc).__name__,
+            }
+        if isinstance(value, dict):
+            revision = value.get("revision")
+            observed_at = value.get("observed_at")
+        else:
+            revision = value
+            observed_at = None
+        return {
+            "revision": str(revision) if revision else None,
+            "observed_at": str(observed_at) if observed_at else None,
+            "error": None,
+        }
 
     def _read_report(self) -> Dict[str, Any]:
         try:
@@ -41,14 +82,36 @@ class ModelWorkDiscovery:
     ) -> Dict[str, Any]:
         today = day or datetime.now().date().isoformat()
         previous = self._read_report()
+        evidence = self._evidence_revision()
+        revision = evidence["revision"]
+        previous_revision = previous.get("evidence_revision")
+        rediscovery_reason = None
         if previous.get("discovery_date") == today:
-            return {
-                "status": "not_run",
-                "outcome": "ALREADY_DISCOVERED_TODAY",
-                "discovery_date": today,
-                "report_path": str(self.report_path),
-                "previous_outcome": previous.get("outcome"),
-            }
+            if revision and previous_revision == revision:
+                outcome = "ALREADY_DISCOVERED_FOR_EVIDENCE_REVISION"
+            elif revision and previous_revision and previous_revision != revision:
+                rediscovery_reason = "evidence_revision_changed"
+            elif revision and not previous_revision:
+                observed_at = self._parse_timestamp(evidence["observed_at"])
+                recorded_at = self._parse_timestamp(previous.get("recorded_at"))
+                if observed_at and recorded_at and observed_at > recorded_at:
+                    rediscovery_reason = "new_evidence_after_legacy_report"
+                else:
+                    outcome = "ALREADY_DISCOVERED_TODAY"
+            else:
+                # Missing or failed revision evidence must not turn the daily
+                # coordinator into an every-cycle task generator.
+                outcome = "ALREADY_DISCOVERED_TODAY"
+            if rediscovery_reason is None:
+                return {
+                    "status": "not_run",
+                    "outcome": outcome,
+                    "discovery_date": today,
+                    "evidence_revision": revision,
+                    "evidence_revision_error": evidence["error"],
+                    "report_path": str(self.report_path),
+                    "previous_outcome": previous.get("outcome"),
+                }
 
         result = self.discovery.discover(
             allow_existing_work=True,
@@ -60,10 +123,15 @@ class ModelWorkDiscovery:
             else "NO_VALID_MODEL_WORK"
         )
         report = {
-            "schema_version": 1,
+            "schema_version": 2,
             "discovery_date": today,
             "recorded_at": datetime.now(timezone.utc).isoformat(),
             "outcome": outcome,
+            "evidence_revision": revision,
+            "evidence_observed_at": evidence["observed_at"],
+            "evidence_revision_error": evidence["error"],
+            "previous_evidence_revision": previous_revision,
+            "rediscovery_reason": rediscovery_reason,
             "local_backlog_is_not_a_stop_condition": True,
             # A bounded observation cap prevents recursive discovery.  It is
             # not a quota that must be filled and creates no activity target.

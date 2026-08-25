@@ -377,6 +377,7 @@ class AceDaemon:
                     / "data"
                     / "model_work_discovery_latest.json"
                 ),
+                evidence_revision_provider=stock_discovery.evidence_revision,
             )
             self.daily_growth = DailyGrowthLedger(
                 self.task_pool,
