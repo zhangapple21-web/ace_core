@@ -226,6 +226,54 @@ def test_fairness_reports_unclaimed_service_debt_without_relabeling_starvation(t
     ]
 
 
+def test_fairness_splits_pending_rework_by_hard_objection_and_retry_readiness(tmp_path):
+    paths = audit_paths(tmp_path)
+    now = datetime.now()
+    write_task(paths["task_pool"], task(
+        "hard-rework",
+        last_claimed_at=(now - timedelta(hours=2)).isoformat(),
+        retry_after=(now - timedelta(minutes=1)).isoformat(),
+        outputs={"last_validator_result": {
+            "outcome": "rework_pending",
+            "hard_objections": ["independent evidence is insufficient"],
+            "advisory_objections": ["seek a counterexample"],
+        }},
+    ))
+    write_task(paths["task_pool"], task(
+        "qualified-rework",
+        last_claimed_at=(now - timedelta(hours=1)).isoformat(),
+        retry_after=(now - timedelta(minutes=1)).isoformat(),
+        outputs={"last_validator_result": {
+            "outcome": "rework_pending",
+            "hard_objections": [],
+            "advisory_objections": ["improve explanation"],
+        }},
+    ))
+    write_task(paths["task_pool"], task(
+        "cooldown-rework",
+        last_claimed_at=now.isoformat(),
+        retry_after=(now + timedelta(minutes=5)).isoformat(),
+        outputs={"last_validator_result": {
+            "outcome": "rework_pending",
+            "hard_objections": [],
+            "advisory_objections": [],
+        }},
+    ))
+
+    debt = AutonomousAudit(paths, now=now).collect()["fairness"]["rework_service_debt"]
+
+    assert debt["count"] == 3
+    assert debt["hard_objection_count"] == 1
+    assert debt["no_hard_objection_count"] == 2
+    assert debt["retry_ready_count"] == 2
+    assert debt["retry_not_due_count"] == 1
+    assert debt["hard_objections"] == {"independent evidence is insufficient": 1}
+    assert debt["representative_task_ids"] == {
+        "hard_objection": ["RQ-hard-rework"],
+        "no_hard_objection": ["RQ-cooldown-rework", "RQ-qualified-rework"],
+    }
+
+
 def test_run_writes_reports_and_preserves_runtime_sources(tmp_path):
     paths = audit_paths(tmp_path)
     write_json(paths["heartbeat"], {"status": "alive", "last_beat": datetime.now().isoformat(), "pid": 1})

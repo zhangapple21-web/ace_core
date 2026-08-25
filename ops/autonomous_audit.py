@@ -155,6 +155,7 @@ class AutonomousAudit:
         starved = []
         unclaimed = []
         claimed_pending_count = 0
+        rework = []
         for record in tasks:
             if record.get("status") != "pending":
                 continue
@@ -170,6 +171,17 @@ class AutonomousAudit:
                     "priority": record.get("priority"),
                     "source": record.get("creator") or "unknown",
                     "age_hours": max(0.0, age_days * 24),
+                })
+            outputs = record.get("outputs") if isinstance(record.get("outputs"), dict) else {}
+            validator = outputs.get("last_validator_result", {})
+            if isinstance(validator, dict) and validator.get("outcome") == "rework_pending":
+                hard = validator.get("hard_objections", [])
+                hard = hard if isinstance(hard, list) else []
+                retry_at = _parse_time(record.get("retry_after"))
+                rework.append({
+                    "task_id": record.get("task_id"),
+                    "hard_objections": [str(item) for item in hard if str(item).strip()],
+                    "retry_ready": retry_at is None or retry_at <= self.now,
                 })
             threshold = 7 if record.get("priority") in {"critical", "high"} else 14
             if age_days >= threshold:
@@ -195,6 +207,18 @@ class AutonomousAudit:
         )[:10]
         for item in oldest_tasks:
             item["age_hours"] = round(item["age_hours"], 2)
+        hard_objections = {}
+        for item in rework:
+            for objection in item["hard_objections"]:
+                hard_objections[objection] = hard_objections.get(objection, 0) + 1
+        all_hard_tasks = sorted(
+            item["task_id"] for item in rework if item["hard_objections"]
+        )
+        all_no_hard_tasks = sorted(
+            item["task_id"] for item in rework if not item["hard_objections"]
+        )
+        hard_tasks = all_hard_tasks[:10]
+        no_hard_tasks = all_no_hard_tasks[:10]
         return {
             "starved_count": len(starved),
             "starved_tasks": starved,
@@ -206,6 +230,19 @@ class AutonomousAudit:
                 "by_priority": dict(sorted(by_priority.items())),
                 "oldest_tasks": oldest_tasks,
                 "interpretation": "service debt is observable; it is not by itself proof of selector failure",
+            },
+            "rework_service_debt": {
+                "count": len(rework),
+                "hard_objection_count": len(all_hard_tasks),
+                "no_hard_objection_count": len(all_no_hard_tasks),
+                "retry_ready_count": sum(1 for item in rework if item["retry_ready"]),
+                "retry_not_due_count": sum(1 for item in rework if not item["retry_ready"]),
+                "hard_objections": dict(sorted(hard_objections.items())),
+                "representative_task_ids": {
+                    "hard_objection": hard_tasks,
+                    "no_hard_objection": no_hard_tasks,
+                },
+                "interpretation": "hard-objection rework requires new evidence; no-hard-objection rework may be completion-ready",
             },
         }
 
