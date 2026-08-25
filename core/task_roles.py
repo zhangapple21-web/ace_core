@@ -1132,7 +1132,15 @@ class Validator:
         objections_signature = self.validation_signature(sorted(genuine_objections))
         validator_outcome_signature = self.validation_signature("rework_pending")
         previous_outcome = previous_result.get("outcome", "")
-        repeated_rework = not previous_outcome or previous_outcome == "rework_pending"
+        # A task with no prior validator outcome is a new review, not a
+        # legacy rework record.  Treating the empty outcome as rework made
+        # every evidence-qualified task fail its first review even when all
+        # objections were advisory-only.
+        repeated_rework = previous_outcome == "rework_pending" or (
+            not previous_outcome
+            and review_count > 0
+            and bool(previous_signature)
+        )
         legacy_rework_migration = (
             repeated_rework
             and previous_signature_version != self.EVIDENCE_SIGNATURE_VERSION

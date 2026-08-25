@@ -425,17 +425,9 @@ def test_validator_approves_evidence_qualified_task_with_advisory_objections():
         pool.move_task(task.task_id, "review", task=task)
 
         first = Validator(pool).validate_task(pool.load_task(task.task_id))
-        assert not first["passed"]
+        stored = pool.load_task(task.task_id)
+        assert first["passed"]
         assert first["advisory_objections"]
-        stored = pool.load_task(task.task_id)
-        stored.retry_after = ""
-        stored.status = "review"
-        pool.update_task(stored)
-        pool.move_task(stored.task_id, "review", task=stored)
-
-        second = Validator(pool).validate_task(pool.load_task(task.task_id))
-        stored = pool.load_task(task.task_id)
-        assert second["passed"]
         assert stored.status == "approved"
         assert stored.outputs["last_validator_result"]["hard_objections"] == []
 
