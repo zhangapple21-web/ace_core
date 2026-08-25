@@ -22,6 +22,7 @@ def audit_paths(root):
         "daemon_lock": runtime / "memory" / ".daemon.lock",
         "task_pool": root / "task_pool",
         "data_health": runtime / "stock_data_evidence" / "stock_data_benchmark_latest.json",
+        "data_capability_matrix": runtime / "stock_data_evidence" / "A_SHARE_DATA_CAPABILITY_MATRIX.json",
         "advisor_status": root / "advisor" / "output" / "runner_status.json",
         "risk_status": root / "advisor" / "output" / "risk_status.json",
         "provider_watchdog": runtime / "miner_pool" / "provider_watchdog" / "watchdog_state.json",
@@ -175,6 +176,59 @@ def test_quarantined_blocked_tasks_do_not_block_taskpool_health(tmp_path):
         "evidence": [str(paths["task_pool"])],
         "recommended_action": "continue_observation",
     }
+
+
+def test_data_health_uses_strict_admission_not_rejected_candidate_metrics(tmp_path):
+    paths = audit_paths(tmp_path)
+    write_json(paths["data_health"], {
+        "rounds": 5,
+        "summary": {"sources": {
+            "production": {"availability": 1.0, "field_completeness": 1.0, "coverage": 1.0, "consistency": 1.0},
+            "rejected": {"availability": 0.0, "field_completeness": 0.0, "coverage": 0.0, "consistency": 0.0},
+        }},
+    })
+    operations = {
+        name: {
+            "production_sources": ["source-a", "source-b"],
+            "independence_groups": ["group-a", "group-b"],
+            "has_independent_cross_validation": True,
+        }
+        for name in ("quote", "daily_kline", "minute_kline_1m", "minute_kline_5m", "index")
+    }
+    write_json(paths["data_capability_matrix"], {
+        "phase_two_admission": {"status": "ADMITTED", "core_operations": operations},
+    })
+
+    report = AutonomousAudit(paths).collect()
+
+    assert report["data_health"]["degraded_sources"] == ["rejected"]
+    assert report["domains"]["data_health"]["state"] == "READY"
+
+
+def test_data_health_does_not_admit_a_single_round_success(tmp_path):
+    paths = audit_paths(tmp_path)
+    write_json(paths["data_health"], {
+        "rounds": 1,
+        "summary": {"sources": {
+            "source-a": {"availability": 1.0, "field_completeness": 1.0, "coverage": 1.0, "consistency": 1.0},
+        }},
+    })
+    operations = {
+        name: {
+            "production_sources": ["source-a", "source-b"],
+            "independence_groups": ["group-a", "group-b"],
+            "has_independent_cross_validation": True,
+        }
+        for name in ("quote", "daily_kline", "minute_kline_1m", "minute_kline_5m", "index")
+    }
+    write_json(paths["data_capability_matrix"], {
+        "phase_two_admission": {"status": "ADMITTED", "core_operations": operations},
+    })
+
+    report = AutonomousAudit(paths).collect()
+
+    assert report["domains"]["data_health"]["state"] == "NOT_READY"
+    assert report["domains"]["data_health"]["reasons"] == ["data_health_observation_window_insufficient"]
 
 
 def test_missing_runtime_is_not_ready_and_backlog_growth_is_anomaly(tmp_path):

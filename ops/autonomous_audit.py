@@ -21,6 +21,7 @@ def default_paths():
         "daemon_lock": runtime / "memory" / ".daemon.lock",
         "task_pool": root / "task_pool",
         "data_health": runtime / "stock_data_evidence" / "stock_data_benchmark_latest.json",
+        "data_capability_matrix": runtime / "stock_data_evidence" / "A_SHARE_DATA_CAPABILITY_MATRIX.json",
         "advisor_status": advisor_output / "runner_status.json",
         "risk_status": advisor_output / "risk_status.json",
         "provider_watchdog": runtime / "miner_pool" / "provider_watchdog" / "watchdog_state.json",
@@ -395,8 +396,56 @@ class AutonomousAudit:
                 [path],
                 "restore_data_health_evidence",
             )
-        domain = _domain("BLOCKED", ["data_health_degraded"], [path], "resolve_data_health_degradation") if degraded else _domain("READY", evidence=[path])
-        return {"sources": metrics, "degraded_sources": degraded}, domain
+        matrix_path = Path(self.paths.get(
+            "data_capability_matrix",
+            Path(self.paths["data_health"]).with_name("A_SHARE_DATA_CAPABILITY_MATRIX.json"),
+        ))
+        matrix, matrix_error = _read_json(matrix_path)
+        evidence = [path, str(matrix_path)]
+        result = {
+            "sources": metrics,
+            "degraded_sources": degraded,
+            "observation_rounds": data.get("rounds"),
+            "admission_status": None,
+        }
+        if matrix_error or not isinstance(matrix, dict):
+            return result, _domain(
+                "NOT_READY",
+                ["data_capability_matrix_missing_or_malformed"],
+                evidence,
+                "restore_data_capability_evidence",
+            )
+        admission = matrix.get("phase_two_admission", {})
+        operations = admission.get("core_operations", {}) if isinstance(admission, dict) else {}
+        result["admission_status"] = admission.get("status") if isinstance(admission, dict) else None
+        required_operations = {"quote", "daily_kline", "minute_kline_1m", "minute_kline_5m", "index"}
+        strictly_admitted = (
+            result["admission_status"] == "ADMITTED"
+            and set(operations) == required_operations
+            and all(
+                isinstance(operations.get(name), dict)
+                and bool(operations[name].get("production_sources"))
+                and len(set(operations[name].get("independence_groups", []))) >= 2
+                and operations[name].get("has_independent_cross_validation") is True
+                for name in required_operations
+            )
+        )
+        if not strictly_admitted:
+            return result, _domain(
+                "BLOCKED",
+                ["a_share_data_not_admitted"],
+                evidence,
+                "resolve_data_admission_blockers",
+            )
+        rounds = data.get("rounds")
+        if not isinstance(rounds, int) or rounds < 5:
+            return result, _domain(
+                "NOT_READY",
+                ["data_health_observation_window_insufficient"],
+                evidence,
+                "run_bounded_multi_round_data_observation",
+            )
+        return result, _domain("READY", evidence=evidence)
 
     def _advisor_domain(self):
         advisor, error = _read_json(self.paths["advisor_status"])
