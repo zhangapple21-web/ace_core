@@ -823,6 +823,7 @@ class StockDataBenchmark:
             "baostock": "baostock",
             "finshare": "finshare_auto_router",
             "pytdx": "pytdx",
+            "sina": "sina",
             "tencent": "tencent",
             "market": "market_aggregate",
         }
@@ -910,18 +911,109 @@ class StockDataBenchmark:
                 run["probes"].append(item)
         run["completed_at"] = datetime.now(timezone.utc).isoformat()
         run["summary"] = evaluate_health(run["probes"])
+        self._persist_run(run)
+        return run
+
+    def refresh_live_operations(
+        self,
+        *,
+        rounds: int = 1,
+        symbols: Optional[Dict[str, str]] = None,
+        sources: Tuple[str, ...] = ("pytdx", "sina"),
+        operations: Tuple[str, ...] = ("quote", "minute_kline_1m", "index"),
+        batch_timeout_seconds: int = 25,
+    ) -> Dict[str, Any]:
+        """Refresh live-operation evidence without discarding historical gates.
+
+        Daily/5m evidence remains attached to its original probes.  Only the
+        selected live operations for the selected direct sources are replaced,
+        preserving explicit lineage and the parent benchmark timestamp.
+        """
+        latest_path = self.evidence_dir / "stock_data_benchmark_latest.json"
+        try:
+            previous = json.loads(latest_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise RuntimeError("baseline_benchmark_required_for_live_refresh") from exc
+        if not isinstance(previous, dict) or not isinstance(previous.get("probes"), list):
+            raise RuntimeError("baseline_benchmark_required_for_live_refresh")
+
+        symbols = symbols or DEFAULT_SYMBOLS
+        source_set = set(sources)
+        operation_set = set(operations)
+        retained = [
+            probe for probe in previous["probes"]
+            if not (
+                probe.get("source") in source_set
+                and (
+                    probe.get("operation") in operation_set
+                    or probe.get("data_type") == "source_batch"
+                )
+            )
+        ]
+        refreshed = []
+        started_at = datetime.now(timezone.utc).isoformat()
+        for round_number in range(1, rounds + 1):
+            for symbol in symbols.values():
+                for source in sources:
+                    for probe in self._source_probes(
+                        source,
+                        symbol,
+                        timeout_seconds=batch_timeout_seconds,
+                    ):
+                        item = probe.to_dict()
+                        if (
+                            item.get("data_type") == "source_batch"
+                            and not item.get("operation")
+                        ):
+                            for operation in operations:
+                                operation_failure = dict(item)
+                                operation_failure["operation"] = operation
+                                operation_failure["round"] = round_number
+                                refreshed.append(operation_failure)
+                            continue
+                        if item.get("operation") not in operation_set:
+                            continue
+                        item["round"] = round_number
+                        refreshed.append(item)
+
+        run = {
+            "schema_version": 1,
+            "started_at": started_at,
+            "completed_at": datetime.now(timezone.utc).isoformat(),
+            "rounds": rounds,
+            "symbols": symbols,
+            "source_lineage": previous.get("source_lineage", {}),
+            "probes": retained + refreshed,
+            "incremental_refresh": {
+                "kind": "trading_window_live_operations",
+                "parent_completed_at": previous.get("completed_at"),
+                "sources": list(sources),
+                "operations": list(operations),
+                "retained_probe_count": len(retained),
+                "refreshed_probe_count": len(refreshed),
+            },
+        }
+        run["summary"] = evaluate_health(run["probes"])
+        self._persist_run(run)
+        return run
+
+    def _persist_run(self, run: Dict[str, Any]) -> None:
         matrix = build_capability_matrix(candidate_registry(), run)
         run["capability_matrix_path"] = str(self.evidence_dir / "A_SHARE_DATA_CAPABILITY_MATRIX.json")
         stamped = datetime.now().strftime("%Y%m%d_%H%M%S")
         raw_path = self.evidence_dir / f"stock_data_benchmark_{stamped}.json"
         latest_path = self.evidence_dir / "stock_data_benchmark_latest.json"
         payload = json.dumps(run, ensure_ascii=False, indent=2)
+        matrix_path = self.evidence_dir / "A_SHARE_DATA_CAPABILITY_MATRIX.json"
         raw_path.write_text(payload, encoding="utf-8")
-        latest_path.write_text(payload, encoding="utf-8")
-        (self.evidence_dir / "A_SHARE_DATA_CAPABILITY_MATRIX.json").write_text(
+        latest_temporary = latest_path.with_suffix(latest_path.suffix + ".tmp")
+        latest_temporary.write_text(payload, encoding="utf-8")
+        latest_temporary.replace(latest_path)
+        matrix_temporary = matrix_path.with_suffix(matrix_path.suffix + ".tmp")
+        matrix_temporary.write_text(
             json.dumps(matrix, ensure_ascii=False, indent=2), encoding="utf-8"
         )
-        return run
+        matrix_temporary.replace(matrix_path)
 
 
 def _complete(probe: Dict[str, Any]) -> bool:

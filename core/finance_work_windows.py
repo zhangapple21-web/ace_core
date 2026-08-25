@@ -1,8 +1,9 @@
 """Auditable Finance workload windows over the existing daemon lifecycle.
 
 This module does not schedule, create tasks, call models, or publish advice.
-It records which observation window is due and whether the existing evidence
-supports research-only work or a production financial path.
+At open validation it may invoke one bounded data-refresh callback owned by
+the existing daemon, then records whether the refreshed evidence supports a
+research-only or production financial path.
 """
 
 import json
@@ -10,6 +11,8 @@ from datetime import datetime, time
 from pathlib import Path
 from typing import Any, Dict, Optional
 from zoneinfo import ZoneInfo
+
+from core.stock_data_reliability import MarketState, assess_market_state
 
 
 WINDOWS = {
@@ -22,12 +25,26 @@ WINDOWS = {
 
 
 class FinanceWorkWindows:
-    def __init__(self, data_dir: str, timezone_name: str = "Asia/Shanghai", observer=None):
+    def __init__(
+        self,
+        data_dir: str,
+        timezone_name: str = "Asia/Shanghai",
+        observer=None,
+        data_refresh=None,
+    ):
         self.data_dir = Path(data_dir)
         self.timezone = ZoneInfo(timezone_name)
         self.observer = observer
+        self.data_refresh = data_refresh
         self.matrix_path = self.data_dir / "stock_data_evidence" / "A_SHARE_DATA_CAPABILITY_MATRIX.json"
+        self.benchmark_path = self.data_dir / "stock_data_evidence" / "stock_data_benchmark_latest.json"
         self.report_path = self.data_dir / "finance_work_windows_latest.json"
+
+    def _evidence_refs(self):
+        return [
+            str(path) for path in (self.matrix_path, self.benchmark_path)
+            if path.exists()
+        ]
 
     def _finance_status(self) -> str:
         try:
@@ -58,13 +75,6 @@ class FinanceWorkWindows:
     def build(self, now: Optional[datetime] = None) -> Dict[str, Any]:
         observed_at = now.astimezone(self.timezone) if now else datetime.now(self.timezone)
         due = self._window(observed_at)
-        status = self._finance_status()
-        if due is None:
-            window_status = "WINDOW_NOT_DUE"
-        elif status in {"DEGRADED", "RESEARCH_ONLY"}:
-            window_status = "RESEARCH_ONLY"
-        else:
-            window_status = "NO_VALID_OBSERVATION"
         previous = {}
         try:
             previous = json.loads(self.report_path.read_text(encoding="utf-8"))
@@ -75,11 +85,39 @@ class FinanceWorkWindows:
             if previous.get("date") == observed_at.date().isoformat()
             else {}
         )
+        refresh_result = None
+        if (
+            due == "open_validation"
+            and assess_market_state(observed_at).state == MarketState.TRADING
+            and self.data_refresh is not None
+        ):
+            prior_window = daily_windows.get(due, {})
+            if isinstance(prior_window, dict) and prior_window.get("data_refresh_attempted"):
+                refresh_result = {"status": "already_attempted_for_window"}
+            else:
+                try:
+                    value = self.data_refresh()
+                    refresh_result = value if isinstance(value, dict) else {"status": "completed"}
+                except Exception as exc:
+                    refresh_result = {
+                        "status": "failed",
+                        "reason": type(exc).__name__,
+                    }
+
+        status = self._finance_status()
+        if due is None:
+            window_status = "WINDOW_NOT_DUE"
+        elif status in {"DEGRADED", "RESEARCH_ONLY"}:
+            window_status = "RESEARCH_ONLY"
+        else:
+            window_status = "NO_VALID_OBSERVATION"
         window_record = {
             "observed_at": observed_at.isoformat(),
             "window_status": window_status,
             "finance_status": status,
-            "evidence_refs": [str(self.matrix_path)] if self.matrix_path.exists() else [],
+            "evidence_refs": self._evidence_refs(),
+            "data_refresh_attempted": refresh_result is not None,
+            "data_refresh": refresh_result,
         }
         if due:
             daily_windows[due] = window_record
@@ -94,7 +132,8 @@ class FinanceWorkWindows:
             "task_created": False,
             "model_call": False,
             "recommendation_allowed": False,
-            "evidence_refs": [str(self.matrix_path)] if self.matrix_path.exists() else [],
+            "evidence_refs": self._evidence_refs(),
+            "data_refresh": refresh_result,
             "daily_windows": daily_windows,
             "research_question": (
                 "在当前数据准入状态下，哪些金融观察仍可进行，哪些字段缺口阻断实时验证？"

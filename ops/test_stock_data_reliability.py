@@ -2,6 +2,7 @@ import json
 import os
 import sys
 import tempfile
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -758,6 +759,131 @@ def test_financial_strategic_work_requires_distinct_independence_groups():
         )
 
         assert stock_sources.financial_cross_validation_candidates() == []
+
+
+def test_live_operation_refresh_preserves_historical_operations_and_replaces_targets():
+    with tempfile.TemporaryDirectory() as directory:
+        evidence = Path(directory)
+        previous = {
+            "schema_version": 1,
+            "started_at": "2026-08-24T01:00:00+00:00",
+            "completed_at": "2026-08-24T01:05:00+00:00",
+            "rounds": 1,
+            "symbols": {"sh_main": "600000"},
+            "source_lineage": {},
+            "probes": [
+                {
+                    **quote("pytdx"),
+                    "operation": "quote",
+                    "evidence_hash": "old-quote",
+                    "upstream_identity": "TDX quotation protocol host pool",
+                    "independence_group": "tdx_tcp_protocol",
+                    "freshness_at": "2026-08-24T09:35:00+08:00",
+                },
+                {
+                    "source": "baostock",
+                    "supplier": "baostock",
+                    "data_type": "daily_k",
+                    "symbol": "600000",
+                    "round": 1,
+                    "success": True,
+                    "latency_ms": 10,
+                    "fields": {"open": 1, "high": 2, "low": 1, "close": 2, "volume": 10},
+                    "expected_fields": ["open", "high", "low", "close", "volume"],
+                    "operation": "daily_kline",
+                    "evidence_hash": "keep-daily",
+                    "upstream_identity": "BaoStock public API",
+                    "independence_group": "baostock_tcp",
+                    "lineage_observable": True,
+                    "started_at": "2026-08-24T01:00:00+00:00",
+                },
+            ],
+        }
+        (evidence / "stock_data_benchmark_latest.json").write_text(
+            json.dumps(previous), encoding="utf-8"
+        )
+        benchmark = StockDataBenchmark(str(evidence))
+
+        def probes(source, symbol, timeout_seconds=35):
+            group = "tdx_tcp_protocol" if source == "pytdx" else "sina_public_http"
+            upstream = "TDX quotation protocol host pool" if source == "pytdx" else "Sina public quotation endpoints"
+            common = {
+                "source": source,
+                "supplier": source,
+                "symbol": symbol,
+                "started_at": "2026-08-25T01:35:00+00:00",
+                "latency_ms": 10,
+                "success": True,
+                "evidence_hash": f"new-{source}",
+                "upstream_identity": upstream,
+                "independence_group": group,
+                "lineage_observable": True,
+            }
+            return [
+                ProbeResult(data_type="quote", fields={"price": 10, "change_pct": 1, "volume": 100}, expected_fields=list(CRITICAL_QUOTE_FIELDS), operation="quote", freshness_at="2026-08-25T09:35:00+08:00", **common),
+                ProbeResult(data_type="minute_k", fields={"date": "2026-08-25T09:35:00+08:00", "open": 1, "high": 2, "low": 1, "close": 2, "volume": 10}, expected_fields=["date", "open", "high", "low", "close", "volume"], operation="minute_kline_1m", freshness_at="2026-08-25T09:35:00+08:00", **common),
+                ProbeResult(data_type="index", fields={"index_value": 3000, "time": "2026-08-25T09:35:00+08:00"}, expected_fields=["index_value"], operation="index", freshness_at="2026-08-25T09:35:00+08:00", **common),
+                ProbeResult(data_type="daily_k", fields={"open": 1, "high": 2, "low": 1, "close": 2, "volume": 10}, expected_fields=["open", "high", "low", "close", "volume"], operation="daily_kline", **common),
+            ]
+
+        benchmark._source_probes = probes
+        refreshed = benchmark.refresh_live_operations(
+            rounds=1,
+            symbols={"sh_main": "600000"},
+            sources=("pytdx", "sina"),
+        )
+
+        hashes = {probe.get("evidence_hash") for probe in refreshed["probes"]}
+        assert "keep-daily" in hashes
+        assert "old-quote" not in hashes
+        assert {probe["source"] for probe in refreshed["probes"] if probe.get("operation") == "quote"} == {"pytdx", "sina"}
+        assert refreshed["incremental_refresh"]["operations"] == ["quote", "minute_kline_1m", "index"]
+        assert (evidence / "A_SHARE_DATA_CAPABILITY_MATRIX.json").exists()
+
+
+def test_live_operation_refresh_replaces_and_attributes_source_batch_failures():
+    with tempfile.TemporaryDirectory() as directory:
+        evidence = Path(directory)
+        previous = {
+            "schema_version": 1,
+            "completed_at": "2026-08-24T01:05:00+00:00",
+            "probes": [
+                {
+                    "source": "sina",
+                    "data_type": "source_batch",
+                    "operation": "",
+                    "symbol": "600000",
+                    "success": False,
+                    "error_type": "ProbeTimeout",
+                },
+            ],
+        }
+        (evidence / "stock_data_benchmark_latest.json").write_text(
+            json.dumps(previous), encoding="utf-8"
+        )
+        benchmark = StockDataBenchmark(str(evidence))
+        benchmark._source_probes = lambda source, symbol, timeout_seconds=35: [
+            benchmark._source_failure(
+                source,
+                symbol,
+                "2026-08-25T01:35:00+00:00",
+                time.perf_counter(),
+                "ProbeTimeout",
+                "batch timeout",
+            )
+        ]
+
+        refreshed = benchmark.refresh_live_operations(
+            symbols={"sh_main": "600000"},
+            sources=("sina",),
+        )
+
+        failures = refreshed["probes"]
+        assert len(failures) == 3
+        assert {probe["operation"] for probe in failures} == {
+            "quote", "minute_kline_1m", "index"
+        }
+        assert all(probe["error_type"] == "ProbeTimeout" for probe in failures)
 
 
 def main():

@@ -60,6 +60,7 @@ from core.hourly_service import HourlyTaskService
 from core.daily_learning import DailyLearningLoop
 from core.autonomous_work_allocation import AutonomousWorkAllocation
 from core.stock_discovery_sources import StockDiscoverySources
+from core.stock_data_reliability import StockDataBenchmark
 from core.governance.evidence_registry import EvidenceRegistry
 from core.governance.knowledge_governor import Governor
 from core.governance.knowledge_lifecycle import LifecycleManager
@@ -361,6 +362,22 @@ class AceDaemon:
                 observer=self.runtime_observer,
                 base_dir=str(self.base_dir),
             )
+            stock_benchmark = StockDataBenchmark(str(stock_discovery.evidence_dir))
+
+            def refresh_finance_live_data():
+                refreshed = stock_benchmark.refresh_live_operations(
+                    rounds=1,
+                    sources=("pytdx", "sina"),
+                )
+                refresh = refreshed.get("incremental_refresh", {})
+                return {
+                    "status": "completed",
+                    "completed_at": refreshed.get("completed_at"),
+                    "sources": refresh.get("sources", []),
+                    "operations": refresh.get("operations", []),
+                    "refreshed_probe_count": refresh.get("refreshed_probe_count", 0),
+                    "benchmark_path": str(stock_benchmark.evidence_dir / "stock_data_benchmark_latest.json"),
+                }
             self.discovery_mode = DiscoveryMode(
                 task_pool=self.task_pool,
                 observer=self.runtime_observer,
@@ -386,6 +403,7 @@ class AceDaemon:
             self.finance_work_windows = FinanceWorkWindows(
                 str(self.base_dir / "06_RUNTIME" / "ace" / "data"),
                 observer=self.runtime_observer,
+                data_refresh=refresh_finance_live_data,
             )
             self.daily_shift = DailyShift(
                 self.task_pool,
@@ -1850,7 +1868,14 @@ class AceDaemon:
             self._log_error("daily_growth", str(e))
 
         try:
-            result["finance_work_window"] = self.finance_work_windows.build()
+            finance_heartbeat = self._start_stage_heartbeat("finance_work_window")
+            try:
+                result["finance_work_window"] = self.finance_work_windows.build()
+            finally:
+                self._stop_stage_heartbeat(finance_heartbeat)
+                self.heartbeat.status.pop("current_stage", None)
+                self.heartbeat.status.pop("stage_heartbeat_at", None)
+                self.heartbeat.beat(reason="stage:finance_work_window_complete")
         except Exception as e:
             self._log_error("finance_work_window", str(e))
 
