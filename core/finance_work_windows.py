@@ -59,7 +59,8 @@ class FinanceWorkWindows:
             and operations[key].get("production_sources")
             and operations[key].get("has_independent_cross_validation") is True
         }
-        if admitted == required:
+        phase_two_status = matrix.get("phase_two_admission", {}).get("status")
+        if phase_two_status == "ADMITTED" and admitted == required:
             return "FULL_READY"
         if admitted:
             return "DEGRADED"

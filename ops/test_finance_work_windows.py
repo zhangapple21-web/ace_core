@@ -1,3 +1,4 @@
+import json
 from datetime import datetime
 
 from core.finance_work_windows import FinanceWorkWindows
@@ -18,6 +19,24 @@ def test_window_reports_research_only_when_data_is_degraded(tmp_path):
     assert report["task_created"] is False
     assert report["recommendation_allowed"] is False
     assert report["cognitive_workstreams"]
+
+
+def test_finance_status_requires_matrix_admission_before_full_ready(tmp_path):
+    evidence = tmp_path / "stock_data_evidence"
+    evidence.mkdir()
+    required = {
+        name: {
+            "production_sources": ["source_a", "source_b"],
+            "has_independent_cross_validation": True,
+        }
+        for name in ("quote", "daily_kline", "minute_kline_1m", "minute_kline_5m", "index")
+    }
+    (evidence / "A_SHARE_DATA_CAPABILITY_MATRIX.json").write_text(
+        json.dumps({"phase_two_admission": {"status": "NOT_ADMITTED", "core_operations": required}}),
+        encoding="utf-8",
+    )
+
+    assert FinanceWorkWindows(str(tmp_path))._finance_status() == "DEGRADED"
 
 
 def test_window_not_due_is_auditable_without_side_effects(tmp_path):

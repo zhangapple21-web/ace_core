@@ -1325,6 +1325,7 @@ def build_capability_matrix(
             production_eligible = (
                 candidate.evidence_status != "UNVERIFIED"
                 and candidate.production_role != "RESEARCH_ONLY"
+                and metrics.get("lineage_observable") is True
                 and metrics.get("availability", 0.0) >= 0.8
                 and metrics.get("field_completeness", 0.0) >= 0.8
                 and metrics.get("operation_coverage", {}).get(operation) == 1.0

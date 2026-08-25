@@ -415,6 +415,30 @@ def test_matrix_requires_per_operation_freshness_and_consistency():
     assert "pytdx" not in matrix["phase_two_admission"]["core_operations"]["quote"]["production_sources"]
 
 
+def test_matrix_requires_observable_lineage_for_production_admission():
+    metrics = {
+        "availability": 1.0,
+        "field_completeness": 1.0,
+        "coverage": 1.0,
+        "consistency": 1.0,
+        "lineage_observable": False,
+        "operation_coverage": {"quote": 1.0},
+        "operation_quality": {
+            "quote": {
+                "availability": 1.0,
+                "coverage": 1.0,
+                "field_completeness": 1.0,
+                "freshness": 1.0,
+                "consistency": 1.0,
+            }
+        },
+    }
+
+    matrix = build_capability_matrix(candidate_registry(), {"summary": {"sources": {"pytdx": metrics}}})
+
+    assert "pytdx" not in matrix["phase_two_admission"]["core_operations"]["quote"]["production_sources"]
+
+
 def test_stock_data_runtime_bypass_is_observability_only():
     findings = audit_stock_data_paths(Path(__file__).resolve().parent.parent)
 
