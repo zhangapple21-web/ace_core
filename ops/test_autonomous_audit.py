@@ -186,6 +186,46 @@ def test_missing_runtime_is_not_ready_and_backlog_growth_is_anomaly(tmp_path):
     assert report["recommended_action"]["code"] == "resolve_task_starvation"
 
 
+def test_fairness_reports_unclaimed_service_debt_without_relabeling_starvation(tmp_path):
+    paths = audit_paths(tmp_path)
+    now = datetime.now()
+    write_task(paths["task_pool"], task(
+        "old-unclaimed",
+        priority="medium",
+        creator="file_scanner",
+        created_at=(now - timedelta(hours=48)).isoformat(),
+        last_claimed_at="",
+    ))
+    write_task(paths["task_pool"], task(
+        "new-unclaimed",
+        priority="high",
+        creator="observation_to_task",
+        created_at=(now - timedelta(hours=2)).isoformat(),
+        last_claimed_at="",
+    ))
+    write_task(paths["task_pool"], task(
+        "claimed-rework",
+        priority="medium",
+        creator="file_scanner",
+        created_at=(now - timedelta(hours=72)).isoformat(),
+        last_claimed_at=(now - timedelta(hours=1)).isoformat(),
+    ))
+
+    report = AutonomousAudit(paths, now=now).collect()
+
+    assert report["fairness"]["starved_count"] == 0
+    debt = report["fairness"]["unclaimed_service_debt"]
+    assert debt["count"] == 2
+    assert debt["claimed_pending_count"] == 1
+    assert debt["age_hours"] == {"oldest": 48.0, "median": 25.0, "p95": 48.0}
+    assert debt["by_source"] == {"file_scanner": 1, "observation_to_task": 1}
+    assert debt["by_priority"] == {"high": 1, "medium": 1}
+    assert [item["task_id"] for item in debt["oldest_tasks"]] == [
+        "RQ-old-unclaimed",
+        "RQ-new-unclaimed",
+    ]
+
+
 def test_run_writes_reports_and_preserves_runtime_sources(tmp_path):
     paths = audit_paths(tmp_path)
     write_json(paths["heartbeat"], {"status": "alive", "last_beat": datetime.now().isoformat(), "pid": 1})

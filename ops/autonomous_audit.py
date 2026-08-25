@@ -1,6 +1,8 @@
 import json
+import math
 import os
 import shutil
+import statistics
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -151,6 +153,8 @@ class AutonomousAudit:
 
     def _summarize_fairness(self, tasks):
         starved = []
+        unclaimed = []
+        claimed_pending_count = 0
         for record in tasks:
             if record.get("status") != "pending":
                 continue
@@ -158,10 +162,52 @@ class AutonomousAudit:
             if created is None:
                 continue
             age_days = (self.now - created).total_seconds() / 86400
+            if record.get("last_claimed_at"):
+                claimed_pending_count += 1
+            else:
+                unclaimed.append({
+                    "task_id": record.get("task_id"),
+                    "priority": record.get("priority"),
+                    "source": record.get("creator") or "unknown",
+                    "age_hours": max(0.0, age_days * 24),
+                })
             threshold = 7 if record.get("priority") in {"critical", "high"} else 14
             if age_days >= threshold:
                 starved.append({"task_id": record.get("task_id"), "priority": record.get("priority"), "age_days": round(age_days, 2)})
-        return {"starved_count": len(starved), "starved_tasks": starved}
+        ages = sorted(item["age_hours"] for item in unclaimed)
+        by_source = {}
+        by_priority = {}
+        for item in unclaimed:
+            by_source[item["source"]] = by_source.get(item["source"], 0) + 1
+            priority = item["priority"] or "unknown"
+            by_priority[priority] = by_priority.get(priority, 0) + 1
+        age_summary = {"oldest": None, "median": None, "p95": None}
+        if ages:
+            p95_index = max(0, math.ceil(len(ages) * 0.95) - 1)
+            age_summary = {
+                "oldest": round(ages[-1], 2),
+                "median": round(float(statistics.median(ages)), 2),
+                "p95": round(ages[p95_index], 2),
+            }
+        oldest_tasks = sorted(
+            unclaimed,
+            key=lambda item: (-item["age_hours"], str(item["task_id"])),
+        )[:10]
+        for item in oldest_tasks:
+            item["age_hours"] = round(item["age_hours"], 2)
+        return {
+            "starved_count": len(starved),
+            "starved_tasks": starved,
+            "unclaimed_service_debt": {
+                "count": len(unclaimed),
+                "claimed_pending_count": claimed_pending_count,
+                "age_hours": age_summary,
+                "by_source": dict(sorted(by_source.items())),
+                "by_priority": dict(sorted(by_priority.items())),
+                "oldest_tasks": oldest_tasks,
+                "interpretation": "service debt is observable; it is not by itself proof of selector failure",
+            },
+        }
 
     def _summarize_model_calls(self, tasks):
         result = {
