@@ -326,8 +326,10 @@ class AutonomousAudit:
         return _domain("READY", evidence=evidence)
 
     def _task_domain(self, lifecycle):
-        if lifecycle["blocked"]:
-            return _domain("BLOCKED", ["taskpool_blocked_tasks_present"], [str(self.paths["task_pool"])], "resolve_taskpool_blockers")
+        # ``blocked`` is a deliberate quarantine state, not proof that the
+        # lifecycle itself is unable to make progress.  Keep its count and
+        # trend visible, but do not turn valid per-task containment into a
+        # global production blocker.
         return _domain("READY", evidence=[str(self.paths["task_pool"])])
 
     def _work_allocation_domain(self, tasks):

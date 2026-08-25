@@ -158,6 +158,25 @@ def test_readonly_report_exposes_each_required_observation_domain(tmp_path):
     assert report["domains"]["risk"]["state"] == "NOT_READY"
 
 
+def test_quarantined_blocked_tasks_do_not_block_taskpool_health(tmp_path):
+    paths = audit_paths(tmp_path)
+    write_task(paths["task_pool"], task(
+        "waiting-for-new-evidence",
+        status="blocked",
+        blocked_reason="waiting for independent external evidence",
+    ))
+
+    report = AutonomousAudit(paths).collect()
+
+    assert report["task_lifecycle"]["blocked"] == 1
+    assert report["domains"]["task_lifecycle"] == {
+        "state": "READY",
+        "reasons": [],
+        "evidence": [str(paths["task_pool"])],
+        "recommended_action": "continue_observation",
+    }
+
+
 def test_missing_runtime_is_not_ready_and_backlog_growth_is_anomaly(tmp_path):
     paths = audit_paths(tmp_path)
     old = (datetime.now() - timedelta(days=8)).isoformat()
