@@ -335,16 +335,28 @@ class DailyLearningLoop:
         for item in items:
             metadata = item.get("metadata", {})
             directness = metadata.get("directness", "derived")
-            if directness in {"repost", "search_result"}:
+            if (
+                directness in {"repost", "search_result"}
+                or metadata.get("lineage_observable") is False
+            ):
                 continue
             group = metadata.get("independence_group") or metadata.get("upstream_identity")
-            if group:
+            if group and group not in {"UNVERIFIED", "UNVERIFIED_AGGREGATE"}:
                 groups.add(group)
                 qualifying.append(group)
         return {
             "independent_count": len(groups),
             "independence_groups": sorted(groups),
             "qualifying_evidence_count": len(qualifying),
+            "excluded_lineage": [
+                item.get("metadata", {}).get("independence_group", "UNVERIFIED")
+                for item in items
+                if (
+                    item.get("metadata", {}).get("lineage_observable") is False
+                    or item.get("metadata", {}).get("independence_group")
+                    in {"UNVERIFIED", "UNVERIFIED_AGGREGATE"}
+                )
+            ],
             "excluded_directness": [
                 item.get("metadata", {}).get("directness", "derived")
                 for item in items

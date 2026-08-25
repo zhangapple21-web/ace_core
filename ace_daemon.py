@@ -1529,8 +1529,15 @@ class AceDaemon:
                 "metadata": {
                     "source_tier": "technical_primary",
                     "publisher": source,
-                    "upstream_identity": source,
-                    "independence_group": source,
+                    "upstream_identity": measured.get(
+                        "upstream_identity", "UNVERIFIED"
+                    ),
+                    "independence_group": measured.get(
+                        "independence_group", "UNVERIFIED"
+                    ),
+                    "lineage_observable": bool(
+                        measured.get("lineage_observable", False)
+                    ),
                     "directness": "primary",
                     "retrieval_method": "runtime_benchmark",
                     "cross_validation_source": "internal",

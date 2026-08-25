@@ -1202,8 +1202,8 @@ def test_daemon_daily_learning_adapts_independent_data_health_evidence():
             "path": str(Path(temp_dir) / "benchmark.json"),
             "summary": {
                 "sources": {
-                    "source_a": {"availability": 0.4, "field_completeness": 1.0, "coverage": 0.5, "consistency": 0.8},
-                    "source_b": {"availability": 0.5, "field_completeness": 0.7, "coverage": 1.0, "consistency": 0.6},
+                    "source_a": {"availability": 0.4, "field_completeness": 1.0, "coverage": 0.5, "consistency": 0.8, "upstream_identity": "Upstream A", "independence_group": "group_a", "lineage_observable": True},
+                    "source_b": {"availability": 0.5, "field_completeness": 0.7, "coverage": 1.0, "consistency": 0.6, "upstream_identity": "Upstream B", "independence_group": "group_b", "lineage_observable": True},
                 }
             },
         }
@@ -1234,7 +1234,7 @@ def test_daemon_daily_learning_adapts_independent_data_health_evidence():
         candidate, evidence = candidates[0]
         assert candidate.metadata["learning"]["required_evidence"]
         assert {item["source"] for item in evidence} == {"source_a", "source_b"}
-        assert {item["metadata"]["independence_group"] for item in evidence} == {"source_a", "source_b"}
+        assert {item["metadata"]["independence_group"] for item in evidence} == {"group_a", "group_b"}
         assert {item["source_ref"] for item in evidence} == {
             f"{health['path']}#source_a",
             f"{health['path']}#source_b",

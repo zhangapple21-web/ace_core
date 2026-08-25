@@ -136,3 +136,19 @@ def test_pre_expanded_scan_no_candidate_result_is_reassessed_only_once():
 
     assert DailyLearningLoop._is_legacy_blocked_result(legacy)
     assert not DailyLearningLoop._is_legacy_blocked_result(current)
+
+
+def test_source_independence_excludes_unobservable_and_unverified_lineage():
+    loop = DailyLearningLoop.__new__(DailyLearningLoop)
+    evidence = [
+        {"metadata": {"independence_group": "direct_a", "lineage_observable": True}},
+        {"metadata": {"independence_group": "direct_a", "lineage_observable": True}},
+        {"metadata": {"independence_group": "UNVERIFIED_AGGREGATE", "lineage_observable": False}},
+        {"metadata": {"independence_group": "UNVERIFIED", "lineage_observable": True}},
+    ]
+
+    result = loop._source_independence(evidence)
+
+    assert result["independent_count"] == 1
+    assert result["independence_groups"] == ["direct_a"]
+    assert result["qualifying_evidence_count"] == 2
