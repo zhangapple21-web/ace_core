@@ -1377,7 +1377,12 @@ class AceDaemon:
         temporary = lock_file.with_name(f"{lock_file.name}.{uuid.uuid4().hex}.tmp")
         try:
             with open(temporary, "w", encoding="utf-8") as handle:
-                json.dump({"pid": os.getpid(), "token": token, "created_at": time.time()}, handle)
+                json.dump({
+                    "pid": os.getpid(),
+                    "run_id": self.run_id,
+                    "token": token,
+                    "created_at": time.time(),
+                }, handle)
                 handle.flush()
                 os.fsync(handle.fileno())
             try:
@@ -1399,6 +1404,8 @@ class AceDaemon:
 
     def _acquire_daemon_lock(self) -> bool:
         lock_file = self.daemon_lock_file
+        if not self.run_id:
+            self.run_id = uuid.uuid4().hex
         token = f"{os.getpid()}:{time.time_ns()}"
         for _ in range(2):
             try:
@@ -2404,6 +2411,7 @@ class AceDaemon:
         - force: 每轮都强制运行
         - dry_run: 只看决策不执行
         """
+        self.run_id = uuid.uuid4().hex
         if not self._acquire_daemon_lock():
             return {
                 "iterations": 0,
@@ -2424,7 +2432,6 @@ class AceDaemon:
         total_tasks_executed = 0
         stop_reason = ""
         self._recover_stale_cycle()
-        self.run_id = uuid.uuid4().hex
         handlers = self._install_shutdown_handlers()
 
         try:

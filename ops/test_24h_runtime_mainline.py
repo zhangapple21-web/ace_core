@@ -104,6 +104,21 @@ def test_daemon_process_lock_excludes_second_daemon():
         second._release_daemon_lock()
 
 
+def test_daemon_lock_binds_the_current_run_identity():
+    from ace_daemon import AceDaemon
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        daemon = AceDaemon(Path(temp_dir), {})
+        daemon.run_id = "current-production-run"
+
+        assert daemon._acquire_daemon_lock()
+        try:
+            owner = json.loads(daemon.daemon_lock_file.read_text(encoding="utf-8"))
+            assert owner["run_id"] == "current-production-run"
+        finally:
+            daemon._release_daemon_lock()
+
+
 def test_daemon_lock_rechecks_incomplete_metadata_before_reclaiming(monkeypatch):
     from ace_daemon import AceDaemon
 

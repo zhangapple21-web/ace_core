@@ -396,9 +396,15 @@ def test_fairness_splits_pending_rework_by_hard_objection_and_retry_readiness(tm
 
 def test_run_writes_reports_and_preserves_runtime_sources(tmp_path):
     paths = audit_paths(tmp_path)
-    write_json(paths["heartbeat"], {"status": "alive", "last_beat": datetime.now().isoformat(), "pid": 1})
-    write_json(paths["daemon_state"], {"last_run": datetime.now().isoformat(), "cycle_progress": {"stage": "complete"}})
-    write_json(paths["daemon_lock"], {"pid": 1})
+    run_id = "run-under-audit"
+    write_json(paths["heartbeat"], {
+        "status": "alive", "last_beat": datetime.now().isoformat(), "pid": 1, "run_id": run_id,
+    })
+    write_json(paths["daemon_state"], {
+        "last_run": datetime.now().isoformat(), "pid": 1, "run_id": run_id,
+        "cycle_progress": {"stage": "complete"},
+    })
+    write_json(paths["daemon_lock"], {"pid": 1, "run_id": run_id})
     write_json(paths["heartbeat"].parent / "unrelated_runtime_state.json", {"unchanged": True})
     write_task(paths["task_pool"], task("pending"))
     for days in (91, 1):
@@ -422,3 +428,19 @@ def test_run_writes_reports_and_preserves_runtime_sources(tmp_path):
     old_date = (datetime.now() - timedelta(days=91)).date().isoformat()
     assert not (paths["audits"] / "history" / old_date).exists()
     assert (paths["audits"] / "history" / datetime.now().date().isoformat() / "daily_health.json").is_file()
+
+
+def test_runtime_domain_blocks_mismatched_lock_run_identity(tmp_path):
+    paths = audit_paths(tmp_path)
+    write_json(paths["heartbeat"], {
+        "status": "alive", "last_beat": datetime.now().isoformat(), "pid": 1, "run_id": "current-run",
+    })
+    write_json(paths["daemon_state"], {
+        "last_run": datetime.now().isoformat(), "pid": 1, "run_id": "current-run",
+    })
+    write_json(paths["daemon_lock"], {"pid": 1, "run_id": "other-run"})
+
+    runtime = AutonomousAudit(paths).collect()["domains"]["runtime"]
+
+    assert runtime["state"] == "BLOCKED"
+    assert runtime["reasons"] == ["daemon_lock_run_id_mismatch"]

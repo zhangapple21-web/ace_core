@@ -337,6 +337,15 @@ class AutonomousAudit:
             return _domain("NOT_READY", ["heartbeat_stale"], evidence, "inspect_daemon_runtime")
         if heartbeat.get("pid") != lock.get("pid"):
             return _domain("BLOCKED", ["daemon_lock_pid_mismatch"], evidence, "repair_daemon_lock_conflict")
+        run_id = heartbeat.get("run_id")
+        if not isinstance(run_id, str) or not run_id:
+            return _domain("BLOCKED", ["heartbeat_run_id_missing"], evidence, "repair_runtime_identity_evidence")
+        if state.get("pid") != heartbeat.get("pid"):
+            return _domain("BLOCKED", ["daemon_state_pid_mismatch"], evidence, "repair_runtime_identity_evidence")
+        if state.get("run_id") != run_id:
+            return _domain("BLOCKED", ["daemon_state_run_id_mismatch"], evidence, "repair_runtime_identity_evidence")
+        if lock.get("run_id") != run_id:
+            return _domain("BLOCKED", ["daemon_lock_run_id_mismatch"], evidence, "repair_runtime_identity_evidence")
         return _domain("READY", evidence=evidence)
 
     def _task_domain(self, lifecycle):
