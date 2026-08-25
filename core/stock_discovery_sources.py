@@ -147,6 +147,66 @@ class StockDiscoverySources:
             }},
         ))
 
+    def financial_cross_validation_candidates(self) -> List[DiscoveryCandidate]:
+        """Discover one strategic financial cross-check only from fresh evidence.
+
+        This is a research workload, not a recommendation generator.  The
+        strategic admission contract deliberately retains the existing three
+        independent-reference gate required for a 5.6 route.
+        """
+        health = load_latest_health(str(self.evidence_dir))
+        if not health.get("available"):
+            return []
+        completed_at = str(health.get("completed_at", ""))
+        if not completed_at.startswith(datetime.now(timezone.utc).date().isoformat()):
+            return []
+        sources = health.get("summary", {}).get("sources", {})
+        eligible = [
+            (name, metrics) for name, metrics in sorted(sources.items())
+            if isinstance(metrics, dict) and metrics.get("lineage_observable") is True
+            and float(metrics.get("availability", 0) or 0) > 0
+        ]
+        if len(eligible) < 3:
+            return []
+        evidence = [{
+            "source": name,
+            "source_ref": f"{health.get('path', 'stock_data_benchmark_latest')}#summary.sources.{name}",
+            "content": json.dumps(metrics, ensure_ascii=False, sort_keys=True),
+            "confidence": 0.8,
+            "author": "stock_data_benchmark",
+            "source_location": health.get("path", "stock_data_benchmark_latest"),
+            "metadata": {"upstream_identity": name, "lineage_observable": True},
+        } for name, metrics in eligible[:3]]
+        signature = {"date": completed_at[:10], "refs": [item["source_ref"] for item in evidence]}
+        return self._candidate_for_incident("financial_cross_validation", signature, lambda recovery_count: DiscoveryCandidate(
+            fingerprint=self._fingerprint("financial_cross_validation", {"signature": signature, "recovery_count": recovery_count}),
+            title="金融状态与技术特征交叉验证",
+            description="基于当日多源行情基准证据，交叉验证市场状态、技术特征和失效条件；不输出交易建议。",
+            reason="真实 benchmark 已提供至少三个可观察血缘来源，值得由战略模型进行独立反证与研究复核。",
+            objective="比较多源市场状态是否一致，识别技术特征假设的支持证据、反证和下一交易日验证条件。",
+            completion_criteria="形成市场状态结论、反证、失效条件和下一验证窗口，不生成 BUY/SELL。",
+            verification_method="对照三条独立来源证据、技术特征快照和下一观察窗口结果，由 Validator 复核。",
+            priority="medium",
+            task_type="strategic",
+            severity="medium",
+            candidate_source="financial_research",
+            metadata={"autonomous_maintenance": {
+                "why_now": "Fresh benchmark evidence contains three lineage-observable sources.",
+                "evidence": evidence,
+                "expected_result": "A market-state comparison with counter-evidence and invalidating conditions.",
+                "verification_method": "Validator compares the three source refs and next observation window.",
+                "risk": "Research only; no recommendation, risk approval, or Telegram delivery.",
+                "estimated_scope": "One bounded cross-validation study.",
+                "model_work_contract": {
+                    "value_level": "L2_STRATEGIC",
+                    "alternatives": ["sources agree", "sources diverge"],
+                    "impact_scope": "financial research workload only",
+                    "counter_evidence": "Any freshness, coverage, or cross-source inconsistency invalidates the hypothesis.",
+                    "decision_verification": "Recheck at the next observation window against the same lineage refs.",
+                },
+            }},
+        ))
+
     def advisor_status_candidates(self) -> List[DiscoveryCandidate]:
         if not self.advisor_workspace:
             self._record("荐股工作区未被发现，未执行生产检查。", {"advisor_workspace": "missing"}, "low", "health")
@@ -224,4 +284,9 @@ class StockDiscoverySources:
         ))
 
     def candidate_sources(self) -> List:
-        return [self.data_health_candidates, self.advisor_status_candidates, self.lexicon_gap_candidates]
+        return [
+            self.financial_cross_validation_candidates,
+            self.data_health_candidates,
+            self.advisor_status_candidates,
+            self.lexicon_gap_candidates,
+        ]
