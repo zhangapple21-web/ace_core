@@ -113,6 +113,26 @@ class DailyGrowthLedger:
             "p95": round(float(ordered[p95_index]), 3),
         }
 
+    def _finance_status(self) -> str:
+        matrix_path = self.report_path.parent / "stock_data_evidence" / "A_SHARE_DATA_CAPABILITY_MATRIX.json"
+        try:
+            matrix = json.loads(matrix_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return "NOT_READY"
+        operations = matrix.get("phase_two_admission", {}).get("core_operations", {})
+        required = {"quote", "daily_kline", "minute_kline_1m", "minute_kline_5m", "index"}
+        admitted = {
+            name for name in required
+            if isinstance(operations.get(name), dict)
+            and operations[name].get("production_sources")
+            and operations[name].get("has_independent_cross_validation") is True
+        }
+        if admitted == required:
+            return "FULL_READY"
+        if admitted:
+            return "DEGRADED"
+        return "RESEARCH_ONLY"
+
     @staticmethod
     def _window_status(
         observations: int,
@@ -167,6 +187,7 @@ class DailyGrowthLedger:
         production_calls = []
         tasks_created_today = []
         model_work_by_type = {"reasoning": 0, "strategic": 0, "execution": 0}
+        financial_research_work = 0
         served_model_work = 0
         service_latencies = []
         for task in self.task_pool.list_tasks(limit=10000):
@@ -175,6 +196,11 @@ class DailyGrowthLedger:
             is_model = isinstance(admission, dict) and admission.get("eligible") is True
             if str(task.created_at).startswith(date):
                 tasks_created_today.append(task)
+                task_text = " ".join(str(value).lower() for value in (
+                    task.title, task.creator, *(task.tags or []),
+                ))
+                if any(marker in task_text for marker in ("financial", "a_share", "stock", "金融", "a股")):
+                    financial_research_work += 1
                 classification = self._model_classification(task)
                 if classification:
                     model_work_by_type[classification] += 1
@@ -265,6 +291,7 @@ class DailyGrowthLedger:
             "reasoning_work": model_work_by_type["reasoning"],
             "strategic_work": model_work_by_type["strategic"],
             "execution_work": model_work_by_type["execution"],
+            "financial_research_work": financial_research_work,
             "deferred_work": deferred_work,
             "rejected_work": rejected_work,
             "eligible_but_unserved": eligible_but_unserved,
@@ -311,6 +338,7 @@ class DailyGrowthLedger:
             "production_model_calls": production_calls,
             "health_probes_excluded": True,
             "no_growth_quota": True,
+            "finance_status": self._finance_status(),
             "cognitive_work_supply": cognitive_work_supply,
             "cognitive_work_supply_history": history,
         }

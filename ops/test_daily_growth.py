@@ -53,6 +53,27 @@ def test_daily_growth_counts_archives_and_production_but_not_health_probes():
         assert report["health_probes_excluded"] is True
 
 
+def test_daily_growth_records_degraded_finance_without_creating_work(tmp_path):
+    data = tmp_path / "data"
+    evidence = data / "stock_data_evidence"
+    evidence.mkdir(parents=True)
+    (evidence / "A_SHARE_DATA_CAPABILITY_MATRIX.json").write_text(json.dumps({
+        "phase_two_admission": {"status": "NOT_ADMITTED", "core_operations": {
+            "daily_kline": {"production_sources": ["a", "b"], "has_independent_cross_validation": True},
+            "minute_kline_5m": {"production_sources": ["a", "b"], "has_independent_cross_validation": True},
+            "quote": {"production_sources": []},
+            "minute_kline_1m": {"production_sources": []},
+            "index": {"production_sources": []},
+        }}
+    }), encoding="utf-8")
+    pool = TaskPool(str(data / "task_pool"))
+
+    report = DailyGrowthLedger(pool, str(data / "daily_growth_latest.json")).build("2026-08-25")
+
+    assert report["finance_status"] == "DEGRADED"
+    assert report["cognitive_work_supply"]["financial_research_work"] == 0
+
+
 def test_daily_growth_allows_a_zero_growth_day():
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
