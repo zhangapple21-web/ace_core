@@ -102,3 +102,26 @@ def test_legacy_blocked_result_is_reassessed_once_with_candidate_visibility(tmp_
 
     assert mode == "internal"
     assert selection[0].title == "Recovered internal candidate"
+
+
+def test_all_pre_fix_blocked_result_shapes_are_reassessed():
+    for outcome, discovery_evaluated in (
+        ("NO_VALID_LEARNING_TARGET", False),
+        ("LEARNING_CANDIDATE_DEFERRED", True),
+    ):
+        assert DailyLearningLoop._is_legacy_blocked_result({
+            "outcome": outcome,
+            "reason": "learning_blocked_by_priority_task",
+            "discovery_evaluated": discovery_evaluated,
+            "no_side_effects": True,
+        })
+
+    assert not DailyLearningLoop._is_legacy_blocked_result({
+        "outcome": "observe",
+        "reason": "insufficient_independent_evidence",
+    })
+    assert not DailyLearningLoop._is_legacy_blocked_result({
+        "outcome": "LEARNING_CANDIDATE_DEFERRED",
+        "reason": "learning_blocked_by_priority_task",
+        "task_id": "RQ-existing",
+    })

@@ -62,12 +62,7 @@ class DailyLearningLoop:
 
     def run(self, run_date: str) -> Dict[str, Any]:
         existing = self._load_result(run_date)
-        legacy_blocked_result = (
-            isinstance(existing, dict)
-            and existing.get("outcome") == "NO_VALID_LEARNING_TARGET"
-            and existing.get("reason") == "learning_blocked_by_priority_task"
-            and existing.get("discovery_evaluated") is not True
-        )
+        legacy_blocked_result = self._is_legacy_blocked_result(existing)
         if existing is not None and not legacy_blocked_result:
             return existing
 
@@ -196,6 +191,19 @@ class DailyLearningLoop:
         }
         self._record_daily_result(run_date, result)
         return result
+
+    @staticmethod
+    def _is_legacy_blocked_result(existing: Any) -> bool:
+        if not isinstance(existing, dict):
+            return False
+        if existing.get("reason") != "learning_blocked_by_priority_task":
+            return False
+        if existing.get("task_id"):
+            return False
+        return existing.get("outcome") in {
+            "NO_VALID_LEARNING_TARGET",
+            "LEARNING_CANDIDATE_DEFERRED",
+        }
 
     def _blocking_task(self) -> Optional[Any]:
         for status in self.blocking_statuses:
