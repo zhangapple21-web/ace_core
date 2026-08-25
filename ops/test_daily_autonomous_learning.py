@@ -202,10 +202,10 @@ def main():
             priority="high",
         )
         high_result = high_loop.run("2026-08-27")
-        assert high_result["outcome"] == "NO_VALID_LEARNING_TARGET"
-        assert high_result["reason"] == "learning_blocked_by_priority_task"
+        assert high_result["outcome"] == "adopt"
+        assert high_result["execution_deferred_by"]
         assert high_loop.task_pool.list_tasks(status="pending", priority="high")
-        assert len(high_loop.task_pool.list_tasks()) == 1
+        assert len(high_loop.task_pool.list_tasks()) == 2
 
         lifecycle = loop.lifecycle_manager.get("day-1-runtime-gap")
         assert lifecycle is not None

@@ -1003,7 +1003,7 @@ def test_backlog_watermark_suppresses_only_low_value_producers():
         assert policy["backlog_protected"]
         assert not policy["file_scanner"]
         assert not policy["observer"]
-        assert not policy["discovery"]
+        assert policy["discovery"]
         assert not policy["task_creator"]
         assert policy["daily_learning"]
         assert policy["dependency_recovery"]

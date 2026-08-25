@@ -1628,7 +1628,10 @@ class AceDaemon:
             "backlog_protected": backlog_protected,
             "file_scanner": not backlog_protected,
             "observer": not backlog_protected,
-            "discovery": not backlog_protected,
+            # Discovery is an observation responsibility, not execution
+            # throughput.  A LOCAL backlog must not suppress the bounded,
+            # date-idempotent ModelWorkDiscovery window.
+            "discovery": True,
             "task_creator": not backlog_protected,
             "priority_producers": True,
             "low_value_production": not backlog_protected,

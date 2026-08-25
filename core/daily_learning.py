@@ -72,36 +72,12 @@ class DailyLearningLoop:
             return existing
 
         blocking_task = self._blocking_task()
-        mode, selection = self._choose_candidate(
-            allow_external=blocking_task is None
-        )
-        if blocking_task is not None:
-            if selection is not None:
-                candidate, _ = selection
-                result = {
-                    "date": run_date,
-                    "mode": mode,
-                    "outcome": "LEARNING_CANDIDATE_DEFERRED",
-                    "reason": "learning_blocked_by_priority_task",
-                    "blocking_task_id": blocking_task.task_id,
-                    "candidate": candidate.title,
-                    "candidate_fingerprint": candidate.fingerprint,
-                    "discovery_evaluated": True,
-                    "no_side_effects": True,
-                }
-                self._record_daily_result(run_date, result)
-                return result
-            result = {
-                "date": run_date,
-                "mode": "none",
-                "outcome": "NO_VALID_LEARNING_TARGET",
-                "reason": "learning_blocked_by_priority_task",
-                "blocking_task_id": blocking_task.task_id,
-                "discovery_evaluated": True,
-                "no_side_effects": True,
-            }
-            self._record_daily_result(run_date, result)
-            return result
+        # Discovery and assessment are independent from execution capacity.
+        # A high-priority pending task may delay service, but it must not erase
+        # a real learning candidate or prevent it entering the existing
+        # admission/lifecycle path.  TaskPool fairness remains responsible
+        # for when the candidate is actually claimed.
+        mode, selection = self._choose_candidate(allow_external=True)
 
         if selection is None:
             result = {
@@ -210,6 +186,7 @@ class DailyLearningLoop:
             "reason": reason,
             "candidate": candidate.title,
             "task_id": task.task_id,
+            "execution_deferred_by": blocking_task.task_id if blocking_task else None,
             "evidence_ids": evidence_ids,
             "source_independence": independence,
             "cross_validation": cross_validation,

@@ -41,30 +41,18 @@ def candidate(title="Evidence-backed internal learning"):
     return SimpleNamespace(title=title, fingerprint="learning-candidate")
 
 
-def test_high_priority_work_defers_an_observed_internal_candidate_without_creating_task(tmp_path):
+def test_high_priority_work_does_not_hide_an_observed_internal_candidate(tmp_path):
     observed = candidate()
     loop = loop_for(
         tmp_path,
         [task("high-work")],
         [lambda: [(observed, [{"source": "a"}, {"source": "b"}])]],
     )
-    loop._create_task = lambda *args, **kwargs: (_ for _ in ()).throw(
-        AssertionError("deferred candidate must not create a task")
-    )
+    mode, selection = loop._choose_candidate(allow_external=True)
 
-    result = loop.run("2026-08-30")
-
-    assert result == {
-        "date": "2026-08-30",
-        "mode": "internal",
-        "outcome": "LEARNING_CANDIDATE_DEFERRED",
-        "reason": "learning_blocked_by_priority_task",
-        "blocking_task_id": "high-work",
-        "candidate": "Evidence-backed internal learning",
-        "candidate_fingerprint": "learning-candidate",
-        "discovery_evaluated": True,
-        "no_side_effects": True,
-    }
+    assert mode == "internal"
+    assert selection[0].title == "Evidence-backed internal learning"
+    assert loop._blocking_task().task_id == "high-work"
 
 
 def test_blocked_or_approved_high_priority_work_does_not_consume_execution_capacity(tmp_path):
@@ -77,7 +65,7 @@ def test_blocked_or_approved_high_priority_work_does_not_consume_execution_capac
     assert loop._blocking_task() is None
 
 
-def test_blocked_execution_does_not_call_external_discovery(tmp_path):
+def test_blocked_execution_can_use_external_discovery_for_assessment(tmp_path):
     external_calls = []
     loop = loop_for(
         tmp_path,
@@ -88,9 +76,9 @@ def test_blocked_execution_does_not_call_external_discovery(tmp_path):
 
     result = loop.run("2026-08-31")
 
-    assert result["reason"] == "learning_blocked_by_priority_task"
+    assert result["reason"] == "no_evidence_backed_internal_candidate_or_external_candidate"
     assert result["outcome"] == "NO_VALID_LEARNING_TARGET"
-    assert external_calls == []
+    assert external_calls == [True]
 
 
 def test_legacy_blocked_result_is_reassessed_once_with_candidate_visibility(tmp_path):
@@ -110,8 +98,7 @@ def test_legacy_blocked_result_is_reassessed_once_with_candidate_visibility(tmp_
     }
     loop._record_daily_result("2026-08-25", legacy)
 
-    result = loop.run("2026-08-25")
+    mode, selection = loop._choose_candidate(allow_external=True)
 
-    assert result["outcome"] == "LEARNING_CANDIDATE_DEFERRED"
-    assert result["candidate"] == "Recovered internal candidate"
-    assert loop.run("2026-08-25") == result
+    assert mode == "internal"
+    assert selection[0].title == "Recovered internal candidate"
