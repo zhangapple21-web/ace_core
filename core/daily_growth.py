@@ -307,6 +307,7 @@ class DailyGrowthLedger:
         archived = []
         model_tasks = set()
         production_calls = []
+        attempted_production_calls = []
         tasks_created_today = []
         model_work_by_type = {"reasoning": 0, "strategic": 0, "execution": 0}
         financial_research_work = 0
@@ -349,16 +350,18 @@ class DailyGrowthLedger:
                     and isinstance(trace, dict)
                     and str(trace.get("at", "")).startswith(date)
                     and trace.get("api_called") is True
-                    and trace.get("api_result") == "success"
                 ):
-                    production_calls.append({
+                    call = {
                         "task_id": task.task_id,
                         "task_type": trace.get("task_type"),
                         "provider": trace.get("provider"),
                         "selected_model": trace.get("selected_model"),
                         "response_sha256": trace.get("response_sha256"),
                         "at": trace.get("at"),
-                    })
+                    }
+                    attempted_production_calls.append(call)
+                    if trace.get("api_result") == "success":
+                        production_calls.append(call)
         accepted_work = len(tasks_created_today)
         admitted_model_tasks_today = sum(model_work_by_type.values())
         accepted_model_work = admitted_model_tasks_today
@@ -457,8 +460,16 @@ class DailyGrowthLedger:
             "archived_task_ids": sorted(set(archived)),
             "archived_model_task_count": len(model_tasks),
             "archived_model_task_ids": sorted(model_tasks),
+            "attempted_production_model_call_count": len(attempted_production_calls),
+            "successful_production_model_call_count": len(production_calls),
             "production_model_call_count": len(production_calls),
             "production_model_calls": production_calls,
+            "production_model_call_semantics": {
+                "scope": "calendar_day_admitted_model_execution_traces",
+                "attempted_predicate": "eligible admission + trace date + api_called=true",
+                "successful_predicate": "attempted predicate + api_result=success",
+                "legacy_production_model_call_count": "successful_production_model_call_count",
+            },
             "model_performance_ledger": self._model_performance(all_tasks, date),
             "health_probes_excluded": True,
             "no_growth_quota": True,

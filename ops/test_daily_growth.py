@@ -50,7 +50,41 @@ def test_daily_growth_counts_archives_and_production_but_not_health_probes():
         assert report["archived_task_count"] == 1
         assert report["archived_model_task_count"] == 1
         assert report["production_model_call_count"] == 1
+        assert report["attempted_production_model_call_count"] == 1
+        assert report["successful_production_model_call_count"] == 1
+        assert report["production_model_call_semantics"]["scope"] == "calendar_day_admitted_model_execution_traces"
         assert report["health_probes_excluded"] is True
+
+
+def test_daily_growth_separates_attempted_and_successful_production_calls():
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        pool = TaskPool(str(root / "task_pool"))
+        task = pool.create_task("Failed model execution", creator="test")
+        task.outputs["model_task_admission"] = {
+            "eligible": True,
+            "classification": "reasoning",
+        }
+        task.outputs["model_execution"] = [
+            {
+                "api_called": True,
+                "api_result": "success",
+                "at": "2026-08-25T23:59:00",
+            },
+            {
+                "api_called": True,
+                "api_result": "failed",
+                "at": "2026-08-26T09:00:00",
+            },
+        ]
+        pool.update_task(task)
+
+        report = DailyGrowthLedger(pool, str(root / "daily_growth.json")).build("2026-08-26")
+
+        assert report["attempted_production_model_call_count"] == 1
+        assert report["successful_production_model_call_count"] == 0
+        assert report["production_model_call_count"] == 0  # legacy successful alias
+        assert report["model_performance_ledger"]["production_call_count"] == 1
 
 
 def test_daily_growth_builds_shadow_model_performance_from_production_traces():

@@ -1423,6 +1423,21 @@ def test_daemon_uses_fragment_status_breakdown_for_backlog_observation():
         assert fragment_observation["system_state"]["archaeologized"] == 4
 
 
+def test_repository_sync_status_distinguishes_disabled_sync_from_missing_mine_seed():
+    from ace_daemon import AceDaemon
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        parent = Path(temp_dir)
+        base = parent / "ace_core"
+        base.mkdir()
+        (parent / "mine-seed" / ".git").mkdir(parents=True)
+
+        daemon = AceDaemon(base, {})
+
+        assert daemon.mine_seed_path == str(parent / "mine-seed")
+        assert daemon._repository_sync_status() == "sync_disabled_but_mine_seed_found"
+
+
 def test_daemon_records_periodic_backup_manifest():
     from ace_daemon import AceDaemon
 
@@ -1642,6 +1657,8 @@ def test_model_pipeline_metrics_count_only_admitted_reasoning_execution_traces()
         metrics = daemon._model_pipeline_metrics()
 
         assert admitted.task_id
+        assert metrics["scope"] == "retained_admitted_task_traces"
+        assert metrics["retained_admitted_trace_count"] == 1
         assert metrics["reasoning_tasks_created"] == 1
         assert metrics["production_task_calls"] == 1
         assert metrics["providers"] == {"provider-a": 1}

@@ -466,6 +466,16 @@ class AceDaemon:
 
         return candidates[0] if candidates else None
 
+    def _repository_sync_status(self) -> str:
+        """Describe export/sync readiness without conflating it with discovery."""
+        if not self.mine_seed_path:
+            return "mine_seed_not_found"
+        if not self.repository_sync_enabled:
+            return "sync_disabled_but_mine_seed_found"
+        if not self.exporter or not self.syncer:
+            return "sync_initialization_failed"
+        return "sync_ready"
+
     def _find_eco_layer(self) -> List[str]:
         """自动寻找 eco_layer.json — 不硬编码路径"""
         candidates = []
@@ -776,8 +786,12 @@ class AceDaemon:
 
     def _model_pipeline_metrics(self) -> Dict[str, Any]:
         metrics = {
+            "scope": "retained_admitted_task_traces",
+            "api_call_predicate": "none",
+            "success_predicate": "none",
             "reasoning_tasks_created": 0,
             "model_tasks_created": 0,
+            "retained_admitted_trace_count": 0,
             "task_types": {},
             "production_task_calls": 0,
             "providers": {},
@@ -807,6 +821,7 @@ class AceDaemon:
             for trace in traces:
                 if not isinstance(trace, dict):
                     continue
+                metrics["retained_admitted_trace_count"] += 1
                 metrics["production_task_calls"] += 1
                 provider = trace.get("provider")
                 if isinstance(provider, str) and provider:
@@ -2999,12 +3014,12 @@ class AceDaemon:
 
         stage_started = self._start_cycle_stage("repository_sync")
         print("【导出考古产物到 mine-seed】")
-        sync_result = {}
+        sync_result = {"status": self._repository_sync_status()}
         if self.repository_sync_enabled and self.exporter and self.syncer:
             try:
-                sync_result = self.export_artifacts_and_sync(
+                sync_result.update(self.export_artifacts_and_sync(
                     decision, action_results, total_concepts_added, total_indexed
-                )
+                ))
                 if sync_result.get("exported"):
                     export_detail = sync_result.get("details", {}).get("export", {})
                     print(f"  导出文件: {export_detail.get('total_files', 0)} 个")
@@ -3022,7 +3037,14 @@ class AceDaemon:
                 self._log_error("export_sync_main", str(e))
                 print(f"  [错误] {e}")
         else:
-            print("  (未找到 mine-seed 仓库，跳过导出同步)")
+            if sync_result["status"] == "sync_disabled_but_mine_seed_found":
+                print("  (mine-seed 已发现；导出同步未启用，跳过写入)")
+            elif sync_result["status"] == "mine_seed_not_found":
+                print("  (未找到 mine-seed 仓库，跳过导出同步)")
+            else:
+                print("  (mine-seed 已发现，但导出同步初始化失败，跳过写入)")
+        self.state.setdefault("cycle_progress", {})["repository_sync"] = sync_result
+        self._save_state()
         print()
         self._complete_cycle_stage("repository_sync", stage_started)
 
