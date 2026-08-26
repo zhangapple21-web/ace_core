@@ -94,7 +94,14 @@ class FinanceWorkWindows:
         ):
             prior_window = daily_windows.get(due, {})
             if isinstance(prior_window, dict) and prior_window.get("data_refresh_attempted"):
-                refresh_result = {"status": "already_attempted_for_window"}
+                # Later daemon cycles must not hide the real bounded refresh
+                # behind a bare dedup marker.  Preserve its auditable result
+                # so the Daily Shift can answer what was actually observed
+                # without issuing a second market-data request.
+                refresh_result = {
+                    "status": "already_attempted_for_window",
+                    "initial_result": prior_window.get("data_refresh"),
+                }
             else:
                 try:
                     value = self.data_refresh()

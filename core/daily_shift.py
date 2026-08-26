@@ -26,6 +26,12 @@ class DailyShift:
         state = self._read(Path(daemon_state_path)) if daemon_state_path else {}
         growth = self._read(self.data_dir / "daily_growth_latest.json")
         window = self._read(self.data_dir / "finance_work_windows_latest.json")
+        refresh = window.get("data_refresh") if isinstance(window.get("data_refresh"), dict) else {}
+        if refresh.get("status") == "already_attempted_for_window":
+            initial = refresh.get("initial_result")
+            refresh_evidence = initial if isinstance(initial, dict) else refresh
+        else:
+            refresh_evidence = refresh
         counts = {}
         transitions = {key: 0 for key in ("claim", "research", "validation", "approved", "archived")}
         for task in self.task_pool.list_tasks(limit=10000):
@@ -59,6 +65,11 @@ class DailyShift:
                 "stop_reason": state.get("cycle_progress", {}).get("stop_reason"),
             },
             "windows": window,
+            "finance_live_refresh": {
+                key: refresh_evidence.get(key)
+                for key in ("status", "completed_at", "sources", "operations", "refreshed_probe_count")
+                if key in refresh_evidence
+            },
             "hourly_service": self._read(self.data_dir / "hourly_task_service_latest.json"),
             "completed_work": {
                 "outcome": growth.get("outcome"),
@@ -86,6 +97,7 @@ class DailyShift:
                 f"- Daemon: PID `{report['daemon']['pid']}`, run `{report['daemon']['run_id']}`",
                 f"- Cycle: `{report['daemon']['cycle_status']}` / `{report['daemon']['stop_reason']}`",
                 f"- Finance: `{report['finance_status']}`; window `{window.get('window_status', 'UNKNOWN')}`",
+                f"- Live data refresh: `{report['finance_live_refresh'].get('status', 'NOT_RUN')}`; operations `{report['finance_live_refresh'].get('operations', [])}`; sources `{report['finance_live_refresh'].get('sources', [])}`",
                 f"- Completed: `{report['completed_work']['archived_task_count']}` archived tasks, `{report['completed_work']['attempted_production_model_call_count']}` attempted / `{report['completed_work']['successful_production_model_call_count']}` successful production model calls",
                 f"- Model performance: `{report['model_performance'].get('group_count', 0)}` groups, shadow-only `{report['model_performance'].get('shadow_only', True)}`",
                 f"- TaskPool transitions: `{transitions}`",

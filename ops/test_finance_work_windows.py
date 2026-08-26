@@ -77,6 +77,7 @@ def test_open_validation_refreshes_live_evidence_once_per_window(tmp_path):
     assert len(calls) == 1
     assert first["data_refresh"]["status"] == "completed"
     assert second["data_refresh"]["status"] == "already_attempted_for_window"
+    assert second["data_refresh"]["initial_result"] == first["data_refresh"]
 
 
 def test_finance_windows_do_not_refresh_market_data_outside_open_validation(tmp_path):
