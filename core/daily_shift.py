@@ -26,6 +26,7 @@ class DailyShift:
         state = self._read(Path(daemon_state_path)) if daemon_state_path else {}
         growth = self._read(self.data_dir / "daily_growth_latest.json")
         window = self._read(self.data_dir / "finance_work_windows_latest.json")
+        sentiment = self._read(self.data_dir / "public_sentiment_latest.json")
         refresh = window.get("data_refresh") if isinstance(window.get("data_refresh"), dict) else {}
         if refresh.get("status") == "already_attempted_for_window":
             initial = refresh.get("initial_result")
@@ -83,6 +84,11 @@ class DailyShift:
             "model_performance": growth.get("model_performance_ledger", {}),
             "taskpool": {"status_counts": counts, "lifecycle_transitions": transitions},
             "finance_status": growth.get("finance_status", window.get("finance_status", "UNKNOWN")),
+            "public_sentiment": {
+                key: sentiment.get(key)
+                for key in ("status", "window", "independent_content_source_count", "admission_ready", "reason")
+                if key in sentiment
+            },
             "advisor_status": "BLOCKED",
             "risk_status": "NOT_READY",
             "owner_tg": "OFF",
@@ -97,6 +103,7 @@ class DailyShift:
                 f"- Daemon: PID `{report['daemon']['pid']}`, run `{report['daemon']['run_id']}`",
                 f"- Cycle: `{report['daemon']['cycle_status']}` / `{report['daemon']['stop_reason']}`",
                 f"- Finance: `{report['finance_status']}`; window `{window.get('window_status', 'UNKNOWN')}`",
+                f"- Public sentiment: `{report['public_sentiment'].get('status', 'NOT_OBSERVED')}`; independent content sources `{report['public_sentiment'].get('independent_content_source_count', 0)}`; admission-ready `{report['public_sentiment'].get('admission_ready', False)}`",
                 f"- Live data refresh: `{report['finance_live_refresh'].get('status', 'NOT_RUN')}`; operations `{report['finance_live_refresh'].get('operations', [])}`; sources `{report['finance_live_refresh'].get('sources', [])}`",
                 f"- Completed: `{report['completed_work']['archived_task_count']}` archived tasks, `{report['completed_work']['attempted_production_model_call_count']}` attempted / `{report['completed_work']['successful_production_model_call_count']}` successful production model calls",
                 f"- Model performance: `{report['model_performance'].get('group_count', 0)}` groups, shadow-only `{report['model_performance'].get('shadow_only', True)}`",

@@ -31,11 +31,13 @@ class FinanceWorkWindows:
         timezone_name: str = "Asia/Shanghai",
         observer=None,
         data_refresh=None,
+        public_sentiment=None,
     ):
         self.data_dir = Path(data_dir)
         self.timezone = ZoneInfo(timezone_name)
         self.observer = observer
         self.data_refresh = data_refresh
+        self.public_sentiment = public_sentiment
         self.matrix_path = self.data_dir / "stock_data_evidence" / "A_SHARE_DATA_CAPABILITY_MATRIX.json"
         self.benchmark_path = self.data_dir / "stock_data_evidence" / "stock_data_benchmark_latest.json"
         self.report_path = self.data_dir / "finance_work_windows_latest.json"
@@ -110,6 +112,7 @@ class FinanceWorkWindows:
             else {}
         )
         refresh_result = None
+        sentiment_result = None
         if (
             due == "open_validation"
             and assess_market_state(observed_at).state == MarketState.TRADING
@@ -140,6 +143,17 @@ class FinanceWorkWindows:
                         "reason": type(exc).__name__,
                     }
 
+        if due and self.public_sentiment is not None:
+            prior_window = daily_windows.get(due, {})
+            prior_sentiment = prior_window.get("public_sentiment") if isinstance(prior_window, dict) else None
+            if isinstance(prior_sentiment, dict):
+                sentiment_result = {"status": "already_observed_for_window", "initial_result": prior_sentiment}
+            else:
+                try:
+                    sentiment_result = self.public_sentiment.collect(window=due, observed_at=observed_at)
+                except Exception as exc:
+                    sentiment_result = {"status": "unavailable", "reason": type(exc).__name__}
+
         status = self._finance_status()
         if due is None:
             window_status = "WINDOW_NOT_DUE"
@@ -154,6 +168,7 @@ class FinanceWorkWindows:
             "evidence_refs": self._evidence_refs(),
             "data_refresh_attempted": refresh_result is not None,
             "data_refresh": refresh_result,
+            "public_sentiment": sentiment_result,
         }
         if due:
             daily_windows[due] = window_record
@@ -170,6 +185,7 @@ class FinanceWorkWindows:
             "recommendation_allowed": False,
             "evidence_refs": self._evidence_refs(),
             "data_refresh": refresh_result,
+            "public_sentiment": sentiment_result,
             "daily_windows": daily_windows,
             "research_question": (
                 "在当前数据准入状态下，哪些金融观察仍可进行，哪些字段缺口阻断实时验证？"

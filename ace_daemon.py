@@ -55,6 +55,7 @@ from core.discovery import DiscoveryCandidate, DiscoveryMode
 from core.model_work_discovery import ModelWorkDiscovery
 from core.daily_growth import DailyGrowthLedger
 from core.finance_work_windows import FinanceWorkWindows
+from core.public_sentiment_observation import PublicSentimentObservation
 from core.daily_shift import DailyShift
 from core.hourly_service import HourlyTaskService
 from core.daily_learning import DAILY_LEARNING_OBSERVATION_LIMIT, DailyLearningLoop
@@ -404,6 +405,9 @@ class AceDaemon:
                 str(self.base_dir / "06_RUNTIME" / "ace" / "data"),
                 observer=self.runtime_observer,
                 data_refresh=refresh_finance_live_data,
+                public_sentiment=PublicSentimentObservation(
+                    str(self.base_dir / "06_RUNTIME" / "ace" / "data")
+                ),
             )
             self.daily_shift = DailyShift(
                 self.task_pool,

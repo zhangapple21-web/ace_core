@@ -56,6 +56,7 @@ class StockDiscoverySources:
         paths = {
             "benchmark": self.evidence_dir / "stock_data_benchmark_latest.json",
             "lexicon": self.base_dir / "06_RUNTIME" / "ace" / "data" / "memory" / "lexicon.json",
+            "public_sentiment": self.base_dir / "06_RUNTIME" / "ace" / "data" / "public_sentiment_latest.json",
         }
         if self.advisor_workspace:
             paths.update({
@@ -298,6 +299,90 @@ class StockDiscoverySources:
             },
         ))
 
+    def public_sentiment_candidates(self) -> List[DiscoveryCandidate]:
+        """Admit public-sentiment research only from retained independent snapshots.
+
+        The collector itself may run in any existing finance window.  This
+        source never turns an unavailable or thin landing page into a task;
+        it merely makes sufficiently evidenced public observations available
+        to the existing strategic-admission contract.
+        """
+        report_path = self.base_dir / "06_RUNTIME" / "ace" / "data" / "public_sentiment_latest.json"
+        report = self._read_json(report_path)
+        if report.get("date") != datetime.now().date().isoformat() or report.get("admission_ready") is not True:
+            return []
+        evidence = []
+        groups = set()
+        for item in report.get("sources", []):
+            if not isinstance(item, dict):
+                continue
+            group = str(item.get("independence_group", "")).strip()
+            source_ref = item.get("source_ref")
+            if (
+                item.get("status") != "observed"
+                or item.get("lineage_observable") is not True
+                or item.get("headline_count", 0) < 3
+                or not group
+                or group in groups
+                or not isinstance(source_ref, str)
+                or not source_ref
+            ):
+                continue
+            groups.add(group)
+            evidence.append({
+                "source": item.get("name"),
+                "source_ref": source_ref,
+                "content": json.dumps({
+                    "title": item.get("title"),
+                    "description": item.get("description"),
+                    "headlines": item.get("headlines", []),
+                    "retrieved_at": item.get("retrieved_at"),
+                    "content_hash": item.get("content_hash"),
+                }, ensure_ascii=False, sort_keys=True),
+                "confidence": 0.65,
+                "author": item.get("upstream_identity"),
+                "source_location": item.get("url"),
+                "metadata": {
+                    "upstream_identity": item.get("upstream_identity"),
+                    "independence_group": group,
+                    "lineage_observable": True,
+                    "retrieved_at": item.get("retrieved_at"),
+                    "content_hash": item.get("content_hash"),
+                },
+            })
+        if len(evidence) < 3:
+            return []
+        signature = {"date": report["date"], "window": report.get("window"), "refs": [item["source_ref"] for item in evidence]}
+        return self._candidate_for_incident("public_finance_sentiment", signature, lambda recovery_count: DiscoveryCandidate(
+            fingerprint=self._fingerprint("public_finance_sentiment", {"signature": signature, "recovery_count": recovery_count}),
+            title="公开金融舆情的跨来源研究复核",
+            description="以三条独立、可复核的公开内容快照比较市场叙事的一致与分歧；不输出个股推荐或交易指令。",
+            reason="当前观察窗口保留了三条独立上游的可追溯公开内容，值得进行有限的叙事与反证研究。",
+            objective="识别来源间共同主题、分歧、证据缺口和下一观察窗口应验证的问题。",
+            completion_criteria="形成带来源引用的研究摘要、反证、失效条件和下一次验证问题；不生成 BUY/SELL。",
+            verification_method="Validator 对照每条本地快照的哈希、抓取时间和原始内容，检查结论是否超出证据范围。",
+            priority="medium",
+            task_type="strategic",
+            severity="medium",
+            candidate_source="public_finance_sentiment",
+            metadata={"model_work_contract": {
+                "value_level": "L2_STRATEGIC",
+                "alternatives": ["sources converge on a bounded theme", "sources diverge or content is insufficient"],
+                "impact_scope": "financial research workload only; no advice, delivery, or data-admission change",
+                "counter_evidence": "A missing snapshot, content hash mismatch, stale capture, or claim absent from the cited snapshot invalidates the conclusion.",
+                "decision_verification": "At the next finance observation window, compare the retained source refs and record whether the stated theme persisted or diverged.",
+            }, "autonomous_maintenance": {
+                "why_now": "Three independent public-source snapshots contain observable content in the current finance window.",
+                "evidence": evidence,
+                "priority": "medium",
+                "expected_result": "A bounded, source-cited market-narrative research brief with counter-evidence.",
+                "verification_method": "Validator checks snapshot hashes, timestamps, source boundaries, and claim-to-text grounding.",
+                "risk": "Research only; no recommendation, risk approval, or Telegram delivery.",
+                "source": "public_sentiment_observation",
+                "estimated_scope": "One cross-source public-content comparison.",
+            }},
+        ))
+
     def advisor_status_candidates(self) -> List[DiscoveryCandidate]:
         if not self.advisor_workspace:
             self._record("荐股工作区未被发现，未执行生产检查。", {"advisor_workspace": "missing"}, "low", "health")
@@ -377,6 +462,7 @@ class StockDiscoverySources:
     def candidate_sources(self) -> List:
         return [
             self.financial_cross_validation_candidates,
+            self.public_sentiment_candidates,
             self.data_health_candidates,
             self.advisor_status_candidates,
             self.lexicon_gap_candidates,
