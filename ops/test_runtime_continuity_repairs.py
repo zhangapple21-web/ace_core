@@ -46,6 +46,31 @@ def test_observation_converter_formats_gap_and_error_state_into_tasks():
         assert any("4" in task.hypothesis for task in tasks)
 
 
+def test_recurring_identical_lexicon_gap_does_not_expand_taskpool():
+    from core.observation import RuntimeObserver
+    from core.observation_to_task import ObservationToTaskConverter
+    from core.task import TaskPool
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        root = Path(temp_dir)
+        observer = RuntimeObserver(str(root / "observations"))
+        pool = TaskPool(str(root / "task_pool"))
+        state = {
+            "gap_categories": ["stock", "industry", "concept"],
+            "total_concepts": 12,
+            "uncategorized": 0,
+        }
+        observer.record("first persistent lexicon gap", state, severity="medium", source="runtime", category="gap")
+        first = ObservationToTaskConverter(observer, pool).convert()
+        observer.record("same persistent lexicon gap", {**state, "total_concepts": 13}, severity="medium", source="runtime", category="gap")
+        second = ObservationToTaskConverter(observer, pool).convert()
+
+        assert first["tasks_created"] == 1
+        assert second["tasks_created"] == 0
+        assert second["details"][0]["status"] == "semantic_duplicate"
+        assert len(pool.list_tasks(status="pending", limit=10)) == 1
+
+
 def test_concept_miner_has_builtin_regex_tokenizer():
     from core.concept_miner import ConceptMiner
 

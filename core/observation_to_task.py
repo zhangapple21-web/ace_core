@@ -330,6 +330,39 @@ class ObservationToTaskConverter:
         except Exception:
             pass
 
+    @staticmethod
+    def _lexicon_gap_signature(state: Dict[str, Any]) -> tuple:
+        """Return the stable problem identity, excluding per-cycle counters."""
+        gaps = state.get("gap_categories", [])
+        if not isinstance(gaps, list):
+            return ()
+        return tuple(sorted({str(gap).strip() for gap in gaps if str(gap).strip()}))
+
+    def _open_semantic_duplicate(self, rule: ConversionRule, state: Dict[str, Any]):
+        """Find a still-open task for a recurring invariant observation.
+
+        Runtime observations have unique IDs on every cycle. For a persistent
+        lexicon gap that does not mean new work was discovered: the work is
+        the same until its gap-category set materially changes or the earlier
+        task closes.
+        """
+        if rule.name != "lexicon_category_gap":
+            return None
+        signature = self._lexicon_gap_signature(state)
+        if not signature:
+            return None
+        for status in ("pending", "active", "review", "approved"):
+            for task in self.task_pool.list_tasks(status=status, limit=10000):
+                outputs = task.outputs if isinstance(task.outputs, dict) else {}
+                if outputs.get("conversion_rule") != rule.name:
+                    continue
+                admission = outputs.get("admission", {})
+                evidence = admission.get("evidence", []) if isinstance(admission, dict) else []
+                previous_state = evidence[0].get("system_state", {}) if evidence and isinstance(evidence[0], dict) else {}
+                if self._lexicon_gap_signature(previous_state) == signature:
+                    return task
+        return None
+
     def _convert_discovery_candidate(
         self,
         obs: Observation,
@@ -505,6 +538,18 @@ class ObservationToTaskConverter:
                     result["skipped"] += 1
                     break
                 state = obs.system_state if isinstance(obs.system_state, dict) else {}
+                duplicate = self._open_semantic_duplicate(rule, state)
+                if duplicate is not None:
+                    self.observer.mark_consumed(obs.obs_id, duplicate.task_id)
+                    self._triggered_cache.add(obs.obs_id)
+                    result["skipped"] += 1
+                    result["details"].append({
+                        "obs_id": obs.obs_id,
+                        "rule": rule.name,
+                        "status": "semantic_duplicate",
+                        "existing_task_id": duplicate.task_id,
+                    })
+                    break
                 gap_categories_raw = state.get("gap_categories")
                 gap_categories = gap_categories_raw if isinstance(gap_categories_raw, list) else []
                 format_args = {
