@@ -50,6 +50,36 @@ class RetryingProvider:
         }
 
 
+class RecordingProvider:
+    def __init__(self, model):
+        self.model = model
+        self.calls = 0
+
+    def chat(self, **kwargs):
+        self.calls += 1
+        return {
+            "success": True,
+            "content": "provider result",
+            "model": self.model,
+            "usage": {"total_tokens": 1},
+            "latency_ms": 1,
+        }
+
+
+class ProviderStatusWatchdog:
+    def __init__(self, healthy):
+        self.healthy = set(healthy)
+
+    def is_healthy(self, provider_name):
+        return provider_name in self.healthy
+
+    def record_success(self, provider_name, latency_ms):
+        pass
+
+    def record_failure(self, provider_name, error):
+        pass
+
+
 def _wire_fake_miner_pool(daemon, miner_pool):
     daemon.miner_pool = miner_pool
     daemon.researcher.llm_router = miner_pool
@@ -395,6 +425,31 @@ def test_execution_does_not_retry_non_retryable_provider_error():
     assert result["success"] is False
     assert provider.calls == 1
     assert result["attempts"][0]["retryable"] is False
+
+
+def test_miner_pool_skips_provider_watchdog_offline_candidate_before_call():
+    """Persisted OFFLINE health must constrain a fresh daemon's router."""
+    from core.miner_pool.miner_pool import MinerPool
+
+    github = RecordingProvider("gpt-4o")
+    nim = RecordingProvider("nvidia/nemotron-3-ultra-550b-a55b")
+    pool = MinerPool(coze_assets_path="C:/nonexistent-assets")
+    pool._initialized = True
+    pool._providers = {"github_models": github, "nim": nim}
+    pool._router.set_available_providers(["github_models", "nim"])
+    pool._watchdog = ProviderStatusWatchdog({"nim"})
+
+    result = pool.chat(
+        task_type="reasoning",
+        messages=[{"role": "user", "content": "route around known offline provider"}],
+        max_retries=1,
+    )
+
+    assert result["success"] is True
+    assert result["provider"] == "nim"
+    assert result["tried_models"] == ["nim:nvidia/nemotron-3-ultra-550b-a55b"]
+    assert github.calls == 0
+    assert nim.calls == 1
 
 
 class UsageProvider:

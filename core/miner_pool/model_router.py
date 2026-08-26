@@ -74,6 +74,7 @@ class ModelRouter:
         task_type: str,
         strategy: str = "",
         exclude_models: List[str] = None,
+        exclude_providers: List[str] = None,
     ) -> Optional[ModelSpec]:
         """
         为任务选择最合适的模型
@@ -82,6 +83,7 @@ class ModelRouter:
             task_type: 任务类型
             strategy: 覆盖默认策略
             exclude_models: 排除的模型列表（重试时用）
+            exclude_providers: 运行时健康状态禁止使用的提供商
 
         Returns:
             ModelSpec 或 None
@@ -91,6 +93,7 @@ class ModelRouter:
             strategy = profile.get("strategy", "quality_first")
 
         exclude = set(exclude_models or [])
+        excluded_providers = set(exclude_providers or [])
 
         # 按策略排序候选模型
         candidates = self._get_sorted_candidates(profile, strategy)
@@ -99,6 +102,8 @@ class ModelRouter:
         for model_id in candidates:
             spec = ModelSpec.from_id(model_id)
             if spec.provider not in self._available_providers:
+                continue
+            if spec.provider in excluded_providers:
                 continue
             if model_id in exclude:
                 continue

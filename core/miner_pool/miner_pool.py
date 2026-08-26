@@ -298,9 +298,23 @@ class MinerPool:
 
         for attempt in range(max_retries):
             if spec is None:
+                # A fresh daemon loads persisted watchdog state, while the
+                # router's per-model in-memory health starts empty.  Keep the
+                # router independent from the watchdog, but never select a
+                # provider which the watchdog already considers unavailable.
+                # DEGRADED intentionally remains eligible: its existing
+                # watchdog contract permits bounded fallback attempts.
+                excluded_providers = []
+                if self._watchdog:
+                    excluded_providers = [
+                        provider_name
+                        for provider_name in self._providers
+                        if not self._watchdog.is_healthy(provider_name)
+                    ]
                 spec = self._router.select_model(
                     task_type=task_type,
                     exclude_models=tried,
+                    exclude_providers=excluded_providers,
                 )
                 if not spec:
                     last_error = last_error or "no available models for this task type"
