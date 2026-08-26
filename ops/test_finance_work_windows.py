@@ -80,6 +80,40 @@ def test_open_validation_refreshes_live_evidence_once_per_window(tmp_path):
     assert second["data_refresh"]["initial_result"] == first["data_refresh"]
 
 
+def test_open_validation_recovers_legacy_refresh_summary_from_benchmark(tmp_path):
+    evidence = tmp_path / "stock_data_evidence"
+    evidence.mkdir()
+    (evidence / "stock_data_benchmark_latest.json").write_text(json.dumps({
+        "completed_at": "2026-08-25T01:35:00+00:00",
+        "incremental_refresh": {
+            "kind": "trading_window_live_operations",
+            "sources": ["pytdx", "sina"],
+            "operations": ["quote", "minute_kline_1m", "index"],
+            "refreshed_probe_count": 30,
+        },
+    }), encoding="utf-8")
+    windows = FinanceWorkWindows(str(tmp_path), data_refresh=lambda: (_ for _ in ()).throw(AssertionError("must not refresh twice")))
+    windows.report_path.write_text(json.dumps({
+        "date": "2026-08-25",
+        "daily_windows": {"open_validation": {
+            "data_refresh_attempted": True,
+            "data_refresh": {"status": "already_attempted_for_window"},
+        }},
+    }), encoding="utf-8")
+
+    report = windows.build(datetime(2026, 8, 25, 9, 40, tzinfo=windows.timezone))
+
+    assert report["data_refresh"]["status"] == "already_attempted_for_window"
+    assert report["data_refresh"]["initial_result"] == {
+        "status": "completed",
+        "completed_at": "2026-08-25T01:35:00+00:00",
+        "sources": ["pytdx", "sina"],
+        "operations": ["quote", "minute_kline_1m", "index"],
+        "refreshed_probe_count": 30,
+        "evidence_recovered": True,
+    }
+
+
 def test_finance_windows_do_not_refresh_market_data_outside_open_validation(tmp_path):
     calls = []
     windows = FinanceWorkWindows(str(tmp_path))

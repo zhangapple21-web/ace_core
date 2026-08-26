@@ -46,6 +46,29 @@ class FinanceWorkWindows:
             if path.exists()
         ]
 
+    def _retained_refresh_result(self) -> Optional[Dict[str, Any]]:
+        """Recover a prior window's bounded refresh summary from its evidence.
+
+        Early reports retained only ``already_attempted_for_window``.  The
+        benchmark remains the source of truth, so this is an evidence summary,
+        not a new request and not a claim that data passed admission.
+        """
+        try:
+            benchmark = json.loads(self.benchmark_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return None
+        refresh = benchmark.get("incremental_refresh", {})
+        if not isinstance(refresh, dict) or refresh.get("kind") != "trading_window_live_operations":
+            return None
+        return {
+            "status": "completed",
+            "completed_at": benchmark.get("completed_at") or benchmark.get("summary", {}).get("generated_at"),
+            "sources": list(refresh.get("sources", [])),
+            "operations": list(refresh.get("operations", [])),
+            "refreshed_probe_count": refresh.get("refreshed_probe_count", 0),
+            "evidence_recovered": True,
+        }
+
     def _finance_status(self) -> str:
         try:
             matrix = json.loads(self.matrix_path.read_text(encoding="utf-8"))
@@ -100,7 +123,12 @@ class FinanceWorkWindows:
                 # without issuing a second market-data request.
                 refresh_result = {
                     "status": "already_attempted_for_window",
-                    "initial_result": prior_window.get("data_refresh"),
+                    "initial_result": (
+                        self._retained_refresh_result()
+                        if not isinstance(prior_window.get("data_refresh"), dict)
+                        or prior_window["data_refresh"].get("status") == "already_attempted_for_window"
+                        else prior_window["data_refresh"]
+                    ),
                 }
             else:
                 try:
