@@ -1321,6 +1321,38 @@ def test_observation_signature_suppresses_persistent_duplicates_and_allows_recur
         assert observer.get_stats()["total"] == 2
 
 
+def test_observation_dedup_key_ignores_changing_telemetry_but_detects_new_incident():
+    from core.observation import RuntimeObserver
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        observer = RuntimeObserver(temp_dir)
+        first = observer.record(
+            description="近24小时出现 20 个系统错误。",
+            system_state={"recent_error_count": 20, "error_samples": ["researcher: renewal_failed"]},
+            source="daemon_loop",
+            category="anomaly",
+            dedup_key={"error_groups": ["researcher: renewal_failed"], "latest_error_at": "2026-08-25T08:42:31"},
+        )
+        same_incident = observer.record(
+            description="近24小时出现 18 个系统错误。",
+            system_state={"recent_error_count": 18, "error_samples": ["researcher: renewal_failed"]},
+            source="daemon_loop",
+            category="anomaly",
+            dedup_key={"error_groups": ["researcher: renewal_failed"], "latest_error_at": "2026-08-25T08:42:31"},
+        )
+        new_incident = observer.record(
+            description="近24小时出现 19 个系统错误。",
+            system_state={"recent_error_count": 19, "error_samples": ["researcher: renewal_failed"]},
+            source="daemon_loop",
+            category="anomaly",
+            dedup_key={"error_groups": ["researcher: renewal_failed"], "latest_error_at": "2026-08-26T08:42:31"},
+        )
+
+        assert same_incident.obs_id == first.obs_id
+        assert new_incident.obs_id != first.obs_id
+        assert observer.get_stats()["total"] == 2
+
+
 def test_backup_restores_required_runtime_assets_to_isolated_target():
     from ops.backup_data import backup_runtime, restore_backup
 

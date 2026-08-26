@@ -93,6 +93,32 @@ class RuntimeObserver:
         )
         return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
+    @staticmethod
+    def _dedup_signature(
+        dedup_key: Any,
+        source: str,
+        category: str,
+    ) -> str:
+        """Build an idempotence identity for observations with volatile telemetry.
+
+        Some observations carry rolling counters or samples for diagnosis.  Those
+        fields remain useful telemetry, but must not turn the same incident into
+        a new Work item on every loop.  Callers opt in with an incident identity
+        that changes only when the underlying incident changes.
+        """
+        payload = json.dumps(
+            {
+                "category": category,
+                "dedup_key": dedup_key,
+                "source": source,
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            default=str,
+        )
+        return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
     def _find_observation(self, obs_id: str) -> Optional[Observation]:
         for observation in reversed(self._observations):
             if observation.obs_id == obs_id:
@@ -118,8 +144,13 @@ class RuntimeObserver:
         source: str = "daemon_loop",
         category: str = "anomaly",
         auto_generated: bool = True,
+        dedup_key: Optional[Any] = None,
     ) -> Observation:
-        signature = self._signature(description, system_state, source, category)
+        signature = (
+            self._dedup_signature(dedup_key, source, category)
+            if dedup_key is not None
+            else self._signature(description, system_state, source, category)
+        )
         existing = self._signature_index.get(signature, {})
         if existing.get("status") == "active":
             active = self._find_observation(existing.get("obs_id", ""))

@@ -2111,22 +2111,30 @@ class AceDaemon:
                     recent_errors.append({
                         "module": e.get("module", "?"),
                         "error": e.get("error", "?")[:60],
+                        "occurred_at": t.isoformat(),
                     })
             except Exception:
                 pass
 
         if len(recent_errors) > 3:
+            error_groups = sorted({
+                f"{e['module']}: {e['error']}" for e in recent_errors
+            })
+            latest_error_at = max(e["occurred_at"] for e in recent_errors)
             self.runtime_observer.record(
                 description=f"近24小时出现 {len(recent_errors)} 个系统错误。",
                 system_state={
                     "recent_error_count": len(recent_errors),
-                    "error_samples": [
-                        f"{e['module']}: {e['error']}" for e in recent_errors[:5]
-                    ],
+                    "error_samples": error_groups[:5],
+                    "latest_error_at": latest_error_at,
                 },
                 severity="high",
                 source="daemon_loop",
                 category="anomaly",
+                dedup_key={
+                    "error_groups": error_groups,
+                    "latest_error_at": latest_error_at,
+                },
             )
             obs_count += 1
 
