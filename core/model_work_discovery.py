@@ -161,10 +161,19 @@ class ModelWorkDiscovery:
             "rejection_reasons": dict(conversion.get("rejection_reasons", {})),
         }
         if funnel["candidate_count"] == 0 and isinstance(report.get("admission_funnel"), dict):
+            observation_id = report.get("discovery", {}).get("observation_id")
+            # A missing identity means that discovery observed no candidate.
+            # It cannot be used as a join key: legacy/local tasks commonly
+            # have no source_obs_id either, and None == None would recover an
+            # unrelated historical task into a zero-candidate report.
+            if not observation_id:
+                report["admission_funnel"] = funnel
+                report["admission_recorded_at"] = datetime.now(timezone.utc).isoformat()
+                self._write_report(report)
+                return funnel
             previous = dict(report["admission_funnel"])
             if previous.get("candidate_count", 0) > 0:
                 return previous
-            observation_id = report.get("discovery", {}).get("observation_id")
             for task in self.discovery.task_pool.list_tasks(limit=10000):
                 outputs = task.outputs if isinstance(task.outputs, dict) else {}
                 if outputs.get("source_obs_id") != observation_id:

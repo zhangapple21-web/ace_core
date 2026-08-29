@@ -297,6 +297,36 @@ def test_admission_funnel_is_persisted_without_changing_decisions():
         assert recovered["recovered_from_task_id"]
 
 
+def test_zero_candidate_with_null_observation_id_does_not_recover_unrelated_task():
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        pool, observer, coordinator = _runtime(root, lambda: [])
+        report = coordinator.discover_daily(day="2026-08-25")
+        assert report["outcome"] == "NO_VALID_MODEL_WORK"
+        assert report["discovery"]["observation_id"] is None
+
+        pool.create_task(
+            title="Unrelated legacy task without source observation identity",
+            creator="test",
+            outputs={
+                "model_task_admission": {
+                    "eligible": False,
+                    "classification": "reasoning",
+                }
+            },
+        )
+        persisted = coordinator._read_report()
+        persisted["admission_funnel"] = {"candidate_count": 0}
+        coordinator._write_report(persisted)
+
+        funnel = coordinator.record_admission({"candidate_count": 0})
+
+        assert funnel["candidate_count"] == 0
+        assert funnel["eligible_count"] == 0
+        assert funnel["reasoning_tasks_created"] == 0
+        assert "recovered_from_task_id" not in funnel
+
+
 def test_one_evidence_reference_is_observed_but_not_admitted():
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)

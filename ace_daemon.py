@@ -59,6 +59,8 @@ from core.public_sentiment_observation import PublicSentimentObservation
 from core.daily_shift import DailyShift
 from core.hourly_service import HourlyTaskService
 from core.daily_learning import DAILY_LEARNING_OBSERVATION_LIMIT, DailyLearningLoop
+from core.open_source_learning import OpenSourceLearningBacklog
+from core.external_learning_discovery import ExternalLearningDiscovery
 from core.autonomous_work_allocation import AutonomousWorkAllocation
 from core.stock_discovery_sources import StockDiscoverySources
 from core.stock_data_reliability import StockDataBenchmark
@@ -71,6 +73,7 @@ from core.repository_curator import RepositoryCurator
 from core.similarity_engine import SimilarityEngine
 from core.value_scorer import ValueScorer
 from core.sync_manager import SyncManager
+from core.provider_usage_reconciliation import refresh_latest_usage_report, safe_source_error_status
 
 from core.experience_deposition import ExperienceDeposition
 
@@ -106,6 +109,32 @@ class AceDaemon:
         self.config = config
         self.repository_sync_enabled = bool(
             config.get("runtime", {}).get("allow_repository_sync", False)
+        )
+        # External material is untrusted input.  Keep the legacy WebScout
+        # disabled until an operator explicitly opts in; the governed local
+        # archaeology and curated learning backlog remain available by default.
+        self.external_learning_enabled = bool(
+            config.get("runtime", {}).get("allow_external_learning", False)
+        )
+        # The old WebScout entrypoint owns its own task and knowledge writes.
+        # It is not part of the governed DailyLearning contract and therefore
+        # needs a distinct, deliberately exceptional opt-in.
+        self.legacy_web_scout_enabled = bool(
+            config.get("runtime", {}).get("allow_legacy_web_scout", False)
+        )
+        # This telemetry reader is opt-in so isolated unit/runtime tests never
+        # reach into an operator Downloads folder.  Production may enable it,
+        # but it remains read-only and cannot influence routing or finance.
+        self.provider_usage_reconciliation_enabled = bool(
+            config.get("runtime", {}).get("provider_usage_reconciliation_enabled", False)
+        )
+        learning_config = config.get("runtime", {}).get("external_learning", {})
+        self.external_learning_discovery = (
+            ExternalLearningDiscovery(
+                sources=learning_config.get("sources") if isinstance(learning_config, dict) else None,
+            )
+            if self.external_learning_enabled
+            else None
         )
         data_cfg = config.get("data", {})
         self.data_dir = (base_dir / data_cfg.get("memory_cache_dir", "06_RUNTIME/ace/data/memory")).resolve()
@@ -275,12 +304,14 @@ class AceDaemon:
                 eco_parser=self.eco_parser,
                 slice_clusterer=self.slice_clusterer,
                 llm_router=self.miner_pool,
+                run_id_supplier=lambda: self.run_id,
             )
             self.validator = Validator(
                 task_pool=self.task_pool,
                 lexicon=self.lexicon,
                 memory_index=self.memory_index,
                 llm_router=self.miner_pool,
+                run_id_supplier=lambda: self.run_id,
             )
             self.archivist = Archivist(
                 task_pool=self.task_pool,
@@ -297,10 +328,11 @@ class AceDaemon:
             self.experience_deposition = ExperienceDeposition(str(knowledge_dir))
             fragment_dir = self.base_dir / "02_FRAGMENT_INDEX"
             self.fragment_index = FragmentIndex(str(fragment_dir))
-            scan_roots = [
-                self.base_dir.parent,
-                Path.home() / "Downloads",
-            ]
+            # Automatic production archaeology stays inside the authorized
+            # workspace that contains this ACE checkout.  Operator folders
+            # such as Downloads require a separate, explicitly scoped input;
+            # they must never become daemon scan roots by default.
+            scan_roots = [self.base_dir.parent]
             self.file_scanner = FileScanner(
                 task_pool=self.task_pool,
                 fragment_index=self.fragment_index,
@@ -325,15 +357,16 @@ class AceDaemon:
                 state_file=local_arch_state,
             )
 
-            # 初始化外网学习模块
-            web_scout_state = self.base_dir / "06_RUNTIME" / "ace" / "data" / "web_scout_state.json"
-            self.web_scout = WebScout(
-                base_dir=self.base_dir,
-                lexicon=self.lexicon,
-                memory_index=self.memory_index,
-                task_pool=self.task_pool,
-                state_file=web_scout_state,
-            )
+            # 外网内容只能由显式配置启用；默认不让不可信网页进入学习链。
+            if self.legacy_web_scout_enabled:
+                web_scout_state = self.base_dir / "06_RUNTIME" / "ace" / "data" / "web_scout_state.json"
+                self.web_scout = WebScout(
+                    base_dir=self.base_dir,
+                    lexicon=self.lexicon,
+                    memory_index=self.memory_index,
+                    task_pool=self.task_pool,
+                    state_file=web_scout_state,
+                )
 
             # 初始化技能生成器
             skills_dir = self.base_dir / "09_KNOWLEDGE" / "skills"
@@ -417,6 +450,7 @@ class AceDaemon:
                 str(self.base_dir / "06_RUNTIME" / "ace" / "data")
             )
             governance_dir = self.base_dir / "08_GOVERNANCE"
+            self.open_source_learning_backlog = OpenSourceLearningBacklog(self.task_pool)
             self.daily_learning = DailyLearningLoop(
                 data_dir=str(self.data_dir / "daily_learning"),
                 discovery=self.discovery_mode,
@@ -425,7 +459,8 @@ class AceDaemon:
                 evidence_registry=EvidenceRegistry(str(governance_dir)),
                 knowledge_governor=Governor(str(self.base_dir / "06_RUNTIME" / "ace")),
                 lifecycle_manager=LifecycleManager(str(governance_dir / "daily_learning_lifecycle.jsonl")),
-                internal_candidate_sources=[self._daily_learning_candidates],
+                internal_candidate_sources=[self._daily_learning_candidates, self.open_source_learning_backlog.candidates],
+                external_discoverer=(self.external_learning_discovery.discover if self.external_learning_discovery else None),
             )
             self.lifecycle_lock_file = task_pool_dir / ".lifecycle.lock"
         except Exception as e:
@@ -575,7 +610,23 @@ class AceDaemon:
             json.dump(self.state, f, ensure_ascii=False, indent=2)
             f.flush()
             os.fsync(f.fileno())
-        os.replace(temporary, self.state_file)
+        # Windows scanners/readers may briefly hold the destination without
+        # changing its contents.  A single sharing denial must not kill the
+        # sole daemon after the complete temporary state has been fsynced.
+        # Retry only the known transient access/share errors; every other I/O
+        # failure still propagates, and the temp file remains recoverable when
+        # the bounded retry budget is exhausted.
+        for attempt in range(5):
+            try:
+                os.replace(temporary, self.state_file)
+                return
+            except OSError as error:
+                transient = isinstance(error, PermissionError) or getattr(
+                    error, "winerror", None
+                ) in {5, 32, 33}
+                if not transient or attempt == 4:
+                    raise
+                time.sleep(0.05 * (2 ** attempt))
 
     def _begin_cycle_progress(self) -> None:
         self.state["cycle_progress"] = {
@@ -1059,7 +1110,21 @@ class AceDaemon:
         for cat, count in lex_stats.get("categories", {}).items():
             if count <= 2:
                 weak_categories.append(cat)
-        if weak_categories and len(decision["actions"]) < 4:
+        # A daemon cycle runs every few minutes, while a persistent category
+        # gap is one piece of work until either its identity changes or fresh
+        # material arrives on a later day.  Re-running extraction on the same
+        # empty evidence every cycle makes the Daily Shift look active without
+        # producing learning, and can eventually flood downstream observers.
+        # Keep the decision identity deliberately narrow: category names only,
+        # not volatile counters such as total concept count.
+        lexicon_gap_signature = tuple(sorted(str(cat) for cat in weak_categories))
+        previous_gap_attempt = self.state.get("lexicon_gap_attempt", {})
+        already_attempted_today = (
+            isinstance(previous_gap_attempt, dict)
+            and previous_gap_attempt.get("date") == decision["date"]
+            and tuple(previous_gap_attempt.get("signature", [])) == lexicon_gap_signature
+        )
+        if weak_categories and not already_attempted_today and len(decision["actions"]) < 4:
             decision["actions"].append({
                 "type": "lexicon_gap",
                 "categories": weak_categories,
@@ -1303,6 +1368,13 @@ class AceDaemon:
 
             text_chunks = []
             for entry in recent_entries:
+                # A cycle summary is telemetry produced by this daemon.  It is
+                # evidence that a cycle ran, not new source material to mine.
+                # Feeding it back into the concept miner creates a closed
+                # loop in which zero-output status prose is repeatedly
+                # reinterpreted as learning input.
+                if entry.get("type") == "cycle_summary":
+                    continue
                 content = entry.get("content", "")
                 if len(content) > 50:
                     text_chunks.append({"content": content})
@@ -1654,6 +1726,44 @@ class AceDaemon:
         self.state.setdefault("shenwen_daily_cost", {})[date] = summary
         return summary
 
+    def _refresh_provider_usage_billing(self) -> Dict[str, Any]:
+        """Refresh an account-level provider export without changing ACE routes.
+
+        The downloaded usage export is deliberately treated as external,
+        aggregate-only billing telemetry.  It never becomes a task trace,
+        provider-health score, routing input, finance input, or TaskPool work.
+        Any malformed export is isolated to this small report and cannot end a
+        daemon iteration.
+        """
+        output_path = (
+            self.base_dir
+            / "06_RUNTIME"
+            / "ace"
+            / "data"
+            / "provider_billing"
+            / "shenwen_usage_latest.json"
+        )
+        try:
+            result = refresh_latest_usage_report(
+                downloads_dir=Path.home() / "Downloads",
+                output_path=output_path,
+                runtime_daily_cost=self.state.get("shenwen_daily_cost", {}),
+                previous_state=self.state.get("shenwen_provider_usage_billing", {}),
+            )
+        except (OSError, ValueError) as error:
+            safe_reason = safe_source_error_status(error)
+            result = {
+                "status": "MALFORMED_SOURCE",
+                "state": {
+                    "status": "MALFORMED_SOURCE",
+                    "checked_at": datetime.now().isoformat(),
+                    "reason": safe_reason,
+                },
+            }
+            self._log_error("shenwen_provider_usage_billing", safe_reason)
+        self.state["shenwen_provider_usage_billing"] = result["state"]
+        return result
+
     def _run_shenwen_daily_health(self, run_date: Optional[str] = None) -> Dict[str, Any]:
         date = run_date or datetime.now().date().isoformat()
         records = self.state.setdefault("shenwen_daily_health", {})
@@ -1789,6 +1899,7 @@ class AceDaemon:
                 scan_result = self.file_scanner.scan_and_create(
                     max_new=2,
                     allowed_priorities=None if production_policy["file_scanner"] else {"critical", "high"},
+                    allow_task_creation=False,
                 )
                 result["fragment_scanned"] = scan_result.get("scanned", 0)
                 result["fragment_new"] = scan_result.get("new_files", 0)
@@ -2522,6 +2633,12 @@ class AceDaemon:
                         _preserve_cycle_progress=True,
                     )
                     self._refresh_shenwen_daily_cost()
+                    if self.provider_usage_reconciliation_enabled:
+                        billing_result = self._refresh_provider_usage_billing()
+                        if billing_result.get("status") == "REFRESHED":
+                            print("神隐账单对账: 已刷新（只读、脱敏、仅聚合范围）")
+                        elif billing_result.get("status") == "MALFORMED_SOURCE":
+                            print("神隐账单对账: 导出文件不兼容，已隔离，不影响运行")
                     self._save_state()
                     tasks_done = result.get("auto_result", {}).get("tasks_executed", 0)
                     total_tasks_executed += tasks_done
@@ -2823,6 +2940,12 @@ class AceDaemon:
                     added = self.extract_new_concepts()
                     total_concepts_added += added
                     result = {"added": added}
+                    self.state["lexicon_gap_attempt"] = {
+                        "date": decision.get("date"),
+                        "signature": sorted(str(cat) for cat in cats),
+                        "concepts_added": added,
+                        "attempted_at": datetime.now().isoformat(),
+                    }
                     print(f"  新增概念: {added} 个")
 
                 elif atype == "no_new_discovery":
@@ -2884,7 +3007,14 @@ class AceDaemon:
             print(f"  Guardian判决: {lifecycle_result.get('judged', 0)} 个任务")
             print(f"  墓地清理: {lifecycle_result.get('graveyarded', 0)} 个任务")
             pool_stats = self.task_pool.get_stats()
-            print(f"  任务池总数: {pool_stats['total']} 个")
+            print(
+                "  任务池: "
+                f"待领取 {pool_stats['executable']} | "
+                f"处理中 {pool_stats['in_flight']} | "
+                f"阻塞 {pool_stats['blocked']} | "
+                f"历史记录 {pool_stats['historical']} | "
+                f"总记录 {pool_stats['total']}"
+            )
         else:
             print("  (任务生命周期系统未初始化)")
         self.state.setdefault("cycle_progress", {})["model_pipeline"] = lifecycle_result.get(

@@ -68,12 +68,14 @@ class FileScanner:
         self,
         max_new: int = 3,
         allowed_priorities: Optional[Set[str]] = None,
+        allow_task_creation: bool = True,
     ) -> Dict[str, Any]:
         result = {
             "scanned": 0,
             "new_files": 0,
             "tasks_created": 0,
             "tasks": [],
+            "unadmitted_observations": 0,
             "scan_roots": [str(r) for r in self.scan_roots],
         }
 
@@ -95,13 +97,27 @@ class FileScanner:
                 if EXT_PRIORITY.get(path.suffix.lower(), "low") in allowed_priorities
             ]
 
+        # A newly observed file is one source, not independently corroborated
+        # Work.  Production can retain the fingerprint as an observation while
+        # refusing to manufacture a TaskPool item.  Explicit offline callers
+        # keep the legacy opt-in task-creation behavior for bounded research.
+        if not allow_task_creation:
+            for frag_path in sorted_new:
+                self.fragment_index.mark_seen(
+                    frag_path, status="observed_unadmitted"
+                )
+            result["unadmitted_observations"] = len(sorted_new)
+            return result
+
         created = 0
+        handled_paths: Set[Path] = set()
         for frag_path in sorted_new:
             if created >= max_new:
                 break
 
             if self._task_exists_for(frag_path):
                 self.fragment_index.mark_seen(frag_path, status="duplicate_skip")
+                handled_paths.add(frag_path)
                 continue
 
             task = self._create_archaeology_task(frag_path)
@@ -112,9 +128,14 @@ class FileScanner:
                 self.fragment_index.mark_archaeologized(
                     frag_path, task_id=task.task_id
                 )
+                handled_paths.add(frag_path)
 
-        for frag_path in sorted_new[created:]:
-            self.fragment_index.mark_seen(frag_path, status="pending_scan")
+        # `created` is not a cursor: duplicate skips do not increment it.
+        # Mark only the paths the loop did not inspect as pending, otherwise a
+        # duplicate at the front can regress later files to pending_scan.
+        for frag_path in sorted_new:
+            if frag_path not in handled_paths:
+                self.fragment_index.mark_seen(frag_path, status="pending_scan")
 
         return result
 
@@ -150,6 +171,17 @@ class FileScanner:
 
     def _is_ignored(self, path: Path) -> bool:
         p = str(path).lower()
+        # FileScanner is the broad environmental scanner.  ACE's own tree has
+        # dedicated LocalArchaeologist, TaskCreator and Experience paths; its
+        # runtime ledgers mutate every cycle.  Feeding those artefacts back
+        # into broad scanning creates work from the scanner's own output.
+        # Keep sibling sources such as mine-seed and Downloads in scope.
+        try:
+            ace_root = self.fragment_index.index_dir.resolve().parent
+            if path.resolve().is_relative_to(ace_root):
+                return True
+        except (OSError, ValueError):
+            pass
         ignore_patterns = [
             "node_modules", ".git", "__pycache__", ".venv",
             "ace_runtime", ".idea", ".vscode",

@@ -1128,6 +1128,27 @@ def test_run_once_exposes_lifecycle_execution_metrics():
         assert result["auto_result"]["tasks_executed"] == 2
 
 
+def test_external_learning_is_opt_in_at_daemon_boundary():
+    from ace_daemon import AceDaemon
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        disabled = AceDaemon(Path(temp_dir), {})
+        assert disabled.external_learning_enabled is False
+        assert disabled.web_scout is None
+
+        enabled = AceDaemon(
+            Path(temp_dir), {"runtime": {"allow_external_learning": True}}
+        )
+        assert enabled.external_learning_enabled is True
+        assert enabled.web_scout is None
+        assert enabled.external_learning_discovery is not None
+
+        legacy = AceDaemon(
+            Path(temp_dir), {"runtime": {"allow_legacy_web_scout": True}}
+        )
+        assert legacy.web_scout is not None
+
+
 def test_run_once_persists_stage_progress_and_durations():
     from ace_daemon import AceDaemon
 
@@ -1201,6 +1222,7 @@ def test_daemon_daily_learning_is_date_idempotent():
         assert first["outcome"] in {
             "NO_VALID_LEARNING_TARGET",
             "LEARNING_CANDIDATE_DEFERRED",
+            "queued_research",
             "observe",
             "reject",
             "adopt",
@@ -1263,6 +1285,21 @@ def test_daemon_daily_learning_adapts_independent_data_health_evidence():
         assert admission["source_ref"] == candidate.fingerprint
         assert admission["learning_contract"] == candidate.metadata["learning"]
         assert {item["source"] for item in admission["evidence"]} == {"source_a", "source_b"}
+
+
+def test_daemon_queues_catalogued_open_source_study_without_adopting_or_installing():
+    from ace_daemon import AceDaemon
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        daemon = AceDaemon(Path(temp_dir), {})
+        result = daemon.run_daily_learning("2026-08-26")
+
+        assert result["outcome"] == "queued_research"
+        task = daemon.task_pool.load_task(result["task_id"])
+        assert task.status == "pending"
+        assert task.outputs["daily_learning"]["reason"] == "requires_independent_miner_review"
+        assert task.outputs["daily_learning"]["governance_boundary"].startswith("Catalogued repositories")
+        assert task.outputs["admission"]["source_type"] == "learning"
 
 
 def test_scheduler_installer_defines_only_daemon_boot_task():
@@ -1467,6 +1504,32 @@ def test_daemon_state_save_keeps_last_complete_state_when_replace_is_interrupted
             daemon._save_state()
 
         assert json.loads(daemon.state_file.read_text(encoding="utf-8")) == {"checkpoint": "previous"}
+
+
+def test_daemon_state_save_retries_one_transient_windows_replace_denial(monkeypatch):
+    from ace_daemon import AceDaemon
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        daemon = AceDaemon(Path(temp_dir), {})
+        daemon.state = {"checkpoint": "previous"}
+        daemon._save_state()
+        daemon.state = {"checkpoint": "next"}
+        real_replace = os.replace
+        attempts = []
+
+        def transient_replace(source, destination):
+            attempts.append((source, destination))
+            if len(attempts) == 1:
+                raise PermissionError(5, "transient sharing denial")
+            return real_replace(source, destination)
+
+        monkeypatch.setattr("ace_daemon.os.replace", transient_replace)
+        monkeypatch.setattr("ace_daemon.time.sleep", lambda _: None)
+
+        daemon._save_state()
+
+        assert len(attempts) == 2
+        assert json.loads(daemon.state_file.read_text(encoding="utf-8")) == {"checkpoint": "next"}
 
 
 def test_daemon_state_save_replaces_the_previous_complete_state():

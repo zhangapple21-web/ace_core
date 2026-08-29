@@ -188,6 +188,41 @@ def test_daily_growth_allows_a_zero_growth_day():
         assert report["no_growth_quota"] is True
 
 
+def test_local_archive_without_model_evidence_is_not_measurable_growth():
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        pool = TaskPool(str(root / "task_pool"))
+        task = pool.create_task(
+            "Retained local record",
+            creator="file_scanner",
+            admission={
+                "source_type": "system_observation",
+                "source_ref": "test://local-archive",
+                "why_now": "exercise retained local lifecycle semantics",
+                "evidence": ["fixture://local-record"],
+                "expected_result": "record retained",
+                "verification_method": "inspect daily growth output",
+                "risk": "none",
+                "estimated_scope": "one fixture task",
+            },
+        )
+        task.audit_log.append({
+            "event": "transition",
+            "from": "approved",
+            "to": "archived",
+            "at": "2026-08-25T09:03:00",
+        })
+        pool.update_task(task)
+
+        report = DailyGrowthLedger(
+            pool, str(root / "daily_growth.json")
+        ).build("2026-08-25")
+
+        assert report["outcome"] == "NO_MEASURABLE_GROWTH"
+        assert report["archived_task_count"] == 1
+        assert report["archived_model_task_count"] == 0
+
+
 def test_daily_growth_reports_cognitive_work_supply_from_existing_evidence():
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)

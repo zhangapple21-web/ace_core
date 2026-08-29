@@ -309,6 +309,8 @@ class DailyGrowthLedger:
         production_calls = []
         attempted_production_calls = []
         tasks_created_today = []
+        local_task_source_counts: Dict[str, int] = {}
+        local_tasks_archived = set()
         model_work_by_type = {"reasoning": 0, "strategic": 0, "execution": 0}
         financial_research_work = 0
         served_model_work = 0
@@ -334,6 +336,9 @@ class DailyGrowthLedger:
                         latency = self._seconds_between(task.created_at, claimed_at)
                         if latency is not None:
                             service_latencies.append(latency)
+                else:
+                    creator = str(task.creator or "unknown")
+                    local_task_source_counts[creator] = local_task_source_counts.get(creator, 0) + 1
             for event in task.audit_log or []:
                 if (
                     isinstance(event, dict)
@@ -344,6 +349,8 @@ class DailyGrowthLedger:
                     archived.append(task.task_id)
                     if is_model:
                         model_tasks.add(task.task_id)
+                    else:
+                        local_tasks_archived.add(task.task_id)
             for trace in outputs.get("model_execution", []) if isinstance(outputs.get("model_execution", []), list) else []:
                 if (
                     is_model
@@ -411,9 +418,15 @@ class DailyGrowthLedger:
             "observations": len(observations),
             "candidate_work": candidate_work,
             "accepted_work": accepted_work,
+            "accepted_work_semantics": "legacy alias for tasks_created_today; it does not mean completed or independently valuable work",
+            "tasks_created": accepted_work,
             "accepted_model_work": accepted_model_work,
+            "model_admitted_tasks_created": admitted_model_tasks_today,
             "admitted_candidate_work": admitted_candidate_work,
             "local_work": local_work,
+            "local_tasks_created": local_work,
+            "local_tasks_archived": len(local_tasks_archived),
+            "local_task_source_counts": dict(sorted(local_task_source_counts.items())),
             "reasoning_work": model_work_by_type["reasoning"],
             "strategic_work": model_work_by_type["strategic"],
             "execution_work": model_work_by_type["execution"],
@@ -439,6 +452,8 @@ class DailyGrowthLedger:
                 "observations": "runtime_observer_retained_window",
                 "candidate_work": "model_work_discovery_only",
                 "accepted_work": "taskpool_created_today",
+                "local_tasks_created": "created tasks without eligible model admission; not a completion or value claim",
+                "local_task_source_counts": "TaskPool creator attribution for local tasks created today",
                 "missing_candidate_funnels": [
                     "daily_learning",
                     "local_observer",
@@ -453,13 +468,18 @@ class DailyGrowthLedger:
             "recorded_at": datetime.now(timezone.utc).isoformat(),
             "outcome": (
                 "MEASURABLE_GROWTH"
-                if archived or production_calls
+                if model_tasks or production_calls
                 else "NO_MEASURABLE_GROWTH"
             ),
             "archived_task_count": len(set(archived)),
             "archived_task_ids": sorted(set(archived)),
             "archived_model_task_count": len(model_tasks),
             "archived_model_task_ids": sorted(model_tasks),
+            "growth_outcome_semantics": (
+                "requires an archived admitted model task or a successful "
+                "production model execution; local archive transitions are "
+                "retained lifecycle telemetry only"
+            ),
             "attempted_production_model_call_count": len(attempted_production_calls),
             "successful_production_model_call_count": len(production_calls),
             "production_model_call_count": len(production_calls),
