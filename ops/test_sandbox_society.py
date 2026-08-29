@@ -78,6 +78,33 @@ def test_court_detects_distillation_tampering(tmp_path):
     assert report["roles"]["court"]["distillation_integrity_failures"] == ["EXP-DISTILL"]
 
 
+def test_court_detects_factory_world_receipt_tampering(tmp_path):
+    root = tmp_path / "sandbox"
+    sandbox = FreeResearchSandbox(root)
+    sandbox.record_experiment(
+        experiment_id="EXP-FACTORY", hypothesis="fixture", method="isolated probe",
+        outcome="PASS", evidence={"source": "evidence://factory"},
+    )
+    SandboxSociety(root).run_turn()
+    worlds = root / "factories" / "worlds"
+    worlds.mkdir(parents=True, exist_ok=True)
+    (worlds / "WORLD-TAMPER.json").write_text(
+        json.dumps({
+            "world_id": "WORLD-TAMPER",
+            "factory": "imitation",
+            "world_hash": "not-a-valid-hash",
+        }),
+        encoding="utf-8",
+    )
+
+    report = SandboxSociety(root).run_turn()
+
+    assert report["roles"]["court"]["status"] == "INVALID"
+    assert report["roles"]["court"]["factory_integrity_failures"] == [
+        "worlds:WORLD-TAMPER"
+    ]
+
+
 def test_design_seed_is_reported_without_claiming_production_consumption(tmp_path):
     root = tmp_path / "sandbox"
     constitution = root / "constitution"

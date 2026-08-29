@@ -159,13 +159,38 @@ class SandboxSociety:
             unsigned.pop("proposal_hash", None)
             if not expected or _digest(unsigned) != expected:
                 proposal_integrity_failures.append(experiment_id or "unknown")
+        factory_integrity_failures = []
+        for directory, hash_field, identity_field in (
+            (self.factories.threads, "thread_hash", "thread_id"),
+            (self.factories.marks, "mark_hash", "mark_id"),
+            (self.factories.worlds, "world_hash", "world_id"),
+            (self.factories.processing, "receipt_hash", "receipt_id"),
+            (self.factories.courier, "receipt_hash", "receipt_id"),
+            (self.factories.smelter, "receipt_hash", "receipt_id"),
+        ):
+            for path in sorted(directory.glob("*.json")):
+                try:
+                    receipt = json.loads(path.read_text(encoding="utf-8"))
+                except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+                    factory_integrity_failures.append(f"{directory.name}:{path.stem}")
+                    continue
+                if not isinstance(receipt, dict):
+                    factory_integrity_failures.append(f"{directory.name}:{path.stem}")
+                    continue
+                expected = receipt.get(hash_field, "")
+                unsigned = dict(receipt)
+                unsigned.pop(hash_field, None)
+                if not expected or _digest(unsigned) != expected:
+                    identity = str(receipt.get(identity_field, path.stem))
+                    factory_integrity_failures.append(f"{directory.name}:{identity}")
         return {
-            "status": "VALID" if not invalid and not distillation_mismatch and not distillation_integrity_failures and not proposal_mismatch and not proposal_integrity_failures else "INVALID",
+            "status": "VALID" if not invalid and not distillation_mismatch and not distillation_integrity_failures and not proposal_mismatch and not proposal_integrity_failures and not factory_integrity_failures else "INVALID",
             "invalid_record_ids": sorted(invalid),
             "distillation_source_mismatches": sorted(distillation_mismatch),
             "distillation_integrity_failures": sorted(distillation_integrity_failures),
             "proposal_source_mismatches": sorted(proposal_mismatch),
             "proposal_integrity_failures": sorted(proposal_integrity_failures),
+            "factory_integrity_failures": sorted(factory_integrity_failures),
             "enforcement": "report_only_no_promotion_authority",
         }
 
