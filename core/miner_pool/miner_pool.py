@@ -38,6 +38,7 @@ from .providers.openai_compatible import (
     OneAPIProvider,
     OpenAICompatibleProvider,
     ShenwenProvider,
+    ShenwenGrokProvider,
     ShenwenImagesProvider,
 )
 
@@ -54,6 +55,7 @@ PROVIDER_FACTORY = {
     "huggingface": OpenAICompatibleProvider,
     "ace_proxy": OpenAICompatibleProvider,  # ACE 自己的 OpenAI 兼容代理
     "shenwen": ShenwenProvider,
+    "shenwen_grok": ShenwenGrokProvider,
     "shenwen_images": ShenwenImagesProvider,
 }
 
@@ -164,6 +166,20 @@ class MinerPool:
 
     @staticmethod
     def _shenwen_cost(model: str, usage: Dict[str, Any]) -> Dict[str, Any]:
+        # Shenwen Grok Heavy returns provider-authoritative cost in
+        # micro-USD ticks; do not infer a price table for it.
+        ticks = usage.get("cost_in_usd_ticks") if isinstance(usage, dict) else None
+        if isinstance(ticks, (int, float)):
+            return {
+                "currency": "USD",
+                "input_usd": 0.0,
+                "cache_read_usd": 0.0,
+                "cache_write_usd": 0.0,
+                "output_usd": 0.0,
+                "total_usd": round(ticks / 1_000_000, 12),
+                "provider_cost_ticks": ticks,
+                "usage_source": "provider_response",
+            }
         prices = {
             "gpt-5.6-terra": {
                 "input": 0.44,
@@ -237,6 +253,7 @@ class MinerPool:
         messages: List[Dict[str, str]],
         system_prompt: str = "",
         max_retries: int = 3,
+        include_shadow: bool = False,
         **kwargs,
     ) -> Dict[str, Any]:
         """
@@ -306,15 +323,20 @@ class MinerPool:
                 # watchdog contract permits bounded fallback attempts.
                 excluded_providers = []
                 if self._watchdog:
+                    has_health_history = getattr(self._watchdog, "has_health_history", None)
                     excluded_providers = [
                         provider_name
                         for provider_name in self._providers
-                        if not self._watchdog.is_healthy(provider_name)
+                        if (
+                            (has_health_history(provider_name) if has_health_history else True)
+                            and not self._watchdog.is_healthy(provider_name)
+                        )
                     ]
                 spec = self._router.select_model(
                     task_type=task_type,
                     exclude_models=tried,
                     exclude_providers=excluded_providers,
+                    include_shadow=include_shadow,
                 )
                 if not spec:
                     last_error = last_error or "no available models for this task type"
@@ -377,7 +399,7 @@ class MinerPool:
                 result["model"] = call_result.get("model", spec.model)
                 result["provider"] = spec.provider
                 result["usage"] = call_result.get("usage", {})
-                if spec.provider == "shenwen":
+                if spec.provider in {"shenwen", "shenwen_grok"}:
                     result["cost"] = self._shenwen_cost(result["model"], result["usage"])
                 result["latency_ms"] = latency_ms
                 result["tried_models"] = tried

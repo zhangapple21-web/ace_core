@@ -75,6 +75,7 @@ class ModelRouter:
         strategy: str = "",
         exclude_models: List[str] = None,
         exclude_providers: List[str] = None,
+        include_shadow: bool = False,
     ) -> Optional[ModelSpec]:
         """
         为任务选择最合适的模型
@@ -89,6 +90,8 @@ class ModelRouter:
             ModelSpec 或 None
         """
         profile = get_task_profile(task_type)
+        if profile.get("shadow_only") and not include_shadow:
+            return None
         if not strategy:
             strategy = profile.get("strategy", "quality_first")
 
@@ -118,6 +121,7 @@ class ModelRouter:
         task_type: str,
         count: int = 3,
         diverse: bool = True,
+        include_shadow: bool = False,
     ) -> List[ModelSpec]:
         """
         选择多个模型（用于交叉验证、多视角）
@@ -131,6 +135,8 @@ class ModelRouter:
             ModelSpec 列表
         """
         profile = get_task_profile(task_type)
+        if profile.get("shadow_only") and not include_shadow:
+            return []
         candidates = self._get_sorted_candidates(profile, "quality_first")
 
         selected = []
@@ -153,6 +159,17 @@ class ModelRouter:
                 break
 
         return selected
+
+    def select_shadow_model(self, task_type: str) -> Optional[ModelSpec]:
+        """Explicit opt-in entry point for shadow workers.
+
+        Keeping this separate from normal selection makes it easy for ACE to
+        dispatch exploratory sub-workers without weakening production routing.
+        """
+        profile = get_task_profile(task_type)
+        if not profile.get("shadow_only"):
+            return None
+        return self.select_model(task_type, include_shadow=True)
 
     def _get_sorted_candidates(self, profile: Dict, strategy: str) -> List[str]:
         """根据策略获取排序后的候选模型列表"""

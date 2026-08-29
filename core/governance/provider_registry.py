@@ -356,6 +356,33 @@ class ProviderRegistry:
         self._save()
         return model
 
+    def register_shadow_catalog(self, provider: str, base_url: str,
+                                models: Dict[str, Dict[str, Any]],
+                                description: str = "") -> ProviderEntry:
+        """Register unverified, non-production models for shadow evaluation.
+
+        This deliberately records candidates as beta/unverified and never
+        grants production eligibility. Verification must be performed through
+        ModelVerifier and real provider usage/billing evidence.
+        """
+        entry = self.register_provider(provider, base_url, description)
+        for model_id, spec in models.items():
+            model = self.register_model(
+                provider,
+                model_id,
+                display_name=spec.get("display_name", model_id),
+                capabilities=spec.get("capabilities", []),
+                status="beta",
+            )
+            model.meta.update({"shadow_only": True, "production_eligible": False})
+            if spec.get("context_window"):
+                model.context_window = int(spec["context_window"])
+            if spec.get("max_output"):
+                model.max_output = int(spec["max_output"])
+        self._rebuild_index()
+        self._save()
+        return entry
+
     def update_model_verification(self, provider: str, model_id: str,
                                   passed: bool, result: str = ""):
         """更新模型验证状态"""

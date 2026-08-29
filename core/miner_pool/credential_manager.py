@@ -372,6 +372,7 @@ class CredentialManager:
             "oneapi": ("ONEAPI_KEY", "ONEAPI_BASE_URL", "http://localhost:3000/v1"),
             "sambanova": ("SAMBANOVA_KEY", "SAMBANOVA_BASE_URL", "https://api.sambanova.ai/v1"),
             "shenwen": ("SHENWEN_API_KEY", "SHENWEN_BASE_URL", "https://api.shenwenai.com/v1"),
+            "shenwen_grok": ("SHENWEN_GROK_API_KEY", "SHENWEN_GROK_BASE_URL", "https://api.shenwenai.com/v1"),
             "shenwen_images": ("SHENWEN_IMAGE_API_KEY", "SHENWEN_IMAGE_BASE_URL", "https://api.shenwenai.com/v1"),
         }
 

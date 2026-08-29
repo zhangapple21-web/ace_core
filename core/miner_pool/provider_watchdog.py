@@ -171,6 +171,11 @@ class ProviderWatchdog:
             return False
         return p.status in (HEALTHY, RECOVERING, DEGRADED)
 
+    def has_health_history(self, provider_name: str) -> bool:
+        """Whether a provider has already had a real call outcome recorded."""
+        provider = self._providers.get(provider_name)
+        return bool(provider and provider.total_calls > 0)
+
     def get_best_provider(self, exclude: List[str] = None) -> Optional[str]:
         """获取当前最佳可用 Provider"""
         exclude = set(exclude or [])

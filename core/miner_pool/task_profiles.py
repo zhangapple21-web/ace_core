@@ -30,6 +30,10 @@ NIM_MISTRAL_LARGE = "nim:mistralai/mistral-large-3-675b-instruct-2512"
 NIM_DEEPSEEK_V4 = "nim:deepseek-ai/deepseek-v4-flash"
 NIM_QWEN_397B = "nim:qwen/qwen3.5-397b-a17b"
 OPENROUTER_CLAUDE = "openrouter:anthropic/claude-3.5-sonnet"
+# Shadow-only candidates.  These are deliberately not part of production
+# profiles until Provider Registry verification and billing A/B are complete.
+SHENWEN_GROK_45 = "shenwen_grok:grok-4.5"
+SHENWEN_GROK_46 = "shenwen_grok:grok-4.6"
 SHENWEN_TERRA = "shenwen:gpt-5.6-terra"
 SHENWEN_GPT54_MINI = "shenwen:gpt-5.4-mini"
 
@@ -237,6 +241,32 @@ TASK_PROFILES: Dict[str, Dict[str, Any]] = {
             NIM_QWEN_397B,
         ],
         "strategy": "latency_first",
+    },
+    "grok_research_shadow": {
+        "description": "Grok 4.6 研究型长程任务（仅影子验证）",
+        "shadow_only": True,
+        "provider_registry_required": True,
+        "preferred_traits": ["long_horizon", "research", "tool_calling"],
+        "avoid_traits": ["unverified", "production"],
+        "temperature": 0.5,
+        "max_tokens": 4096,
+        "timeout": 300,
+        "preferred_models": [SHENWEN_GROK_46],
+        "fallback_models": [],
+        "strategy": "quality_first",
+    },
+    "grok_coding_shadow": {
+        "description": "Grok 4.5 编程专项（仅影子验证）",
+        "shadow_only": True,
+        "provider_registry_required": True,
+        "preferred_traits": ["code_understanding", "debugging", "implementation"],
+        "avoid_traits": ["unverified", "production"],
+        "temperature": 0.4,
+        "max_tokens": 4096,
+        "timeout": 240,
+        "preferred_models": [SHENWEN_GROK_45],
+        "fallback_models": [],
+        "strategy": "quality_first",
     },
 }
 

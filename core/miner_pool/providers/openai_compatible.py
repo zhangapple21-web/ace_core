@@ -136,6 +136,14 @@ class ShenwenProvider(OpenAICompatibleProvider):
         super().__init__(api_key, base_url, provider_name="shenwen", **kwargs)
 
 
+class ShenwenGrokProvider(OpenAICompatibleProvider):
+    """Shenwen Grok Heavy channel (separate key/entitlement)."""
+    provider_name = "shenwen_grok"
+
+    def __init__(self, api_key: str, base_url: str = "https://api.shenwenai.com/v1", **kwargs):
+        super().__init__(api_key, base_url, provider_name="shenwen_grok", **kwargs)
+
+
 class ShenwenImagesProvider(OpenAICompatibleProvider):
     provider_name = "shenwen_images"
 
