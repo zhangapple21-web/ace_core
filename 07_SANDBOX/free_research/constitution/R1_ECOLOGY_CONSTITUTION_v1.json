@@ -1,0 +1,108 @@
+{
+  "contract_version": "ace.free_research.ecology_constitution.v1",
+  "mode": "FREE_RESEARCH_ONLY",
+  "status": "DESIGN_SEED",
+  "title": "R1 ecology constitution re-instantiated in the ACE free zone",
+  "purpose": "Preserve the design logic that made R1 an exploratory ecology, without reviving its historical daemons, personas, external senders, or automatic recommendation paths.",
+  "source_refs": [
+    "C:/tmp/mine-seed/00_ROOT/MANIFESTO.md",
+    "C:/tmp/mine-seed/00_ROOT/AUTONOMOUS_LOOP_FRAMEWORK.md",
+    "C:/tmp/mine-seed/03_DATA/superseded_archive/research/r1_archaeology/daily/2026-06-28_R1_五大加工厂_废墟熔炼厂_孟婆人格考古__SUPERSEDED_20260710_143028.md",
+    "C:/tmp/mine-seed/03_DATA/superseded_archive/research/r1_archaeology/daily/2026-06-28_R1认知路由协议考古报告__SUPERSEDED_20260710_143028.md",
+    "C:/tmp/r1-archaeology/analysis/r2_core_axioms_v1_20260626.md",
+    "C:/tmp/private_claw-soul/05_PROJECTS/r1_archaeology/R2_CORE_BLUEPRINTS.md"
+  ],
+  "route": [
+    "observe",
+    "question",
+    "hypothesis",
+    "experiment",
+    "counterexample",
+    "evidence",
+    "distill",
+    "govern",
+    "propose",
+    "review",
+    "re-observe"
+  ],
+  "invariants": [
+    {
+      "id": "ECO-01",
+      "name": "continuity_over_cleverness",
+      "rule": "A replaceable worker, model, or runtime must not erase the route, evidence, or memory that lets the next one continue."
+    },
+    {
+      "id": "ECO-02",
+      "name": "freedom_inside_boundary",
+      "rule": "The free zone may explore conflicting or unfashionable hypotheses, but its outward edge is proposal-only and cannot alter production."
+    },
+    {
+      "id": "ECO-03",
+      "name": "failure_is_material",
+      "rule": "Failures, dead ends, and contradictions are retained as searchable counterexamples rather than hidden to make reports look successful."
+    },
+    {
+      "id": "ECO-04",
+      "name": "compression_not_copying",
+      "rule": "Distill experience into portable principles and seeds; do not copy historical implementation details as if they were the constitution."
+    },
+    {
+      "id": "ECO-05",
+      "name": "roles_are_niches",
+      "rule": "Explorer, curator, court, teacher, and production runtime have different permissions; no role silently inherits another role's authority."
+    },
+    {
+      "id": "ECO-06",
+      "name": "no_activity_quota",
+      "rule": "A quiet observation window is valid when no evidence-backed work exists; activity must not be manufactured to prove that the system is alive."
+    }
+  ],
+  "niches": {
+    "free_zone": {
+      "may": ["generate hypotheses", "compare designs", "retain failures", "run isolated local probes"],
+      "may_not": ["write production state", "send Telegram", "place orders", "approve its own proposal"]
+    },
+    "curator": {
+      "may": ["deduplicate", "compress", "label provenance", "prepare proposals"],
+      "may_not": ["promote to production", "rewrite source evidence"]
+    },
+    "court": {
+      "may": ["verify hashes", "detect source mismatch", "mark invalid evidence"],
+      "may_not": ["repair a record silently", "turn invalid evidence into a fact"]
+    },
+    "teacher": {
+      "may": ["review proposal-only material", "request a bounded follow-up"],
+      "may_not": ["auto-approve", "bypass Data Health, Validator, Risk, or Admission"]
+    },
+    "production": {
+      "may": ["consume separately admitted evidence"],
+      "may_not": ["consume free-zone material directly"]
+    }
+  },
+  "reinstantiation_mapping": {
+    "R1_freezone": "07_SANDBOX/free_research/experiments + quarantine",
+    "R1_ruin_smelter": "FreeResearchSandbox.distill -> promotion_proposals",
+    "R1_MengPo_decay": "quarantine plus explicit stale/pollution flags; no destructive deletion",
+    "R1_marking_factory": "inventory status, disposition, hashes, and evidence strength",
+    "R1_courier": "local/Git evidence references carried into a proposal, never credentials",
+    "R1_multi_worlds": "one bounded hypothesis at a time; competing hypotheses remain separate experiments",
+    "R2_boundary": "sandbox manifest and one-way proposal boundary",
+    "R2_continuity": "append-only experiment records, hashes, reports, and state",
+    "R2_observation": "daily museum inventory and explicit NO_NEW_MUSEUM_WORK"
+  },
+  "forbidden_revivers": [
+    "old daily_self_loop.py as a second scheduler",
+    "old heartbeat.py as a second daemon",
+    "autonomous_loop.py process spawning or dependency installation",
+    "historical stock-advisor or Telegram delivery",
+    "historical persona or model claims treated as current evidence"
+  ],
+  "promotion_contract": {
+    "status": "PROPOSAL_ONLY",
+    "requires": ["human review", "current Validator", "current Admission", "current Risk", "fresh evidence"],
+    "automatic_promotion": false,
+    "production_integration": false,
+    "automatic_model_call": false,
+    "automatic_external_fetch": false
+  }
+}

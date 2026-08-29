@@ -181,6 +181,55 @@ Health score drives routing — skip down providers, prefer healthy ones.
 - **Supersede, don't delete** — Mark old versions superseded, preserve history
 - **Archaeology before abstraction** — First unify facts, then unify interfaces, then沉淀结构, then write code
 
+### Autonomous acceptance is owned by the main steward
+
+Delegated workers, Free Zone experiments, archaeology, dashboards and routing
+teams produce **evidence inputs**, not completed ACE work.  The main steward
+must independently accept or reject every material conclusion before it can
+alter a production claim, a governed workflow, or the next implementation
+step.  The required acceptance path is:
+
+```text
+Worker/report evidence
+  -> independent source and boundary audit
+  -> RED reproduction or missing-evidence classification
+  -> one minimal, owned fix (if authorized by evidence)
+  -> GREEN focused regression
+  -> compile / diff integrity check
+  -> natural evidence from the existing sole daemon
+  -> accepted result or explicit rejection / watch state
+```
+
+Never ask the owner to perform this routine integration or to discover that a
+report was incomplete.  A report, passing unit test, archive count, model call
+or historical design is not runtime proof by itself.  If the acceptance path
+cannot complete, preserve the evidence, state the exact blocker, and continue
+other bounded work; do not manufacture completion.
+
+### Free Zone to reality bridge
+
+The Free Zone and ACE reality are separate realms, not two versions of the
+same control plane.  A Free Zone learning may cross into ACE only when one
+artifact is explicitly named and copied by reference plus hash into a separate
+ACE-side bridge receipt.  The receipt must map the observation, learning,
+epistemic status, reality question, expected result, verification method,
+constraints, independent evidence groups, and a fresh main-steward review.
+
+The bridge is not a scanner, promotion queue, Scheduler, TaskPool producer,
+model route, or production consumer.  It never changes the source artifact and
+never grants production, recommendation, delivery, or admission authority.
+PASS, FAIL, INCONCLUSIVE, silence, and counterexamples keep their original
+meaning.  Only the existing ACE Admission or Experience review may act on an
+accepted research receipt later.
+
+Durable coordination ledgers follow the same rule.  After the main steward
+writes an explicit acceptance audit, run `python ops/reconcile_coordination_ledger.py
+--root agent_team/<active-ledger>`.  The reconciler is idempotent and only
+transitions an entry when its declared output exists and the acceptance audit
+explicitly says `Accepted`; it never auto-approves, creates work, changes ACE
+Runtime state, or archives a thread.  Rejected or incomplete audits remain
+visible as pending or blocked until new evidence is independently accepted.
+
 ---
 
 ## Current Priority
