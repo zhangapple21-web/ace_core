@@ -226,6 +226,16 @@ ACE-side bridge receipt.  The receipt must map the observation, learning,
 epistemic status, reality question, expected result, verification method,
 constraints, independent evidence groups, and a fresh main-steward review.
 
+**Dual-leaf purification invariant** — ACE reality and the Free Zone are two
+non-substitutable leaves of one motherplate, not a hierarchy of permanent
+processes.  ACE may expose bounded reality questions, failures, counterexample
+needs, and constraints as non-authoritative research food.  The Free Zone may
+return only a preserved experiment, counterexample, or candidate contract.
+ACE then performs a fresh, independent reality review.  The loop removes
+unfounded exploration before it becomes a production claim, while preserving
+unknowns and failed experiments that can improve later inquiry.  Neither leaf
+automatically drives the other's runtime, task lifecycle, or authority.
+
 The bridge is not a scanner, promotion queue, Scheduler, TaskPool producer,
 model route, or production consumer.  It never changes the source artifact and
 never grants production, recommendation, delivery, or admission authority.
