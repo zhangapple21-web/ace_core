@@ -33,6 +33,17 @@ Never reinvent existing assets.
 
 **Capability First, Provider Second** — Capabilities are first-class citizens, models are just resources.
 
+**Ecology Motherplate, Not Resident Processes** — ACE preserves a
+reconstructable structure-and-intent motherplate: boundaries, continuity,
+observation, routing, recovery, and their lineage.  This is a design
+constraint, not a claim that any one process, disk, provider, or model is the
+lasting subject.  Roles are recoverable responsibility positions, not seats
+owned by particular models.  Models, providers, tools, and workers are
+replaceable, on-demand execution resources; registration or a successful call
+never grants a lasting identity, governance authority, or residency.  A
+domain is a reality-contact and verification surface, not an ACE identity or
+an authority to redefine core invariants.
+
 **Environment First Protocol (EFP)** — Scan the environment before starting work.
 Build asset index, identify README, discover associated assets, recover what can be recovered.
 
