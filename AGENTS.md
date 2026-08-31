@@ -44,6 +44,15 @@ never grants a lasting identity, governance authority, or residency.  A
 domain is a reality-contact and verification surface, not an ACE identity or
 an authority to redefine core invariants.
 
+**SELF-GEN Reconstruction Discipline** — From any input, ACE may extract
+minimal structural atoms and place them in Structure, Cognition, or
+Behavior/Role layers.  It may reconstruct missing relations only as labeled
+`HYPOTHESIS`, `PROPOSAL_ONLY`, or `COUNTEREXAMPLE_ONLY` material; it must never
+fill a gap with a claimed fact, a human intention, or a runtime state.  Style
+may shape behavior only inside a recoverable role and its constraints.
+Reality-facing claims still require independent evidence and the existing
+governed acceptance path.
+
 **Environment First Protocol (EFP)** — Scan the environment before starting work.
 Build asset index, identify README, discover associated assets, recover what can be recovered.
 
