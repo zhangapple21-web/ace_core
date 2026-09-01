@@ -265,7 +265,35 @@ class StockDiscoverySources:
                 "lineage_observable": True,
             },
         } for name, metrics in eligible[:3]]
-        signature = {"date": completed_at[:10], "refs": [item["source_ref"] for item in evidence]}
+        # A new calendar date or a refreshed JSON timestamp is not new
+        # research material.  Re-open this incident only when the observable
+        # lineage roster or one of its admission-relevant health states
+        # changes.  Otherwise the same three sources would buy a strategic
+        # model turn every morning without a new falsifiable question.
+        def health_band(value: Any, threshold: float = 0.8) -> str:
+            try:
+                numeric = float(value)
+            except (TypeError, ValueError):
+                return "UNKNOWN"
+            if numeric <= 0:
+                return "UNAVAILABLE"
+            return "AT_OR_ABOVE_THRESHOLD" if numeric >= threshold else "BELOW_THRESHOLD"
+
+        signature = {
+            "sources": [
+                {
+                    "name": name,
+                    "upstream_identity": str(metrics.get("upstream_identity", "")),
+                    "independence_group": str(metrics.get("independence_group", "")),
+                    "lineage_observable": metrics.get("lineage_observable") is True,
+                    "availability_band": health_band(metrics.get("availability")),
+                    "coverage_band": health_band(metrics.get("coverage")),
+                    "consistency_band": health_band(metrics.get("consistency"), 0.7),
+                    "field_completeness_band": health_band(metrics.get("field_completeness")),
+                }
+                for name, metrics in eligible[:3]
+            ]
+        }
         return self._candidate_for_incident("financial_cross_validation", signature, lambda recovery_count: DiscoveryCandidate(
             fingerprint=self._fingerprint("financial_cross_validation", {"signature": signature, "recovery_count": recovery_count}),
             title="金融状态与技术特征交叉验证",
@@ -318,14 +346,24 @@ class StockDiscoverySources:
                 continue
             group = str(item.get("independence_group", "")).strip()
             source_ref = item.get("source_ref")
+            snapshot_path = Path(str(item.get("snapshot_path", "")))
+            content_hash = str(item.get("content_hash", ""))
+            try:
+                snapshot_hash = hashlib.sha256(snapshot_path.read_bytes()).hexdigest()
+            except OSError:
+                snapshot_hash = ""
             if (
                 item.get("status") != "observed"
                 or item.get("lineage_observable") is not True
                 or item.get("headline_count", 0) < 3
+                or item.get("source_timestamp_observable") is not True
                 or not group
                 or group in groups
                 or not isinstance(source_ref, str)
                 or not source_ref
+                or not content_hash
+                or snapshot_hash != content_hash
+                or source_ref != f"{snapshot_path}#sha256={content_hash}"
             ):
                 continue
             groups.add(group)
@@ -337,7 +375,9 @@ class StockDiscoverySources:
                     "description": item.get("description"),
                     "headlines": item.get("headlines", []),
                     "retrieved_at": item.get("retrieved_at"),
+                    "source_timestamp_observable": True,
                     "content_hash": item.get("content_hash"),
+                    "source_timestamp_observable": True,
                 }, ensure_ascii=False, sort_keys=True),
                 "confidence": 0.65,
                 "author": item.get("upstream_identity"),
@@ -444,7 +484,10 @@ class StockDiscoverySources:
         if not gaps:
             self._resolve_incident("stock_lexicon_gap")
             return []
-        signature = {"path": str(lexicon_path), "gaps": gaps, "updated_at": lexicon.get("updated_at")}
+        # The incident identity is the actual missing A-share category set.
+        # ``updated_at`` changes for unrelated lexicon writes and must not
+        # reopen the same unresolved gap as a fresh discovery candidate.
+        signature = {"path": str(lexicon_path), "gaps": gaps}
         return self._candidate_for_incident("stock_lexicon_gap", signature, lambda recovery_count: DiscoveryCandidate(
             fingerprint=self._fingerprint("stock_lexicon_gap", {"signature": signature, "recovery_count": recovery_count}),
             title="补齐A股词库真实覆盖缺口",

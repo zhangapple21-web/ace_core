@@ -20,6 +20,7 @@ from core.stock_data_reliability import (
     assess_market_state,
     audit_stock_data_paths,
     benchmark_operations,
+    build_admission_gap_report,
     build_capability_matrix,
     candidate_registry,
     decide_safe_fallback,
@@ -72,6 +73,25 @@ def test_candidate_registry_separates_layers_and_independence():
     assert registry["sina_direct"].independence_group == "sina_public_http"
 
 
+def test_admission_gap_report_explains_missing_quote_without_changing_admission():
+    matrix = {
+        "phase_two_admission": {
+            "status": "NOT_ADMITTED",
+            "core_operations": {
+                "quote": {"production_sources": [], "independence_groups": [], "has_independent_cross_validation": False},
+                "daily_kline": {"production_sources": ["a", "b"], "independence_groups": ["a", "b"], "has_independent_cross_validation": True},
+            },
+        }
+    }
+    report = build_admission_gap_report(matrix)
+
+    assert report["phase_two_status"] == "NOT_ADMITTED"
+    assert report["operations"]["quote"]["status"] == "BLOCKED"
+    assert "no_qualified_production_source" in report["operations"]["quote"]["blockers"]
+    assert report["operations"]["daily_kline"]["status"] == "READY"
+    assert report["operations"]["minute_kline_1m"]["status"] == "BLOCKED"
+
+
 def test_finshare_registry_uses_installed_source_evidence():
     candidate = candidate_registry()["finshare"]
 
@@ -104,8 +124,8 @@ def _captured_probe_calls(monkeypatch, benchmark):
             started_at="2026-08-24T02:00:00+00:00", latency_ms=1, success=True,
             fields={"record_count": 1}, expected_fields=list(expected_fields), evidence_hash="test",
             operation=operation_name,
-            upstream_identity=candidate_registry()[{"sina": "sina_direct"}.get(source, source)].upstream_identity,
-            independence_group=candidate_registry()[{"sina": "sina_direct"}.get(source, source)].independence_group,
+            upstream_identity=candidate_registry()[{"sina": "sina_direct", "tencent": "tencent_direct"}.get(source, source)].upstream_identity,
+            independence_group=candidate_registry()[{"sina": "sina_direct", "tencent": "tencent_direct"}.get(source, source)].independence_group,
             endpoint=endpoint,
         )
 
@@ -449,6 +469,12 @@ def test_stock_data_runtime_bypass_is_observability_only():
         "operation": "provider_liveness_probe",
         "classification": "observability_only",
         "excluded_from": ["health_aggregation", "cross_validation", "recommendation_eligibility"],
+    }, {
+        "path": "core/public_sentiment_observation.py",
+        "source": "public_finance_pages",
+        "operation": "public_content_observation",
+        "classification": "observability_only",
+        "excluded_from": ["market_data_health", "phase_two_admission", "recommendation_eligibility"],
     }]
 
 
@@ -579,6 +605,16 @@ def test_advisor_status_and_lexicon_candidate_rules():
         candidate = sources.lexicon_gap_candidates()[0]
         assert candidate.candidate_source == "stock_lexicon_gap"
         assert candidate.priority == "medium"
+        # A timestamp-only rewrite is not a different unresolved gap and must
+        # not reopen a duplicate discovery incident.
+        lexicon_path.write_text(json.dumps({
+            "updated_at": "2026-08-27T16:00:00Z",
+            "categories": {
+                "stock": ["600000"], "industry": ["bank"], "concept": [],
+                "risk_event": ["halt"], "new_term": ["term"],
+            },
+        }), encoding="utf-8")
+        assert sources.lexicon_gap_candidates() == []
         lexicon_path.write_text(json.dumps({
             "categories": {
                 "stock": ["600000"], "industry": ["bank"], "concept": ["value"],
@@ -785,6 +821,38 @@ def test_financial_strategic_work_requires_distinct_independence_groups():
         assert stock_sources.financial_cross_validation_candidates() == []
 
 
+def test_financial_cross_validation_does_not_reopen_for_a_new_date_alone():
+    with tempfile.TemporaryDirectory() as temp_dir:
+        root = Path(temp_dir)
+        observer = RuntimeObserver(str(root / "observations"))
+        evidence = root / "evidence"
+        evidence.mkdir()
+        sources = {
+            name: {
+                "availability": 1.0,
+                "coverage": 1.0,
+                "consistency": 1.0,
+                "field_completeness": 1.0,
+                "lineage_observable": True,
+                "upstream_identity": upstream,
+                "independence_group": group,
+            }
+            for name, upstream, group in (
+                ("alpha", "Alpha upstream", "alpha_group"),
+                ("beta", "Beta upstream", "beta_group"),
+                ("gamma", "Gamma upstream", "gamma_group"),
+            )
+        }
+        path = evidence / "stock_data_benchmark_latest.json"
+        path.write_text(json.dumps({"completed_at": "2026-09-01T01:00:00+00:00", "summary": {"sources": sources}}), encoding="utf-8")
+        stock_sources = StockDiscoverySources(observer, str(root), evidence_dir=str(evidence))
+
+        assert len(stock_sources.financial_cross_validation_candidates()) == 1
+        path.write_text(json.dumps({"completed_at": "2026-09-02T01:00:00+00:00", "summary": {"sources": sources}}), encoding="utf-8")
+
+        assert stock_sources.financial_cross_validation_candidates() == []
+
+
 def test_live_operation_refresh_preserves_historical_operations_and_replaces_targets():
     with tempfile.TemporaryDirectory() as directory:
         evidence = Path(directory)
@@ -908,6 +976,10 @@ def test_live_operation_refresh_replaces_and_attributes_source_batch_failures():
             "quote", "minute_kline_1m", "index"
         }
         assert all(probe["error_type"] == "ProbeTimeout" for probe in failures)
+        index_failure = next(probe for probe in failures if probe["operation"] == "index")
+        # Index coverage is keyed to the index contract, never to the outer
+        # equity symbol whose source batch happened to fail first.
+        assert index_failure["symbol"] == "000001"
 
 
 def main():
