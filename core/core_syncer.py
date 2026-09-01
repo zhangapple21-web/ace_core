@@ -38,11 +38,13 @@ class CoreSyncer:
         remote: str = "origin",
         branch: str = "main",
         debounce_minutes: int = 60,
+        max_automatic_files: int = 12,
     ) -> None:
         self.repo_path = Path(repo_path).resolve()
         self.remote = remote
         self.branch = branch
         self.debounce_minutes = debounce_minutes
+        self.max_automatic_files = max_automatic_files
         self._state_file = (
             self.repo_path
             / "06_RUNTIME"
@@ -230,7 +232,14 @@ class CoreSyncer:
             "local_head": None, "remote_head": None, "staged_files": [],
         }
         try:
-            manifest = self._select_manifest(self.build_manifest(), paths)
+            full_manifest = self.build_manifest()
+            if paths is None and len(full_manifest["files"]) > self.max_automatic_files:
+                result["changed_files"] = [item["path"] for item in full_manifest["files"]]
+                result["excluded_files"] = full_manifest["excluded"]
+                result["manifest_sha256"] = full_manifest["sha256"]
+                result["reason"] = "EXPLICIT_SYNC_PACK_REQUIRED"
+                return result
+            manifest = self._select_manifest(full_manifest, paths)
             result["changed_files"] = [item["path"] for item in manifest["files"]]
             result["excluded_files"] = manifest["excluded"]
             result["manifest_sha256"] = manifest["sha256"]

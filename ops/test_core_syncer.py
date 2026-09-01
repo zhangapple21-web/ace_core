@@ -88,3 +88,16 @@ def test_explicit_sync_pack_defers_other_eligible_files(monkeypatch):
     assert result["reason"] == "REMOTE_HEAD_DIFFERS_FROM_LOCAL_HEAD"
     assert result["changed_files"] == ["core/one.py"]
     assert any(item["path"] == "ops/two.py" and item["reason"] == "DEFERRED_NOT_IN_EXPLICIT_SYNC_PACK" for item in result["excluded_files"])
+
+
+def test_automatic_sync_refuses_large_unreviewed_source_backlog():
+    root = _repo()
+    (root / "core").mkdir()
+    for number in range(3):
+        (root / "core" / f"item_{number}.py").write_text(f"VALUE = {number}\n", encoding="utf-8")
+
+    result = CoreSyncer(str(root), max_automatic_files=2).preflight(force=True)
+
+    assert result["status"] == "BLOCKED"
+    assert result["reason"] == "EXPLICIT_SYNC_PACK_REQUIRED"
+    assert result["staged_files"] == []
