@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from .free_zone_realm import state_for
+from .identity_constitution import FREE_ZONE_CONTEXTUAL_CONSTITUTION, IdentityConstitution
 
 
 CONTRACT_VERSION = "ace.free_research_sandbox.v1"
@@ -105,6 +106,20 @@ class FreeResearchSandbox:
         if not isinstance(evidence, Mapping):
             raise ValueError("evidence must be a mapping")
         details = dict(metadata or {})
+        contextual_state = details.get("contextual_state_packet")
+        if isinstance(contextual_state, Mapping) and self._valid_contextual_state_packet(contextual_state):
+            previous = self._latest_contextual_state_packet()
+            evidence_refs = self._contextual_evidence_refs(contextual_state)
+            constitution = IdentityConstitution(FREE_ZONE_CONTEXTUAL_CONSTITUTION)
+            details["identity_drift"] = (
+                constitution.compare(previous, contextual_state, evidence_refs=evidence_refs)
+                if previous is not None
+                else {
+                    **constitution.attest(contextual_state),
+                    "status": "INITIAL_IDENTITY_ATTESTED",
+                    "evidence_refs": evidence_refs,
+                }
+            )
         pollution = sorted(flag for flag in POLLUTION_FLAGS if details.get(flag) is True)
         source_kind = str(details.get("source_kind", "unknown"))
         record = {
@@ -261,6 +276,38 @@ class FreeResearchSandbox:
             raise ValueError("unsupported sandbox distillation")
         return value
 
+    def _latest_contextual_state_packet(self) -> dict[str, Any] | None:
+        """Return the latest prior valid packet; never infer one from prose."""
+        candidates: list[tuple[str, dict[str, Any]]] = []
+        for directory in (self.experiments, self.quarantine):
+            if not directory.is_dir():
+                continue
+            for path in directory.glob("*.json"):
+                try:
+                    record = json.loads(path.read_text(encoding="utf-8"))
+                except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+                    continue
+                if not isinstance(record, Mapping):
+                    continue
+                metadata = record.get("metadata")
+                packet = metadata.get("contextual_state_packet") if isinstance(metadata, Mapping) else None
+                if isinstance(packet, Mapping) and self._valid_contextual_state_packet(packet):
+                    candidates.append((str(record.get("recorded_at", "")), dict(packet)))
+        return max(candidates, key=lambda item: item[0])[1] if candidates else None
+
+    @staticmethod
+    def _contextual_evidence_refs(packet: Mapping[str, Any]) -> list[str]:
+        refs: set[str] = set()
+        for key in ("relevant_facts", "relevant_relations"):
+            for item in packet.get(key, []):
+                if isinstance(item, Mapping):
+                    refs.update(
+                        str(ref).strip()
+                        for ref in item.get("evidence_refs", [])
+                        if isinstance(ref, str) and ref.strip()
+                    )
+        return sorted(refs)
+
     def _proposal(self, experiment_id: str, status: str, reason: str, record: Mapping[str, Any]) -> dict[str, Any]:
         proposal = {
             "contract_version": CONTRACT_VERSION,
@@ -285,6 +332,7 @@ class FreeResearchSandbox:
             "contract_version", "packet_id", "scope", "scene_scope", "question", "entities", "constraints",
             "relevant_facts", "relevant_relations", "active_hypotheses", "retracted_hypotheses",
             "competing_hypothesis_groups", "learning_needs", "production_integration", "side_effects", "packet_hash",
+            "identity_attestation",
         }
         if set(value) != required:
             return False
@@ -294,6 +342,10 @@ class FreeResearchSandbox:
             return False
         side_effects = value.get("side_effects")
         if side_effects != {"task_created": False, "model_called": False, "production_runtime_mutation": False}:
+            return False
+        attestation = value.get("identity_attestation")
+        expected_attestation = IdentityConstitution(FREE_ZONE_CONTEXTUAL_CONSTITUTION).attest(value)
+        if attestation != expected_attestation or attestation.get("status") != "IDENTITY_ATTESTED":
             return False
         stored_hash = value.get("packet_hash")
         if not isinstance(stored_hash, str) or len(stored_hash) != 64:

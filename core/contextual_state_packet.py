@@ -13,6 +13,8 @@ import json
 from collections import defaultdict
 from typing import Any, Mapping
 
+from .identity_constitution import FREE_ZONE_CONTEXTUAL_CONSTITUTION, IdentityConstitution
+
 
 CONTRACT_VERSION = "ace.contextual_state_packet.v1"
 RESEARCH_SCOPE = "FREE_ZONE_RESEARCH_ONLY"
@@ -107,6 +109,9 @@ class ContextualStatePacket:
                 "production_runtime_mutation": False,
             },
         }
+        packet["identity_attestation"] = IdentityConstitution(
+            FREE_ZONE_CONTEXTUAL_CONSTITUTION
+        ).attest(packet)
         packet["packet_hash"] = _digest(packet)
         return packet
 

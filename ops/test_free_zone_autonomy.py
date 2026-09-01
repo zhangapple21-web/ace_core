@@ -62,6 +62,21 @@ def test_autonomy_binds_a_contextual_packet_and_persists_its_missing_learning_ne
     assert distillation["contextual_state"]["learning_needs"] == packet["learning_needs"]
 
 
+def test_later_free_zone_turn_compares_its_identity_against_prior_context_with_source_lineage(tmp_path):
+    root = tmp_path / "sandbox"
+    _constitution(root)
+    autonomy = FreeZoneAutonomy(root, selection_seed_factory=iter([101, 202]).__next__)
+    autonomy.run_turn()
+    SandboxSociety(root).run_turn()
+    second = autonomy.run_turn()
+    record = json.loads((root / "experiments" / f"{second['execution']['experiment_id']}.json").read_text(encoding="utf-8"))
+
+    drift = record["metadata"]["identity_drift"]
+    assert drift["status"] == "ALLOWED_VARIANT"
+    assert drift["identity_id"] == "ACE_FREE_ZONE_CONTEXTUAL_RESEARCH"
+    assert drift["evidence_refs"]
+
+
 def test_autonomy_records_explicit_cli_trigger_without_granting_reality_authority(tmp_path):
     root = tmp_path / "sandbox"
     _constitution(root)
