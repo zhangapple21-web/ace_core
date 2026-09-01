@@ -835,6 +835,18 @@ class AceDaemon:
         self.state["run_id"] = self.run_id
         self.state["run_started_at"] = datetime.now().isoformat()
         self.state["run_status"] = "alive"
+        continuity_auditor = getattr(self, "continuity_auditor", None)
+        if continuity_auditor is not None:
+            try:
+                snapshot = continuity_auditor.current_anchor_snapshot()
+                self.state["loaded_anchor_set_sha256"] = snapshot["anchor_set_sha256"]
+                self.state["loaded_anchor_snapshot_at"] = datetime.now().isoformat()
+                self.state["loaded_anchor_snapshot_reasons"] = snapshot["reason_codes"]
+            except Exception as error:
+                # Missing adoption evidence must remain visible rather than
+                # being replaced with a guessed disk version.
+                self.state.pop("loaded_anchor_set_sha256", None)
+                self.state["loaded_anchor_snapshot_error"] = type(error).__name__
         self._save_state()
 
     def _record_continuity(self, event: str) -> Dict[str, Any]:
