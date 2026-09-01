@@ -58,6 +58,10 @@ from core.finance_work_windows import FinanceWorkWindows
 from core.public_sentiment_observation import PublicSentimentObservation
 from core.daily_shift import DailyShift
 from core.hourly_service import HourlyTaskService
+from core.continuity_audit import ContinuityAuditor
+from core.free_zone_model_shift import FreeZoneModelShift
+from core.reality_gap_relay import RealityGapRelay
+from core.free_zone_loop_status import FreeZoneLoopStatus
 from core.daily_learning import DAILY_LEARNING_OBSERVATION_LIMIT, DailyLearningLoop
 from core.open_source_learning import OpenSourceLearningBacklog
 from core.external_learning_discovery import ExternalLearningDiscovery
@@ -76,6 +80,15 @@ from core.sync_manager import SyncManager
 from core.provider_usage_reconciliation import refresh_latest_usage_report, safe_source_error_status
 
 from core.experience_deposition import ExperienceDeposition
+
+
+# Mine-seed discovery can walk several broad, operator-owned directories.
+# A daemon process only needs the answer once for a given checkout parent.
+# Scope the cache to that parent (rather than globally) so temporary test
+# workspaces cannot suppress discovery for the real ACE checkout.
+_MINE_SEED_DISCOVERY_CACHE: Dict[str, Optional[str]] = {}
+_ECO_FALLBACK_DISCOVERY_CACHE: Dict[str, List[str]] = {}
+_OMEGA_FALLBACK_DISCOVERY_CACHE: Dict[str, List[str]] = {}
 
 
 def load_config(base_dir: Path) -> dict:
@@ -178,6 +191,12 @@ class AceDaemon:
         self.obs_to_task_converter = None  # Observation → Task 转换器
         self.discovery_mode = None
         self.daily_learning = None
+        # A hash-bound auditor records the continuity of the whole portable
+        # motherplate.  It observes; it never becomes a second runtime or
+        # changes TaskPool / Admission authority.
+        self.continuity_auditor = ContinuityAuditor(base_dir)
+        self.reality_gap_relay = RealityGapRelay(base_dir)
+        self.free_zone_loop_status = FreeZoneLoopStatus(base_dir)
         self.miner_pool = None
         self.model_router = None
         self.repository_curator = None  # 仓库馆长（唯一有权决定同步的 Agent）
@@ -245,7 +264,7 @@ class AceDaemon:
             try:
                 self.core_syncer = CoreSyncer(
                     repo_path=str(self.base_dir),
-                    remote="ace-core",
+                    remote="origin",
                     branch="main",
                     debounce_minutes=60,
                 )
@@ -472,6 +491,10 @@ class AceDaemon:
 
     def _find_mine_seed(self) -> Optional[str]:
         """自动寻找 mine-seed 仓库 — 不硬编码路径"""
+        cache_key = str(self.base_dir.parent.resolve())
+        if cache_key in _MINE_SEED_DISCOVERY_CACHE:
+            return _MINE_SEED_DISCOVERY_CACHE[cache_key]
+
         candidates = []
 
         trae_work = Path.home() / ".trae" / "work"
@@ -503,7 +526,9 @@ class AceDaemon:
             except Exception:
                 pass
 
-        return candidates[0] if candidates else None
+        result = candidates[0] if candidates else None
+        _MINE_SEED_DISCOVERY_CACHE[cache_key] = result
+        return result
 
     def _repository_sync_status(self) -> str:
         """Describe export/sync readiness without conflating it with discovery."""
@@ -517,53 +542,59 @@ class AceDaemon:
 
     def _find_eco_layer(self) -> List[str]:
         """自动寻找 eco_layer.json — 不硬编码路径"""
-        candidates = []
+        local_candidates = self._discover_json_files([self.base_dir], "eco_layer*.json")
+        if local_candidates:
+            return local_candidates
+
         search_roots = [
-            self.base_dir,
             self.base_dir.parent,
             Path.home() / "Downloads",
             Path.home() / "Desktop",
         ]
-
-        for root in search_roots:
-            if not root.exists():
-                continue
-            try:
-                for p in root.rglob("eco_layer*.json"):
-                    if p.is_file():
-                        candidates.append(str(p))
-                        if len(candidates) >= 3:
-                            return candidates
-            except Exception:
-                pass
-
-        return candidates
+        cache_key = "|".join(str(root.resolve()) for root in search_roots)
+        if cache_key not in _ECO_FALLBACK_DISCOVERY_CACHE:
+            _ECO_FALLBACK_DISCOVERY_CACHE[cache_key] = self._discover_json_files(
+                search_roots, "eco_layer*.json"
+            )
+        return list(_ECO_FALLBACK_DISCOVERY_CACHE[cache_key])
 
     def _find_omega_final(self) -> List[str]:
         """自动寻找 Ω-FINAL — 不硬编码路径"""
-        candidates = []
+        keywords = ["omega_final", "Ω_FINAL", "R1_Ω", "r1_final", "final_state"]
+        local_candidates = self._discover_json_files([self.base_dir], "*.json", keywords)
+        if local_candidates:
+            return local_candidates
+
         search_roots = [
-            self.base_dir,
             self.base_dir.parent,
             Path.home() / "Downloads",
             Path.home() / "Desktop",
         ]
+        cache_key = "|".join(str(root.resolve()) for root in search_roots)
+        if cache_key not in _OMEGA_FALLBACK_DISCOVERY_CACHE:
+            _OMEGA_FALLBACK_DISCOVERY_CACHE[cache_key] = self._discover_json_files(
+                search_roots, "*.json", keywords
+            )
+        return list(_OMEGA_FALLBACK_DISCOVERY_CACHE[cache_key])
 
-        keywords = ["omega_final", "Ω_FINAL", "R1_Ω", "r1_final", "final_state"]
-
+    @staticmethod
+    def _discover_json_files(search_roots: List[Path], pattern: str,
+                             keywords: Optional[List[str]] = None) -> List[str]:
+        candidates = []
         for root in search_roots:
             if not root.exists():
                 continue
             try:
-                for p in root.rglob("*.json"):
-                    name = p.name.lower()
-                    if any(kw.lower() in name for kw in keywords):
-                        candidates.append(str(p))
-                        if len(candidates) >= 3:
-                            return candidates
+                for path in root.rglob(pattern):
+                    if not path.is_file():
+                        continue
+                    if keywords and not any(keyword.lower() in path.name.lower() for keyword in keywords):
+                        continue
+                    candidates.append(str(path))
+                    if len(candidates) >= 3:
+                        return candidates
             except Exception:
                 pass
-
         return candidates
 
     def _load_state(self) -> dict:
@@ -788,11 +819,41 @@ class AceDaemon:
 
     def _checkpoint_startup(self) -> None:
         """Persist the identity of the live run before its first cycle starts."""
+        # Keep the previous terminal record as geological evidence, but bind it
+        # explicitly to the previous run so dashboards cannot present an old
+        # crash as the status of the just-started daemon.
+        if self.state.get("last_exit_reason") or self.state.get("last_exit_time"):
+            self.state["previous_run_exit"] = {
+                "run_id": self.state.get("run_id"),
+                "reason": self.state.get("last_exit_reason"),
+                "at": self.state.get("last_exit_time"),
+                "recorded_at": datetime.now().isoformat(),
+            }
         self.state["pid"] = os.getpid()
         self.state["run_id"] = self.run_id
         self.state["run_started_at"] = datetime.now().isoformat()
         self.state["run_status"] = "alive"
         self._save_state()
+
+    def _record_continuity(self, event: str) -> Dict[str, Any]:
+        """Persist a whole-system continuity receipt at lifecycle boundaries.
+
+        A receipt is evidence, not an execution claim: it does not create
+        work, call a model, or assert that a natural cycle has completed.
+        """
+        try:
+            return self.continuity_auditor.audit(
+                record=True,
+                runtime_context={
+                    "event": event,
+                    "pid": os.getpid(),
+                    "run_id": self.run_id or None,
+                    "sole_daemon_lock_held": bool(self.daemon_lock_token),
+                },
+            )
+        except Exception as error:
+            self._log_error("continuity_audit", str(error))
+            return {"continuity_status": "CONTINUITY_AUDIT_FAILED", "error": str(error)}
 
     def run_periodic_backup(self) -> Dict[str, Any]:
         from ops.backup_data import backup_runtime
@@ -2030,11 +2091,39 @@ class AceDaemon:
             self._log_error("finance_work_window", str(e))
 
         try:
+            lock_owner = self._read_lock_owner(self.daemon_lock_file)
+            lock_binding = (
+                "matched"
+                if (
+                    lock_owner.get("pid") == os.getpid()
+                    and lock_owner.get("run_id") == self.run_id
+                    and lock_owner.get("token") == self.daemon_lock_token
+                )
+                else "unverified"
+            )
             result["hourly_task_service"] = self.hourly_task_service.record(
-                pending_before, result
+                pending_before,
+                result,
+                executor_context={
+                    "pid": os.getpid(),
+                    "run_id": self.run_id,
+                    "lock_binding": lock_binding,
+                },
             )
         except Exception as e:
             self._log_error("hourly_task_service", str(e))
+
+        try:
+            # This only releases an already-observed, evidence-complete
+            # lifecycle gap as sandbox research food.  It never executes the
+            # Free Zone, creates TaskPool work, or alters production authority.
+            result["reality_free_zone_relay"] = self.reality_gap_relay.scan_and_release()
+            result["free_zone_loop_status"] = self.free_zone_loop_status.build(
+                relay_result=result["reality_free_zone_relay"]
+            )
+            self.free_zone_loop_status.write(result["free_zone_loop_status"])
+        except Exception as e:
+            self._log_error("reality_free_zone_relay", str(e))
 
         try:
             result["daily_shift"] = self.daily_shift.build(
@@ -2068,6 +2157,10 @@ class AceDaemon:
             self._log_error("task_creator", str(e))
 
         result["model_pipeline"] = self._model_pipeline_metrics()
+        try:
+            result["free_zone_model_shift"] = self._run_free_zone_model_shift_if_due()
+        except Exception as e:
+            self._log_error("free_zone_model_shift", str(e))
         return result
 
     def _deposit_archived_experience(self, task, result: Dict[str, Any]) -> None:
@@ -2083,6 +2176,26 @@ class AceDaemon:
         except Exception as exc:
             result["experience_deposition_failures"] += 1
             self._log_error("experience_deposition", str(exc), task.task_id)
+
+    def _run_free_zone_model_shift_if_due(self) -> Dict[str, Any]:
+        cfg = self.config.get("runtime", {}).get("free_zone_model_shift", {})
+        if not isinstance(cfg, dict) or not cfg.get("enabled"):
+            return {"status": "DISABLED"}
+        now = datetime.now()
+        if (now.hour, now.minute) < (18, 30):
+            return {"status": "WAITING_FOR_DEDICATED_SHIFT"}
+        day = now.strftime("%Y-%m-%d")
+        if self.state.get("free_zone_model_shift_date") == day:
+            return {"status": "ALREADY_RUN_TODAY"}
+        if not self.miner_pool:
+            return {"status": "NO_EXISTING_MINER_POOL"}
+        result = FreeZoneModelShift(
+            self.base_dir / "07_SANDBOX" / "free_research", self.miner_pool
+        ).run_once(max_tokens=int(cfg.get("max_tokens", 1024)))
+        self.state["free_zone_model_shift_date"] = day
+        self.state["free_zone_model_shift_last"] = {"status": result.get("status"), "at": now.isoformat()}
+        self._save_state()
+        return result
 
     def _run_autonomous_loop(self, max_depth: int = 20) -> Dict[str, Any]:
         lifecycle = self._run_task_lifecycle()
@@ -2576,6 +2689,7 @@ class AceDaemon:
             self.heartbeat.mark_starting(pid=os.getpid(), run_id=self.run_id)
             self._checkpoint_startup()
             self.heartbeat.beat(reason="startup")
+            self._record_continuity("daemon_startup")
             print(f"心跳已启动。当前存活: {self.heartbeat.get_uptime_string()}")
             print()
 
@@ -2677,6 +2791,7 @@ class AceDaemon:
             stop_reason = stop_reason or self.shutdown_reason or "shutdown_requested"
             try:
                 self._checkpoint_shutdown(stop_reason)
+                self._record_continuity("daemon_shutdown")
             finally:
                 self._release_lifecycle_lock()
                 self._release_daemon_lock()
