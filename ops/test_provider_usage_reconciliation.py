@@ -204,23 +204,11 @@ def test_latest_usage_csv_is_selected_by_mtime(tmp_path):
     assert find_latest_usage_csv(downloads) == older
 
 
-def test_daemon_refresh_stores_only_safe_report_metadata(monkeypatch, tmp_path):
+def test_daemon_never_imports_raw_provider_exports_from_operator_downloads(monkeypatch, tmp_path):
     from ace_daemon import AceDaemon
 
-    captured = {}
-
     def fake_refresh(**kwargs):
-        captured.update(kwargs)
-        return {
-            "status": "REFRESHED",
-            "state": {
-                "status": "REFRESHED",
-                "source_file_sha256": "safe-digest",
-                "source_size_bytes": 12,
-                "source_mtime_ns": 34,
-                "report_path": str(tmp_path / "provider_billing" / "shenwen_usage_latest.json"),
-            },
-        }
+        raise AssertionError("daemon must not inspect a raw provider export")
 
     monkeypatch.setattr("ace_daemon.refresh_latest_usage_report", fake_refresh)
     daemon = AceDaemon.__new__(AceDaemon)
@@ -230,8 +218,5 @@ def test_daemon_refresh_stores_only_safe_report_metadata(monkeypatch, tmp_path):
 
     result = daemon._refresh_provider_usage_billing()
 
-    assert result["status"] == "REFRESHED"
-    assert captured["runtime_daily_cost"] == daemon.state["shenwen_daily_cost"]
-    assert captured["previous_state"] == {}
-    assert captured["output_path"] == tmp_path / "06_RUNTIME" / "ace" / "data" / "provider_billing" / "shenwen_usage_latest.json"
+    assert result["status"] == "DISABLED_RAW_EXPORT_NOT_AUTHORIZED"
     assert daemon.state["shenwen_provider_usage_billing"] == result["state"]

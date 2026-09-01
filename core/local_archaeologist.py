@@ -431,66 +431,13 @@ class LocalArchaeologist:
         analysis: Dict[str, Any],
         allowed_priorities: Optional[Set[str]] = None,
     ) -> Optional[Any]:
-        """创建吸收任务"""
-        if not self.task_pool:
-            return None
+        """Keep one-source archaeology in observation space.
 
-        path = Path(file_info["path"])
-        missing = analysis["missing_structures"]
-        rate = analysis["absorption_rate"]
-
-        title = f"本地考古吸收: {path.name}"
-        hypothesis = (
-            f"该文件（{file_info['category']}）吸收率仅 {rate:.0%}，"
-            f"有 {len(missing)} 个结构未被词库/记忆吸收："
-            f"{', '.join(missing[:8])}。需要深入考古和吸收。"
-        )
-
-        priority = "high" if rate < 0.3 else "medium"
-        if allowed_priorities is not None and priority not in allowed_priorities:
-            return None
-
-        try:
-            evidence = {
-                "path": str(path),
-                "category": file_info["category"],
-                "absorption_rate": rate,
-                "total_structures": analysis["total_structures"],
-                "missing_structures": missing[:20],
-            }
-            task = self.task_pool.create_task(
-                title=title,
-                hypothesis=hypothesis,
-                creator="local_archaeologist",
-                priority=priority,
-                tags=[
-                    "local_archaeology",
-                    "absorption",
-                    f"category:{file_info['category']}",
-                    f"rate_{rate:.0f}",
-                ],
-                admission={
-                    "source_type": "archaeology",
-                    "source_ref": f"{path.resolve()}:{rate:.6f}:{','.join(missing[:20])}",
-                    "why_now": "The local archaeology scan found structures not absorbed by current knowledge assets.",
-                    "evidence": [evidence],
-                    "expected_result": "Missing structures are absorbed or explicitly classified as out of scope.",
-                    "verification_method": "Re-run absorption analysis for the same source file.",
-                    "risk": "Local knowledge interpretation may require later validation.",
-                    "estimated_scope": "one source file and its identified structures",
-                },
-                outputs={
-                    "source_file": str(path),
-                    "absorption_rate": rate,
-                    "total_structures": analysis["total_structures"],
-                    "missing_structures": missing[:20],
-                },
-            )
-            if task:
-                return task
-        except Exception:
-            pass
-
+        A local file can yield a useful observation, but it is not independent
+        evidence and therefore cannot create executable TaskPool work by
+        itself.  A separate evidence-backed producer may later use the same
+        observation through the existing Admission contract.
+        """
         return None
 
     # ── 工具方法 ──────────────────────────────────────────

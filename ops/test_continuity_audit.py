@@ -16,15 +16,20 @@ def _root(tmp_path):
     (tmp_path / "00_ROOT" / "ARCHITECTURE.md").write_text("motherplate\n", encoding="utf-8")
     (tmp_path / "ace_daemon.py").write_text("runtime\n", encoding="utf-8")
     (tmp_path / "core" / "task.py").write_text("taskpool\n", encoding="utf-8")
+    (tmp_path / "core" / "task_admission.py").write_text("admission\n", encoding="utf-8")
     (tmp_path / "core" / "daily_shift.py").write_text("daily shift\n", encoding="utf-8")
     (tmp_path / "core" / "free_research_sandbox.py").write_text("sandbox\n", encoding="utf-8")
     (tmp_path / "core" / "free_zone_autonomy.py").write_text("free zone autonomy\n", encoding="utf-8")
+    (tmp_path / "core" / "reality_free_zone_exchange.py").write_text("exchange\n", encoding="utf-8")
     (tmp_path / "core" / "free_zone_reality_bridge.py").write_text("bridge\n", encoding="utf-8")
+    (tmp_path / "core" / "reality_gap_relay.py").write_text("relay\n", encoding="utf-8")
+    (tmp_path / "core" / "free_zone_loop_status.py").write_text("loop status\n", encoding="utf-8")
     (tmp_path / "core" / "free_zone_model_research.py").write_text("model research\n", encoding="utf-8")
     (tmp_path / "core" / "free_zone_model_shift.py").write_text("model shift\n", encoding="utf-8")
     (tmp_path / "core" / "contextual_state_packet.py").write_text("contextual packet\n", encoding="utf-8")
     (tmp_path / "core" / "identity_constitution.py").write_text("identity constitution\n", encoding="utf-8")
     (tmp_path / "core" / "meaning_line.py").write_text("explicit meaning contract\n", encoding="utf-8")
+    (tmp_path / "core" / "local_archaeologist.py").write_text("local observation\n", encoding="utf-8")
     (tmp_path / "core" / "stock_data_reliability.py").write_text("stock data\n", encoding="utf-8")
     (tmp_path / "core" / "data_admission_recovery.py").write_text("recovery\n", encoding="utf-8")
     (tmp_path / "core" / "continuity_audit.py").write_text("continuity audit\n", encoding="utf-8")
@@ -91,6 +96,11 @@ def test_world_model_boundary_and_context_contracts_are_loaded_anchors(tmp_path)
         "core/identity_constitution.py",
         "core/meaning_line.py",
         "core/free_zone_autonomy.py",
+        "core/task_admission.py",
+        "core/local_archaeologist.py",
+        "core/reality_free_zone_exchange.py",
+        "core/reality_gap_relay.py",
+        "core/free_zone_loop_status.py",
     }.issubset(report["anchors"])
 
 

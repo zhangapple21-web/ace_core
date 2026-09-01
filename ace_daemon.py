@@ -1772,40 +1772,20 @@ class AceDaemon:
         return summary
 
     def _refresh_provider_usage_billing(self) -> Dict[str, Any]:
-        """Refresh an account-level provider export without changing ACE routes.
+        """Refuse raw account-export intake from a production daemon.
 
-        The downloaded usage export is deliberately treated as external,
-        aggregate-only billing telemetry.  It never becomes a task trace,
-        provider-health score, routing input, finance input, or TaskPool work.
-        Any malformed export is isolated to this small report and cannot end a
-        daemon iteration.
+        A redacted aggregate report may be inspected separately under an
+        explicit operator workflow.  The daemon must never discover or parse
+        a raw usage CSV from Downloads, even if a legacy config flag remains.
         """
-        output_path = (
-            self.base_dir
-            / "06_RUNTIME"
-            / "ace"
-            / "data"
-            / "provider_billing"
-            / "shenwen_usage_latest.json"
-        )
-        try:
-            result = refresh_latest_usage_report(
-                downloads_dir=Path.home() / "Downloads",
-                output_path=output_path,
-                runtime_daily_cost=self.state.get("shenwen_daily_cost", {}),
-                previous_state=self.state.get("shenwen_provider_usage_billing", {}),
-            )
-        except (OSError, ValueError) as error:
-            safe_reason = safe_source_error_status(error)
-            result = {
-                "status": "MALFORMED_SOURCE",
-                "state": {
-                    "status": "MALFORMED_SOURCE",
-                    "checked_at": datetime.now().isoformat(),
-                    "reason": safe_reason,
-                },
-            }
-            self._log_error("shenwen_provider_usage_billing", safe_reason)
+        result = {
+            "status": "DISABLED_RAW_EXPORT_NOT_AUTHORIZED",
+            "state": {
+                "status": "DISABLED_RAW_EXPORT_NOT_AUTHORIZED",
+                "checked_at": datetime.now().isoformat(),
+                "reason": "raw_provider_export_intake_is_not_a_daemon_capability",
+            },
+        }
         self.state["shenwen_provider_usage_billing"] = result["state"]
         return result
 

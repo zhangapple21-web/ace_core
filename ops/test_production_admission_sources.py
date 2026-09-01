@@ -67,7 +67,7 @@ def test_task_creator_maps_internal_candidates_to_governed_sources():
         assert task.outputs["candidate_type"] == "lexicon_gap"
 
 
-def test_low_value_producers_accept_priority_filtering():
+def test_local_archaeology_observation_cannot_bypass_independent_evidence_admission():
     with tempfile.TemporaryDirectory() as temp_dir:
         root = Path(temp_dir)
         pool = TaskPool(str(root / "pool"))
@@ -90,8 +90,8 @@ def test_low_value_producers_accept_priority_filtering():
             {"critical", "high"},
         )
 
-        assert task is not None
-        assert task.priority == "high"
+        assert task is None
+        assert not pool.list_tasks()
 
         scout = WebScout(root, lexicon=None, memory_index=None, task_pool=pool)
         count = scout._maybe_create_task(
@@ -105,7 +105,7 @@ def test_low_value_producers_accept_priority_filtering():
         )
 
         assert count == 0
-        assert len(pool.list_tasks()) == 1
+        assert not pool.list_tasks()
 
 
 def test_invalid_source_type_is_rejected_before_pool_write():
