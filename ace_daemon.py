@@ -1065,58 +1065,28 @@ class AceDaemon:
     def discover_scan_targets(self) -> List[Dict[str, Any]]:
         targets = []
         already_scanned = set(self.state.get("last_scan_paths", {}).keys())
+        # Historical memory can contain paths that predate the current
+        # workspace-only boundary.  A remembered source is evidence about the
+        # past, never a renewed authorization to inspect an operator folder.
+        authorized_root = self.base_dir.parent.resolve()
 
         for entry in self.memory_index.search(limit=500):
             src = entry.get("source_path", "")
             if src and src not in already_scanned:
-                parent = str(Path(src).parent)
+                parent_path = Path(src).parent
+                try:
+                    parent_path.resolve().relative_to(authorized_root)
+                except (OSError, ValueError):
+                    continue
+                parent = str(parent_path)
                 if parent and parent not in already_scanned:
                     targets.append({
                         "path": parent,
                         "source": "memory_index_derived",
-                        "reason": "从记忆索引中的文件路径向外扩展",
+                        "reason": "从授权工作区内的记忆索引路径扩展",
                         "priority": 2,
                     })
                     already_scanned.add(parent)
-
-        home = Path.home()
-        candidates = [
-            home / "Downloads",
-            home / "Documents",
-            home / "Desktop",
-        ]
-
-        relevant_keywords = [
-            "r1", "R1", "考古", "research", "工程",
-            "engineering", "知识", "knowledge",
-            "系统", "system", "ace", "ACE",
-            "mine", "seed", "lexicon", "记忆",
-            "eco", "omega", "Ω", "persona",
-        ]
-
-        for candidate in candidates:
-            if not candidate.exists():
-                continue
-            candidate_str = str(candidate)
-            if candidate_str in already_scanned:
-                continue
-
-            keyword_hits = 0
-            try:
-                for item in candidate.iterdir():
-                    name = item.name.lower()
-                    if any(kw.lower() in name for kw in relevant_keywords):
-                        keyword_hits += 1
-            except Exception:
-                pass
-
-            if keyword_hits > 0:
-                targets.append({
-                    "path": candidate_str,
-                    "source": "auto_discovered",
-                    "reason": f"目录下有 {keyword_hits} 个相关命名的子项",
-                    "priority": keyword_hits,
-                })
 
         return targets
 
