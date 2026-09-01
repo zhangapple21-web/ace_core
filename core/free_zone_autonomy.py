@@ -32,6 +32,7 @@ from .free_zone_semantic_exploration import SemanticSliceExplorer
 from .open_source_learning import CATALOG
 from .semantic_seed import SemanticSeedError, normalize_semantic_seed
 from .free_zone_realm import state_for
+from .contextual_state_packet import ContextualStatePacket
 
 
 CONTRACT_VERSION = "ace.free_zone_autonomy.v1"
@@ -76,7 +77,13 @@ class FreeZoneAutonomy:
         # sequence replayable from the same candidate snapshot.
         self.selection_seed_factory = selection_seed_factory or (lambda: secrets.randbits(64))
 
-    def run_turn(self, *, max_experiments: int = 1, allow_external: bool = False) -> dict[str, Any]:
+    def run_turn(
+        self,
+        *,
+        max_experiments: int = 1,
+        allow_external: bool = False,
+        execution_context: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
         """Discover, judge, claim, and execute a bounded local batch.
 
         The per-turn bound is a resource limit, not a pre-approval queue.  It
@@ -85,6 +92,7 @@ class FreeZoneAutonomy:
         """
         if max_experiments < 1:
             raise ValueError("max_experiments must be positive")
+        execution_evidence = self._execution_evidence(execution_context)
         self.sandbox.initialize()
         self.factories.initialize()
         self.inbox.mkdir(parents=True, exist_ok=True)
@@ -101,6 +109,7 @@ class FreeZoneAutonomy:
                 execution=None,
                 factories=self.factories.snapshot(),
                 resource_selection=allocation["resource_selection"],
+                execution_evidence=execution_evidence,
             )
             self._write_report(report)
             return report
@@ -121,6 +130,7 @@ class FreeZoneAutonomy:
             )
             claim = self._claim(state, selected_item)
             execution = self._execute(selected_item, state, factory_material=factory_material)
+            contextual_state = ContextualStatePacket().from_research_candidate(selected_item)
             # A source fingerprint can contain a colon and multiple
             # constitution items share a textual prefix. Use a filesystem-safe
             # digest plus microseconds so automatic claims never collide.
@@ -139,6 +149,7 @@ class FreeZoneAutonomy:
                     "automatic_discovery": True,
                     "automatic_claim": True,
                     "automatic_execution": True,
+                    "execution_evidence": execution_evidence,
                     "free_zone_only": True,
                     "production_integration": False,
                     "factory_thread_id": factory_thread.get("thread_id"),
@@ -146,6 +157,16 @@ class FreeZoneAutonomy:
                     "semantic_slice": selected_item.get("semantic_slice", {}),
                     "allocation": selected_item.get("allocation", {}),
                     "semantic_seed": selected_item.get("semantic_seed"),
+                    # The packet is an explicit research context, not a model
+                    # prompt or production memory.  Its missing learning
+                    # needs make the next observation condition visible.
+                    "contextual_state_packet": contextual_state,
+                    "ace_reality_gap_origin": (
+                        selected_item.get("payload", {}).get("origin")
+                        if selected_item.get("source_kind") == "ace_reality_gap"
+                        and isinstance(selected_item.get("payload"), Mapping)
+                        else None
+                    ),
                     "realm_state": state_for("experiment", source_kind=str(selected_item["source_kind"])),
                 },
             )
@@ -191,6 +212,7 @@ class FreeZoneAutonomy:
             executions=executions,
             factories=self.factories.snapshot(),
             resource_selection=allocation["resource_selection"],
+            execution_evidence=execution_evidence,
         )
         self._write_report(report)
         return report
@@ -338,7 +360,10 @@ class FreeZoneAutonomy:
                     source_kind = "semantic_seed_unstructured"
                     value = {"food_kind": "semantic_seed", "validation_error": str(error), "payload_hash": _digest(value)}
             else:
-                source_kind = "museum_history" if food_kind == "museum_history" else "inbox"
+                source_kind = {
+                    "museum_history": "museum_history",
+                    "ace_reality_gap": "ace_reality_gap",
+                }.get(food_kind, "inbox")
             candidates.append({
                 "fingerprint": fingerprint,
                 "source_kind": source_kind,
@@ -498,6 +523,22 @@ class FreeZoneAutonomy:
                     "source": candidate["source_ref"],
                     "payload_hash": _digest(payload),
                     "reason": "inbox_food_preserved_for_a_future_specialized_probe",
+                },
+            }
+
+        if candidate["source_kind"] == "ace_reality_gap":
+            payload = candidate.get("payload")
+            if not isinstance(payload, Mapping) or not isinstance(payload.get("origin"), Mapping):
+                return {"outcome": "FAIL", "evidence": {"source": candidate["source_ref"], "reason": "reality_gap_food_missing_origin"}}
+            return {
+                "outcome": "INCONCLUSIVE",
+                "evidence": {
+                    "source": candidate["source_ref"],
+                    "origin_exchange_id": payload["origin"].get("exchange_id"),
+                    "origin_receipt_sha256": payload["origin"].get("receipt_sha256"),
+                    "payload_hash": _digest(payload),
+                    "expected_result": payload.get("expected_result"),
+                    "reason": "ace_reality_gap_preserved_for_a_future_specialized_probe",
                 },
             }
 
@@ -772,11 +813,43 @@ class FreeZoneAutonomy:
             raise ValueError("external response is not a mapping")
         return value
 
-    def _report(self, *, event: str, candidates: list[dict[str, Any]], claim: Mapping[str, Any] | None, execution: Mapping[str, Any] | None, claims: list[Mapping[str, Any]] | None = None, executions: list[Mapping[str, Any]] | None = None, factories: Mapping[str, Any] | None = None, resource_selection: Mapping[str, Any] | None = None) -> dict[str, Any]:
+    @staticmethod
+    def _execution_evidence(execution_context: Mapping[str, Any] | None) -> dict[str, Any]:
+        context = dict(execution_context or {})
+        trigger_kind = str(context.get("trigger_kind", "")).strip()
+        runner = str(context.get("runner", "")).strip()
+        pid = context.get("pid")
+        shift_kind = str(context.get("shift_kind", "UNSPECIFIED")).strip()
+        if shift_kind not in {"AD_HOC", "OFF_DUTY"}:
+            shift_kind = "UNSPECIFIED"
+        check_in_at = str(context.get("check_in_at", "")).strip() or None
+        if trigger_kind and runner and isinstance(pid, int) and pid > 0:
+            return {
+                "status": "EXPLICIT_TRIGGER_RECORDED",
+                "runtime_proof": False,
+                "natural_daemon_cycle": "NO" if trigger_kind == "MANUAL_CLI" else "UNKNOWN",
+                "trigger": {"kind": trigger_kind, "runner": runner, "pid": pid},
+                "shift": {"kind": shift_kind, "check_in_at": check_in_at},
+                "semantics": "an explicit sandbox trigger proves attribution only; it grants no ACE reality or production authority",
+            }
+        return {
+            "status": "UNATTRIBUTED_LOCAL_CALL",
+            "runtime_proof": False,
+            "natural_daemon_cycle": "UNKNOWN",
+            "trigger": None,
+            "shift": {"kind": "UNSPECIFIED", "check_in_at": None},
+            "semantics": "a sandbox report alone does not prove who triggered the turn or a natural daemon cycle",
+        }
+
+    def _report(self, *, event: str, candidates: list[dict[str, Any]], claim: Mapping[str, Any] | None, execution: Mapping[str, Any] | None, claims: list[Mapping[str, Any]] | None = None, executions: list[Mapping[str, Any]] | None = None, factories: Mapping[str, Any] | None = None, resource_selection: Mapping[str, Any] | None = None, execution_evidence: Mapping[str, Any] | None = None) -> dict[str, Any]:
+        completed_at = _now()
+        evidence = dict(execution_evidence or self._execution_evidence(None))
+        if evidence.get("shift", {}).get("kind") == "OFF_DUTY":
+            evidence["check_out_at"] = completed_at
         return {
             "contract_version": CONTRACT_VERSION,
             "mode": "FREE_ZONE_AUTONOMY_TURN",
-            "at": _now(),
+            "at": completed_at,
             "event": event,
             "discovery": {"candidate_count": len(candidates), "source_kinds": sorted({item["source_kind"] for item in candidates})},
             "judgment": {
@@ -795,6 +868,7 @@ class FreeZoneAutonomy:
             "execution": dict(execution) if execution else None,
             "claims": [dict(item) for item in (claims or [])],
             "executions": [dict(item) for item in (executions or [])],
+            "execution_evidence": evidence,
             "food_chain": ["inbound_food", "free_zone_discovery", "autonomous_claim", "isolated_execution", "distillation", "counterexample_re_observation", "court_at_production_edge"],
             "factories": dict(factories or self.factories.snapshot()),
             "production_integration": False,

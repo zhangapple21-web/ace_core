@@ -181,6 +181,28 @@ class FreeResearchSandbox:
             # This carries a falsifiable question forward inside the sandbox;
             # it neither claims truth nor grants any promotion authority.
             distillation["semantic_seed"] = dict(semantic_seed)
+        contextual_state = record.get("metadata", {}).get("contextual_state_packet") if isinstance(record.get("metadata"), Mapping) else None
+        if isinstance(contextual_state, Mapping) and self._valid_contextual_state_packet(contextual_state):
+            # Keep the hash-bound, research-only state with its distillation
+            # so a later re-observation can see what evidence was still
+            # missing.  It grants no additional authority to the result.
+            distillation["contextual_state"] = {
+                "packet_id": contextual_state["packet_id"],
+                "packet_hash": contextual_state["packet_hash"],
+                "learning_needs": list(contextual_state["learning_needs"]),
+                "scope": contextual_state["scope"],
+            }
+        origin = record.get("metadata", {}).get("ace_reality_gap_origin") if isinstance(record.get("metadata"), Mapping) else None
+        if isinstance(origin, Mapping):
+            exchange_id = origin.get("exchange_id")
+            receipt_sha256 = origin.get("receipt_sha256")
+            if isinstance(exchange_id, str) and isinstance(receipt_sha256, str):
+                # Lineage only: this neither accepts the learning into ACE nor
+                # grants the Free Zone any control-plane authority.
+                distillation["origin"] = {
+                    "exchange_id": exchange_id,
+                    "receipt_sha256": receipt_sha256,
+                }
         distillation["distillation_hash"] = _digest(distillation)
         self._write(self.distillations / f"{experiment_id}.json", distillation)
 
@@ -255,6 +277,30 @@ class FreeResearchSandbox:
         # hash on every proposal lets the court detect tampering consistently.
         proposal["proposal_hash"] = _digest(proposal)
         return proposal
+
+    @staticmethod
+    def _valid_contextual_state_packet(value: Mapping[str, Any]) -> bool:
+        """Accept only a complete, self-hashing research packet as lineage."""
+        required = {
+            "contract_version", "packet_id", "scope", "scene_scope", "question", "entities", "constraints",
+            "relevant_facts", "relevant_relations", "active_hypotheses", "retracted_hypotheses",
+            "competing_hypothesis_groups", "learning_needs", "production_integration", "side_effects", "packet_hash",
+        }
+        if set(value) != required:
+            return False
+        if value.get("contract_version") != "ace.contextual_state_packet.v1":
+            return False
+        if value.get("scope") != "FREE_ZONE_RESEARCH_ONLY" or value.get("production_integration") is not False:
+            return False
+        side_effects = value.get("side_effects")
+        if side_effects != {"task_created": False, "model_called": False, "production_runtime_mutation": False}:
+            return False
+        stored_hash = value.get("packet_hash")
+        if not isinstance(stored_hash, str) or len(stored_hash) != 64:
+            return False
+        source = dict(value)
+        source.pop("packet_hash", None)
+        return _digest(source) == stored_hash
 
     @staticmethod
     def _write(path: Path, value: Mapping[str, Any]) -> None:

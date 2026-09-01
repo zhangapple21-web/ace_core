@@ -34,6 +34,63 @@ def test_autonomy_discovers_claims_and_executes_without_teacher_or_court_preappr
     assert report["resource_selection"]["quality_decision_performed"] is False
     assert report["resource_selection"]["outcome_used"] is False
     assert (root / "experiments" / f"{report['execution']['experiment_id']}.json").exists()
+    assert report["execution_evidence"]["status"] == "UNATTRIBUTED_LOCAL_CALL"
+    assert report["execution_evidence"]["natural_daemon_cycle"] == "UNKNOWN"
+    record = json.loads((root / "experiments" / f"{report['execution']['experiment_id']}.json").read_text(encoding="utf-8"))
+    assert record["metadata"]["execution_evidence"] == report["execution_evidence"]
+
+
+def test_autonomy_binds_a_contextual_packet_and_persists_its_missing_learning_needs(tmp_path):
+    root = tmp_path / "sandbox"
+    _constitution(root)
+    report = FreeZoneAutonomy(root, selection_seed_factory=lambda: 17).run_turn()
+    experiment_id = report["execution"]["experiment_id"]
+    record = json.loads((root / "experiments" / f"{experiment_id}.json").read_text(encoding="utf-8"))
+    packet = record["metadata"]["contextual_state_packet"]
+
+    assert packet["scope"] == "FREE_ZONE_RESEARCH_ONLY"
+    assert packet["packet_hash"]
+    assert packet["learning_needs"]
+    assert packet["side_effects"] == {
+        "task_created": False,
+        "model_called": False,
+        "production_runtime_mutation": False,
+    }
+
+    distillation = FreeZoneAutonomy(root).sandbox.distill(experiment_id)
+    assert distillation["contextual_state"]["packet_hash"] == packet["packet_hash"]
+    assert distillation["contextual_state"]["learning_needs"] == packet["learning_needs"]
+
+
+def test_autonomy_records_explicit_cli_trigger_without_granting_reality_authority(tmp_path):
+    root = tmp_path / "sandbox"
+    _constitution(root)
+    report = FreeZoneAutonomy(root).run_turn(
+        execution_context={"trigger_kind": "MANUAL_CLI", "runner": "ops/run_free_zone_autonomy_turn.py", "pid": 42},
+    )
+    assert report["execution_evidence"]["status"] == "EXPLICIT_TRIGGER_RECORDED"
+    assert report["execution_evidence"]["natural_daemon_cycle"] == "NO"
+    assert report["execution_evidence"]["shift"] == {"kind": "UNSPECIFIED", "check_in_at": None}
+    assert report["production_integration"] is False
+
+
+def test_off_duty_shift_records_actual_check_in_and_completion_without_claiming_two_hours(tmp_path):
+    root = tmp_path / "sandbox"
+    _constitution(root)
+    report = FreeZoneAutonomy(root).run_turn(
+        execution_context={
+            "trigger_kind": "MANUAL_CLI",
+            "runner": "ops/run_free_zone_autonomy_turn.py",
+            "pid": 42,
+            "shift_kind": "OFF_DUTY",
+            "check_in_at": "2026-08-31T18:30:00+08:00",
+        },
+    )
+    evidence = report["execution_evidence"]
+    assert evidence["shift"] == {"kind": "OFF_DUTY", "check_in_at": "2026-08-31T18:30:00+08:00"}
+    assert evidence["check_out_at"] == report["at"]
+    assert "two_hour" not in evidence
+    assert evidence["runtime_proof"] is False
 
 
 def test_second_autonomy_turn_retains_failure_as_a_normal_counterexample(tmp_path):

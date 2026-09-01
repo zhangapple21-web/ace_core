@@ -99,6 +99,7 @@ class ContextualStatePacket:
             "active_hypotheses": active,
             "retracted_hypotheses": retracted,
             "competing_hypothesis_groups": groups,
+            "learning_needs": self._learning_needs(active, fact_ids),
             "production_integration": False,
             "side_effects": {
                 "task_created": False,
@@ -108,6 +109,75 @@ class ContextualStatePacket:
         }
         packet["packet_hash"] = _digest(packet)
         return packet
+
+    def from_research_candidate(self, candidate: Mapping[str, Any]) -> dict[str, Any]:
+        """Adapt one already-observed Free Zone candidate without inventing context.
+
+        The adapter does not inspect the referenced file.  It only binds the
+        provenance and the candidate's own hypothesis/method into an explicit
+        question: what observation would change this tentative interpretation?
+        """
+        if not isinstance(candidate, Mapping):
+            raise ValueError("candidate must be a mapping")
+        fingerprint = _text(candidate.get("fingerprint"), "candidate fingerprint")
+        source_kind = _text(candidate.get("source_kind"), "candidate source_kind")
+        source_ref = _text(candidate.get("source_ref"), "candidate source_ref")
+        hypothesis = _text(candidate.get("hypothesis"), "candidate hypothesis")
+        method = _text(candidate.get("method"), "candidate method")
+        source_identity = _digest({"source_kind": source_kind, "fingerprint": fingerprint})[:12].upper()
+        source_entity = f"SOURCE_{source_identity}"
+        identity = _digest({"fingerprint": fingerprint, "hypothesis": hypothesis})[:24].upper()
+        return self.build(
+            {
+                "packet_id": f"CSP-{identity}",
+                "scope": f"free_zone:{source_kind}",
+                "question": method,
+                "entities": ["FREE_ZONE", source_entity],
+                "facts": [
+                    {
+                        "fact_id": "FACT-SOURCE-OBSERVED",
+                        "statement": "A bounded Free Zone source was observed and selected for isolated research.",
+                        "observed_at": "CANDIDATE_PROVENANCE",
+                        "entities": ["FREE_ZONE", source_entity],
+                        "scope": f"free_zone:{source_kind}",
+                        "evidence_refs": [source_ref],
+                    }
+                ],
+                "relations": [
+                    {
+                        "relation_id": "REL-FREE-ZONE-SOURCE",
+                        "subject": "FREE_ZONE",
+                        "object": source_entity,
+                        "kind": "investigates",
+                        "state": "ACTIVE",
+                        "evidence_refs": [source_ref],
+                    }
+                ],
+                "hypotheses": [
+                    {
+                        "hypothesis_id": "HYP-CANDIDATE-TRANSFER",
+                        "statement": hypothesis,
+                        "about_entities": ["FREE_ZONE", source_entity],
+                        "supported_by": ["FACT-SOURCE-OBSERVED", "REL-FREE-ZONE-SOURCE"],
+                        "falsified_by": ["FACT-INDEPENDENT-COUNTEREVIDENCE"],
+                        "status": "ACTIVE",
+                    },
+                    {
+                        "hypothesis_id": "HYP-EVIDENCE-INSUFFICIENT",
+                        "statement": "The observed source alone is insufficient to settle the candidate interpretation.",
+                        "about_entities": ["FREE_ZONE", source_entity],
+                        "supported_by": ["FACT-SOURCE-OBSERVED"],
+                        "falsified_by": ["FACT-INDEPENDENT-CONFIRMATION"],
+                        "status": "ACTIVE",
+                    },
+                ],
+                "constraints": [
+                    "research only",
+                    "do not treat hypotheses as facts",
+                    "require an independent observation before a conclusion",
+                ],
+            }
+        )
 
     @staticmethod
     def _facts(value: Any, scope: str, entities: set[str]) -> list[dict[str, Any]]:
@@ -207,3 +277,20 @@ class ContextualStatePacket:
         for item in active:
             grouped[tuple(item["about_entities"])].append(item["hypothesis_id"])
         return sorted(sorted(ids) for ids in grouped.values() if len(ids) > 1)
+
+    @staticmethod
+    def _learning_needs(active: list[dict[str, Any]], present_fact_ids: set[str]) -> list[dict[str, Any]]:
+        needs: dict[str, list[str]] = defaultdict(list)
+        for hypothesis in active:
+            for fact_id in hypothesis["falsified_by"]:
+                if fact_id not in present_fact_ids:
+                    needs[fact_id].append(hypothesis["hypothesis_id"])
+        return [
+            {
+                "fact_id": fact_id,
+                "status": "MISSING",
+                "reason": "A future observable fact could falsify the named active hypothesis.",
+                "required_by_hypotheses": sorted(hypothesis_ids),
+            }
+            for fact_id, hypothesis_ids in sorted(needs.items())
+        ]

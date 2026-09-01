@@ -72,6 +72,8 @@ def test_packet_keeps_facts_hypotheses_and_competing_interpretations_separate():
     assert all(item["epistemic_status"] == "HYPOTHESIS" for item in packet["active_hypotheses"])
     assert all(item["epistemic_status"] == "FACT" for item in packet["relevant_facts"])
     assert packet["competing_hypothesis_groups"] == [["HYP-A-DECEPTION", "HYP-A-SHAME"]]
+    assert {item["fact_id"] for item in packet["learning_needs"]} == {"FACT-A-COERCED"}
+    assert packet["learning_needs"][0]["status"] == "MISSING"
 
 
 def test_new_falsifying_fact_retracts_only_the_hypotheses_that_name_it():
@@ -116,3 +118,20 @@ def test_packet_is_deterministic_except_for_the_declared_packet_identity():
 
     assert first == second
     assert len(first["packet_hash"]) == 64
+
+
+def test_research_candidate_adapter_uses_only_candidate_provenance_and_stays_research_only():
+    packet = ContextualStatePacket().from_research_candidate(
+        {
+            "fingerprint": "inbox:abc123",
+            "source_kind": "inbox",
+            "source_ref": "07_SANDBOX/free_research/inbox/question.json",
+            "hypothesis": "The observed question contains a falsifiable learning opportunity.",
+            "method": "Record which independent observation would change the conclusion.",
+        }
+    )
+
+    assert packet["scope"] == "FREE_ZONE_RESEARCH_ONLY"
+    assert packet["relevant_facts"][0]["evidence_refs"] == ["07_SANDBOX/free_research/inbox/question.json"]
+    assert packet["learning_needs"]
+    assert packet["side_effects"]["model_called"] is False
