@@ -18,9 +18,12 @@ def _root(tmp_path):
     (tmp_path / "core" / "task.py").write_text("taskpool\n", encoding="utf-8")
     (tmp_path / "core" / "daily_shift.py").write_text("daily shift\n", encoding="utf-8")
     (tmp_path / "core" / "free_research_sandbox.py").write_text("sandbox\n", encoding="utf-8")
+    (tmp_path / "core" / "free_zone_autonomy.py").write_text("free zone autonomy\n", encoding="utf-8")
     (tmp_path / "core" / "free_zone_reality_bridge.py").write_text("bridge\n", encoding="utf-8")
     (tmp_path / "core" / "free_zone_model_research.py").write_text("model research\n", encoding="utf-8")
     (tmp_path / "core" / "free_zone_model_shift.py").write_text("model shift\n", encoding="utf-8")
+    (tmp_path / "core" / "contextual_state_packet.py").write_text("contextual packet\n", encoding="utf-8")
+    (tmp_path / "core" / "identity_constitution.py").write_text("identity constitution\n", encoding="utf-8")
     (tmp_path / "core" / "meaning_line.py").write_text("explicit meaning contract\n", encoding="utf-8")
     (tmp_path / "core" / "stock_data_reliability.py").write_text("stock data\n", encoding="utf-8")
     (tmp_path / "core" / "data_admission_recovery.py").write_text("recovery\n", encoding="utf-8")
@@ -77,6 +80,18 @@ def test_anchor_snapshot_only_proves_current_code_after_a_matching_startup(tmp_p
     (root / "core" / "meaning_line.py").write_text("changed after startup\n", encoding="utf-8")
     stale = auditor.audit(record=False, host_id="host-a")
     assert stale["runtime_footprint"]["runtime_adoption"]["status"] == "DAEMON_RESTART_REQUIRED_FOR_CURRENT_ANCHORS"
+
+
+def test_world_model_boundary_and_context_contracts_are_loaded_anchors(tmp_path):
+    root = _root(tmp_path)
+    report = ContinuityAuditor(root).audit(record=False, host_id="host-a")
+
+    assert {
+        "core/contextual_state_packet.py",
+        "core/identity_constitution.py",
+        "core/meaning_line.py",
+        "core/free_zone_autonomy.py",
+    }.issubset(report["anchors"])
 
 
 def test_host_change_is_a_migration_not_a_new_identity_when_chain_is_valid(tmp_path):
