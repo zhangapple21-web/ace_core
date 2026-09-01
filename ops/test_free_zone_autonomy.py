@@ -77,6 +77,54 @@ def test_later_free_zone_turn_compares_its_identity_against_prior_context_with_s
     assert drift["evidence_refs"]
 
 
+def test_contextual_learning_need_becomes_one_bounded_reobservation_not_an_infinite_self_loop(tmp_path):
+    root = tmp_path / "sandbox"
+    _constitution(root)
+    autonomy = FreeZoneAutonomy(root, selection_seed_factory=lambda: 17)
+    autonomy.run_turn()
+    SandboxSociety(root).run_turn()
+
+    # Ordinary observed candidates always take priority over a recorded
+    # missing fact.  Exhaust the second constitution item first, then verify
+    # the bounded re-observation path rather than turning gaps into a quota.
+    ordinary_turn = autonomy.run_turn()
+    assert ordinary_turn["claim"]["source_kind"] == "constitution"
+    SandboxSociety(root).run_turn()
+
+    # The first failed local probe can itself yield one conventional,
+    # evidence-backed re-observation.  It remains higher priority than a
+    # missing fact, so consume it before requesting the contextual gap.
+    reobservation_turn = autonomy.run_turn()
+    assert reobservation_turn["claim"]["source_kind"] == "distillation"
+    SandboxSociety(root).run_turn()
+
+    need_turn = autonomy.run_turn()
+    assert need_turn["claim"]["source_kind"] == "contextual_learning_need"
+    need_record = json.loads((root / "experiments" / f"{need_turn['execution']['experiment_id']}.json").read_text(encoding="utf-8"))
+    assert need_record["evidence"]["status"] == "MISSING_INDEPENDENT_OBSERVATION"
+    parent_id = need_record["evidence"]["parent_experiment_id"]
+    parent_record = json.loads((root / "experiments" / f"{parent_id}.json").read_text(encoding="utf-8"))
+    assert need_record["metadata"]["contextual_state_packet"]["packet_hash"] == parent_record["metadata"]["contextual_state_packet"]["packet_hash"]
+
+    SandboxSociety(root).run_turn()
+    # Every ordinary packet may name more than one fact and the conventional
+    # re-observation has its own packet.  Consume each named fact once, with a
+    # finite ceiling; a contextual result must never return as a generic
+    # distillation candidate.
+    contextual_fingerprints = {need_turn["claim"]["fingerprint"]}
+    for _ in range(8):
+        next_turn = autonomy.run_turn()
+        if next_turn["event"] == "NO_NEW_FREE_ZONE_WORK":
+            break
+        assert next_turn["claim"]["source_kind"] == "contextual_learning_need"
+        fingerprint = next_turn["claim"]["fingerprint"]
+        assert fingerprint not in contextual_fingerprints
+        contextual_fingerprints.add(fingerprint)
+        SandboxSociety(root).run_turn()
+    else:
+        raise AssertionError("contextual learning needs did not reach a bounded terminal state")
+
+
 def test_autonomy_records_explicit_cli_trigger_without_granting_reality_authority(tmp_path):
     root = tmp_path / "sandbox"
     _constitution(root)

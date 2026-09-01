@@ -130,7 +130,12 @@ class FreeZoneAutonomy:
             )
             claim = self._claim(state, selected_item)
             execution = self._execute(selected_item, state, factory_material=factory_material)
-            contextual_state = ContextualStatePacket().from_research_candidate(selected_item)
+            inherited_context = selected_item.get("parent_contextual_state")
+            contextual_state = (
+                dict(inherited_context)
+                if selected_item["source_kind"] == "contextual_learning_need" and isinstance(inherited_context, Mapping)
+                else ContextualStatePacket().from_research_candidate(selected_item)
+            )
             # A source fingerprint can contain a colon and multiple
             # constitution items share a textual prefix. Use a filesystem-safe
             # digest plus microseconds so automatic claims never collide.
@@ -224,6 +229,11 @@ class FreeZoneAutonomy:
         candidates.extend(self._inbox_candidates(claimed))
         candidates.extend(self._local_git_candidates(claimed))
         candidates.extend(self._lazy_cat_candidates(claimed))
+        # A contextual gap is real learning food only after all ordinary
+        # observed sources are exhausted.  This prevents missing-evidence
+        # records from becoming a hidden daily-work quota.
+        if not candidates:
+            candidates.extend(self._contextual_learning_candidates(claimed))
         if not candidates and allow_external:
             candidates.extend(self._external_catalog_candidates(claimed))
         return [
@@ -287,6 +297,14 @@ class FreeZoneAutonomy:
             experiment_id = str(distillation.get("experiment_id", ""))
             if not experiment_id:
                 continue
+            experiment = self._read_json(self.sandbox.experiments / f"{experiment_id}.json")
+            metadata = experiment.get("metadata") if isinstance(experiment, Mapping) else None
+            # A contextual learning-need turn deliberately records absence
+            # without asserting a new fact.  It is still distilled for audit,
+            # but must not re-enter the generic re-observation chain: doing so
+            # would turn one named missing observation into an endless loop.
+            if isinstance(metadata, Mapping) and metadata.get("source_kind") == "contextual_learning_need":
+                continue
             fingerprint = f"distillation:{status}:{experiment_id}"
             if fingerprint in claimed:
                 continue
@@ -301,6 +319,56 @@ class FreeZoneAutonomy:
                 "hypothesis": f"The {label} {experiment_id} can be turned into a distinct next observation without overwriting its original result.",
                 "method": "Preserve the parent distillation, formulate an explicit re-observation question, and record the new experiment separately.",
             })
+        return candidates
+
+    def _contextual_learning_candidates(self, claimed: Mapping[str, Any]) -> list[dict[str, Any]]:
+        """Re-observe one recorded missing fact without creating a self-loop.
+
+        Only a full packet from its original experiment is reused.  The new
+        record keeps that same packet rather than generating a new missing
+        fact, and its fingerprint is claimed after one turn.  Thus a gap stays
+        visible but cannot manufacture endlessly nested research work.
+        """
+        candidates: list[dict[str, Any]] = []
+        for distillation in self._records(self.sandbox.distillations):
+            context = distillation.get("contextual_state")
+            if not isinstance(context, Mapping):
+                continue
+            experiment_id = str(distillation.get("experiment_id", "")).strip()
+            packet_hash = str(context.get("packet_hash", "")).strip()
+            if not experiment_id or not packet_hash:
+                continue
+            experiment = self._read_json(self.sandbox.experiments / f"{experiment_id}.json")
+            metadata = experiment.get("metadata") if isinstance(experiment, Mapping) else None
+            packet = metadata.get("contextual_state_packet") if isinstance(metadata, Mapping) else None
+            if not isinstance(packet, Mapping) or packet.get("packet_hash") != packet_hash:
+                continue
+            needs = context.get("learning_needs")
+            if not isinstance(needs, list):
+                continue
+            for need in needs:
+                if not isinstance(need, Mapping):
+                    continue
+                fact_id = str(need.get("fact_id", "")).strip()
+                if not fact_id:
+                    continue
+                fingerprint = f"contextual_learning_need:{packet_hash}:{fact_id}"
+                if fingerprint in claimed:
+                    continue
+                candidates.append(
+                    {
+                        "fingerprint": fingerprint,
+                        "source_kind": "contextual_learning_need",
+                        "source_ref": str(self.sandbox.distillations / f"{experiment_id}.json"),
+                        "priority": 30,
+                        "parent_experiment_id": experiment_id,
+                        "parent_packet_hash": packet_hash,
+                        "learning_need": dict(need),
+                        "parent_contextual_state": dict(packet),
+                        "hypothesis": f"The missing observable {fact_id} remains unresolved until independently observed.",
+                        "method": "Preserve the source packet and record the named missing observation without treating absence as proof.",
+                    }
+                )
         return candidates
 
     def _constitution_candidates(self, claimed: Mapping[str, Any]) -> list[dict[str, Any]]:
@@ -586,6 +654,23 @@ class FreeZoneAutonomy:
                     "parent_status": candidate.get("parent_status"),
                     "re_observation_question": f"What new evidence would change or refine the result of {parent_id}?",
                     "parent_preserved": valid_parent,
+                },
+            }
+
+        if candidate["source_kind"] == "contextual_learning_need":
+            need = candidate.get("learning_need")
+            if not isinstance(need, Mapping):
+                return {"outcome": "FAIL", "evidence": {"source": candidate["source_ref"], "reason": "contextual_learning_need_malformed"}}
+            return {
+                "outcome": "INCONCLUSIVE",
+                "evidence": {
+                    "source": candidate["source_ref"],
+                    "parent_experiment_id": candidate.get("parent_experiment_id"),
+                    "parent_packet_hash": candidate.get("parent_packet_hash"),
+                    "fact_id": need.get("fact_id"),
+                    "required_by_hypotheses": need.get("required_by_hypotheses", []),
+                    "status": "MISSING_INDEPENDENT_OBSERVATION",
+                    "reason": "named_learning_need_retained_without_inventing_evidence",
                 },
             }
 
