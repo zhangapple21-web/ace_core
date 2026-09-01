@@ -1,0 +1,25 @@
+{
+  "contract_version": "ace.semantic_seed.v1",
+  "food_kind": "semantic_seed",
+  "source_ref": "https://www.qbitai.com/2019/10/8163.html",
+  "source_snapshot_hash": "a38372678e79cc181e9f97027196c63423b05ac1314a401e0742e6cffc54c86f",
+  "source_kind": "user_supplied_public_course_catalog",
+  "extracted_mechanism": "A long-lived learning system needs a capability map, bounded study atoms, deliberate re-observation after new evidence, and an experiment that can falsify whether the capability gap was reduced; a course directory is input provenance, not a completed skill or production authority.",
+  "ace_symptom": "Free Zone can preserve experiments and counterexamples, but its existing candidate set can become historical material without an explicit capability-to-question-to-revisit thread.",
+  "transfer_hypothesis": "If a Free Zone learning seed records one named capability gap, one falsifiable question, and one next verification, then repeated evening turns can revisit the gap when evidence changes without turning a course list or model-call quota into TaskPool work.",
+  "counterexample_question": "Can the same seed be repeatedly selected without new evidence, producing decorative learning records rather than a changed observation condition?",
+  "next_verification": "At a future dedicated Free Zone shift, verify that the seed is handled only as sandbox material, that any resulting experiment retains this source hash, and that a later re-observation requires a distinct evidence change or preserved counterexample rather than daily repetition.",
+  "local_evidence_refs": [
+    "C:/tmp/ace_core/core/free_zone_autonomy.py",
+    "C:/tmp/ace_core/core/free_research_sandbox.py"
+  ],
+  "external_evidence_refs": [
+    "https://www.qbitai.com/2019/10/8163.html",
+    "https://api.github.com/repos/kmario23/deep-learning-drizzle"
+  ],
+  "lineage": [
+    "user-supplied-link:2026-09-01",
+    "qbitai-course-catalog:a38372678e79cc181e9f97027196c63423b05ac1314a401e0742e6cffc54c86f",
+    "github-repository-metadata:kmario23/deep-learning-drizzle"
+  ]
+}
