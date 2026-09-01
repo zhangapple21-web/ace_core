@@ -281,6 +281,47 @@ class DailyGrowthLedger:
             return "ELIGIBLE_WORK_SERVICE_INCOMPLETE"
         return "NO_VALUABLE_WORK"
 
+    @staticmethod
+    def _verified_outcome_receipt(task: Any, day: str) -> Optional[Dict[str, Any]]:
+        """Return an outcome only when it carries independently checkable proof.
+
+        A successful model call, an approved lifecycle transition, or a text
+        summary establishes that work was executed.  None establishes that the
+        work produced a reusable result.  That stronger claim needs a stable
+        result reference, a verification reference, and two independent
+        evidence groups, all bound to the task and calendar day.
+        """
+        outputs = task.outputs if isinstance(task.outputs, dict) else {}
+        receipt = outputs.get("verified_outcome_receipt")
+        if not isinstance(receipt, dict):
+            return None
+        if receipt.get("status") != "VERIFIED":
+            return None
+        if receipt.get("task_id") != task.task_id:
+            return None
+        if not str(receipt.get("verified_at", "")).startswith(day):
+            return None
+        evidence_refs = receipt.get("evidence_refs")
+        if not isinstance(evidence_refs, list) or len([ref for ref in evidence_refs if isinstance(ref, str) and ref]) < 2:
+            return None
+        try:
+            independent_groups = int(receipt.get("independent_evidence_groups", 0))
+        except (TypeError, ValueError):
+            independent_groups = 0
+        if independent_groups < 2:
+            return None
+        if not isinstance(receipt.get("result_ref"), str) or not receipt["result_ref"]:
+            return None
+        if not isinstance(receipt.get("verification_ref"), str) or not receipt["verification_ref"]:
+            return None
+        return {
+            "task_id": task.task_id,
+            "result_ref": receipt["result_ref"],
+            "verification_ref": receipt["verification_ref"],
+            "evidence_refs": evidence_refs,
+            "verified_at": receipt["verified_at"],
+        }
+
     def build(self, day: Optional[str] = None) -> Dict[str, Any]:
         date = day or datetime.now().date().isoformat()
         previous_report = self._read_json(self.report_path)
@@ -308,6 +349,7 @@ class DailyGrowthLedger:
         model_tasks = set()
         production_calls = []
         attempted_production_calls = []
+        verified_outcomes = []
         tasks_created_today = []
         local_task_source_counts: Dict[str, int] = {}
         local_tasks_archived = set()
@@ -369,6 +411,9 @@ class DailyGrowthLedger:
                     attempted_production_calls.append(call)
                     if trace.get("api_result") == "success":
                         production_calls.append(call)
+            verified_outcome = self._verified_outcome_receipt(task, date)
+            if verified_outcome is not None:
+                verified_outcomes.append(verified_outcome)
         accepted_work = len(tasks_created_today)
         admitted_model_tasks_today = sum(model_work_by_type.values())
         accepted_model_work = admitted_model_tasks_today
@@ -468,6 +513,8 @@ class DailyGrowthLedger:
             "recorded_at": datetime.now(timezone.utc).isoformat(),
             "outcome": (
                 "MEASURABLE_GROWTH"
+                if verified_outcomes
+                else "EXECUTION_RECORDED_NO_VERIFIED_OUTCOME"
                 if model_tasks or production_calls
                 else "NO_MEASURABLE_GROWTH"
             ),
@@ -475,10 +522,13 @@ class DailyGrowthLedger:
             "archived_task_ids": sorted(set(archived)),
             "archived_model_task_count": len(model_tasks),
             "archived_model_task_ids": sorted(model_tasks),
+            "verified_outcome_count": len(verified_outcomes),
+            "verified_outcomes": verified_outcomes,
             "growth_outcome_semantics": (
-                "requires an archived admitted model task or a successful "
-                "production model execution; local archive transitions are "
-                "retained lifecycle telemetry only"
+                "MEASURABLE_GROWTH requires a task-bound VERIFIED outcome "
+                "receipt with result_ref, verification_ref, and at least two "
+                "independent evidence groups. Archived tasks and successful "
+                "model calls are execution telemetry, not growth by themselves."
             ),
             "attempted_production_model_call_count": len(attempted_production_calls),
             "successful_production_model_call_count": len(production_calls),

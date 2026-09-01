@@ -24,6 +24,15 @@ def test_daily_growth_counts_archives_and_production_but_not_health_probes():
             "response_sha256": "abc",
             "at": "2026-08-25T10:00:00",
         }]
+        task.outputs["verified_outcome_receipt"] = {
+            "status": "VERIFIED",
+            "task_id": task.task_id,
+            "verified_at": "2026-08-25T10:01:00",
+            "result_ref": "test://result",
+            "verification_ref": "test://verification",
+            "evidence_refs": ["test://source-a", "test://source-b"],
+            "independent_evidence_groups": 2,
+        }
         task.audit_log.append({
             "event": "transition",
             "from": "approved",
@@ -54,6 +63,25 @@ def test_daily_growth_counts_archives_and_production_but_not_health_probes():
         assert report["successful_production_model_call_count"] == 1
         assert report["production_model_call_semantics"]["scope"] == "calendar_day_admitted_model_execution_traces"
         assert report["health_probes_excluded"] is True
+        assert report["verified_outcome_count"] == 1
+
+
+def test_successful_model_execution_without_outcome_receipt_is_not_growth():
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        pool = TaskPool(str(root / "task_pool"))
+        task = pool.create_task("Executed but unverified", creator="test")
+        task.outputs["model_task_admission"] = {"eligible": True, "classification": "reasoning"}
+        task.outputs["model_execution"] = [{
+            "api_called": True, "api_result": "success", "at": "2026-08-25T10:00:00",
+        }]
+        task.audit_log.append({"event": "transition", "from": "approved", "to": "archived", "at": "2026-08-25T10:01:00"})
+        pool.update_task(task)
+
+        report = DailyGrowthLedger(pool, str(root / "daily_growth.json")).build("2026-08-25")
+
+        assert report["outcome"] == "EXECUTION_RECORDED_NO_VERIFIED_OUTCOME"
+        assert report["verified_outcome_count"] == 0
 
 
 def test_daily_growth_separates_attempted_and_successful_production_calls():

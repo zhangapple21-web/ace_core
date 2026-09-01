@@ -136,7 +136,7 @@ def test_daily_shift_treats_local_archives_as_lifecycle_telemetry_not_value(tmp_
     assert completed["archived_task_count"] == 3
     assert completed["archived_model_task_count"] == 0
     markdown = (data / "daily_shift_latest.md").read_text(encoding="utf-8")
-    assert "Retained lifecycle records today" in markdown
+    assert "Execution and outcomes" in markdown
     assert "Completed today" not in markdown
 
 

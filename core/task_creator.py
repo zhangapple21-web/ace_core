@@ -212,6 +212,21 @@ class TaskCreator:
                 conclusion = data.get("conclusion", "")
                 source_task = data.get("source_task_id", "")
 
+                # An automatically generated experience-validation task may
+                # deposit its own Experience.  That deposition is useful
+                # history, but it is not independent new work: accepting it
+                # would create an unbounded TaskCreator feedback loop.
+                source = self.task_pool.load_task(str(source_task)) if source_task else None
+                source_outputs = source.outputs if source and isinstance(source.outputs, dict) else {}
+                if source and source.creator in {
+                    "observation_to_task",
+                    "file_scanner",
+                    "task_creator",
+                    "discovery_mode",
+                }:
+                    self.processed_experiences.add(fpath.name)
+                    continue
+
                 task_title = f"经验验证: {conclusion[:40]}" if conclusion else f"经验模式研究: {exp_id}"
 
                 if self._task_exists(task_title):

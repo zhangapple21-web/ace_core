@@ -78,6 +78,40 @@ class DailyShift:
         }
         return summary
 
+    def _free_zone_model_shift_summary(self, state: Dict[str, Any]) -> Dict[str, Any]:
+        """Report persisted research evidence without converting it to runtime proof."""
+        workspace_root = self.data_dir.parents[3]
+        persisted = self._read(workspace_root / "07_SANDBOX" / "free_research" / "model_shift_state.json")
+        last_shift = persisted.get("last_shift") if isinstance(persisted.get("last_shift"), dict) else {}
+        daemon_last = state.get("free_zone_model_shift_last") if isinstance(state.get("free_zone_model_shift_last"), dict) else {}
+        if last_shift:
+            absence = {"status": "NOT_ABSENT"}
+        elif daemon_last:
+            absence = {
+                "status": "DAEMON_SHIFT_HAS_NO_PERSISTED_RECEIPT",
+                "reason": "inspect_daemon_lifecycle_status_before_inferring_a_provider_failure",
+            }
+        else:
+            absence = {
+                "status": "NO_RESEARCH_RECEIPT_OR_DAEMON_SHIFT_OBSERVATION",
+                "reason": "unknown_until_the_existing_daemon_adopts_the_shift_and_records_its_first_lifecycle_result",
+            }
+        return {
+            "persisted_receipt": {
+                key: last_shift.get(key)
+                for key in ("outcome", "dual_source_status", "model_execution_realm", "provider", "seed_hash", "record_hash", "recorded_at", "invitation", "raw_content_retained", "production_integration")
+                if key in last_shift
+            },
+            "daemon_lifecycle_observation": {
+                key: daemon_last.get(key)
+                for key in ("status", "at")
+                if key in daemon_last
+            },
+            "runtime_adoption_status": "DAEMON_LIFECYCLE_RECORDED" if daemon_last else "DAEMON_NOT_YET_OBSERVED",
+            "absence_explanation": absence,
+            "semantics": "A persisted receipt proves a bounded research turn only. Daemon adoption requires a matching daemon lifecycle observation; neither promotes research or alters production gates.",
+        }
+
     @staticmethod
     def _finance_window_coverage(window: Dict[str, Any]) -> Dict[str, Any]:
         """Expose retained same-day windows without scheduling or observing anew."""
@@ -123,6 +157,8 @@ class DailyShift:
         sentiment = self._read(self.data_dir / "public_sentiment_latest.json")
         market_context = self._read(self.data_dir / "market_context_latest.json")
         research_brief = self._read(self.data_dir / "daily_research_brief_latest.json")
+        continuity = self._read(self.data_dir / "continuity" / "continuity_latest.json")
+        free_zone_model_shift = self._free_zone_model_shift_summary(state)
         paper_evaluation = PaperEvaluationJournal(str(self.data_dir)).summary()
         refresh = window.get("data_refresh") if isinstance(window.get("data_refresh"), dict) else {}
         if refresh.get("status") == "already_attempted_for_window":
@@ -174,12 +210,14 @@ class DailyShift:
                 "archived_task_count": growth.get("archived_task_count", 0),
                 "today_cumulative_archived_task_count": growth.get("archived_task_count", 0),
                 "archived_model_task_count": growth.get("archived_model_task_count", 0),
+                "verified_outcome_count": growth.get("verified_outcome_count", 0),
+                "verified_outcomes": growth.get("verified_outcomes", []),
                 "attempted_production_model_call_count": growth.get("attempted_production_model_call_count", 0),
                 "successful_production_model_call_count": growth.get("successful_production_model_call_count", growth.get("production_model_call_count", 0)),
                 "production_model_call_count": growth.get("production_model_call_count", 0),
                 "production_model_call_semantics": growth.get("production_model_call_semantics", {}),
-                "experience_deposition": growth.get("archived_model_task_count", 0) > 0,
-                "archive_semantics": "all archives are lifecycle telemetry; only admitted model-task archives can support the experience-deposition flag",
+                "experience_deposition": growth.get("verified_outcome_count", 0) > 0,
+                "archive_semantics": "all archives and model calls are lifecycle telemetry; only a verified outcome receipt can support a growth or reusable-result claim",
             },
             "daily_learning": daily_learning,
             "model_performance": growth.get("model_performance_ledger", {}),
@@ -217,6 +255,12 @@ class DailyShift:
                 else []
             ),
             "paper_evaluation_journal": paper_evaluation,
+            "continuity_audit": {
+                key: continuity.get(key)
+                for key in ("recorded_at", "continuity_status", "claim_level", "reason_codes", "migration")
+                if key in continuity
+            },
+            "free_zone_model_shift": free_zone_model_shift,
             "finance_postmortem": {
                 "status": paper_evaluation["postmortem_status"],
                 "eligible_record_count": paper_evaluation["outcome_receipt_count"],
@@ -246,11 +290,13 @@ class DailyShift:
                 f"- Evaluation slots: target `{report['finance_evaluation']['evaluation_pick_target']}`, eligible `{report['finance_evaluation']['evaluation_pick_count']}`, status `{report['finance_evaluation']['status']}`; publication authority `{report['finance_evaluation']['publication_authority']}`",
                 f"- Finance post-mortem: `{report['finance_postmortem']['status']}`; eligible prior records `{report['finance_postmortem']['eligible_record_count']}`",
                 f"- Live data refresh: `{report['finance_live_refresh'].get('status', 'NOT_RUN')}`; operations `{report['finance_live_refresh'].get('operations', [])}`; sources `{report['finance_live_refresh'].get('sources', [])}`",
-                f"- Retained lifecycle records today: `{report['completed_work']['today_cumulative_archived_task_count']}` archived records, `{report['completed_work']['archived_model_task_count']}` admitted model-task records; `{report['completed_work']['attempted_production_model_call_count']}` attempted / `{report['completed_work']['successful_production_model_call_count']}` successful production model calls",
+                f"- Execution and outcomes: `{report['completed_work']['today_cumulative_archived_task_count']}` archived records, `{report['completed_work']['archived_model_task_count']}` admitted model-task records; `{report['completed_work']['attempted_production_model_call_count']}` attempted / `{report['completed_work']['successful_production_model_call_count']}` successful production model calls; independently verified outcomes `{report['completed_work']['verified_outcome_count']}`",
                 f"- Model performance: `{report['model_performance'].get('group_count', 0)}` groups, shadow-only `{report['model_performance'].get('shadow_only', True)}`",
                 f"- Daily learning: recorded `{report['daily_learning'].get('outcome', 'NOT_RECORDED')}`; task `{report['daily_learning'].get('task_runtime', {}).get('task_id', 'NOT_RECORDED')}` currently `{report['daily_learning'].get('task_runtime', {}).get('status', 'NOT_RECORDED')}`; external `{report['daily_learning'].get('external_learning', {}).get('status', 'NOT_RECORDED')}`",
                 f"- TaskPool current snapshot: `{counts}` (not daily totals)",
                 f"- TaskPool transitions today: `{transitions}`",
+                f"- Continuity audit: `{report['continuity_audit'].get('continuity_status', 'NOT_RECORDED')}` / `{report['continuity_audit'].get('claim_level', 'NOT_RECORDED')}`; reasons `{report['continuity_audit'].get('reason_codes', [])}`",
+                f"- Free Zone local/cloud research: `{report['free_zone_model_shift']['persisted_receipt'].get('dual_source_status', 'NOT_RECORDED')}`; daemon lifecycle observation `{report['free_zone_model_shift']['daemon_lifecycle_observation'].get('status', 'NOT_RECORDED')}`; no production promotion",
                 "- Advisor: `BLOCKED`; Risk: `NOT_READY`; Owner TG: `OFF`",
                 f"- Next observation: `{report['next_observation']}`",
                 "- Synthetic work: `NO`",
