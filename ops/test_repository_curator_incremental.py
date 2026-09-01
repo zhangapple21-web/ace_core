@@ -105,3 +105,21 @@ def test_curator_cursor_uses_scan_start_so_changes_during_run_are_not_lost():
 
         assert followup["artifacts_scanned"] == 1
         assert followup["decisions"][0]["title"] == "during"
+
+
+def test_curator_never_reprocesses_its_own_runtime_heartbeats_as_knowledge():
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        runtime = root / "runtime"
+        volatile = runtime / "06_RUNTIME" / "ace" / "data" / "memory"
+        durable = runtime / "docs"
+        volatile.mkdir(parents=True)
+        durable.mkdir(parents=True)
+        (volatile / "heartbeat.json").write_text('{"status": "alive"}', encoding="utf-8")
+        (volatile / "daemon_state.json").write_text('{"run": "current"}', encoding="utf-8")
+        (durable / "decision.md").write_text("# Durable decision\n", encoding="utf-8")
+
+        curator = _curator(root)
+        artifacts = curator._collect_today_artifacts()
+
+        assert [Path(item["path"]).name for item in artifacts] == ["decision.md"]

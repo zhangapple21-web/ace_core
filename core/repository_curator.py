@@ -90,12 +90,16 @@ class RepositoryCurator:
     """
     
     # 产物目录扫描配置
+    # Curation consumes durable, human-reviewable knowledge only.  Runtime
+    # receipts are deliberately excluded: a daemon rewrites its heartbeat,
+    # state and curation history every cycle, so treating ``06_RUNTIME`` as
+    # source material turns the Curator into a self-exciting counter.
     ARTIFACT_DIRS = [
         "08_ARCHAEOLOGY",
         "09_KNOWLEDGE",
         "04_PROTOCOLS",
         "02_MEMORY",
-        "06_RUNTIME",
+        "docs",
     ]
     
     def __init__(
@@ -308,7 +312,11 @@ class RepositoryCurator:
         - 09_KNOWLEDGE/ (经验)
         - 04_PROTOCOLS/ (协议)
         - 02_MEMORY/ (记忆)
-        - core/ (代码)
+        - docs/ (经审阅的说明与决策)
+
+        ``06_RUNTIME`` intentionally is not listed. It is evidence and
+        operational state, not a curation input; including it makes every
+        periodic heartbeat look like newly-created knowledge.
         """
         artifacts = []
         for dir_name in self.ARTIFACT_DIRS:

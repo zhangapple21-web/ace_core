@@ -3262,7 +3262,7 @@ class AceDaemon:
                 self._log_error("core_syncer", str(e))
 
         stage_started = self._start_cycle_stage("repository_sync")
-        print("【导出考古产物到 mine-seed】")
+        print("【遗留链路：导出考古产物到 mine-seed】")
         sync_result = {"status": self._repository_sync_status()}
         if self.repository_sync_enabled and self.exporter and self.syncer:
             try:
@@ -3287,7 +3287,7 @@ class AceDaemon:
                 print(f"  [错误] {e}")
         else:
             if sync_result["status"] == "sync_disabled_but_mine_seed_found":
-                print("  (mine-seed 已发现；导出同步未启用，跳过写入)")
+                print("  (mine-seed 已发现；遗留导出未启用，跳过写入；这不是 ACE 文明仓库同步)")
             elif sync_result["status"] == "mine_seed_not_found":
                 print("  (未找到 mine-seed 仓库，跳过导出同步)")
             else:
