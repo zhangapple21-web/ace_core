@@ -2153,15 +2153,28 @@ class AceDaemon:
         if (now.hour, now.minute) < (18, 30):
             return {"status": "WAITING_FOR_DEDICATED_SHIFT"}
         day = now.strftime("%Y-%m-%d")
-        if self.state.get("free_zone_model_shift_date") == day:
-            return {"status": "ALREADY_RUN_TODAY"}
         if not self.miner_pool:
             return {"status": "NO_EXISTING_MINER_POOL"}
-        result = FreeZoneModelShift(
+        shift = FreeZoneModelShift(
             self.base_dir / "07_SANDBOX" / "free_research", self.miner_pool
-        ).run_once(max_tokens=int(cfg.get("max_tokens", 1024)))
+        )
+        inbox_fingerprint = shift.inbox_fingerprint()
+        previous = self.state.get("free_zone_model_shift_last", {})
+        if (
+            self.state.get("free_zone_model_shift_date") == day
+            and isinstance(previous, dict)
+            and previous.get("inbox_fingerprint") == inbox_fingerprint
+        ):
+            return {"status": "ALREADY_OBSERVED_CURRENT_INVITATION_SET"}
+        result = shift.run_once(max_tokens=int(cfg.get("max_tokens", 1024)))
         self.state["free_zone_model_shift_date"] = day
-        self.state["free_zone_model_shift_last"] = {"status": result.get("status"), "at": now.isoformat()}
+        self.state["free_zone_model_shift_last"] = {
+            "status": result.get("status"),
+            "reason": result.get("reason"),
+            "invitation": result.get("invitation"),
+            "inbox_fingerprint": result.get("inbox_fingerprint", inbox_fingerprint),
+            "at": now.isoformat(),
+        }
         self._save_state()
         return result
 
