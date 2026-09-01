@@ -60,6 +60,7 @@ from core.daily_shift import DailyShift
 from core.hourly_service import HourlyTaskService
 from core.continuity_audit import ContinuityAuditor
 from core.free_zone_model_shift import FreeZoneModelShift
+from core.free_zone_autonomy import FreeZoneAutonomy
 from core.reality_gap_relay import RealityGapRelay
 from core.free_zone_loop_status import FreeZoneLoopStatus
 from core.daily_learning import DAILY_LEARNING_OBSERVATION_LIMIT, DailyLearningLoop
@@ -2126,10 +2127,52 @@ class AceDaemon:
 
         result["model_pipeline"] = self._model_pipeline_metrics()
         try:
+            result["free_zone_autonomy"] = self._run_free_zone_autonomy_if_due()
+        except Exception as e:
+            self._log_error("free_zone_autonomy", str(e))
+        try:
             result["free_zone_model_shift"] = self._run_free_zone_model_shift_if_due()
         except Exception as e:
             self._log_error("free_zone_model_shift", str(e))
         return result
+
+    def _run_free_zone_autonomy_if_due(self) -> Dict[str, Any]:
+        """Use the existing daemon's dedicated evening turn for sandbox life.
+
+        This is not a scheduler and never creates TaskPool work.  It gives the
+        Free Zone one bounded, locally evidenced experiment each evening so a
+        healthy production queue cannot starve curiosity indefinitely.
+        """
+        now = datetime.now()
+        if (now.hour, now.minute) < (18, 30):
+            return {"status": "WAITING_FOR_DEDICATED_SHIFT"}
+        day = now.strftime("%Y-%m-%d")
+        if self.state.get("free_zone_autonomy_date") == day:
+            return {"status": "ALREADY_RUN_TODAY"}
+        config = self.config.get("runtime", {})
+        report = FreeZoneAutonomy(
+            self.base_dir / "07_SANDBOX" / "free_research"
+        ).run_turn(
+            max_experiments=1,
+            allow_external=bool(config.get("allow_external_learning", False)),
+            execution_context={
+                "trigger_kind": "EXISTING_DAEMON_DEDICATED_SHIFT",
+                "runner": "ace_daemon.py",
+                "pid": os.getpid(),
+                "run_id": self.run_id,
+                "shift_kind": "OFF_DUTY",
+            },
+        )
+        self.state["free_zone_autonomy_date"] = day
+        self.state["free_zone_autonomy_last"] = {
+            "status": report.get("event", "UNKNOWN"),
+            "at": now.isoformat(),
+            "candidate_count": (report.get("discovery") or {}).get("candidate_count"),
+            "production_integration": report.get("production_integration", False),
+            "automatic_model_call": report.get("automatic_model_call", False),
+        }
+        self._save_state()
+        return report
 
     def _deposit_archived_experience(self, task, result: Dict[str, Any]) -> None:
         """Deposit one archived task and make any retention failure observable."""

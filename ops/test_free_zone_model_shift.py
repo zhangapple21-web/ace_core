@@ -36,3 +36,54 @@ def test_daemon_waits_for_the_dedicated_free_zone_shift():
     from ace_daemon import AceDaemon
     daemon=AceDaemon.__new__(AceDaemon); daemon.config={"runtime":{"free_zone_model_shift":{"enabled":True}}}; daemon.state={}; daemon.miner_pool=None
     assert daemon._run_free_zone_model_shift_if_due()['status'] in {'WAITING_FOR_DEDICATED_SHIFT','NO_EXISTING_MINER_POOL'}
+
+
+def test_daemon_runs_one_bounded_free_zone_turn_in_the_existing_evening_cycle(monkeypatch, tmp_path):
+    from datetime import datetime
+    from ace_daemon import AceDaemon
+
+    class Evening:
+        @classmethod
+        def now(cls):
+            return datetime(2026, 9, 1, 18, 30)
+
+    calls = []
+
+    class Autonomy:
+        def __init__(self, root):
+            assert root == tmp_path / '07_SANDBOX' / 'free_research'
+
+        def run_turn(self, **kwargs):
+            calls.append(kwargs)
+            return {
+                'event': 'FREE_ZONE_EXPERIMENT_EXECUTED',
+                'discovery': {'candidate_count': 1},
+                'production_integration': False,
+                'automatic_model_call': False,
+            }
+
+    monkeypatch.setattr('ace_daemon.datetime', Evening)
+    monkeypatch.setattr('ace_daemon.FreeZoneAutonomy', Autonomy)
+    daemon = AceDaemon.__new__(AceDaemon)
+    daemon.base_dir = tmp_path
+    daemon.config = {'runtime': {'allow_external_learning': True}}
+    daemon.state = {}
+    daemon.run_id = 'run-1'
+    daemon._save_state = lambda: None
+
+    report = daemon._run_free_zone_autonomy_if_due()
+
+    assert report['event'] == 'FREE_ZONE_EXPERIMENT_EXECUTED'
+    assert calls == [{
+        'max_experiments': 1,
+        'allow_external': True,
+        'execution_context': {
+            'trigger_kind': 'EXISTING_DAEMON_DEDICATED_SHIFT',
+            'runner': 'ace_daemon.py',
+            'pid': __import__('os').getpid(),
+            'run_id': 'run-1',
+            'shift_kind': 'OFF_DUTY',
+        },
+    }]
+    assert daemon.state['free_zone_autonomy_date'] == '2026-09-01'
+    assert daemon._run_free_zone_autonomy_if_due()['status'] == 'ALREADY_RUN_TODAY'
