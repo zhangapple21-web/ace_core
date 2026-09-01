@@ -84,6 +84,23 @@ def test_successful_model_execution_without_outcome_receipt_is_not_growth():
         assert report["verified_outcome_count"] == 0
 
 
+def test_pending_outcome_receipt_is_visible_without_being_counted_as_growth():
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        pool = TaskPool(str(root / "task_pool"))
+        task = pool.create_task("Pending independent check", creator="test")
+        task.outputs["outcome_receipt"] = {
+            "status": "PENDING_EXTERNAL_VERIFICATION",
+            "staged_at": "2026-08-25T10:00:00",
+        }
+        pool.update_task(task)
+
+        report = DailyGrowthLedger(pool, str(root / "daily_growth.json")).build("2026-08-25")
+
+        assert report["pending_outcome_verification_count"] == 1
+        assert report["outcome"] == "NO_MEASURABLE_GROWTH"
+
+
 def test_daily_growth_separates_attempted_and_successful_production_calls():
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)

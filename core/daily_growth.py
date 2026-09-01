@@ -350,6 +350,7 @@ class DailyGrowthLedger:
         production_calls = []
         attempted_production_calls = []
         verified_outcomes = []
+        pending_outcome_verifications = []
         tasks_created_today = []
         local_task_source_counts: Dict[str, int] = {}
         local_tasks_archived = set()
@@ -414,6 +415,13 @@ class DailyGrowthLedger:
             verified_outcome = self._verified_outcome_receipt(task, date)
             if verified_outcome is not None:
                 verified_outcomes.append(verified_outcome)
+            pending_receipt = outputs.get("outcome_receipt")
+            if (
+                isinstance(pending_receipt, dict)
+                and pending_receipt.get("status") == "PENDING_EXTERNAL_VERIFICATION"
+                and str(pending_receipt.get("staged_at", "")).startswith(date)
+            ):
+                pending_outcome_verifications.append(task.task_id)
         accepted_work = len(tasks_created_today)
         admitted_model_tasks_today = sum(model_work_by_type.values())
         accepted_model_work = admitted_model_tasks_today
@@ -524,6 +532,8 @@ class DailyGrowthLedger:
             "archived_model_task_ids": sorted(model_tasks),
             "verified_outcome_count": len(verified_outcomes),
             "verified_outcomes": verified_outcomes,
+            "pending_outcome_verification_count": len(set(pending_outcome_verifications)),
+            "pending_outcome_verification_task_ids": sorted(set(pending_outcome_verifications)),
             "growth_outcome_semantics": (
                 "MEASURABLE_GROWTH requires a task-bound VERIFIED outcome "
                 "receipt with result_ref, verification_ref, and at least two "

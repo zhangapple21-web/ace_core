@@ -78,6 +78,7 @@ from core.similarity_engine import SimilarityEngine
 from core.value_scorer import ValueScorer
 from core.sync_manager import SyncManager
 from core.provider_usage_reconciliation import refresh_latest_usage_report, safe_source_error_status
+from core.outcome_receipt import OutcomeReceiptRecorder
 
 from core.experience_deposition import ExperienceDeposition
 
@@ -180,6 +181,7 @@ class AceDaemon:
         self.guardian = None
         self.event_listener = None
         self.experience_deposition = None
+        self.outcome_receipt_recorder = OutcomeReceiptRecorder()
         self.task_creator = None
         self.fragment_index = None
         self.file_scanner = None
@@ -2060,6 +2062,10 @@ class AceDaemon:
                 if not self.archivist.archive_task(task):
                     continue
                 result["archived"] += 1
+                receipt = self.outcome_receipt_recorder.stage(task)
+                if receipt.get("status") == "PENDING_EXTERNAL_VERIFICATION":
+                    result["outcome_receipts_staged"] = result.get("outcome_receipts_staged", 0) + 1
+                self.task_pool.update_task(task)
                 self._deposit_archived_experience(task, result)
                 if self.skill_generator:
                     try:
