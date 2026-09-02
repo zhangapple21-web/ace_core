@@ -53,7 +53,7 @@ def test_process_attachments_emits_function_call_output_with_call_id_for_openai_
     ]
 
 
-def test_process_attachments_normalizes_responses_function_call_id_from_item_id():
+def test_process_attachments_keeps_missing_call_id_in_legacy_shape():
     loop = AgentMainLoop(model_client=DummyModelClient(), tool_registry=DummyToolRegistry())
     state = TurnContext(
         tool_use_blocks=[
@@ -64,5 +64,8 @@ def test_process_attachments_normalizes_responses_function_call_id_from_item_id(
     state = loop._tool_execution(state)
     state = loop._process_attachments(state)
 
-    assert state.messages[0]["content"][0]["call_id"] == "call_from_id"
-    assert "function_call_output" == state.messages[0]["content"][0]["type"]
+    assert state.messages[0]["content"][0] == {
+        "type": "tool_result",
+        "tool_use_id": "call_from_id",
+        "content": "ok:42",
+    }

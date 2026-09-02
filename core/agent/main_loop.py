@@ -235,13 +235,10 @@ class AgentMainLoop:
             tool_name = tool_block.get("name")
             tool_input = tool_block.get("input", {})
             tool_id = tool_block.get("id")
-            # OpenAI Responses uses call_id, while a few compatible clients
-            # expose the same identifier only as id. Normalize at the single
-            # tool-execution boundary so HTTP continuations never emit a
-            # function_call_output without call_id.
-            call_id = tool_block.get("call_id") or (
-                tool_block.get("id") if tool_block.get("type") == "function_call" else None
-            )
+            # Responses requires the provider-issued call_id.  Never infer it
+            # from the item id: those identifiers are distinct, and guessing
+            # would turn a missing-field error into a malformed continuation.
+            call_id = tool_block.get("call_id")
             tool = self.tool_registry.get(tool_name)
             if not tool:
                 state.tool_results.append(self._build_tool_result(
