@@ -1532,6 +1532,34 @@ def test_daemon_state_save_retries_one_transient_windows_replace_denial(monkeypa
         assert json.loads(daemon.state_file.read_text(encoding="utf-8")) == {"checkpoint": "next"}
 
 
+def test_daemon_state_save_keeps_recoverable_snapshot_when_windows_denial_persists(monkeypatch):
+    from ace_daemon import AceDaemon
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        daemon = AceDaemon(Path(temp_dir), {})
+        daemon.state = {"checkpoint": "previous"}
+        daemon._save_state()
+        daemon.state = {"checkpoint": "next"}
+
+        attempts = []
+
+        def persistent_denial(source, destination):
+            attempts.append((source, destination))
+            raise PermissionError(5, "persistent sharing denial")
+
+        monkeypatch.setattr("ace_daemon.os.replace", persistent_denial)
+        monkeypatch.setattr("ace_daemon.time.sleep", lambda _: None)
+
+        daemon._save_state()
+
+        assert len(attempts) == 5
+        assert json.loads(daemon.state_file.read_text(encoding="utf-8")) == {"checkpoint": "previous"}
+        snapshot = Path(daemon._last_state_persistence_snapshot)
+        assert snapshot.exists()
+        assert json.loads(snapshot.read_text(encoding="utf-8")) == {"checkpoint": "next"}
+        assert daemon._state_persistence_degraded is True
+
+
 def test_daemon_state_save_replaces_the_previous_complete_state():
     from ace_daemon import AceDaemon
 

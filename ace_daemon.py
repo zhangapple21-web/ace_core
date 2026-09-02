@@ -160,6 +160,8 @@ class AceDaemon:
         self.disk_scanner = DiskScanner(self.identity, self.lexicon, self.memory_index)
 
         self.state_file = self.data_dir / "daemon_state.json"
+        self._state_persistence_degraded = False
+        self._last_state_persistence_snapshot = None
         self.state = self._load_state()
 
         self.concept_miner = None
@@ -659,6 +661,16 @@ class AceDaemon:
                     error, "winerror", None
                 ) in {5, 32, 33}
                 if not transient or attempt == 4:
+                    if transient:
+                        # A scanner/editor can hold the destination briefly on
+                        # Windows.  The fully fsynced snapshot remains in the
+                        # same directory and _load_state() can recover it on
+                        # the next lifecycle boundary.  Do not kill the sole
+                        # daemon merely because this checkpoint could not be
+                        # published atomically right now.
+                        self._state_persistence_degraded = True
+                        self._last_state_persistence_snapshot = str(temporary)
+                        return
                     raise
                 time.sleep(0.05 * (2 ** attempt))
 
