@@ -67,3 +67,11 @@ def test_manifest_has_no_production_integration(tmp_path):
     assert value["mode"] == "FREE_RESEARCH_ONLY"
     assert value["production_integration"] is False
     assert value["automatic_promotion"] is False
+
+
+def test_free_zone_has_video_capability_without_production_authority(tmp_path):
+    sandbox = FreeResearchSandbox(tmp_path / "sandbox")
+    value = json.loads(sandbox.initialize().read_text(encoding="utf-8"))
+    assert value["capabilities"]["video_models"] == ["agnes-video-2.5-flash", "agnes-video-v2.0"]
+    assert value["capabilities"]["video_generation_mode"] == "FREE_ZONE_ISOLATED_EXPERIMENT"
+    assert value["capabilities"]["automatic_production_promotion"] is False

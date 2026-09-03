@@ -74,6 +74,14 @@ class FreeResearchSandbox:
             "autonomous_execution": True,
             "distill_all_outcomes": True,
             "inbound_channels": ["constitution", "inbox", "museum_observation"],
+            "capabilities": {
+                "text_models": "available_through_authorized_local_channels",
+                "image_models": "available_through_isolated_asset_experiments",
+                "video_models": ["agnes-video-2.5-flash", "agnes-video-v2.0"],
+                "video_generation_mode": "FREE_ZONE_ISOLATED_EXPERIMENT",
+                "video_receipt_required": True,
+                "automatic_production_promotion": False,
+            },
         }.items():
             if key not in value:
                 value[key] = default

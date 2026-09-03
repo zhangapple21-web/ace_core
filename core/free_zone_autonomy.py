@@ -959,6 +959,12 @@ class FreeZoneAutonomy:
             "production_integration": False,
             "automatic_production_promotion": False,
             "automatic_model_call": False,
+            "available_capabilities": {
+                "video_models": ["agnes-video-2.5-flash", "agnes-video-v2.0"],
+                "video_generation_mode": "FREE_ZONE_ISOLATED_EXPERIMENT",
+                "video_receipt_required": True,
+                "production_promotion": "EXPLICIT_HASH_BOUND_ADMISSION_ONLY",
+            },
             "automatic_external_fetch": any(
                 item["source_kind"] in {"external_catalog", "external_repository_file"}
                 for item in candidates
