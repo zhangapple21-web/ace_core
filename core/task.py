@@ -357,7 +357,26 @@ class TaskPool:
         files = self._task_files(task_id)
         if not files:
             return None
-        return max(files, key=lambda path: path.stat().st_mtime)
+        # A crash or an external observer can briefly leave the same task in
+        # more than one status directory.  Filesystem mtime is not a safe
+        # authority on Windows (coarse timestamp resolution can make a newer
+        # transition look older).  Prefer the durable task timestamp and use
+        # a deterministic lifecycle rank as the final tie-breaker.  This is
+        # only a recovery/read decision; it never promotes a status or writes
+        # a second lifecycle.
+        status_rank = {status: index for index, status in enumerate(TASK_STATUSES)}
+
+        def sort_key(path: Path) -> tuple[datetime, int, int]:
+            try:
+                payload = json.loads(path.read_text(encoding="utf-8"))
+                raw = payload.get("updated_at") or payload.get("created_at") or ""
+                timestamp = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+            except (OSError, ValueError, TypeError, json.JSONDecodeError):
+                timestamp = datetime.min
+            status = path.parent.name
+            return timestamp, path.stat().st_mtime_ns, status_rank.get(status, -1)
+
+        return max(files, key=sort_key)
 
     def _read_task(self, path: Path) -> Task:
         with open(path, "r", encoding="utf-8") as handle:
