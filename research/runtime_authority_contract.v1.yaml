@@ -1,0 +1,51 @@
+version: 1
+owner: ACE_RUNTIME
+authoritative_state:
+  - task_lifecycle
+  - taskpool_lease
+  - admission
+  - fencing
+  - recovery
+authoritative_write_interfaces:
+  - core.task.TaskPool.create_task
+  - core.task.TaskPool.claim_task
+  - core.task.TaskPool.renew_lease
+  - core.task.TaskPool.move_task
+  - core.task.TaskPool.update_task  # metadata writes; status bypass remains an audit finding
+  - core.task.TaskPool.block_task
+  - core.task.TaskPool.reclaim_stale_leases
+derived_records:
+  - agent_team/active_work_manifest.json
+  - agent_team/*/state.json
+  - reports
+  - receipts
+  - decision_records
+  - model_outputs
+  - Codex_window_metadata
+  - remote_git_recovery_inventory
+  - remote_control_plane_observations
+rules:
+  derived_records_are_observation_only: true
+  derived_record_cannot_change_runtime_state: true
+  manifest_owner_required: true
+  non_owner_mode: read_only
+  malformed_or_missing_owner_mode: read_only
+  expired_owner_action: STALE_HINT_ONLY
+  automatic_takeover: false
+  synthetic_work_to_fill_quota: false
+  remote_git_is_recovery_evidence_only: true
+  remote_git_cannot_change_runtime_state: true
+  remote_visibility_or_branch_protection_is_not_inferred_from_git_transport: true
+known_gaps:
+  - id: legacy_scheduler_sidecar
+    status: present
+    effect: "旧 Scheduler/TaskQueue 可由兼容 CLI 单独启动并写入另一套文件队列"
+  - id: update_task_unfenced_status
+    status: fixed_2026_09_05
+    effect: "TaskPool.update_task 与 move_task 现在拒绝 stale claim；pending→active 的兼容迁移会原子生成 lease/claim/fencing，不再落盘无主 active"
+  - id: test_creator_admission_bypass
+    status: present
+    effect: "creator=test 跳过 admission 校验；当前仅测试调用已观察，但分支运行时可达"
+  - id: manifest_guard_coverage
+    status: unproven
+    effect: "owner guard 尚未证明覆盖所有窗口工具的实际文件写操作"
