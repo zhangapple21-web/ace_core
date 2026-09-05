@@ -1,0 +1,74 @@
+[
+  {
+    "full_name": "zhangapple21-web/ace_core",
+    "remote_url": "https://github.com/zhangapple21-web/ace_core.git",
+    "branch": "main",
+    "local_path": "C:\\tmp\\ace_core",
+    "protection_state": "UNKNOWN_RATE_LIMIT_OR_UI_REQUIRED",
+    "visibility_state": "PUBLIC_OBSERVED"
+  },
+  {
+    "full_name": "zhangapple21-web/-",
+    "remote_url": "https://github.com/zhangapple21-web/-.git",
+    "branch": "main",
+    "local_path": "",
+    "protection_state": "UNKNOWN_RATE_LIMIT_OR_UI_REQUIRED",
+    "visibility_state": "PUBLIC_OBSERVED"
+  },
+  {
+    "full_name": "zhangapple21-web/mine-seed",
+    "remote_url": "https://github.com/zhangapple21-web/mine-seed.git",
+    "branch": "main",
+    "local_path": "C:\\tmp\\mine-seed",
+    "protection_state": "UNKNOWN_RATE_LIMIT_OR_UI_REQUIRED",
+    "visibility_state": "PUBLIC_OBSERVED"
+  },
+  {
+    "full_name": "zhangapple21-web/R1_continuity_archive",
+    "remote_url": "https://github.com/zhangapple21-web/R1_continuity_archive.git",
+    "branch": "main",
+    "local_path": "",
+    "protection_state": "UNKNOWN_RATE_LIMIT_OR_UI_REQUIRED",
+    "visibility_state": "PUBLIC_OBSERVED"
+  },
+  {
+    "full_name": "zhangapple21-web/R1",
+    "remote_url": "https://github.com/zhangapple21-web/R1.git",
+    "branch": "main",
+    "local_path": "C:\\tmp\\R1",
+    "protection_state": "UNKNOWN_RATE_LIMIT_OR_UI_REQUIRED",
+    "visibility_state": "PUBLIC_OBSERVED"
+  },
+  {
+    "full_name": "zhangapple21-web/coze-assets",
+    "remote_url": "https://github.com/zhangapple21-web/coze-assets.git",
+    "branch": "main",
+    "local_path": "",
+    "protection_state": "UNKNOWN_RATE_LIMIT_OR_UI_REQUIRED",
+    "visibility_state": "PUBLIC_OBSERVED"
+  },
+  {
+    "full_name": "zhangapple21-web/aum-protocol",
+    "remote_url": "https://github.com/zhangapple21-web/aum-protocol.git",
+    "branch": "main",
+    "local_path": "",
+    "protection_state": "UNKNOWN_RATE_LIMIT_OR_UI_REQUIRED",
+    "visibility_state": "PUBLIC_OBSERVED"
+  },
+  {
+    "full_name": "zhangapple21-web/r1-archaeology",
+    "remote_url": "https://github.com/zhangapple21-web/r1-archaeology.git",
+    "branch": "main",
+    "local_path": "C:\\tmp\\r1-archaeology",
+    "protection_state": "UNKNOWN_RATE_LIMIT_OR_UI_REQUIRED",
+    "visibility_state": "PUBLIC_OBSERVED"
+  },
+  {
+    "full_name": "zhangapple21-web/r1-open-source-seed",
+    "remote_url": "https://github.com/zhangapple21-web/r1-open-source-seed.git",
+    "branch": "main",
+    "local_path": "C:\\tmp\\r1-open-source-seed",
+    "protection_state": "UNKNOWN_RATE_LIMIT_OR_UI_REQUIRED",
+    "visibility_state": "PUBLIC_OBSERVED"
+  }
+]

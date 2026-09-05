@@ -1,0 +1,56 @@
+[
+  {
+    "repo": "zhangapple21-web/ace_core",
+    "remote_main": "5d8e9dfe43070ebafbcc34b3b70bcb91c4d2e157",
+    "reachable": true,
+    "raw_error": ""
+  },
+  {
+    "repo": "zhangapple21-web/-",
+    "remote_main": "27ba00019a765676fc7fd8aa70b9bfb856b377db",
+    "reachable": true,
+    "raw_error": ""
+  },
+  {
+    "repo": "zhangapple21-web/mine-seed",
+    "remote_main": "de6e2fa4d0fd7dd52cea2bbd06a866d9eed896ef",
+    "reachable": true,
+    "raw_error": ""
+  },
+  {
+    "repo": "zhangapple21-web/R1_continuity_archive",
+    "remote_main": "3b45edbb9d75a8548352ca969336ed1e8ed2aab7",
+    "reachable": true,
+    "raw_error": ""
+  },
+  {
+    "repo": "zhangapple21-web/R1",
+    "remote_main": "c852b6212e66725d0710836bfb2e5670a058764f",
+    "reachable": true,
+    "raw_error": ""
+  },
+  {
+    "repo": "zhangapple21-web/coze-assets",
+    "remote_main": "6acbaff8f3c57ea87b6bea35354e8cda7d0ebfd3",
+    "reachable": true,
+    "raw_error": ""
+  },
+  {
+    "repo": "zhangapple21-web/aum-protocol",
+    "remote_main": "c4ed2ea371c1f791a8c3cfb52d3a5925d4ee50fa",
+    "reachable": true,
+    "raw_error": ""
+  },
+  {
+    "repo": "zhangapple21-web/r1-archaeology",
+    "remote_main": "a9f1198d28bbf8d5634ccc20eb539e87a2382508",
+    "reachable": true,
+    "raw_error": ""
+  },
+  {
+    "repo": "zhangapple21-web/r1-open-source-seed",
+    "remote_main": "1dc82c84a960eb7030e966313dd2d8e92ebf3df4",
+    "reachable": true,
+    "raw_error": ""
+  }
+]
