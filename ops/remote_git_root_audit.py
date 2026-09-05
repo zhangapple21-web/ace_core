@@ -120,7 +120,11 @@ def discover_repositories(scan_root: str | Path) -> List[Path]:
     for current, dirs, _files in os.walk(root):
         dirs[:] = [name for name in dirs if name not in {".git", "node_modules", ".venv", "venv"}]
         current_path = Path(current)
-        if (current_path / ".git").is_dir():
+        # Normal clones use a .git directory; linked worktrees use a .git
+        # file that points at the common administrative directory.  Both are
+        # repository roots for this read-only inventory.
+        git_marker = current_path / ".git"
+        if git_marker.is_dir() or git_marker.is_file():
             found.append(current_path)
             dirs[:] = []
     return sorted(found)
