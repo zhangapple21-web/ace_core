@@ -31,7 +31,7 @@
     "reviewer": "main_steward",
     "review_basis": [
       "recent source distillation is hash-bound",
-      "runtime adoption is not current because the daemon loaded an older anchor snapshot",
+      "runtime adoption is current after a controlled single-daemon reload",
       "natural daemon-cycle proof is absent",
       "counterexample must remain visible without promotion"
     ]
