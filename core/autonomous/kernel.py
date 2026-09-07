@@ -25,6 +25,7 @@ v1 原则：
 """
 
 import json
+import os
 import re
 import time
 from pathlib import Path
@@ -345,7 +346,7 @@ class AutonomousKernel:
             "nim": "deepseek-ai/deepseek-v4-flash",
             "apiyi": "gemini-pro",
             "sambanova": "Meta-Llama-3.1-405B-Instruct",
-            "oneapi": "gpt-4o",
+            "oneapi": os.environ.get("ONEAPI_MODEL", "gpt-5.4-mini"),
             "github_models": "gpt-4o",
             "modelscope": "qwen-plus",
             "huggingface": "meta-llama/Meta-Llama-3-8B-Instruct",

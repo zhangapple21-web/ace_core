@@ -23,6 +23,7 @@ LLM 角色增强层 — 用 SurvivalLoopEngine 给 Researcher / Validator / Arch
 """
 
 import json
+import os
 import re
 from typing import Dict, List, Any, Optional
 
@@ -86,7 +87,11 @@ def _provider_default_model(provider_name: str) -> str:
         "nim": "deepseek-ai/deepseek-v4-flash",
         "apiyi": "gemini-pro",
         "sambanova": "Meta-Llama-3.1-405B-Instruct",
-        "oneapi": "gpt-4o",
+        # OneAPI is a gateway/model pool, not a single OpenAI slot.  Honor an
+        # operator-selected model while keeping the last freshly verified
+        # local route as the fallback.  The actual request result remains the
+        # authority for model usability.
+        "oneapi": os.environ.get("ONEAPI_MODEL", "gpt-5.4-mini"),
         "github_models": "gpt-4o",
         "modelscope": "qwen-plus",
         "huggingface": "meta-llama/Meta-Llama-3-8B-Instruct",

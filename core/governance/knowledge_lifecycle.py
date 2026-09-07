@@ -174,7 +174,10 @@ class LifecycleManager:
             pass
     
     def create(self, knowledge_id: str) -> KnowledgeLifecycle:
-        """创建新知识的生命周期"""
+        """创建新知识的生命周期；同一标识的恢复调用保持原状态。"""
+        existing = self.lifecycle_map.get(knowledge_id)
+        if existing is not None:
+            return existing
         kl = KnowledgeLifecycle(knowledge_id=knowledge_id)
         self.lifecycle_map[knowledge_id] = kl
         self._save(kl)

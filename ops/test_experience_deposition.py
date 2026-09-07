@@ -1,4 +1,4 @@
-import json
+﻿import json
 from datetime import datetime as RealDateTime
 from types import SimpleNamespace
 
@@ -145,3 +145,5 @@ def test_archived_experience_failure_is_counted_and_logged():
     assert daemon.state["errors"][0]["module"] == "experience_deposition"
     assert daemon.state["errors"][0]["context"] == "RQ-deposition-failure"
     assert daemon.state["errors"][0]["error"] == "simulated retention failure"
+
+

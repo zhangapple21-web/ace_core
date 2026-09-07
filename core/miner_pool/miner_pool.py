@@ -227,6 +227,7 @@ class MinerPool:
             "forbidden",
             "invalid api key",
             "unsupported model",
+            "model_unavailable",
             "bad request",
             "malformed",
         )
@@ -254,6 +255,7 @@ class MinerPool:
         system_prompt: str = "",
         max_retries: int = 3,
         include_shadow: bool = False,
+        selected_spec: Optional[ModelSpec] = None,
         **kwargs,
     ) -> Dict[str, Any]:
         """
@@ -311,7 +313,9 @@ class MinerPool:
 
         tried = []
         last_error = ""
-        spec: Optional[ModelSpec] = None
+        spec = selected_spec
+        if spec:
+            tried.append(spec.full_id)
 
         for attempt in range(max_retries):
             if spec is None:
@@ -465,6 +469,7 @@ class MinerPool:
                 messages=messages,
                 system_prompt=system_prompt,
                 max_retries=1,  # 多模型模式下每个模型只试一次
+                selected_spec=spec,
             )
             result["requested_model"] = spec.full_id
             results.append(result)

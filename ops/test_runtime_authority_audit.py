@@ -5,13 +5,27 @@ deliberately never calls a lifecycle mutation API on behalf of a report,
 manifest, or model output.
 """
 
+import importlib
 import json
+import sys
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+import pytest
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from agent_team.active_work_manifest import READ_ONLY_MODE, access_mode
 from core.finance_shift_contract import build_evaluation_slots
 from core.task import TaskPool
 from core.execution_discipline import protocol_receipt, validate_execution_discipline
+
+
+def test_legacy_runtime_modules_are_not_importable_from_production_paths():
+    for module_name in ("core.scheduler", "core.task_queue"):
+        sys.modules.pop(module_name, None)
+        with pytest.raises(RuntimeError, match="legacy_runtime_deprecated"):
+            importlib.import_module(module_name)
 
 
 def _admission(source_ref: str) -> dict:
@@ -56,7 +70,7 @@ def _paper_pick(number: int) -> dict:
 
 
 def test_manifest_report_and_model_output_cannot_mutate_taskpool(tmp_path):
-    pool = TaskPool(str(tmp_path / "task_pool"), allow_test_creator_without_admission=True)
+    pool = TaskPool(str(tmp_path / "task_pool"))
     task = _create_fixture(pool, "authority boundary fixture")
     before = pool.load_task(task.task_id).to_dict()
 
@@ -111,7 +125,7 @@ def test_finance_zero_one_two_three_contract_is_fail_closed():
 
 
 def test_move_to_active_materializes_owner_and_fencing_instead_of_unowned_state(tmp_path):
-    pool = TaskPool(str(tmp_path / "task_pool"), allow_test_creator_without_admission=True)
+    pool = TaskPool(str(tmp_path / "task_pool"))
     task = _create_fixture(pool, "active transition fixture")
 
     moved = pool.move_task(task.task_id, "active", actor="window-a", task=task)
@@ -127,7 +141,7 @@ def test_move_to_active_materializes_owner_and_fencing_instead_of_unowned_state(
 
 
 def test_move_to_active_does_not_allow_a_stale_claim_to_reacquire(tmp_path):
-    pool = TaskPool(str(tmp_path / "task_pool"), allow_test_creator_without_admission=True)
+    pool = TaskPool(str(tmp_path / "task_pool"))
     task = _create_fixture(pool, "stale transition fixture")
     claimed = pool.claim_task(task.task_id, "window-a", lease_seconds=60)
     assert claimed is not None
@@ -140,7 +154,7 @@ def test_move_to_active_does_not_allow_a_stale_claim_to_reacquire(tmp_path):
 
 
 def test_orphaned_active_record_cannot_advance_without_recovery(tmp_path):
-    pool = TaskPool(str(tmp_path / "task_pool"), allow_test_creator_without_admission=True)
+    pool = TaskPool(str(tmp_path / "task_pool"))
     task = _create_fixture(pool, "orphaned active fixture")
     task.status = "active"
     active_path = tmp_path / "task_pool" / "active" / f"{task.task_id}.json"
@@ -156,7 +170,7 @@ def test_orphaned_active_record_cannot_advance_without_recovery(tmp_path):
 
 
 def test_duplicate_status_files_use_durable_timestamp_then_status_rank(tmp_path):
-    pool = TaskPool(str(tmp_path / "task_pool"), allow_test_creator_without_admission=True)
+    pool = TaskPool(str(tmp_path / "task_pool"))
     task = _create_fixture(pool, "duplicate status tie fixture")
     active_path = tmp_path / "task_pool" / "active" / f"{task.task_id}.json"
     active_path.parent.mkdir(parents=True, exist_ok=True)
@@ -168,7 +182,7 @@ def test_duplicate_status_files_use_durable_timestamp_then_status_rank(tmp_path)
 
 
 def test_taskpool_rejects_blank_owner_and_nonpositive_lease(tmp_path):
-    pool = TaskPool(str(tmp_path / "task_pool"), allow_test_creator_without_admission=True)
+    pool = TaskPool(str(tmp_path / "task_pool"))
     task = _create_fixture(pool, "invalid lease fixture")
     assert pool.claim_task(task.task_id, "   ") is None
     assert pool.claim_task(task.task_id, "window-a", lease_seconds=0) is None
@@ -185,4 +199,6 @@ def test_read_only_protocol_audit_does_not_repair_missing_envelope():
     assert audit["errors"] == ["missing_execution_discipline_envelope"]
     assert receipt["valid"] is False
     assert "execution_discipline" not in task.outputs
+
+
 

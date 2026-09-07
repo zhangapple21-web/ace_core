@@ -9,6 +9,7 @@ the existing Discovery -> Admission path to consider a research task.
 import hashlib
 import html
 import json
+import os
 import re
 import urllib.request
 from datetime import datetime
@@ -135,11 +136,19 @@ class PublicSentimentObservation:
                 digest = hashlib.sha256(markup.encode("utf-8")).hexdigest()
                 snapshot = self.snapshot_dir / day / window / f"{source['name']}-{digest[:16]}.html"
                 snapshot.parent.mkdir(parents=True, exist_ok=True)
-                snapshot.write_text(markup, encoding="utf-8")
+                temporary_snapshot = snapshot.with_name(f".{snapshot.name}.{os.getpid()}.tmp")
+                with temporary_snapshot.open("w", encoding="utf-8") as handle:
+                    handle.write(markup)
+                    handle.flush()
+                    os.fsync(handle.fileno())
+                os.replace(temporary_snapshot, snapshot)
                 metadata = self._metadata(markup)
                 item.update({
                     "status": "observed",
                     "retrieved_at": observed_at.isoformat(),
+                    # A capture time proves the snapshot, but landing pages
+                    # do not reliably expose a publication time per item.
+                    "source_timestamp_observable": False,
                     "content_hash": digest,
                     "snapshot_path": str(snapshot),
                     "source_ref": f"{snapshot}#sha256={digest}",
@@ -154,7 +163,11 @@ class PublicSentimentObservation:
 
         groups = {
             item["independence_group"] for item in collected
-            if item["status"] == "observed" and item.get("headline_count", 0) >= 3
+            if (
+                item["status"] == "observed"
+                and item.get("headline_count", 0) >= 3
+                and item.get("source_timestamp_observable") is True
+            )
         }
         # A strategic route requires three independently identified refs.  This
         # prevents landing-page metadata or a single community from becoming a
@@ -170,11 +183,16 @@ class PublicSentimentObservation:
             "admission_ready": admission_ready,
             "status": "OBSERVED" if admission_ready else "NO_OBSERVABLE_SENTIMENT_SOURCE",
             "reason": (
-                "three independent public sources preserved at least three observable headline items"
+                "three independent public sources preserved timestamped, observable headline items"
                 if admission_ready else
-                "fewer than three independent sources exposed sufficient public, timestamped content; research remains observation-only"
+                "fewer than three independent sources exposed sufficient public content with an upstream item timestamp; research remains observation-only"
             ),
         }
         self.data_dir.mkdir(parents=True, exist_ok=True)
-        self.report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+        temporary_report = self.report_path.with_name(f".{self.report_path.name}.{os.getpid()}.tmp")
+        with temporary_report.open("w", encoding="utf-8") as handle:
+            handle.write(json.dumps(report, ensure_ascii=False, indent=2))
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary_report, self.report_path)
         return report

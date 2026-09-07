@@ -36,6 +36,11 @@ import urllib.error
 from pathlib import Path
 from typing import Dict, List, Any, Optional
 
+from core.oneapi_model_catalog import OneAPIModelCatalog
+
+
+_ONEAPI_MODEL_CATALOG = OneAPIModelCatalog()
+
 
 PROVIDER_ORDER = [
     "glm",
@@ -57,7 +62,9 @@ DEFAULT_MODEL = {
     "nim": "deepseek-ai/deepseek-v4-flash",
     "apiyi": "gpt-4o",
     "sambanova": "DeepSeek-V3.1",
-    "oneapi": "gpt-4o",
+    # Keep the local OneAPI route aligned with the verified registry entry,
+    # while allowing the gateway to select another mapped model explicitly.
+    "oneapi": os.environ.get("ONEAPI_MODEL", "gpt-5.4-mini"),
     "github_models": "gpt-4o",
     "modelscope": "Qwen/Qwen2.5-72B-Instruct",
     "huggingface": "meta-llama/Meta-Llama-3-8B-Instruct",
@@ -368,7 +375,6 @@ class SurvivalLoopEngine:
             if not model:
                 return False, "", model, {}, 0, "model is required"
 
-            # Gemini 原生 API（Google AI Studio）
             if name == "gemini":
                 return self._call_gemini(
                     base_url=base_url,
@@ -383,6 +389,11 @@ class SurvivalLoopEngine:
                 )
 
             base_url = base_url.rstrip("/")
+            if name == "oneapi":
+                error = _ONEAPI_MODEL_CATALOG.validate(base_url, api_key, model, timeout)
+                if error:
+                    return False, "", model, {}, int((time.time() - start) * 1000), error
+
             chat_url = base_url + "/chat/completions"
 
             payload = {

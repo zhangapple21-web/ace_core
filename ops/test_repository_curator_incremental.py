@@ -1,4 +1,4 @@
-import json
+﻿import json
 import os
 import tempfile
 from datetime import datetime, timedelta
@@ -123,3 +123,5 @@ def test_curator_never_reprocesses_its_own_runtime_heartbeats_as_knowledge():
         artifacts = curator._collect_today_artifacts()
 
         assert [Path(item["path"]).name for item in artifacts] == ["decision.md"]
+
+

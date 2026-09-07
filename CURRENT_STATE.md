@@ -5,6 +5,18 @@
 
 ---
 
+## Runtime Boundary Closure (2026-09-06)
+
+- **唯一现代生产运行时：** `AceDaemon`。`core.scheduler`、`core.task_queue`、`04_PROTOCOLS/heartbeat` 及已发现的 legacy 生命周期入口均已 fail-closed；历史文件保留用于考古，不作为生产入口。
+- **Heartbeat：** 生产 owner 固定为 `ace_daemon`，每条记录包含 `run_id`；旧 heartbeat 不再构成第二运行时。
+- **写入口：** `AceDaemon` 在 daemon 生命周期中获取和释放 `.workspace.write.lock`。冲突返回 `workspace_write_locked`、`owner`、`run_id`、`lock_file`、`recommendation`；malformed lock fail-closed。
+- **Provider 边界：** 3000 LiteLLM/OneAPI 与 3002 Responses 兼容层独立报告，不能互相掩盖。两侧 catalog 当前均包含 `gpt-5.6-sol`。`OneAPIProvider` 和 SurvivalLoop OneAPI 路径在 `/chat/completions` 前先校验 `/models`；未知模型返回 `model_unavailable`，不可重试。
+- **验证：** 全量 `pytest` `744 passed`；`compileall` 通过；`git diff --check` 仅有既有 EOF 空行和一处既有尾随空格。
+
+历史日记和下方旧 sprint/open-task 内容保留为历史事实；不应再据此判断当前运行时边界。
+
+---
+
 ## Current Sprint
 
 **P0: Environment Awareness — Closing the loop**

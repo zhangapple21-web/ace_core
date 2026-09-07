@@ -19,6 +19,13 @@ from typing import Dict, List, Optional, Any
 from dataclasses import dataclass, field
 
 
+# Auto-discovery traverses broad user directories.  The effective roots are
+# process-stable for a given working directory and home, so reuse a scoped
+# answer instead of repeating the same walk for every temporary daemon used by
+# tests or dry-run tooling.
+_COZE_ASSET_DISCOVERY_CACHE: Dict[str, Optional[Path]] = {}
+
+
 @dataclass
 class ProviderCredential:
     """单个提供商的凭证"""
@@ -71,6 +78,9 @@ class CredentialManager:
             home / "workspace",
             home / ".trae" / "work",
         ]
+        cache_key = "|".join(str(root.resolve()) for root in search_roots)
+        if cache_key in _COZE_ASSET_DISCOVERY_CACHE:
+            return _COZE_ASSET_DISCOVERY_CACHE[cache_key]
 
         for root in search_roots:
             if not root.exists():
@@ -86,7 +96,9 @@ class CredentialManager:
             if candidates:
                 break
 
-        return candidates[0] if candidates else None
+        result = candidates[0] if candidates else None
+        _COZE_ASSET_DISCOVERY_CACHE[cache_key] = result
+        return result
 
     def load(self) -> bool:
         """加载所有凭证"""
@@ -363,6 +375,16 @@ class CredentialManager:
 
     def _load_from_env_override(self):
         """从环境变量覆盖凭证（生产环境用）"""
+        # OneAPI/矿工环境兼容：历史部署使用 MINER_API_*，而新配置约定
+        # 使用 ONEAPI_*。两者都支持，且显式 ONEAPI_* 优先。
+        miner_key = os.environ.get("MINER_API_KEY")
+        miner_base = os.environ.get("MINER_API_BASE", "")
+        if miner_base.endswith("/chat/completions"):
+            miner_base = miner_base[: -len("/chat/completions")]
+        if miner_key and miner_base:
+            os.environ.setdefault("ONEAPI_KEY", miner_key)
+            os.environ.setdefault("ONEAPI_BASE_URL", miner_base)
+
         # 遍历所有提供商，检查环境变量是否有覆盖
         provider_env_map = {
             "nim": ("NIM_API_KEY", "NIM_BASE_URL", "https://integrate.api.nvidia.com/v1"),

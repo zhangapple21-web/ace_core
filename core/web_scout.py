@@ -320,15 +320,12 @@ class WebScout:
         """GitHub API 搜索，失败时返回空列表"""
         try:
             from urllib.request import urlopen, Request
-            import ssl
-
-            ctx = ssl._create_unverified_context()
             url = f"https://api.github.com/search/repositories?q={query}&sort={sort}&per_page=30"
             req = Request(url, headers={
                 "User-Agent": "ACE-Scout/2.0",
                 "Accept": "application/vnd.github.v3+json",
             })
-            with urlopen(req, timeout=8, context=ctx) as resp:
+            with urlopen(req, timeout=8) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
                 return data.get("items", [])
         except Exception:
@@ -338,13 +335,10 @@ class WebScout:
         """解析 GitHub Trending 页面"""
         try:
             from urllib.request import urlopen, Request
-            import ssl
-
-            ctx = ssl._create_unverified_context()
             req = Request(url, headers={
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
             })
-            with urlopen(req, timeout=10, context=ctx) as resp:
+            with urlopen(req, timeout=10) as resp:
                 html = resp.read().decode("utf-8")
 
             items = []

@@ -1,4 +1,4 @@
-import json
+﻿import json
 import subprocess
 from pathlib import Path
 
@@ -52,3 +52,5 @@ def test_protection_and_visibility_remain_explicit_metadata(tmp_path):
     )
     assert result.protection_state == "UNKNOWN_CONTROL_PLANE"
     assert result.visibility_state == "PUBLIC_OBSERVED"
+
+

@@ -1,4 +1,4 @@
-import json
+﻿import json
 
 import pytest
 
@@ -122,3 +122,5 @@ def test_untyped_inbox_behavior_remains_generic_and_non_promoting(tmp_path):
     report = FreeZoneAutonomy(root).run_turn()
     assert report["claim"]["source_kind"] == "inbox"
     assert report["execution"]["outcome"] == "INCONCLUSIVE"
+
+

@@ -14,6 +14,8 @@ import urllib.error
 import uuid
 from typing import Dict, List, Any, Optional
 
+from core.oneapi_model_catalog import OneAPIModelCatalog
+
 from . import BaseProvider
 
 
@@ -89,10 +91,14 @@ class OpenAICompatibleProvider(BaseProvider):
                     choices = resp_data.get("choices", [])
                     if choices:
                         msg = choices[0].get("message", {})
-                        result["content"] = msg.get("content", "")
+                        content = msg.get("content", "")
+                        result["content"] = content if isinstance(content, str) else ""
                         result["model"] = resp_data.get("model", model)
                         result["usage"] = resp_data.get("usage", {})
-                        result["success"] = True
+                        if result["content"].strip():
+                            result["success"] = True
+                        else:
+                            result["error"] = "empty content in response"
                     else:
                         result["error"] = "no choices in response"
 
@@ -309,3 +315,35 @@ class OneAPIProvider(OpenAICompatibleProvider):
 
     def __init__(self, api_key: str, base_url: str = "http://localhost:3000/v1", **kwargs):
         super().__init__(api_key, base_url, provider_name="oneapi", **kwargs)
+        self._model_catalog = OneAPIModelCatalog()
+
+    def chat(
+        self,
+        messages: List[Dict[str, str]],
+        model: str = "",
+        temperature: float = 0.7,
+        max_tokens: int = 1024,
+        timeout: int = 60,
+        extra_headers: Dict = None,
+        **kwargs,
+    ) -> Dict[str, Any]:
+        error = self._model_catalog.validate(self.base_url, self.api_key, model, timeout)
+        if error:
+            return {
+                "success": False,
+                "content": "",
+                "model": model,
+                "usage": {},
+                "error": error,
+                "latency_ms": 0,
+                "provider": self.provider_name,
+            }
+        return super().chat(
+            messages=messages,
+            model=model,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            timeout=timeout,
+            extra_headers=extra_headers,
+            **kwargs,
+        )

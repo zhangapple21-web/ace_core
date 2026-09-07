@@ -1,0 +1,46 @@
+{
+  "ace_review": {
+    "decision": "ACCEPT_FOR_RESEARCH",
+    "review_basis": [
+      "the user explicitly authorized bridge and mapping between the Free Zone and reality",
+      "the named Free Zone experiment and distillation retain valid hashes and a closed production boundary",
+      "independent audit, deterministic regression, and sole-daemon output verify the mapped boundary in ACE reality",
+      "the receipt preserves all existing Admission, Validator, Data, Risk, Finance, TaskPool, and outbound gates"
+    ],
+    "reviewer": "main_steward"
+  },
+  "constraints": [
+    "read exactly one explicitly named Free Zone distillation",
+    "preserve the source artifact and bind it by hash",
+    "do not scan the Free Zone for work",
+    "do not create a TaskPool record or model call",
+    "do not mutate the daemon or production runtime",
+    "do not bypass existing ACE Admission or Experience review",
+    "retain PASS, FAIL, INCONCLUSIVE, and counterexample semantics without a value score"
+  ],
+  "epistemic_status": "INFERENCE",
+  "evidence_refs": [
+    {
+      "independence_group": "independent_boundary_audit",
+      "kind": "independent_audit",
+      "ref": "agent_team/context_convergence_20260829/reports/free_zone_separation_audit.md"
+    },
+    {
+      "independence_group": "deterministic_boundary_contract",
+      "kind": "regression_contract",
+      "ref": "ops/test_daily_shift.py"
+    },
+    {
+      "independence_group": "sole_daemon_natural_acceptance",
+      "kind": "immutable_runtime_acceptance",
+      "ref": "agent_team/context_convergence_20260829/main_acceptance.md"
+    }
+  ],
+  "expected_result": "One immutable ACE-side research receipt links ECO-02 to the verified production boundary while the Free Zone source, TaskPool, daemon, model routes, and safety gates remain unchanged.",
+  "learning": "A Free Zone result may influence ACE only by explicit copy-by-reference and hash, semantic mapping, independent reality evidence, and fresh ACE-side review; the Free Zone outcome itself is never a production fact.",
+  "mapping_id": "ECO-02-EXPLICIT-REALM-BRIDGE",
+  "observation": "ECO-02 retained a proposal-only outward boundary, while independent 2026-08-29 evidence showed that ACE production DailyShift had consumed Free Zone metrics and now no longer does so.",
+  "reality_scope": "ACE cross-realm learning and production reporting boundary",
+  "research_question": "Can ACE reuse a named Free Zone learning without converting the Free Zone into a governed queue or bypassing fresh ACE review?",
+  "verification_method": "Validate the experiment and distillation hash chain, hash every named reality evidence file, require at least two independent groups, write the receipt idempotently, and compare sole-daemon identity plus TaskPool executable counts before and after."
+}

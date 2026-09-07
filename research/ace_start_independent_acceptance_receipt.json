@@ -1,0 +1,71 @@
+{
+  "receipt_version": "ACE-INDEPENDENT-ACCEPTANCE-1.0",
+  "verdict": "PASS",
+  "task_path": "C:\\Users\\User\\AppData\\Local\\Temp\\ace-start-acceptance-ne39qg0z\\task_pool\\active\\RQ-20260906-001.json",
+  "before": {
+    "valid": true,
+    "path": "C:\\Users\\User\\AppData\\Local\\Temp\\ace-start-acceptance-ne39qg0z\\task_pool\\pending\\RQ-20260906-001.json",
+    "sha256": "9890839e62ce6e9871808928189e01829236237984dfbcc063776b74587911f8",
+    "task_id": "RQ-20260906-001",
+    "status": "pending",
+    "lease_owner": "",
+    "claim_id": "",
+    "fencing_token": 0,
+    "execution_discipline_present": true,
+    "execution_discipline_valid": true,
+    "execution_discipline_protocol": "ACE-EXECUTION-DISCIPLINE-1.1",
+    "execution_discipline_start_protocol": "ACE-START-PROTOCOL-2.0"
+  },
+  "after": {
+    "valid": true,
+    "path": "C:\\Users\\User\\AppData\\Local\\Temp\\ace-start-acceptance-ne39qg0z\\task_pool\\active\\RQ-20260906-001.json",
+    "sha256": "f3cfbfc80ee19b25a259c3248097b510260beba50ce12d4e1cd2176f0064b4f7",
+    "task_id": "RQ-20260906-001",
+    "status": "active",
+    "lease_owner": "acceptance-window",
+    "claim_id": "33208124120442bc80fe496fc7a4f793",
+    "fencing_token": 1,
+    "execution_discipline_present": true,
+    "execution_discipline_valid": true,
+    "execution_discipline_protocol": "ACE-EXECUTION-DISCIPLINE-1.1",
+    "execution_discipline_start_protocol": "ACE-START-PROTOCOL-2.0"
+  },
+  "protocol_receipt": {
+    "receipt_version": "ACE-START-PROTOCOL-RECEIPT-1.0",
+    "task_id": "RQ-20260906-001",
+    "protocol": "ACE-EXECUTION-DISCIPLINE-1.1",
+    "start_protocol": "ACE-START-PROTOCOL-2.0",
+    "valid": true,
+    "complexity": "simple",
+    "status": "in_progress",
+    "last_event": "lifecycle_transition",
+    "required_stages": [
+      "observe",
+      "execute",
+      "verify",
+      "stop"
+    ],
+    "event_count": 2,
+    "unknown_count": 2,
+    "errors": [],
+    "warnings": [
+      "lifecycle_not_stopped",
+      "light_branch_no_required_plan"
+    ]
+  },
+  "errors": [],
+  "authority": "ACE_TASKPOOL",
+  "runtime_mutation_by_checker": false,
+  "start_result": {
+    "status": "STARTED",
+    "reason": "taskpool_claimed_with_fencing",
+    "task_id": "RQ-20260906-001",
+    "owner": "acceptance-window",
+    "claim_id": "33208124120442bc80fe496fc7a4f793",
+    "fencing_token": 1,
+    "lease_expires_at": "2026-09-06T15:09:26.493532",
+    "runtime_mutation": true
+  },
+  "scope": "temporary TaskPool only",
+  "checkout_wide_claim": "NOT_MADE"
+}

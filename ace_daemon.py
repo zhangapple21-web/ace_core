@@ -80,6 +80,11 @@ from core.value_scorer import ValueScorer
 from core.sync_manager import SyncManager
 from core.provider_usage_reconciliation import refresh_latest_usage_report, safe_source_error_status
 from core.outcome_receipt import OutcomeReceiptRecorder
+from core.policy_feedback import PolicyCardStore
+from core.video_kingdom_dispatch import VideoKingdomDispatch
+from core.video_kingdom_consumer import VideoKingdomConsumer
+from core.runtime_continue_gate import evaluate_daemon_boundary
+from core.workspace_write_lock import WorkspaceWriteLock
 
 from core.experience_deposition import ExperienceDeposition
 
@@ -185,6 +190,7 @@ class AceDaemon:
         self.event_listener = None
         self.experience_deposition = None
         self.outcome_receipt_recorder = OutcomeReceiptRecorder()
+        self.policy_card_store = PolicyCardStore(self.data_dir / "policy_feedback")
         self.task_creator = None
         self.fragment_index = None
         self.file_scanner = None
@@ -208,6 +214,11 @@ class AceDaemon:
         self.lifecycle_lock_token = None
         self.daemon_lock_token = None
         self.daemon_lock_file = self.data_dir / ".daemon.lock"
+        self.workspace_write_lock = WorkspaceWriteLock(
+            self.base_dir,
+            owner_id="ace_daemon",
+        )
+        self.workspace_lock_conflict = None
         self.shutdown_event = Event()
         self.shutdown_reason = ""
         self.run_id = ""
@@ -329,6 +340,7 @@ class AceDaemon:
                 slice_clusterer=self.slice_clusterer,
                 llm_router=self.miner_pool,
                 run_id_supplier=lambda: self.run_id,
+                policy_card_store=self.policy_card_store,
             )
             self.validator = Validator(
                 task_pool=self.task_pool,
@@ -819,7 +831,9 @@ class AceDaemon:
         self.state["pid"] = os.getpid()
         self.state["run_id"] = self.run_id
         outcome = "failed" if reason.startswith("fatal_error:") else (
-            "interrupted" if reason in {"keyboard_interrupt", "shutdown_requested"} else "completed"
+            "handoff_required" if reason == "CONTINUE_GATE_CLOSED" else (
+                "interrupted" if reason in {"keyboard_interrupt", "shutdown_requested"} else "completed"
+            )
         )
         self.state["run_status"] = outcome
         self._finalize_cycle(outcome, reason)
@@ -848,6 +862,11 @@ class AceDaemon:
         self.state["run_id"] = self.run_id
         self.state["run_started_at"] = datetime.now().isoformat()
         self.state["run_status"] = "alive"
+        # A newly started daemon is a fresh continuation context.  A prior
+        # handoff receipt must never silently authorize the old context.
+        self.state["continuation_context_fresh"] = True
+        self.state["continue_gate_failure_count"] = 0
+        self.state["continue_gate_prior_attempt_without_receipt"] = False
         continuity_auditor = getattr(self, "continuity_auditor", None)
         if continuity_auditor is not None:
             try:
@@ -1053,11 +1072,19 @@ class AceDaemon:
             except Exception:
                 pass
 
+        observation_info = None
+        if self.runtime_observer:
+            try:
+                observation_info = self.runtime_observer.get_stats()
+            except Exception:
+                pass
+
         return {
             "lexicon": {
                 "concepts": lex_stats.get("total_concepts", 0),
                 "categories": lex_stats.get("total_categories", 0),
             },
+            "observations": observation_info,
             "memory_index": {
                 "total": mem_stats.get("total", 0),
                 "by_type": mem_stats.get("by_type", {}),
@@ -1498,11 +1525,52 @@ class AceDaemon:
 
         return "00_INBOX"
 
-    def _lifecycle_lock_owner_alive(self, pid: int) -> bool:
+    @staticmethod
+    def _process_start_time_epoch(pid: int) -> float | None:
+        """Return a Windows process creation time for PID-reuse detection."""
+        if os.name != "nt" or pid <= 0:
+            return None
+        try:
+            import ctypes
+            from ctypes import wintypes
+
+            handle = ctypes.windll.kernel32.OpenProcess(0x1000, False, pid)
+            if not handle:
+                return None
+            try:
+                creation = wintypes.FILETIME()
+                exit_time = wintypes.FILETIME()
+                kernel_time = wintypes.FILETIME()
+                user_time = wintypes.FILETIME()
+                ok = ctypes.windll.kernel32.GetProcessTimes(
+                    handle,
+                    ctypes.byref(creation),
+                    ctypes.byref(exit_time),
+                    ctypes.byref(kernel_time),
+                    ctypes.byref(user_time),
+                )
+                if not ok:
+                    return None
+                ticks = (creation.dwHighDateTime << 32) | creation.dwLowDateTime
+                return ticks / 10_000_000 - 11_644_473_600
+            finally:
+                ctypes.windll.kernel32.CloseHandle(handle)
+        except (AttributeError, OSError, TypeError, ValueError):
+            return None
+
+    def _lifecycle_lock_owner_alive(
+        self, pid: int, created_at: float | None = None
+    ) -> bool:
         if pid <= 0:
             return False
         if pid == os.getpid():
-            return True
+            if created_at is None:
+                return True
+            started_at = self._process_start_time_epoch(pid)
+            # Even the current PID can be a stale lock record in tests or
+            # after a restart.  Do not bypass the creation-time guard merely
+            # because the numeric PID happens to match this process.
+            return not (started_at is not None and started_at > float(created_at) + 2.0)
         if os.name == "nt":
             import ctypes
 
@@ -1513,9 +1581,17 @@ class AceDaemon:
                 exit_code = ctypes.c_ulong()
                 if not ctypes.windll.kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code)):
                     return False
-                return exit_code.value == 259
+                if exit_code.value != 259:
+                    return False
             finally:
                 ctypes.windll.kernel32.CloseHandle(handle)
+            if created_at is not None:
+                started_at = self._process_start_time_epoch(pid)
+                # A reused PID is not the process that created this lock.
+                # Keep a small clock-skew tolerance for filesystem timestamps.
+                if started_at is not None and started_at > float(created_at) + 2.0:
+                    return False
+            return True
         try:
             os.kill(pid, 0)
         except OSError:
@@ -1551,6 +1627,18 @@ class AceDaemon:
         except json.JSONDecodeError:
             return json.loads(lock_file.read_text(encoding="utf-8"))
 
+    def _acquire_workspace_write_lock(self) -> bool:
+        self.workspace_write_lock.run_id = self.run_id
+        result = self.workspace_write_lock.acquire()
+        if result.get("acquired"):
+            self.workspace_lock_conflict = None
+            return True
+        self.workspace_lock_conflict = result
+        return False
+
+    def _release_workspace_write_lock(self) -> None:
+        self.workspace_write_lock.release()
+
     def _acquire_daemon_lock(self) -> bool:
         lock_file = self.daemon_lock_file
         if not self.run_id:
@@ -1570,7 +1658,9 @@ class AceDaemon:
                 except FileNotFoundError:
                     pass
                 continue
-            if self._lifecycle_lock_owner_alive(int(owner.get("pid", 0))):
+            if self._lifecycle_lock_owner_alive(
+                int(owner.get("pid", 0)), owner.get("created_at")
+            ):
                 return False
             try:
                 lock_file.unlink()
@@ -1601,7 +1691,9 @@ class AceDaemon:
             except FileExistsError:
                 try:
                     owner = json.loads(lock_file.read_text(encoding="utf-8"))
-                    if self._lifecycle_lock_owner_alive(int(owner.get("pid", 0))):
+                    if self._lifecycle_lock_owner_alive(
+                        int(owner.get("pid", 0)), owner.get("created_at")
+                    ):
                         return False
                     lock_file.unlink()
                 except (FileNotFoundError, json.JSONDecodeError, OSError, ValueError):
@@ -1867,6 +1959,22 @@ class AceDaemon:
             "high_priority_tasks": high_priority_tasks,
         }
 
+    def _project_verified_policy_cards(self) -> int:
+        if not self.task_pool or not self.policy_card_store:
+            return 0
+        known_card_ids = {
+            card.get("card_id")
+            for card in self.policy_card_store.list_cards()
+            if card.get("card_id")
+        }
+        projected = 0
+        for task in self.task_pool.list_tasks(limit=10000):
+            card = self.policy_card_store.project(task)
+            if card and card.get("card_id") not in known_card_ids:
+                known_card_ids.add(card["card_id"])
+                projected += 1
+        return projected
+
     def _run_task_lifecycle(self) -> Dict[str, Any]:
         if not self._acquire_lifecycle_lock():
             return {"skipped": True, "reason": "lifecycle_locked"}
@@ -1896,6 +2004,7 @@ class AceDaemon:
             "judged": 0,
             "experiences_deposited": 0,
             "experience_deposition_failures": 0,
+            "policy_cards_projected": 0,
             "graveyarded": 0,
             "discovery": None,
             "discovery_tasks": 0,
@@ -2032,6 +2141,11 @@ class AceDaemon:
             self._log_error("guardian", str(e))
 
         try:
+            result["policy_cards_projected"] = self._project_verified_policy_cards()
+        except Exception as e:
+            self._log_error("policy_feedback_projection", str(e))
+
+        try:
             approved_tasks = self.task_pool.list_tasks(status="approved", limit=5)
             for task in approved_tasks:
                 if not self.archivist.archive_task(task):
@@ -2146,7 +2260,50 @@ class AceDaemon:
             result["free_zone_model_shift"] = self._run_free_zone_model_shift_if_due()
         except Exception as e:
             self._log_error("free_zone_model_shift", str(e))
+        try:
+            result["video_kingdom_dispatch"] = self._dispatch_video_kingdom()
+        except Exception as e:
+            self._log_error("video_kingdom_dispatch", str(e))
         return result
+
+    def _dispatch_video_kingdom(self) -> Dict[str, Any]:
+        """Turn each existing daemon observation cycle into one idempotent VK card.
+
+        The ACE daemon remains the sole clock. The card is research-only and is
+        consumed by a later Video Kingdom shift; no model/provider is called here.
+        """
+        configured = self.config.get("runtime", {}).get("video_kingdom_root")
+        root = Path(configured) if configured else (self.base_dir.parent / "ace_video_kingdom_git")
+        if not root.exists():
+            return {"status": "VIDEO_KINGDOM_ROOT_UNAVAILABLE", "root": str(root)}
+        patrol = {}
+        try:
+            import sys as _sys
+            vk_tools = root / "tools"
+            if str(vk_tools.parent) not in _sys.path:
+                _sys.path.insert(0, str(vk_tools.parent))
+            from tools.patrol_and_doctor import inspect as _inspect
+            patrol = _inspect(root)
+        except Exception as exc:
+            patrol = {"warnings": [{"issue": "PATROL_UNAVAILABLE", "detail": str(exc)}]}
+        # Consume at most one card that was already pending before this cycle.
+        # The old order dispatched first and then immediately consumed the new
+        # card, making a handoff look complete while no later Video Kingdom
+        # shift could claim it.  Keep the existing single control surface, but
+        # leave the freshly-created card pending for the next shift.
+        consumed = VideoKingdomConsumer(root).consume_one(patrol=patrol)
+        dispatched = VideoKingdomDispatch(root).observe_and_dispatch(trigger="ace_daemon_cycle", patrol=patrol)
+        return {
+            **dispatched,
+            "consumed": consumed,
+            "linkage": {
+                "ace_to_video_kingdom": "CARD_QUEUED" if dispatched.get("status") == "DISPATCHED" else dispatched.get("status", "UNKNOWN"),
+                "prior_card_consumption": consumed.get("status", "UNKNOWN"),
+                "provider_calls_from_ace_cycle": 0,
+                "production_integration": False,
+                "next_owner": "video_kingdom_shift" if dispatched.get("status") == "DISPATCHED" else "none",
+            },
+        }
 
     def _run_free_zone_autonomy_if_due(self) -> Dict[str, Any]:
         """Use the existing daemon's dedicated evening turn for sandbox life.
@@ -2699,7 +2856,18 @@ class AceDaemon:
         - dry_run: 只看决策不执行
         """
         self.run_id = uuid.uuid4().hex
+        if not self._acquire_workspace_write_lock():
+            return {
+                "iterations": 0,
+                "total_tasks_executed": 0,
+                "uptime": 0,
+                "stop_reason": "workspace_write_locked",
+                "workspace_lock_conflict": self.workspace_lock_conflict,
+                "healing_stats": self.self_healing.get_healing_stats(),
+                "final_health": self.self_healing.diagnose(self.base_dir)["health_score"],
+            }
         if not self._acquire_daemon_lock():
+            self._release_workspace_write_lock()
             return {
                 "iterations": 0,
                 "total_tasks_executed": 0,
@@ -2743,6 +2911,15 @@ class AceDaemon:
                 print(f"第 {iteration} 轮 — {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
                 print("-" * 60)
 
+                # The continuation boundary is the first executable check of
+                # every cycle.  Heartbeat, diagnostics, provider health and
+                # task work must not run when the previous context lacks a
+                # trustworthy continuation proof.
+                boundary = self._check_continue_gate()
+                if boundary.get("status") != "CONTINUE":
+                    stop_reason = "CONTINUE_GATE_CLOSED"
+                    break
+
                 self._begin_cycle_progress()
                 stage_started = self._start_cycle_stage("heartbeat")
                 self.heartbeat.beat(reason="regular")
@@ -2768,13 +2945,24 @@ class AceDaemon:
                 try:
                     health_result = self._run_shenwen_daily_health()
                     if health_result.get("executed"):
-                        successful = sum(
-                            1 for call in health_result["record"]["calls"] if call["success"]
-                        )
+                        successful = sum(1 for call in health_result["record"]["calls"] if call["success"])
+                        health_failed = successful < len(health_result["record"]["calls"])
+                        self.state["continue_gate_provider_degraded"] = health_failed
+                        self.state["continue_gate_fallbacks_configured"] = not health_failed
+                        self._save_state()
                         print(f"神隐每日健康调用: {successful}/2 成功")
                 except Exception as e:
                     self._log_error("shenwen_daily_health", str(e))
                 self._complete_cycle_stage("model_health", stage_started)
+
+                # A failed provider health probe is a protocol failure, not a
+                # reason to carry on into model-backed work. Re-evaluate the
+                # boundary immediately after the probe and hand off.
+                if self.state.get("continue_gate_provider_degraded") is True:
+                    boundary = self._check_continue_gate()
+                    if boundary.get("status") != "CONTINUE":
+                        stop_reason = "CONTINUE_GATE_CLOSED"
+                        break
 
                 try:
                     result = self.run_once(
@@ -2831,6 +3019,7 @@ class AceDaemon:
             finally:
                 self._release_lifecycle_lock()
                 self._release_daemon_lock()
+                self._release_workspace_write_lock()
                 self._restore_shutdown_handlers(handlers)
 
         final_status = self.heartbeat.get_status()
@@ -2867,6 +3056,13 @@ class AceDaemon:
         dry_run: bool = False,
         _preserve_cycle_progress: bool = False,
     ) -> Dict[str, Any]:
+        boundary = self._check_continue_gate()
+        if boundary.get("status") != "CONTINUE":
+            return {
+                "executed": False,
+                "stop_reason": "CONTINUE_GATE_CLOSED",
+                "continue_gate": boundary,
+            }
         if not _preserve_cycle_progress:
             self._begin_cycle_progress()
         production_policy = self._task_production_policy()
@@ -3350,6 +3546,18 @@ class AceDaemon:
             "total_indexed": total_indexed,
             "sync": sync_result,
         }
+
+    def _check_continue_gate(self) -> Dict[str, Any]:
+        """Evaluate the fail-closed continuation boundary before any work."""
+        boundary = evaluate_daemon_boundary(self.base_dir, self.state, self.config, self.run_id)
+        self.state["last_continue_gate"] = boundary
+        if boundary.get("status") != "CONTINUE":
+            self.state["run_status"] = "handoff_required"
+            self.state["continuation_context_fresh"] = False
+            self._save_state()
+            self.shutdown_reason = "CONTINUE_GATE_CLOSED"
+            self.shutdown_event.set()
+        return boundary
 
 
 def main():

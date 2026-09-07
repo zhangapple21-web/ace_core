@@ -1,4 +1,4 @@
-"""Register Grok candidates in ACE Provider Registry as shadow-only models."""
+﻿"""Register Grok candidates in ACE Provider Registry as shadow-only models."""
 
 import argparse
 from pathlib import Path
@@ -25,3 +25,4 @@ if __name__ == "__main__":
     parser.add_argument("--data-dir", default=str(Path(__file__).resolve().parents[1] / "08_GOVERNANCE"))
     args = parser.parse_args()
     print(register(args.data_dir))
+

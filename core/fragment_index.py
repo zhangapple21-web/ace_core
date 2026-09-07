@@ -181,6 +181,23 @@ class FragmentIndex:
 
     def mark_archaeologized(self, path: Path, task_id: str = ""):
         key = str(path.resolve())
+        # FileScanner creates a task before it calls this method.  A newly
+        # discovered fragment therefore has no entry yet; persist its current
+        # fingerprint here instead of rediscovering it every daemon cycle.
+        if key not in self.index:
+            try:
+                size, mtime = self._fingerprint(path)
+            except Exception:
+                return
+            now = datetime.now().isoformat()
+            self.index[key] = {
+                "size": size,
+                "mtime": mtime,
+                "first_seen": now,
+                "last_checked": now,
+                "status": "archaeologized",
+                "topics": self._extract_topics(path),
+            }
         if key in self.index:
             self.index[key]["status"] = "archaeologized"
             self.index[key]["task_id"] = task_id

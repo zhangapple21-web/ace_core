@@ -1,4 +1,4 @@
-from copy import deepcopy
+﻿from copy import deepcopy
 
 from core.evidence_relevance_shadow import evaluate_task, shadow_audit
 
@@ -174,3 +174,5 @@ def test_shadow_audit_filters_archives_by_transition_window_and_never_mutates():
     assert report["task_count"] == 1
     assert report["records"][0]["task_id"] == "RQ-shadow-stock"
     assert [included, excluded] == before
+
+

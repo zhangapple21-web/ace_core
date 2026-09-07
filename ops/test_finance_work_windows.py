@@ -1,4 +1,4 @@
-import json
+﻿import json
 from datetime import datetime
 
 from core.finance_work_windows import FinanceWorkWindows
@@ -20,6 +20,7 @@ def test_window_reports_research_only_when_data_is_degraded(tmp_path):
     assert report["task_created"] is False
     assert report["recommendation_allowed"] is False
     assert report["cognitive_workstreams"]
+    assert report["data_admission_recovery"]["recovery_status"] == "RECOVERY_IN_PROGRESS"
 
 
 def test_finance_status_requires_matrix_admission_before_full_ready(tmp_path):
@@ -169,7 +170,32 @@ def test_public_sentiment_is_retained_once_per_existing_window(tmp_path):
     first = windows.build(now)
     second = windows.build(now)
 
-    assert first["public_sentiment"]["admission_ready"] is True
-    assert first["public_sentiment"]["independent_content_source_count"] == 3
+    assert first["public_sentiment"]["admission_ready"] is False
+    assert first["public_sentiment"]["status"] == "NO_OBSERVABLE_SENTIMENT_SOURCE"
     assert second["public_sentiment"]["status"] == "already_observed_for_window"
     assert len(calls) == 3
+
+
+def test_public_sentiment_dedup_marker_does_not_nest_across_daemon_cycles(tmp_path):
+    calls = []
+
+    def fetch(url):
+        calls.append(url)
+        return "<html><title>公开页面</title><a>足够长的第一条公开标题</a><a>足够长的第二条公开标题</a><a>足够长的第三条公开标题</a></html>"
+
+    collector = PublicSentimentObservation(str(tmp_path), fetcher=fetch)
+    windows = FinanceWorkWindows(str(tmp_path), public_sentiment=collector)
+    now = datetime(2026, 8, 25, 12, 45, tzinfo=windows.timezone)
+
+    first = windows.build(now)
+    second = windows.build(now)
+    third = windows.build(now)
+
+    assert third["public_sentiment"] == {
+        "status": "already_observed_for_window",
+        "initial_result": first["public_sentiment"],
+    }
+    assert second["public_sentiment"] == third["public_sentiment"]
+    assert len(calls) == 3
+
+

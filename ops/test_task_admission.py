@@ -1,4 +1,4 @@
-import sys
+﻿import sys
 import tempfile
 from pathlib import Path
 
@@ -20,6 +20,15 @@ def admission(source_type, source_ref):
     }
 
 
+def test_task_pool_does_not_expose_public_admission_bypass():
+    with tempfile.TemporaryDirectory() as temp_dir:
+        try:
+            TaskPool(temp_dir, allow_test_creator_without_admission=True)
+        except TypeError:
+            return
+        raise AssertionError("TaskPool must not expose a public admission bypass")
+
+
 def test_production_task_requires_valid_admission_metadata():
     with tempfile.TemporaryDirectory() as temp_dir:
         pool = TaskPool(temp_dir)
@@ -30,6 +39,18 @@ def test_production_task_requires_valid_admission_metadata():
             assert str(error) == "task_admission_required"
         else:
             raise AssertionError("production task creation must require admission")
+
+
+def test_test_creator_requires_admission_metadata_for_production_style_calls():
+    with tempfile.TemporaryDirectory() as temp_dir:
+        pool = TaskPool(temp_dir)
+
+        try:
+            pool.create_task("Unadmitted test-created task", creator="test")
+        except ValueError as error:
+            assert str(error) == "task_admission_required"
+        else:
+            raise AssertionError("creator=test production-style calls must require admission")
 
 
 def test_admission_persists_required_metadata_for_archaeology_task():
@@ -87,3 +108,5 @@ if __name__ == "__main__":
     test_learning_requires_learning_contract_in_addition_to_admission()
     test_same_source_reference_does_not_create_duplicate_task()
     print("task admission checks passed")
+
+

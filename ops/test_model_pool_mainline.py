@@ -1,10 +1,12 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 import sys
 import tempfile
 from pathlib import Path
 
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from ops.test_support import FixtureTaskPool
 
 
 class FakeMinerPool:
@@ -54,9 +56,11 @@ class RecordingProvider:
     def __init__(self, model):
         self.model = model
         self.calls = 0
+        self.call_kwargs = []
 
     def chat(self, **kwargs):
         self.calls += 1
+        self.call_kwargs.append(kwargs)
         return {
             "success": True,
             "content": "provider result",
@@ -81,6 +85,9 @@ class ProviderStatusWatchdog:
 
 
 def _wire_fake_miner_pool(daemon, miner_pool):
+    # Test-created tasks use the explicit fixture boundary; production
+    # TaskPool remains strict about admission metadata.
+    daemon.task_pool = FixtureTaskPool(daemon.task_pool.pool_dir)
     daemon.miner_pool = miner_pool
     daemon.researcher.llm_router = miner_pool
     daemon.validator.llm_router = miner_pool
@@ -256,6 +263,16 @@ def test_miner_pool_initializes_shenwen_from_runtime_environment(monkeypatch):
     assert "shenwen" in pool.available_providers
 
 
+def test_miner_pool_initializes_separate_shenwen_grok_channel(monkeypatch):
+    from core.miner_pool.miner_pool import MinerPool
+
+    monkeypatch.setenv("SHENWEN_GROK_API_KEY", "test-grok-heavy-key")
+    pool = MinerPool(coze_assets_path="C:/nonexistent-assets")
+
+    assert pool.initialize() is True
+    assert "shenwen_grok" in pool.available_providers
+
+
 def test_role_profiles_register_native_strategic_execution_and_free_boundaries():
     from core.miner_pool.task_profiles import get_task_profile
 
@@ -427,6 +444,115 @@ def test_execution_does_not_retry_non_retryable_provider_error():
     assert result["attempts"][0]["retryable"] is False
 
 
+def test_openai_compatible_provider_rejects_empty_content_response(monkeypatch):
+    import json
+
+    from core.miner_pool.providers.openai_compatible import OpenAICompatibleProvider
+
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc_value, traceback):
+            return False
+
+        def read(self):
+            return json.dumps({
+                "model": "test-model",
+                "choices": [{"message": {"role": "assistant", "content": ""}}],
+                "usage": {"total_tokens": 3},
+            }).encode("utf-8")
+
+    monkeypatch.setattr("urllib.request.urlopen", lambda *args, **kwargs: Response())
+
+    provider = OpenAICompatibleProvider(
+        api_key="test-key",
+        base_url="http://provider.test/v1",
+        provider_name="test-provider",
+    )
+
+    result = provider.chat(
+        messages=[{"role": "user", "content": "test"}],
+        model="test-model",
+    )
+
+    assert result["success"] is False
+    assert result["content"] == ""
+    assert result["model"] == "test-model"
+    assert result["usage"] == {"total_tokens": 3}
+    assert "empty" in result["error"].lower()
+
+
+def test_openai_compatible_provider_rejects_tool_call_without_content(monkeypatch):
+    import json
+
+    from core.miner_pool.providers.openai_compatible import OpenAICompatibleProvider
+
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc_value, traceback):
+            return False
+
+        def read(self):
+            return json.dumps({
+                "model": "test-model",
+                "choices": [{
+                    "message": {
+                        "role": "assistant",
+                        "content": None,
+                        "tool_calls": [{"id": "call-1", "type": "function"}],
+                    },
+                }],
+                "usage": {"total_tokens": 4},
+            }).encode("utf-8")
+
+    monkeypatch.setattr("urllib.request.urlopen", lambda *args, **kwargs: Response())
+
+    provider = OpenAICompatibleProvider(
+        api_key="test-key",
+        base_url="http://provider.test/v1",
+        provider_name="test-provider",
+    )
+
+    result = provider.chat(
+        messages=[{"role": "user", "content": "test"}],
+        model="test-model",
+    )
+
+    assert result["success"] is False
+    assert result["content"] == ""
+    assert result["usage"] == {"total_tokens": 4}
+    assert "content" in result["error"].lower()
+
+
+def test_multi_chat_uses_each_preselected_model_spec():
+    from core.miner_pool.miner_pool import MinerPool
+
+    github = RecordingProvider("gpt-4o")
+    nim = RecordingProvider("nvidia/nemotron-3-ultra-550b-a55b")
+    pool = MinerPool(coze_assets_path="C:/nonexistent-assets")
+    pool._initialized = True
+    pool._providers = {"github_models": github, "nim": nim}
+    pool._router.set_available_providers(["github_models", "nim"])
+
+    results = pool.multi_chat(
+        task_type="reasoning",
+        messages=[{"role": "user", "content": "compare routes"}],
+        model_count=2,
+        diverse=True,
+    )
+
+    assert [result["requested_model"] for result in results] == [
+        "github_models:gpt-4o",
+        "nim:nvidia/nemotron-3-ultra-550b-a55b",
+    ]
+    assert [result["provider"] for result in results] == ["github_models", "nim"]
+    assert github.call_kwargs[0]["model"] == "gpt-4o"
+    assert nim.call_kwargs[0]["model"] == "nvidia/nemotron-3-ultra-550b-a55b"
+
+
 def test_miner_pool_skips_provider_watchdog_offline_candidate_before_call():
     """Persisted OFFLINE health must constrain a fresh daemon's router."""
     from core.miner_pool.miner_pool import MinerPool
@@ -585,6 +711,7 @@ def test_daily_cost_summary_includes_successful_task_trace_costs():
 
     with tempfile.TemporaryDirectory() as temp_dir:
         daemon = AceDaemon(Path(temp_dir), {})
+        daemon.task_pool = FixtureTaskPool(daemon.task_pool.pool_dir)
         date = "2026-08-23"
         task = daemon.task_pool.create_task(
             "记录当日神隐业务成本",
@@ -616,6 +743,7 @@ def test_daily_cost_summary_counts_failed_task_calls_without_charging_them():
 
     with tempfile.TemporaryDirectory() as temp_dir:
         daemon = AceDaemon(Path(temp_dir), {})
+        daemon.task_pool = FixtureTaskPool(daemon.task_pool.pool_dir)
         date = "2026-08-23"
         daemon.task_pool.create_task(
             "记录失败调用",
@@ -685,3 +813,6 @@ def test_daemon_loop_runs_daily_health_call_before_regular_work():
         assert daemon.state["shenwen_daily_cost"][
             daemon.state["shenwen_daily_health"].keys().__iter__().__next__()
         ]["total_usd"] == 0.02
+
+
+

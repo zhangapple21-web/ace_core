@@ -1,0 +1,72 @@
+{
+  "bridge_id": "BRIDGE-OMX-EXECUTION-DISCIPLINE-20260905",
+  "contract_version": "ace.free_zone_reality_bridge.v1",
+  "created_at": "2026-09-05T17:00:00+08:00",
+  "source_realm": "FREE_ZONE",
+  "destination_realm": "ACE_REALITY",
+  "source": {
+    "experiment_id": "OMX-INSPIRED-FZ-20260905",
+    "artifact_ref": "agent_team/omx_inspired_free_zone_pilot_20260905/final_synthesis.md",
+    "artifact_sha256": "7e267563b01225766b1ecd636e76f038204040bc3d0bff418457499c64efa0d0",
+    "review_ref": "agent_team/omx_inspired_free_zone_pilot_20260905/reports/adversarial_review.md",
+    "review_sha256": "4c162c9d5fac8397646a727e33597cc1d734644d05f66074057cc63039fd4de8",
+    "source_outcome": "INCONCLUSIVE",
+    "learning_status": "PROPOSAL_ONLY"
+  },
+  "mapping": {
+    "mapping_id": "ACE-EXECUTION-DISCIPLINE-20260905",
+    "observation": "The pilot made clarification, minimal planning, verification boundaries, and stop fields explicit, but did not prove comparative benefit or independent parallel/recovery mechanisms.",
+    "learning": "Persist one execution-discipline envelope per admitted task; use a light branch for simple work and a structured branch for medium/complex work.",
+    "epistemic_status": "INFERENCE",
+    "reality_scope": "ACE task admission and existing TaskPool lifecycle",
+    "expected_result": "Complex tasks expose a bounded pre-execution record and fail closed when its minimum goal, plan, or verification fields are malformed, without adding a second runtime.",
+    "verification_method": "Focused deterministic regression, adjacent TaskPool/lifecycle regression, py_compile, diff integrity, and preservation of existing single-daemon and external-side-effect boundaries.",
+    "constraints": [
+      "preserve the source INCONCLUSIVE outcome",
+      "do not adopt mandatory full planning for simple work",
+      "refuse parallel execution by default for shared or dependent state",
+      "do not treat same-worker challenge passes as independent review",
+      "use the existing continue gate for recovery only",
+      "do not create a second scheduler, router, queue, or runtime"
+    ]
+  },
+  "evidence": {
+    "independent_count": 3,
+    "independent_groups": [
+      {
+        "group": "free_zone_experiment",
+        "ref": "agent_team/omx_inspired_free_zone_pilot_20260905/final_synthesis.md",
+        "sha256": "7e267563b01225766b1ecd636e76f038204040bc3d0bff418457499c64efa0d0"
+      },
+      {
+        "group": "adversarial_review",
+        "ref": "agent_team/omx_inspired_free_zone_pilot_20260905/reports/adversarial_review.md",
+        "sha256": "4c162c9d5fac8397646a727e33597cc1d734644d05f66074057cc63039fd4de8"
+      },
+      {
+        "group": "ace_regression",
+        "ref": "ops/test_execution_discipline.py",
+        "sha256": "7bbc0b216fcd3b47987fee5617458092a39e5582b6431ca2b6f1945e9e5642cc"
+      }
+    ]
+  },
+  "ace_review": {
+    "reviewer": "main_steward",
+    "decision": "ACCEPT_NARROW_PROTOCOL_CANDIDATE",
+    "review_basis": [
+      "the source artifact and adversarial review are hash-bound",
+      "the source outcome remains INCONCLUSIVE and no comparative speed or quality claim is promoted",
+      "the accepted implementation is additive, deterministic, and uses the existing TaskPool writer",
+      "unsupported parallelism, independent review, and recovery claims remain deferred or rejected"
+    ]
+  },
+  "disposition": {
+    "status": "ACCEPTED_FOR_NARROW_PROTOCOL_IMPLEMENTATION",
+    "task_created": false,
+    "model_call": false,
+    "production_runtime_mutation": false,
+    "admission_bypassed": false,
+    "recommendation_authority": false,
+    "next_gate": "existing_ace_regression_and_natural_daemon_observation"
+  }
+}

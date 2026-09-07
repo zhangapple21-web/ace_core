@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 """
 Report review tasks that require additional evidence.
 """
@@ -40,3 +40,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

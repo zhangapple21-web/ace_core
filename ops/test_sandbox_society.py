@@ -1,4 +1,4 @@
-import json
+﻿import json
 
 from core.free_research_sandbox import FreeResearchSandbox
 from core.sandbox_society import SandboxSociety
@@ -123,3 +123,5 @@ def test_design_seed_is_reported_without_claiming_production_consumption(tmp_pat
     assert report["design_seed"]["route"] == ["observe", "question", "review"]
     assert report["design_seed"]["consumption_mode"] == "sandbox_report_only"
     assert report["production_integration"] is False
+
+

@@ -1,4 +1,4 @@
-"""Bounded inventory of owned remote Git recovery roots.
+﻿"""Bounded inventory of owned remote Git recovery roots.
 
 This tool intentionally uses only ``git ls-remote`` plus local checkout
 metadata.  It does not fetch, stage, commit, push, change GitHub settings, or
@@ -137,3 +137,4 @@ def main(argv: Optional[list[str]] = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+

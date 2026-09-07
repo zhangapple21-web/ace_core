@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 """馆长每日流程验证脚本 — 对今日产物执行一次完整馆长流程"""
 import sys
 from pathlib import Path
@@ -96,3 +96,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

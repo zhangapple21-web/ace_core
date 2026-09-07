@@ -20,6 +20,13 @@ from typing import Dict, List, Any, Optional
 from collections import Counter
 
 from .task import Task, TaskPool
+from .execution_discipline import (
+    add_evidence_ledger_entry,
+    ensure_execution_discipline,
+    execution_gate,
+    record_checkpoint,
+    record_event,
+)
 from .miner_pool.task_profiles import get_task_profile
 
 
@@ -90,7 +97,13 @@ def _quality_gate(response: Dict[str, Any], allowed: bool) -> Dict[str, Any]:
     }
 
 
-def _record_model_execution(task: Task, role: str, llm_router, prompt: str) -> Optional[Dict[str, Any]]:
+def _record_model_execution(
+    task: Task,
+    role: str,
+    llm_router,
+    prompt: str,
+    ace_local_run_id: Optional[str] = None,
+) -> Optional[Dict[str, Any]]:
     task_type = _model_task_type(task)
     profile = get_task_profile(task_type)
     if not llm_router or not profile.get("model_enabled") or _is_local_only_task(task):
@@ -132,6 +145,10 @@ def _record_model_execution(task: Task, role: str, llm_router, prompt: str) -> O
         "response_sha256": "",
         "at": datetime.now().isoformat(),
     }
+    if isinstance(ace_local_run_id, str) and ace_local_run_id.strip():
+        # This is deliberately ACE-local correlation only: never a provider
+        # request/response/billing identifier and never backfilled on history.
+        trace["ace_local_run_id"] = ace_local_run_id.strip()
     try:
         response = llm_router.chat(
             task_type=task_type,
@@ -404,7 +421,7 @@ class Researcher:
     只负责收集证据，呈现事实。
     """
 
-    def __init__(self, task_pool: TaskPool, lexicon=None, memory_index=None, eco_parser=None, slice_clusterer=None, llm_router=None, experience_deposition=None):
+    def __init__(self, task_pool: TaskPool, lexicon=None, memory_index=None, eco_parser=None, slice_clusterer=None, llm_router=None, experience_deposition=None, run_id_supplier=None, policy_card_store=None):
         self.task_pool = task_pool
         self.lexicon = lexicon
         self.memory_index = memory_index
@@ -412,6 +429,14 @@ class Researcher:
         self.slice_clusterer = slice_clusterer
         self.llm_router = llm_router
         self.experience_deposition = experience_deposition
+        self.run_id_supplier = run_id_supplier
+        self.policy_card_store = policy_card_store
+
+    def _ace_local_run_id(self) -> Optional[str]:
+        if not callable(self.run_id_supplier):
+            return None
+        value = self.run_id_supplier()
+        return value.strip() if isinstance(value, str) and value.strip() else None
 
     FAIRNESS_REWORK_LIMIT = 2
     FAIRNESS_MEDIUM_AGE_LIMIT = 3
@@ -427,6 +452,12 @@ class Researcher:
             if not isinstance(item, dict):
                 continue
             source = item.get("source_ref") or item.get("source")
+            # Historical system-observation tasks recorded the observation ID
+            # but not a generic source field.  The ID is still a durable,
+            # auditable local evidence reference; recover it without claiming
+            # an independent external source or changing any validation gate.
+            if not source and isinstance(item.get("observation_id"), str):
+                source = f"runtime_observation:{item['observation_id']}"
             content = item.get("content") or item.get("detail") or item.get("description")
             if not isinstance(source, str) or not source.strip() or source in seen:
                 continue
@@ -799,10 +830,28 @@ class Researcher:
                 seen.add(key)
                 unique_candidates.append(c)
         
+        if self.policy_card_store:
+            unique_candidates = self.policy_card_store.rank_candidates(task, unique_candidates)
         return unique_candidates[:max_candidates]
 
     def research_task(self, task: Task, max_evidence: int = 5) -> Dict[str, Any]:
         """对任务进行研究，收集证据"""
+        ensure_execution_discipline(task)
+        ready, reason = execution_gate(task, allow_backfill=False)
+        if not ready:
+            record_event(task, "stop", actor="execution_discipline", reason=reason)
+            raise RuntimeError(reason)
+        record_event(task, "clarified", actor="execution_discipline")
+        record_event(task, "planned", actor="execution_discipline")
+        record_event(task, "routed", actor="execution_discipline")
+        record_checkpoint(
+            task,
+            "pre_execution_gate",
+            actor="execution_discipline",
+            complexity=task.outputs.get("execution_discipline", {}).get("complexity"),
+            route=task.outputs.get("execution_discipline", {}).get("constraints", {}).get("route"),
+        )
+        record_event(task, "started", actor="researcher")
         if task.claim_id:
             renewed = self.task_pool.renew_lease(
                 task.task_id,
@@ -834,6 +883,7 @@ class Researcher:
                 "invalidating conditions. Do not invent evidence.\n"
                 f"Admitted evidence:\n{evidence_context or '(none)'}"
             ),
+            ace_local_run_id=self._ace_local_run_id(),
         )
         if isinstance(model_response, dict):
             content = model_response.get("content")
@@ -919,6 +969,11 @@ class Researcher:
 
         for ev in evidence:
             task.add_evidence(ev.get("content", "")[:300], source=ev.get("source", ""))
+            add_evidence_ledger_entry(
+                task,
+                "source",
+                {"source": ev.get("source", ""), "type": ev.get("type", "unknown")},
+            )
 
         summary_parts = [f"研究了 {len(evidence)} 条证据"]
         if evidence:
@@ -939,6 +994,14 @@ class Researcher:
         }
         
         self.task_pool.update_task(task)
+        record_event(task, "researched", actor="researcher", evidence_count=len(evidence))
+        record_checkpoint(
+            task,
+            "research_complete",
+            actor="researcher",
+            evidence_count=len(evidence),
+            counter_example_count=len(counter_examples),
+        )
         self.task_pool.move_task(task.task_id, "review", actor="researcher", task=task)
 
         result["evidence_found"] = len(evidence)
@@ -1005,11 +1068,18 @@ class Validator:
     MAX_UNCHANGED_REVIEWS = 4
     EVIDENCE_SIGNATURE_VERSION = 2
 
-    def __init__(self, task_pool: TaskPool, lexicon=None, memory_index=None, llm_router=None):
+    def __init__(self, task_pool: TaskPool, lexicon=None, memory_index=None, llm_router=None, run_id_supplier=None):
         self.task_pool = task_pool
         self.lexicon = lexicon
         self.memory_index = memory_index
         self.llm_router = llm_router
+        self.run_id_supplier = run_id_supplier
+
+    def _ace_local_run_id(self) -> Optional[str]:
+        if not callable(self.run_id_supplier):
+            return None
+        value = self.run_id_supplier()
+        return value.strip() if isinstance(value, str) and value.strip() else None
 
     @staticmethod
     def _unique_evidence(task: Task) -> set:
@@ -1042,8 +1112,43 @@ class Validator:
             return "observe"
         return "blocked"
 
+    @staticmethod
+    def _model_objections(response: Any) -> Dict[str, List[str]]:
+        if not isinstance(response, dict) or not response.get("success"):
+            return {"hard_objections": [], "advisory_objections": [], "counter_examples": []}
+        content = response.get("content", "")
+        if not isinstance(content, str) or not content.strip():
+            return {"hard_objections": [], "advisory_objections": [], "counter_examples": []}
+        try:
+            payload = json.loads(content)
+        except (TypeError, json.JSONDecodeError):
+            return {"hard_objections": [], "advisory_objections": [], "counter_examples": []}
+        if not isinstance(payload, dict):
+            return {"hard_objections": [], "advisory_objections": [], "counter_examples": []}
+        parsed = {}
+        for field in ("hard_objections", "advisory_objections", "counter_examples"):
+            values = payload.get(field, [])
+            if not isinstance(values, list):
+                values = []
+            unique = []
+            for value in values[:5]:
+                if isinstance(value, str):
+                    value = value.strip()
+                    if value and len(value) <= 500 and value not in unique:
+                        unique.append(value)
+            parsed[field] = unique
+        return parsed
+
     def validate_task(self, task: Task) -> Dict[str, Any]:
         """验证一个任务的研究结论，至少找一个反例或疑点"""
+        ensure_execution_discipline(task)
+        ready, reason = execution_gate(task, allow_backfill=False)
+        if not ready:
+            record_event(task, "stop", actor="execution_discipline", reason=reason)
+            self.task_pool.update_task(task)
+            raise RuntimeError(reason)
+        record_event(task, "reviewed", actor="validator")
+        record_checkpoint(task, "validation_start", actor="validator")
         evidence_signature = self.evidence_signature(task)
         previous_result = task.outputs.get("last_validator_result", {})
         if not isinstance(previous_result, dict):
@@ -1063,16 +1168,31 @@ class Validator:
             "verdict": "",
             "review_count": task.review_count,
         }
-        _record_model_execution(
+        model_response = _record_model_execution(
             task,
             "validator",
             self.llm_router,
-            f"Task: {task.title}\nHypothesis: {task.hypothesis}\nRole: identify counterexamples and validation risks.",
+            (
+                f"Task: {task.title}\nHypothesis: {task.hypothesis}\n"
+                "Role: identify counterexamples and validation risks. Return only a JSON object "
+                "with optional hard_objections, advisory_objections, and counter_examples arrays of concise strings."
+            ),
+            ace_local_run_id=self._ace_local_run_id(),
         )
+        model_objections = self._model_objections(model_response)
 
         objections = []
         hard_objections = []
         advisory_objections = []
+        for objection in model_objections["hard_objections"]:
+            objections.append(objection)
+            hard_objections.append(objection)
+        for objection in model_objections["advisory_objections"]:
+            objections.append(objection)
+            advisory_objections.append(objection)
+        for counter_example in model_objections["counter_examples"]:
+            objections.append(counter_example)
+            advisory_objections.append(counter_example)
 
         evidence_count = len(self._unique_evidence(task))
         if evidence_count == 0:
@@ -1258,6 +1378,31 @@ class Validator:
                 task=task,
             )
 
+        persisted_task = self.task_pool.load_task(task.task_id) or task
+        add_evidence_ledger_entry(
+            persisted_task,
+            "review",
+            {
+                "outcome": validator_result.get("outcome", "unknown"),
+                "objection_count": len(genuine_objections),
+                "review_count": task.review_count,
+            },
+        )
+        record_event(
+            persisted_task,
+            "validated",
+            actor="validator",
+            outcome=validator_result.get("outcome", "unknown"),
+            objection_count=len(genuine_objections),
+        )
+        record_checkpoint(
+            persisted_task,
+            "validation_complete",
+            actor="validator",
+            outcome=validator_result.get("outcome", "unknown"),
+            verdict=result.get("verdict", ""),
+        )
+        self.task_pool.update_task(persisted_task)
         return result
 
     def assess_prospect(self, task: Task) -> Dict[str, Any]:
@@ -1416,6 +1561,7 @@ class Archivist:
 
     def archive_task(self, task: Task) -> bool:
         """归档已批准的任务，写入记忆索引"""
+        ensure_execution_discipline(task)
         if task.status != "approved" or task.guardian_decision not in {
             "axiom", "constraint", "experience"
         }:
@@ -1429,6 +1575,8 @@ class Archivist:
         )
         if archived is None:
             return False
+        record_event(task, "archived", actor="archivist")
+        self.task_pool.update_task(task)
 
         if self.memory_index:
             archive_note = self._format_task_archive(task)
@@ -1510,6 +1658,8 @@ class Guardian:
 
     def judge(self, task: Task) -> Dict[str, Any]:
         """审判一个归档的任务，决定它的最终去向"""
+        ensure_execution_discipline(task)
+        record_event(task, "guardian_reviewed", actor="guardian")
         decision = {
             "task_id": task.task_id,
             "verdict": "experience",
@@ -1551,6 +1701,22 @@ class Guardian:
             decision["reason"] = "证据有限，暂存经验库待后续验证"
 
         task.guardian_decision = decision["verdict"]
+        add_evidence_ledger_entry(
+            task,
+            "review",
+            {
+                "actor": "guardian",
+                "decision": decision["verdict"],
+                "promoted": decision["promoted"],
+            },
+        )
+        record_checkpoint(
+            task,
+            "guardian_decision",
+            actor="guardian",
+            decision=decision["verdict"],
+            promoted=decision["promoted"],
+        )
         task.add_validation_note(
             f"Guardian判决: {decision['verdict']} — {decision['reason']}",
             validator="guardian",

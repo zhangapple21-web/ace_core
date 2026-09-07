@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 """Back up ACE runtime data needed to restore the task lifecycle."""
 
 import hashlib
@@ -150,3 +150,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

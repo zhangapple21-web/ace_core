@@ -1,9 +1,9 @@
-import tempfile
+﻿import tempfile
 import json
 from pathlib import Path
 
 from core.daily_growth import DailyGrowthLedger
-from core.task import TaskPool
+from ops.test_support import FixtureTaskPool as TaskPool
 
 
 def test_daily_growth_counts_archives_and_production_but_not_health_probes():
@@ -471,3 +471,7 @@ def test_eligible_pending_model_work_is_reported_as_unserved():
         assert supply["eligible_but_unserved"] == 1
         assert supply["model_work_service_rate"] == 0.0
         assert supply["window_status"] == "ELIGIBLE_WORK_NOT_SERVICED"
+
+
+
+

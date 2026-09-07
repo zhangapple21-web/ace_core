@@ -188,8 +188,8 @@ class ProtocolRegistry:
             if result.fallback_level > 0:
                 self._stats["fallback_triggers"] += 1
 
-        # 存入缓存（成功和失败都缓存，失败的也不重复尝试）
-        self.cache.put(data, cache_key_prefix, result)
+        if result.success:
+            self.cache.put(data, cache_key_prefix, result)
 
         return result
 

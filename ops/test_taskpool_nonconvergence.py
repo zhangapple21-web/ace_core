@@ -1,4 +1,4 @@
-import copy
+﻿import copy
 import sys
 import tempfile
 from datetime import datetime, timedelta
@@ -6,7 +6,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from core.task import TaskPool
+from ops.test_support import FixtureTaskPool as TaskPool
 from core.task_roles import Researcher, Validator
 
 
@@ -32,6 +32,61 @@ def requeue_for_review(pool, task_id):
     claimed = pool.claim_task(task_id, "researcher", lease_seconds=60)
     assert claimed is not None
     assert pool.move_task(task_id, "review", actor="researcher", task=claimed) is not None
+
+
+def test_validator_applies_structured_model_hard_objection(monkeypatch):
+    with tempfile.TemporaryDirectory() as temp_dir:
+        pool = TaskPool(temp_dir)
+        validator = Validator(pool, llm_router=object())
+        task_id = prepare_review_task(pool, "structured model objection")
+
+        monkeypatch.setattr(
+            "core.task_roles._record_model_execution",
+            lambda *args, **kwargs: {
+                "success": True,
+                "content": '{"hard_objections":["model found a counterexample"]}',
+                "provider": "test-provider",
+                "model": "test-model",
+            },
+        )
+
+        result = validator.validate_task(pool.load_task(task_id))
+        stored = pool.load_task(task_id)
+
+        assert result["passed"] is False
+        assert "model found a counterexample" in result["hard_objections"]
+        assert stored.outputs["last_validator_result"]["outcome"] == "rework_pending"
+
+
+def test_validator_model_objection_parser_is_fail_closed_and_bounded():
+    response = {
+        "success": True,
+        "content": (
+            '{"hard_objections":[" first ","first",123,"",' 
+            '"' + "x" * 501 + '"],'
+            '"advisory_objections":"ignore",'
+            '"counter_examples":["counter", "counter", " second ", false],'
+            '"unexpected":["drop"]}'
+        ),
+    }
+
+    parsed = Validator._model_objections(response)
+
+    assert parsed == {
+        "hard_objections": ["first"],
+        "advisory_objections": [],
+        "counter_examples": ["counter", "second"],
+    }
+    assert Validator._model_objections({"success": True, "content": "free text"}) == {
+        "hard_objections": [],
+        "advisory_objections": [],
+        "counter_examples": [],
+    }
+    assert Validator._model_objections({"success": False, "content": "{}"}) == {
+        "hard_objections": [],
+        "advisory_objections": [],
+        "counter_examples": [],
+    }
 
 
 def test_same_stable_validation_tuple_blocks_on_fourth_review():
@@ -414,7 +469,6 @@ def test_validator_approves_evidence_qualified_task_with_advisory_objections():
     with tempfile.TemporaryDirectory() as temp_dir:
         pool = TaskPool(temp_dir)
         task = pool.create_task("qualified evidence task", creator="test")
-        task.status = "review"
         task.hypothesis = "the observed pattern is reproducible"
         task.evidence = [
             {"source": "a", "content": "short"},
@@ -422,7 +476,14 @@ def test_validator_approves_evidence_qualified_task_with_advisory_objections():
             {"source": "c", "content": "independent evidence from source c " * 8},
         ]
         pool.update_task(task)
-        pool.move_task(task.task_id, "review", task=task)
+        claimed = pool.claim_task(task.task_id, "researcher")
+        assert claimed is not None
+        assert pool.move_task(
+            task.task_id,
+            "review",
+            actor="researcher",
+            task=claimed,
+        ) is not None
 
         first = Validator(pool).validate_task(pool.load_task(task.task_id))
         stored = pool.load_task(task.task_id)
@@ -457,6 +518,38 @@ def test_researcher_drops_empty_search_hits_before_persisting_evidence():
         assert result["evidence_found"] >= 1
         assert stored.evidence
         assert all(item["content"].strip() for item in stored.evidence)
+
+
+def test_researcher_recovers_legacy_runtime_observation_as_admission_evidence():
+    """Legacy observation records name the observation but omit source_ref."""
+    from core.task_roles import Researcher
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        pool = TaskPool(temp_dir)
+        task = pool.create_task(
+            "runtime observation evidence", creator="test", admission={
+                "source_type": "system_observation",
+                "source_ref": "OBS-legacy-001",
+                "why_now": "A runtime condition requires research.",
+                "evidence": [{
+                    "observation_id": "OBS-legacy-001",
+                    "description": "Observed durable runtime condition.",
+                }],
+                "expected_result": "A bounded research result.",
+                "verification_method": "Re-observe the condition.",
+                "risk": "Internal only.",
+                "estimated_scope": "one observation",
+            },
+        )
+
+        evidence = Researcher._admission_evidence(pool.load_task(task.task_id))
+
+        assert evidence == [{
+            "content": "Observed durable runtime condition.",
+            "source": "runtime_observation:OBS-legacy-001",
+            "type": "admission",
+            "title": "",
+        }]
 
 
 def test_researcher_does_not_promote_cycle_daily_summaries_to_research_evidence():
@@ -591,3 +684,6 @@ if __name__ == "__main__":
     test_rework_claim_preserves_lease_and_fencing_protection()
     test_medium_gets_a_bounded_yield_after_three_high_competitions()
     print("taskpool nonconvergence checks passed")
+
+
+

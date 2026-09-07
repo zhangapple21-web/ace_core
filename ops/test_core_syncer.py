@@ -1,4 +1,4 @@
-import subprocess
+﻿import subprocess
 import tempfile
 from pathlib import Path
 
@@ -101,3 +101,5 @@ def test_automatic_sync_refuses_large_unreviewed_source_backlog():
     assert result["status"] == "BLOCKED"
     assert result["reason"] == "EXPLICIT_SYNC_PACK_REQUIRED"
     assert result["staged_files"] == []
+
+

@@ -1,4 +1,4 @@
-import hashlib
+﻿import hashlib
 import json
 import sys
 from datetime import datetime, timedelta
@@ -123,6 +123,26 @@ def test_production_activity_excludes_health_and_controlled_probes(tmp_path):
         "MODEL_POOL_PRODUCTION_ACTIVE": False,
         "SHENWEN_5_6_PRODUCTION_ACTIVE": False,
         "SHENWEN_5_4_PRODUCTION_ACTIVE": False,
+    }
+
+
+def test_external_historical_advisor_failure_is_not_a_current_runtime_blocker(tmp_path):
+    paths = audit_paths(tmp_path)
+    historical = tmp_path.parent / "mine-seed" / "advisor" / "runner_status.json"
+    paths["advisor_status"] = historical
+    write_json(historical, {
+        "last_run_time": "2026-07-14T09:38:35",
+        "last_run_success": False,
+    })
+
+    advisor = AutonomousAudit(paths, now=datetime(2026, 8, 28, 9, 0, 0)).collect()["domains"]["advisor"]
+
+    assert advisor["state"] == "NOT_READY"
+    assert advisor["reasons"] == ["advisor_external_historical_failure_unattributed"]
+    assert advisor["source_observation"] == {
+        "authority": "EXTERNAL_REPOSITORY",
+        "freshness": "STALE",
+        "recorded_at": "2026-07-14T09:38:35",
     }
 
 
@@ -303,7 +323,23 @@ def test_missing_runtime_is_not_ready_and_backlog_growth_is_anomaly(tmp_path):
     assert report["data_health"]["sources"]["source-a"]["availability"] == 0.9
     assert report["fairness"]["starved_count"] == 1
     assert "backlog_increasing" in report["trend"]["anomalies"]
+    assert "historical_blocked_total_increasing" not in report["trend"]["anomalies"]
+    assert report["trend"]["production_task_calls_scope"] == "retained_task_pool_total_not_daily_activity"
     assert report["recommended_action"]["code"] == "resolve_task_starvation"
+
+
+def test_blocked_total_trend_is_labeled_historical_not_live_backlog(tmp_path):
+    paths = audit_paths(tmp_path)
+    write_task(paths["task_pool"], task("quarantined", status="blocked"))
+    write_json(paths["audits"] / "history" / "2026-08-27" / "daily_health.json", {
+        "task_lifecycle": {"backlog": 0, "blocked": 0},
+        "fairness": {"starved_count": 0},
+    })
+
+    trend = AutonomousAudit(paths).collect()["trend"]
+
+    assert trend["anomalies"] == ["historical_blocked_total_increasing"]
+    assert trend["backlog_scope"] == "current_claimable_task_snapshot"
 
 
 def test_fairness_reports_unclaimed_service_debt_without_relabeling_starvation(tmp_path):
@@ -444,3 +480,5 @@ def test_runtime_domain_blocks_mismatched_lock_run_identity(tmp_path):
 
     assert runtime["state"] == "BLOCKED"
     assert runtime["reasons"] == ["daemon_lock_run_id_mismatch"]
+
+

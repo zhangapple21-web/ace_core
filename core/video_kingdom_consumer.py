@@ -111,15 +111,42 @@ class VideoKingdomConsumer:
 
     def _evidence(self, card: dict[str, Any], patrol: dict[str, Any]) -> dict[str, Any]:
         task_type = card.get("task_type")
+        linkage = card.get("linkage") if isinstance(card.get("linkage"), dict) else {}
+        evidence_refs = linkage.get("evidence_refs") if isinstance(linkage.get("evidence_refs"), list) else []
+        linked_count = 0
+        hash_verified = 0
+        for ref in evidence_refs:
+            if not isinstance(ref, dict):
+                continue
+            path = (self.root / str(ref.get("path", ""))).resolve()
+            try:
+                path.relative_to(self.root)
+            except ValueError:
+                continue
+            if not path.is_file():
+                continue
+            linked_count += 1
+            expected = ref.get("sha256")
+            if expected and self._sha256(path) == expected:
+                hash_verified += 1
+        linkage_evidence = {
+            "project_id": linkage.get("project_id"),
+            "linked_artifacts": linked_count,
+            "hash_verified_artifacts": hash_verified,
+            "contract_status": linkage.get("contract_status", "UNKNOWN"),
+            "previous_cut_audit_status": linkage.get("previous_cut_audit_status", "UNKNOWN"),
+            "next_owner": linkage.get("next_owner", "UNKNOWN"),
+        }
         if task_type == "RESUME_MEDIA_WORK":
             jobs = patrol.get("resumable_jobs", []) if isinstance(patrol.get("resumable_jobs"), list) else []
-            return {"action": "RESUME_POLL_ONLY", "resumable_jobs": len(jobs), "duplicate_submission": False}
+            return {"action": "RESUME_POLL_ONLY", "resumable_jobs": len(jobs), "duplicate_submission": False, "linkage": linkage_evidence}
         if task_type == "CONTINUITY_REPAIR":
             warnings = patrol.get("warnings", []) if isinstance(patrol.get("warnings"), list) else []
             digest = hashlib.sha256(json.dumps(warnings, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
-            return {"action": "REPAIR_REVIEW_RECORDED", "warning_count": len(warnings), "warning_digest": digest}
+            return {"action": "REPAIR_REVIEW_RECORDED", "warning_count": len(warnings), "warning_digest": digest, "linkage": linkage_evidence}
         return {"action": "LEARNING_SLOT_OPENED", "source_boundary": "PUBLIC_ONLY",
-                "next_step": "deduplicate against public_street_learning_ledger", "provider_calls": 0}
+                "next_step": "deduplicate against public_street_learning_ledger", "provider_calls": 0,
+                "linkage": linkage_evidence}
 
     def _receipt(self, value: dict[str, Any]) -> None:
         self.receipts.parent.mkdir(parents=True, exist_ok=True)

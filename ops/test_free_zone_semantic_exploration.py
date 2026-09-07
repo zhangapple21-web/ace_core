@@ -1,4 +1,4 @@
-import copy
+﻿import copy
 import hashlib
 import json
 
@@ -150,3 +150,5 @@ def test_challenge_gap_slices_have_positive_probability_and_replay_without_mutat
     first_draw = first["resource_selection"]["draws"][0]
     assert len(first_draw["slice_weights"]) == 2
     assert all(item["probability"] > 0 for item in first_draw["slice_weights"])
+
+

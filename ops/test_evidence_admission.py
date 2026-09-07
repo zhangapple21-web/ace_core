@@ -1,4 +1,4 @@
-from core.evidence_admission import evaluate_candidate, evidence_signature
+﻿from core.evidence_admission import evaluate_candidate, evidence_signature
 
 
 def admission(source_ref="obs-1"):
@@ -104,3 +104,5 @@ def test_empty_evidence_sets_are_not_duplicates_of_each_other():
     assert result.reason == "minimum_evidence_required"
     assert result.evidence_signature == ""
     assert result.duplicate_task_ids == ()
+
+

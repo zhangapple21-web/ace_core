@@ -68,7 +68,7 @@ def candidate_registry() -> Dict[str, StockDataCandidate]:
         "baostock": StockDataCandidate(
             "baostock", "installed:baostock==0.9.3", "BSD_DECLARED_UNVERIFIED_TEXT", "installed METADATA; license text absent", "Python",
             "installed_version_observed", "baostock/common/contants.py", "sdk_library", "BaoStock public API",
-            "baostock_tcp", ("daily_kline", "minute_kline_5m", "index", "stock_pool", "etf"),
+            "baostock_tcp", ("daily_kline", "minute_kline_5m", "stock_pool", "etf"),
             "SOURCE_AUDITED_INSTALLED", "BENCHMARK_REQUIRED",
         ),
         "pytdx": StockDataCandidate(
@@ -379,7 +379,8 @@ def _normalize_quote(value: Any) -> Dict[str, Any]:
     time_value = str(normalized.get("time", ""))
     if re.fullmatch(r"\d{1,2}:\d{2}:\d{2}(?:\.\d+)?", time_value):
         current = datetime.now(timezone(timedelta(hours=8))).date().isoformat()
-        normalized["time"] = f"{current}T{time_value}+08:00"
+        hour, remainder = time_value.split(":", 1)
+        normalized["time"] = f"{current}T{int(hour):02d}:{remainder}+08:00"
     if normalized.get("change_pct") is None:
         previous_close = _safe_number(raw.get("prev_close", raw.get("last_close")))
         if normalized.get("price") is not None and previous_close and previous_close > 0:
@@ -673,8 +674,16 @@ class StockDataBenchmark:
     def _tencent_minute(self, symbol: str, interval: str) -> List[Dict[str, Any]]:
         code = _quote_code(symbol)
         key = f"m{interval}"
-        url = f"https://web.ifzq.gtimg.cn/appstock/app/kline/mkline?param={code},{key},,,120"
-        with urllib.request.urlopen(url, timeout=12) as response:
+        # ``web.ifzq.gtimg.cn`` no longer resolves reliably from this runtime.
+        # The public, non-web hostname is live and is also the local adapter's
+        # documented fallback host. Keep Tencent capability-scoped: a K-line
+        # failure must not invalidate quote/daily/fund probes.
+        url = f"https://ifzq.gtimg.cn/appstock/app/kline/mkline?param={code},{key},,,120"
+        request = urllib.request.Request(url, headers={
+            "User-Agent": "Mozilla/5.0",
+            "Referer": "https://finance.qq.com/",
+        })
+        with urllib.request.urlopen(request, timeout=12) as response:
             payload = json.loads(response.read().decode("utf-8"))
         rows = payload.get("data", {}).get(code, {}).get(key, [])
         return [
@@ -691,9 +700,9 @@ class StockDataBenchmark:
             self._probe("tencent", "tencent", "daily_k", symbol, CRITICAL_DAILY_FIELDS,
                         lambda: query.get_hist_kline(symbol, days=15), "web.ifzq.gtimg.cn/app/fqkline"),
             self._probe("tencent", "tencent", "minute_k", symbol, ("date", "open", "close", "high", "low", "volume"),
-                        lambda: self._tencent_minute(symbol, "1"), "web.ifzq.gtimg.cn/app/kline/mkline", operation_name="minute_kline_1m"),
+                        lambda: self._tencent_minute(symbol, "1"), "ifzq.gtimg.cn/appstock/app/kline/mkline", operation_name="minute_kline_1m"),
             self._probe("tencent", "tencent", "minute_k", symbol, ("date", "open", "close", "high", "low", "volume"),
-                        lambda: self._tencent_minute(symbol, "5"), "web.ifzq.gtimg.cn/app/kline/mkline", operation_name="minute_kline_5m"),
+                        lambda: self._tencent_minute(symbol, "5"), "ifzq.gtimg.cn/appstock/app/kline/mkline", operation_name="minute_kline_5m"),
             self._probe("tencent", "tencent", "fund_flow", symbol, ("main_inflow",),
                         lambda: query.get_fund_flow(symbol), "qt.gtimg.cn/q=ff_"),
         ]
@@ -968,6 +977,13 @@ class StockDataBenchmark:
                             for operation in operations:
                                 operation_failure = dict(item)
                                 operation_failure["operation"] = operation
+                                # The failure is still attributed to the
+                                # source batch, but index coverage is sampled
+                                # against the index contract.  Do not let the
+                                # outer equity symbol turn a stock-connection
+                                # failure into a distinct missing index sample.
+                                if operation == "index":
+                                    operation_failure["symbol"] = "000001"
                                 operation_failure["round"] = round_number
                                 refreshed.append(operation_failure)
                             continue
@@ -1255,6 +1271,12 @@ def audit_stock_data_paths(workspace: Path) -> Dict[str, Any]:
             "classification": "observability_only",
             "excluded_from": ["health_aggregation", "cross_validation", "recommendation_eligibility"],
         },
+        "core/public_sentiment_observation.py": {
+            "source": "public_finance_pages",
+            "operation": "public_content_observation",
+            "classification": "observability_only",
+            "excluded_from": ["market_data_health", "phase_two_admission", "recommendation_eligibility"],
+        },
     }
     unregistered_runtime_calls = []
     exceptions = []
@@ -1288,6 +1310,52 @@ def _matrix_decision(candidate: StockDataCandidate, metrics: Dict[str, Any]) -> 
     return "ADAPT"
 
 
+def _operation_decision(candidate: StockDataCandidate, metrics: Dict[str, Any], operation: str) -> str:
+    """Classify one endpoint without letting another endpoint poison it."""
+    if candidate.evidence_status == "UNVERIFIED" or candidate.production_role == "RESEARCH_ONLY":
+        return "RESEARCH"
+    op = metrics.get("operation_quality", {}).get(operation, {})
+    if not op or op.get("availability", 0.0) < 0.6 or op.get("field_completeness", 0.0) < 0.6:
+        return "REJECT"
+    if candidate.independence_group in {"UNVERIFIED", "UNVERIFIED_AGGREGATE"}:
+        return "RESEARCH"
+    return "ADAPT"
+
+
+def build_admission_gap_report(matrix: Dict[str, Any]) -> Dict[str, Any]:
+    """Explain Phase Two gaps without changing any admission decision.
+
+    This is a read-only projection for operators.  It deliberately reports
+    missing evidence rather than inferring a fallback, retry, or market scope.
+    """
+    admission = matrix.get("phase_two_admission", {})
+    operations = admission.get("core_operations", {}) if isinstance(admission, dict) else {}
+    required = ("quote", "daily_kline", "minute_kline_1m", "minute_kline_5m", "index")
+    report = {}
+    for operation in required:
+        detail = operations.get(operation, {}) if isinstance(operations, dict) else {}
+        sources = list(detail.get("production_sources", [])) if isinstance(detail, dict) else []
+        groups = sorted(set(detail.get("independence_groups", []))) if isinstance(detail, dict) else []
+        cross_validated = bool(detail.get("has_independent_cross_validation")) if isinstance(detail, dict) else False
+        blockers = []
+        if not sources:
+            blockers.append("no_qualified_production_source")
+        if len(groups) < 2 or not cross_validated:
+            blockers.append("independent_cross_validation_missing")
+        report[operation] = {
+            "status": "READY" if not blockers else "BLOCKED",
+            "qualified_sources": sources,
+            "independence_groups": groups,
+            "blockers": blockers,
+        }
+    return {
+        "schema_version": 1,
+        "phase_two_status": admission.get("status", "NOT_RECORDED") if isinstance(admission, dict) else "NOT_RECORDED",
+        "operations": report,
+        "semantics": "read_only_explanation; does_not_change_admission_or_select_a_fallback",
+    }
+
+
 def build_capability_matrix(
     registry: Dict[str, StockDataCandidate],
     benchmark_result: Dict[str, Any],
@@ -1303,6 +1371,7 @@ def build_capability_matrix(
         decision = _matrix_decision(candidate, metrics)
         groups[decision].append(candidate_id)
         for capability in candidate.capabilities or ("UNVERIFIED",):
+            operation_decision = _operation_decision(candidate, metrics, capability)
             rows.append({
                 "Source": candidate_id,
                 "Capability": capability,
@@ -1313,7 +1382,7 @@ def build_capability_matrix(
                 "Upstream": candidate.upstream_identity,
                 "Independence": candidate.independence_group,
                 "Production Role": metrics.get("recommended_role", candidate.production_role),
-                "Decision": decision,
+                "Decision": operation_decision,
             })
     core_operations = {}
     for operation in ("quote", "daily_kline", "minute_kline_1m", "minute_kline_5m", "index"):
@@ -1358,7 +1427,7 @@ def build_capability_matrix(
         details["production_sources"] and details["has_independent_cross_validation"]
         for details in core_operations.values()
     )
-    return {
+    return _with_admission_gap_report({
         "schema_version": 1,
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "columns": ["Source", "Capability", "Available", "Freshness", "Coverage", "Stability", "Upstream", "Independence", "Production Role"],
@@ -1368,7 +1437,12 @@ def build_capability_matrix(
             "status": "ADMITTED" if admitted else "NOT_ADMITTED",
             "core_operations": core_operations,
         },
-    }
+    })
+
+
+def _with_admission_gap_report(matrix: Dict[str, Any]) -> Dict[str, Any]:
+    matrix["admission_gap_report"] = build_admission_gap_report(matrix)
+    return matrix
 
 
 def load_latest_health(evidence_dir: str) -> Dict[str, Any]:

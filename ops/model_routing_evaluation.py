@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 """Read-only evidence gate for ACE model-routing upgrades.
 
 This tool deliberately does not invoke a model, change a task, or select a
@@ -362,3 +362,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+

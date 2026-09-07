@@ -1,4 +1,4 @@
-from core.miner_pool.model_router import ModelRouter
+﻿from core.miner_pool.model_router import ModelRouter
 from core.miner_pool.task_profiles import (
     SHENWEN_GROK_45,
     SHENWEN_GROK_46,
@@ -36,3 +36,19 @@ def test_shadow_profiles_can_be_selected_only_explicitly():
     assert coding is not None
     assert coding.full_id == SHENWEN_GROK_45
     assert router.select_shadow_model("grok_research_shadow").full_id == SHENWEN_GROK_46
+
+
+def test_shadow_routing_team_is_not_production_authority():
+    from core.miner_pool.shadow_routing_team import ShadowRoutingTeam
+
+    class Pool:
+        def chat(self, **kwargs):
+            assert kwargs["include_shadow"] is True
+            return {"success": True, "provider": "shenwen_grok", "model": "grok-4.6", "content": "x", "usage": {}}
+
+    result = ShadowRoutingTeam(Pool()).run(task_type="grok_research_shadow", prompt="探查")
+    assert result["decision"] == "PENDING_AUDIT"
+    assert result["production_integration"] is False
+    assert result["automatic_production_promotion"] is False
+
+

@@ -1,4 +1,4 @@
-import json
+﻿import json
 
 from core.free_zone_autonomy import FreeZoneAutonomy
 from core.sandbox_society import SandboxSociety
@@ -67,3 +67,5 @@ def test_external_public_food_gets_a_courier_receipt_without_payload_retention(t
     assert receipt["payload_retained"] is False
     assert receipt["credentials_read"] is False
     assert receipt["production_integration"] is False
+
+

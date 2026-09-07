@@ -162,16 +162,7 @@ class UnidbgPool:
 
         success = False
         try:
-            # TODO: 真实 Unidbg 接入后替换这里
-            # 目前是骨架，返回模拟结果
-            result = self._simulate_call(inst, function_name, args)
-            success = True
-            return {
-                "success": True,
-                "result": result,
-                "error": None,
-                "instance_id": inst.instance_id,
-            }
+            raise RuntimeError("Unidbg execution backend is not implemented")
         except Exception as e:
             logger.error(f"[UnidbgPool] 调用失败: {e}")
             return {
@@ -189,7 +180,7 @@ class UnidbgPool:
         inst = UnidbgInstance(
             instance_id=f"unidbg-{self._total_created:04d}",
             so_path=so_path,
-            loaded=True,  # 骨架：假装加载成功
+            loaded=False,
             last_used=time.time(),
         )
         logger.info(f"[UnidbgPool] 创建实例: {inst.instance_id} ({so_path})")
@@ -221,18 +212,6 @@ class UnidbgPool:
             for inst in to_remove:
                 pool.remove(inst)
                 self._destroy_instance(inst)
-
-    def _simulate_call(
-        self, inst: UnidbgInstance, function_name: str, args: Optional[List]
-    ) -> Any:
-        """模拟函数调用（骨架用）"""
-        return {
-            "simulated": True,
-            "function": function_name,
-            "args": args or [],
-            "instance": inst.instance_id,
-            "timestamp": datetime.now().isoformat(),
-        }
 
     def get_stats(self) -> Dict[str, Any]:
         """获取池统计信息"""

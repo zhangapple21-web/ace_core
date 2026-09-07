@@ -1,4 +1,4 @@
-import sys
+﻿import sys
 import tempfile
 from pathlib import Path
 
@@ -194,3 +194,5 @@ def test_rejected_inputs_never_create_isolated_tasks():
         assert persist_if_eligible(pool, archaeology) is None
 
         assert pool.list_tasks(status="pending", limit=10) == []
+
+

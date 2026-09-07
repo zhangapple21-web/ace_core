@@ -2,6 +2,16 @@
 
 > Autonomous Cognitive Ecology — 自主认知生态运行时
 
+## 当前运行时边界（2026-09-06）
+
+当前唯一现代生产运行时是 `AceDaemon`。`core.scheduler`、`core.task_queue`、`04_PROTOCOLS/heartbeat` 与相关 legacy 生命周期入口均已 fail-closed；旧源文件和旧行为说明保留在下方作为历史/考古资料，不代表可运行的生产入口。
+
+生产 heartbeat 由 `AceDaemon` 独占，记录 `owner=ace_daemon` 和 `run_id`。`AceDaemon` 在 daemon 生命周期内获取并释放 `.workspace.write.lock`；冲突以 `workspace_write_locked` 返回 `owner`、`run_id`、`lock_file`、`recommendation`，malformed lock 采用 fail-closed。
+
+3000 LiteLLM/OneAPI 与 3002 Responses 兼容层必须独立报告，任何一侧的健康结果都不能掩盖另一侧。当前两侧 catalog 均包含 `gpt-5.6-sol`。`OneAPIProvider` 与 SurvivalLoop 的 OneAPI 路径在请求 `/chat/completions` 前校验 `/models`；未知模型返回 `model_unavailable` 且不可重试。
+
+验证记录：全量 `pytest` 为 `744 passed`，`compileall` 通过；`git diff --check` 仅报告既有 EOF 空行和一处既有尾随空格。
+
 ## 这是什么
 
 不是多Agent系统。

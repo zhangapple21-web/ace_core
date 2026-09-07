@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 """Generate a redacted, read-only provider usage reconciliation report."""
 
 from __future__ import annotations
@@ -62,3 +62,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+

@@ -1,11 +1,10 @@
 """
-UnidbgHandler — Unidbg 模拟执行解包（Level 1，二级降级）
+UnidbgHandler — Unidbg 执行解包处理器（Level 1，二级降级）
 
-通过 Unidbg 在 PC 上模拟执行 .so 库中的解密函数。
+通过 Unidbg 执行 .so 库中的解密函数。
 使用 UnidbgPool 复用实例，避免重复加载。
 """
 
-import json
 import base64
 import logging
 from typing import Any, Dict, Optional
@@ -17,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 class UnidbgHandler(ProtocolHandler):
     """
-    Unidbg 模拟执行解包处理器（Level 1）
+    Unidbg 执行解包处理器（Level 1）
 
     RPC 不可用时降级到这里。
     """
@@ -40,8 +39,7 @@ class UnidbgHandler(ProtocolHandler):
 
     def identify(self, data: bytes) -> bool:
         """
-        判断是否能处理（骨架：只要数据非空就尝试）
-        真实实现会检查 .so 支持的协议格式。
+        判断是否能处理给定数据。
         """
         if not data or len(data) < 4:
             return False
@@ -49,7 +47,7 @@ class UnidbgHandler(ProtocolHandler):
 
     def unpack(self, data: bytes) -> UnpackResult:
         """
-        Unidbg 模拟解包
+        执行解包。
         """
         if not self._available:
             return UnpackResult.fail(
@@ -95,15 +93,21 @@ class UnidbgHandler(ProtocolHandler):
             )
 
     def _process_result(self, result: Any, original_data: bytes) -> Dict[str, Any]:
-        """处理 Unidbg 返回结果"""
+        """整理 Unidbg 返回结果"""
+        if isinstance(result, dict):
+            result = {
+                key: value
+                for key, value in result.items()
+                if key not in {"decrypted", "method"}
+                and value != "unidbg_simulated"
+            }
+
         try:
             text = original_data.decode("utf-8", errors="replace")
         except Exception:
             text = base64.b64encode(original_data).decode()
 
         return {
-            "decrypted": True,
-            "method": "unidbg_simulated",
             "original_size": len(original_data),
             "content_preview": text[:200],
             "unidbg_result": result,

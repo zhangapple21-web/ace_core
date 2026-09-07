@@ -1,4 +1,4 @@
-import json
+﻿import json
 
 from core.counterexample_executor import StructuralCounterexampleExecutor
 from core.free_research_sandbox import FreeResearchSandbox
@@ -57,3 +57,5 @@ def test_structural_counterexample_executor_preserves_a_tampered_source_as_failu
     )
     assert result["outcome"] == "FAIL"
     assert result["evidence"]["source_record_hash_valid"] is False
+
+

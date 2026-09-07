@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 import json
 import os
 import signal
@@ -87,6 +87,41 @@ def test_status_command_uses_daemon_runtime():
         assert '"task_pool"' in result.stdout
 
 
+def test_submit_and_status_share_daemon_runtime_state(monkeypatch, capsys):
+    import ace
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        base_dir = Path(temp_dir)
+        monkeypatch.setattr(ace.sys, "argv", ["ace.py", "submit", "manual observation", "runtime evidence"])
+        ace.main(base_dir)
+        submit_output = capsys.readouterr().out
+
+        monkeypatch.setattr(ace.sys, "argv", ["ace.py", "status"])
+        ace.main(base_dir)
+        status_output = capsys.readouterr().out
+
+        assert "已提交观察" in submit_output
+        status = json.loads(status_output)
+        assert status["observations"]["total"] >= 1
+        assert status["observations"]["unprocessed"] >= 1
+
+        from ace_daemon import AceDaemon
+
+        observer = AceDaemon(base_dir, {}).runtime_observer
+        submitted = [
+            item
+            for item in observer.get_recent()
+            if item.source == "cli"
+            and item.description == "manual observation: runtime evidence"
+            and item.system_state == {
+                "title": "manual observation",
+                "content": "runtime evidence",
+            }
+        ]
+        assert len(submitted) == 1
+        assert submitted[0].task_generated is None
+
+
 def test_daemon_process_lock_excludes_second_daemon():
     from ace_daemon import AceDaemon
 
@@ -115,6 +150,34 @@ def test_daemon_lock_binds_the_current_run_identity():
         try:
             owner = json.loads(daemon.daemon_lock_file.read_text(encoding="utf-8"))
             assert owner["run_id"] == "current-production-run"
+        finally:
+            daemon._release_daemon_lock()
+
+
+def test_daemon_reclaims_lock_when_pid_was_reused(monkeypatch):
+    from ace_daemon import AceDaemon
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        daemon = AceDaemon(Path(temp_dir), {})
+        daemon.daemon_lock_file.write_text(
+            json.dumps({
+                "pid": os.getpid(),
+                "run_id": "old-run",
+                "token": "old-token",
+                "created_at": time.time() - 60,
+            }),
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(
+            daemon,
+            "_process_start_time_epoch",
+            lambda pid: time.time(),
+        )
+
+        assert daemon._acquire_daemon_lock()
+        try:
+            owner = json.loads(daemon.daemon_lock_file.read_text(encoding="utf-8"))
+            assert owner["token"] != "old-token"
         finally:
             daemon._release_daemon_lock()
 
@@ -418,7 +481,7 @@ def test_daemon_recovers_stale_lock_after_forced_process_termination():
 
 
 def test_atomic_task_claim_preserves_valid_lease_and_recovers_stale_lease():
-    from core.task import TaskPool
+    from ops.test_support import FixtureTaskPool as TaskPool
 
     with tempfile.TemporaryDirectory() as temp_dir:
         pool = TaskPool(temp_dir)
@@ -442,13 +505,17 @@ def test_atomic_task_claim_preserves_valid_lease_and_recovers_stale_lease():
 
 
 def test_recovery_requeues_orphaned_active_task_without_lease():
-    from core.task import TaskPool
+    from ops.test_support import FixtureTaskPool as TaskPool
 
     with tempfile.TemporaryDirectory() as temp_dir:
         pool = TaskPool(temp_dir)
         task = pool.create_task("orphaned active task", creator="test")
         task.status = "active"
-        pool.move_task(task.task_id, "active", task=task)
+        # Simulate a legacy/corrupt orphan directly; the production transition
+        # now materializes a lease instead of creating this state.
+        task_file = Path(temp_dir) / "active" / f"{task.task_id}.json"
+        task_file.parent.mkdir(parents=True, exist_ok=True)
+        task_file.write_text(json.dumps(task.to_dict()), encoding="utf-8")
 
         recovered = pool.reclaim_stale_leases()
 
@@ -461,7 +528,7 @@ def test_recovery_requeues_orphaned_active_task_without_lease():
 
 
 def test_stale_lock_file_does_not_block_task_claim():
-    from core.task import TaskPool
+    from ops.test_support import FixtureTaskPool as TaskPool
 
     with tempfile.TemporaryDirectory() as temp_dir:
         pool = TaskPool(temp_dir)
@@ -475,7 +542,7 @@ def test_stale_lock_file_does_not_block_task_claim():
 
 
 def test_retry_backoff_prevents_early_reclaim():
-    from core.task import TaskPool
+    from ops.test_support import FixtureTaskPool as TaskPool
 
     with tempfile.TemporaryDirectory() as temp_dir:
         pool = TaskPool(temp_dir)
@@ -491,7 +558,7 @@ def test_retry_backoff_prevents_early_reclaim():
 
 
 def test_recovery_keeps_latest_duplicate_task_state():
-    from core.task import TaskPool
+    from ops.test_support import FixtureTaskPool as TaskPool
 
     with tempfile.TemporaryDirectory() as temp_dir:
         pool = TaskPool(temp_dir)
@@ -512,7 +579,7 @@ def test_recovery_keeps_latest_duplicate_task_state():
 
 
 def test_researchers_use_atomic_task_claims():
-    from core.task import TaskPool
+    from ops.test_support import FixtureTaskPool as TaskPool
     from core.task_roles import Researcher
 
     with tempfile.TemporaryDirectory() as temp_dir:
@@ -528,9 +595,11 @@ def test_researchers_use_atomic_task_claims():
 
 def test_daemon_reclaims_stale_leases_before_work():
     from ace_daemon import AceDaemon
+    from ops.test_support import FixtureTaskPool
 
     with tempfile.TemporaryDirectory() as temp_dir:
         daemon = AceDaemon(Path(temp_dir), {})
+        daemon.task_pool = FixtureTaskPool(Path(temp_dir) / "task_pool")
         task = daemon.task_pool.create_task("abandoned worker task", creator="test")
         claimed = daemon.task_pool.claim_task(task.task_id, "worker-a", lease_seconds=1)
         assert claimed is not None
@@ -544,9 +613,11 @@ def test_daemon_reclaims_stale_leases_before_work():
 
 def test_researcher_failure_is_persisted_for_retry():
     from ace_daemon import AceDaemon
+    from ops.test_support import FixtureTaskPool
 
     with tempfile.TemporaryDirectory() as temp_dir:
         daemon = AceDaemon(Path(temp_dir), {})
+        daemon.task_pool = FixtureTaskPool(Path(temp_dir) / "task_pool")
         task = daemon.task_pool.create_task("broken researcher task", priority="high", creator="test")
         task.title = None
         daemon.task_pool.update_task(task)
@@ -561,7 +632,7 @@ def test_researcher_failure_is_persisted_for_retry():
 
 
 def test_researcher_renews_claim_before_researching():
-    from core.task import TaskPool
+    from ops.test_support import FixtureTaskPool as TaskPool
     from core.task_roles import Researcher
 
     with tempfile.TemporaryDirectory() as temp_dir:
@@ -578,7 +649,7 @@ def test_researcher_renews_claim_before_researching():
 
 
 def test_stale_claim_cannot_overwrite_new_owner():
-    from core.task import TaskPool
+    from ops.test_support import FixtureTaskPool as TaskPool
 
     with tempfile.TemporaryDirectory() as temp_dir:
         pool = TaskPool(temp_dir)
@@ -598,8 +669,37 @@ def test_stale_claim_cannot_overwrite_new_owner():
         assert stored.title == "fenced task"
 
 
+def test_update_task_rejects_invalid_state_transition():
+    from ops.test_support import FixtureTaskPool as TaskPool
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        pool = TaskPool(temp_dir)
+        task = pool.create_task("update state-machine task", creator="test")
+        task.status = "archived"
+
+        assert not pool.update_task(task)
+        assert pool.load_task(task.task_id).status == "pending"
+
+
+def test_update_task_requires_current_lease_fencing():
+    from ops.test_support import FixtureTaskPool as TaskPool
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        pool = TaskPool(temp_dir)
+        task = pool.create_task("update fenced task", creator="test")
+        claimed = pool.claim_task(task.task_id, "worker-a", lease_seconds=60)
+        assert claimed is not None
+        claimed.title = "bypass lease"
+        claimed.claim_id = ""
+
+        assert not pool.update_task(claimed)
+        stored = pool.load_task(task.task_id)
+        assert stored.title == "update fenced task"
+        assert stored.lease_owner == "worker-a"
+
+
 def test_task_state_machine_blocks_governance_bypasses_and_preserves_archives():
-    from core.task import TaskPool
+    from ops.test_support import FixtureTaskPool as TaskPool
 
     with tempfile.TemporaryDirectory() as temp_dir:
         pool = TaskPool(temp_dir)
@@ -625,7 +725,7 @@ def test_task_state_machine_blocks_governance_bypasses_and_preserves_archives():
 
 
 def test_external_blocks_do_not_auto_release():
-    from core.task import TaskPool
+    from ops.test_support import FixtureTaskPool as TaskPool
 
     with tempfile.TemporaryDirectory() as temp_dir:
         pool = TaskPool(temp_dir)
@@ -642,7 +742,7 @@ def test_external_blocks_do_not_auto_release():
 
 
 def test_graveyard_sweep_preserves_blocked_convergence_states():
-    from core.task import TaskPool
+    from ops.test_support import FixtureTaskPool as TaskPool
 
     with tempfile.TemporaryDirectory() as temp_dir:
         pool = TaskPool(temp_dir)
@@ -663,7 +763,7 @@ def test_graveyard_sweep_preserves_blocked_convergence_states():
 
 
 def test_archivist_preserves_task_fencing_on_archive():
-    from core.task import TaskPool
+    from ops.test_support import FixtureTaskPool as TaskPool
     from core.task_roles import Archivist
 
     class MemoryIndex:
@@ -700,7 +800,7 @@ def test_archivist_preserves_task_fencing_on_archive():
 
 
 def test_archivist_requires_guardian_archive_decision():
-    from core.task import TaskPool
+    from ops.test_support import FixtureTaskPool as TaskPool
     from core.task_roles import Archivist
 
     with tempfile.TemporaryDirectory() as temp_dir:
@@ -717,7 +817,7 @@ def test_archivist_requires_guardian_archive_decision():
 
 
 def test_repeated_review_does_not_force_approval_without_passing_validation():
-    from core.task import TaskPool
+    from ops.test_support import FixtureTaskPool as TaskPool
     from core.task_roles import Validator
 
     with tempfile.TemporaryDirectory() as temp_dir:
@@ -739,7 +839,7 @@ def test_repeated_review_does_not_force_approval_without_passing_validation():
 
 
 def test_validator_rework_returns_to_pending_with_retry_metadata():
-    from core.task import TaskPool
+    from ops.test_support import FixtureTaskPool as TaskPool
     from core.task_roles import Validator
 
     with tempfile.TemporaryDirectory() as temp_dir:
@@ -764,19 +864,19 @@ def test_validator_rework_returns_to_pending_with_retry_metadata():
 
 
 def test_validator_blocks_unchanged_evidence_after_review_limit():
-    from core.task import TaskPool
+    from ops.test_support import FixtureTaskPool as TaskPool
     from core.task_roles import Validator
 
     with tempfile.TemporaryDirectory() as temp_dir:
         pool = TaskPool(temp_dir)
         task = pool.create_task("non convergent review", creator="test")
-        task.status = "review"
         task.review_count = 3
         task.hypothesis = "needs more evidence"
         task.evidence = [{"content": "first evidence" * 8}, {"content": "second evidence" * 8}]
         task.outputs["last_validated_evidence_signature"] = Validator.evidence_signature(task)
-        pool.update_task(task)
-        pool.move_task(task.task_id, "review", task=task)
+        assert pool.update_task(task)
+        active = pool.move_task(task.task_id, "active", task=task)
+        assert pool.move_task(task.task_id, "review", task=active)
 
         result = Validator(pool).validate_task(pool.load_task(task.task_id))
         stored = pool.load_task(task.task_id)
@@ -788,7 +888,7 @@ def test_validator_blocks_unchanged_evidence_after_review_limit():
 
 
 def test_validator_observes_non_convergent_external_research():
-    from core.task import TaskPool
+    from ops.test_support import FixtureTaskPool as TaskPool
     from core.task_roles import Validator
 
     with tempfile.TemporaryDirectory() as temp_dir:
@@ -798,13 +898,13 @@ def test_validator_observes_non_convergent_external_research():
             creator="test",
             tags=["external"],
         )
-        task.status = "review"
         task.review_count = 3
         task.hypothesis = "needs more evidence"
         task.evidence = [{"content": "first evidence" * 8}, {"content": "second evidence" * 8}]
         task.outputs["last_validated_evidence_signature"] = Validator.evidence_signature(task)
-        pool.update_task(task)
-        pool.move_task(task.task_id, "review", task=task)
+        assert pool.update_task(task)
+        active = pool.move_task(task.task_id, "active", task=task)
+        assert pool.move_task(task.task_id, "review", task=active)
 
         Validator(pool).validate_task(pool.load_task(task.task_id))
         stored = pool.load_task(task.task_id)
@@ -815,7 +915,7 @@ def test_validator_observes_non_convergent_external_research():
 
 
 def test_validator_graveyards_explicit_permanent_dead_end_at_review_limit():
-    from core.task import TaskPool
+    from ops.test_support import FixtureTaskPool as TaskPool
     from core.task_roles import Validator
 
     with tempfile.TemporaryDirectory() as temp_dir:
@@ -825,13 +925,13 @@ def test_validator_graveyards_explicit_permanent_dead_end_at_review_limit():
             creator="test",
             tags=["permanent_dead_end"],
         )
-        task.status = "review"
         task.review_count = 3
         task.hypothesis = "needs more evidence"
         task.evidence = [{"content": "first evidence" * 8}, {"content": "second evidence" * 8}]
         task.outputs["last_validated_evidence_signature"] = Validator.evidence_signature(task)
-        pool.update_task(task)
-        pool.move_task(task.task_id, "review", task=task)
+        assert pool.update_task(task)
+        active = pool.move_task(task.task_id, "active", task=task)
+        assert pool.move_task(task.task_id, "review", task=active)
 
         Validator(pool).validate_task(pool.load_task(task.task_id))
         stored = pool.load_task(task.task_id)
@@ -841,7 +941,7 @@ def test_validator_graveyards_explicit_permanent_dead_end_at_review_limit():
 
 
 def test_validator_allows_changed_evidence_to_reenter_research_after_review_limit():
-    from core.task import TaskPool
+    from ops.test_support import FixtureTaskPool as TaskPool
     from core.task_roles import Validator
 
     with tempfile.TemporaryDirectory() as temp_dir:
@@ -866,13 +966,12 @@ def test_validator_allows_changed_evidence_to_reenter_research_after_review_limi
 
 
 def test_validator_blocks_legacy_rework_signature_when_current_evidence_is_unchanged():
-    from core.task import TaskPool
+    from ops.test_support import FixtureTaskPool as TaskPool
     from core.task_roles import Validator
 
     with tempfile.TemporaryDirectory() as temp_dir:
         pool = TaskPool(temp_dir)
         task = pool.create_task("legacy signature loop", creator="test")
-        task.status = "review"
         task.review_count = 153
         task.hypothesis = "requires more evidence"
         task.counter_examples = ["existing counterexample"]
@@ -884,8 +983,9 @@ def test_validator_blocks_legacy_rework_signature_when_current_evidence_is_uncha
             "outcome": "rework_pending",
             "evidence_signature": "legacy-unrecognized-signature",
         }
-        pool.update_task(task)
-        pool.move_task(task.task_id, "review", task=task)
+        assert pool.update_task(task)
+        active = pool.move_task(task.task_id, "active", task=task)
+        assert pool.move_task(task.task_id, "review", task=active)
 
         Validator(pool).validate_task(pool.load_task(task.task_id))
         migrated = pool.load_task(task.task_id)
@@ -907,13 +1007,12 @@ def test_validator_blocks_legacy_rework_signature_when_current_evidence_is_uncha
 
 
 def test_validator_blocks_semantically_unchanged_duplicate_evidence_at_review_limit():
-    from core.task import TaskPool
+    from ops.test_support import FixtureTaskPool as TaskPool
     from core.task_roles import Validator
 
     with tempfile.TemporaryDirectory() as temp_dir:
         pool = TaskPool(temp_dir)
         task = pool.create_task("duplicate evidence loop", creator="test")
-        task.status = "review"
         task.review_count = 3
         task.hypothesis = "requires more evidence"
         task.evidence = [
@@ -928,8 +1027,9 @@ def test_validator_blocks_semantically_unchanged_duplicate_evidence_at_review_li
             "outcome": "rework_pending",
             "objections": ["未主动寻找反例，存在确认偏误风险"],
         }
-        pool.update_task(task)
-        pool.move_task(task.task_id, "review", task=task)
+        assert pool.update_task(task)
+        active = pool.move_task(task.task_id, "active", task=task)
+        assert pool.move_task(task.task_id, "review", task=active)
 
         Validator(pool).validate_task(pool.load_task(task.task_id))
         stored = pool.load_task(task.task_id)
@@ -941,13 +1041,12 @@ def test_validator_blocks_semantically_unchanged_duplicate_evidence_at_review_li
 
 
 def test_non_convergent_terminal_block_cannot_be_reopened_or_claimed():
-    from core.task import TaskPool
+    from ops.test_support import FixtureTaskPool as TaskPool
     from core.task_roles import Validator
 
     with tempfile.TemporaryDirectory() as temp_dir:
         pool = TaskPool(temp_dir)
         task = pool.create_task("terminal non convergence", creator="test")
-        task.status = "review"
         task.review_count = 3
         task.hypothesis = "requires more evidence"
         task.evidence = [
@@ -956,8 +1055,9 @@ def test_non_convergent_terminal_block_cannot_be_reopened_or_claimed():
         ]
         task.outputs["last_validated_evidence_signature"] = Validator.evidence_signature(task)
         task.outputs["last_validator_result"] = {"outcome": "rework_pending"}
-        pool.update_task(task)
-        pool.move_task(task.task_id, "review", task=task)
+        assert pool.update_task(task)
+        active = pool.move_task(task.task_id, "active", task=task)
+        assert pool.move_task(task.task_id, "review", task=active)
 
         Validator(pool).validate_task(pool.load_task(task.task_id))
         stored = pool.load_task(task.task_id)
@@ -970,7 +1070,7 @@ def test_non_convergent_terminal_block_cannot_be_reopened_or_claimed():
 
 
 def test_researcher_yields_rework_high_to_untouched_high_after_streak_limit():
-    from core.task import TaskPool
+    from ops.test_support import FixtureTaskPool as TaskPool
     from core.task_roles import Researcher
 
     with tempfile.TemporaryDirectory() as temp_dir:
@@ -989,7 +1089,7 @@ def test_researcher_yields_rework_high_to_untouched_high_after_streak_limit():
 
 
 def test_researcher_yields_rework_high_to_untouched_medium_after_streak_limit():
-    from core.task import TaskPool
+    from ops.test_support import FixtureTaskPool as TaskPool
     from core.task_roles import Researcher
 
     with tempfile.TemporaryDirectory() as temp_dir:
@@ -1007,9 +1107,11 @@ def test_researcher_yields_rework_high_to_untouched_medium_after_streak_limit():
 
 def test_backlog_watermark_suppresses_only_low_value_producers():
     from ace_daemon import AceDaemon
+    from ops.test_support import FixtureTaskPool
 
     with tempfile.TemporaryDirectory() as temp_dir:
         daemon = AceDaemon(Path(temp_dir), {})
+        daemon.task_pool = FixtureTaskPool(Path(temp_dir) / "task_pool")
         for index in range(20):
             daemon.task_pool.create_task(f"backlog {index}", creator="test")
 
@@ -1035,7 +1137,7 @@ def test_task_installer_declares_boot_and_periodic_liveness_triggers():
 
 def test_self_healing_checks_current_task_pool_directory():
     from core.self_healing import SelfHealing
-    from core.task import TaskPool
+    from ops.test_support import FixtureTaskPool as TaskPool
 
     with tempfile.TemporaryDirectory() as temp_dir:
         root = Path(temp_dir)
@@ -1055,7 +1157,7 @@ def test_self_healing_checks_current_task_pool_directory():
 
 def test_self_healing_recovers_current_task_pool_through_state_machine():
     from core.self_healing import SelfHealing
-    from core.task import TaskPool
+    from ops.test_support import FixtureTaskPool as TaskPool
 
     with tempfile.TemporaryDirectory() as temp_dir:
         root = Path(temp_dir)
@@ -1835,3 +1937,6 @@ if __name__ == "__main__":
     test_only_daemon_scheduled_task_is_unlimited()
     test_scheduled_task_check_mode_parses()
     print("24h runtime mainline startup tests passed")
+
+
+

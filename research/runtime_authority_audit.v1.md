@@ -1,24 +1,28 @@
 # Runtime Authority Boundary Audit v1
 
-审计日期：2026-09-05（Asia/Shanghai）  
-范围：`ace.py`、`ace_daemon.py`、`core/task.py`、Admission/TaskPool 路径、`agent_team/` 协作元数据、Codex 路由配置、当前 12 项自动化、3000/3001/3002 本机端口。
+审计日期：2026-09-06（Asia/Shanghai）
+范围：`ace.py`、`ace_daemon.py`、`core/task.py`、Admission/TaskPool 路径、`agent_team/` 协作元数据、Codex 路由配置、当前自动化、3000/3001/3002 本机端口、OneAPI 模型目录预检与 workspace 写锁。
 
 ## 结论摘要
 
-- **唯一已验证的 ACE Runtime Authority**：`C:\tmp\ace_core\core\task.py` 的 `TaskPool`，由现有 `ace.py daemon --serve` 生命周期驱动；Admission 负责准入，TaskPool 负责任务状态、lease、claim、fencing、recovery。
+- **唯一已验证的现代生产运行时与 Runtime Authority：** `C:\tmp\ace_core\ace_daemon.py` 的 `AceDaemon`。它承载生产 daemon 生命周期；`TaskPool` 负责任务状态、lease、claim、fencing、recovery，Admission 负责任务准入。
 - **自动派单绑定关系**：当前 6 个活跃 cron（`ace`、`ace-09-45`、`ace-2`、`ace-3`、`ace-4`、`ace-6`）配置为 `target.type=project`，绑定项目 `a5014012-497b-475f-b1ad-4afdeca9e980`，不是某个具体终端。带 `target_thread_id` 的 heartbeat（`ace-5`、`agnes`）目前均为 PAUSED。活跃 heartbeat `automation` 与 `tg-companion-overnight-check` 未在 TOML 中声明 `target_thread_id`，其实际运行线程归属未由本地文件充分证明，记录为 **UNKNOWN/RISK**，不能声称已完成稳定 owner 绑定。
 - **跨窗口 owner 协议**：`agent_team/active_work_manifest.json` 与 `active_work_manifest.py` 已要求 `owner`、TTL、单窗口 owner；非 owner、owner 缺失/畸形、非 active、TTL 过期均为 read-only；TTL 只产生 stale hint，不自动 takeover/claim/renew。该文件仍是协作元数据，不是 ACE lease。
 - **本轮发现并修复的真实缺口**：`TaskPool.move_task()` 旧路径可把 `pending` 直接写成无 owner/claim 的 `active`，且对已有 active lease 的 stale 对象缺少与 `stored.claim_id` 的强制比较。现在兼容调用会原子生成 lease/claim/fencing，已有 lease 必须匹配 claim/fencing 才可写。
 - **本轮追加修复**：未知 `ace.py` 命令此前会落入历史 `core.scheduler.Scheduler` 初始化；现在未知命令在导入旧运行时前直接 fail-closed。`active_work_manifest` 拒绝空白 owner；`TaskPool.claim_task/renew_lease` 拒绝空白 owner/claim 与非正 TTL，避免形成无主或立即失效租约。
 - **本轮追加修复**：独立验收 checker 不再只信任外部 `protocol_receipt.valid=true`；现在强制回执 `task_id` 与协议版本绑定到被验收 task，拒绝携带 errors 的回执，并独立重查 envelope 的 start protocol、complexity、pipeline、events 结构，防止跨任务伪造回执或空/畸形 envelope 的 active 记录被验成 PASS。
-- **本轮追加修复**：已发现的两个 legacy Python 构造入口现在 fail-closed：导入 `core.scheduler` 立即拒绝，构造 `core.task_queue.TaskQueue` 在创建目录前拒绝；旧源文件保留用于考古，不把此修复扩大为任意脚本/文件系统的 ACL 级封锁。
-- **不能声称的内容**：本审计没有证明整个 checkout 已消除所有第二生命周期、所有隐式写路径或所有窗口工具的文件级 owner guard。旧 `core/scheduler.py`/`core/task_queue.py` 源码仍在仓库中；旧 CLI 已 fail-closed 测试保护，但未完成全仓库静态/运行时排他证明。
+- **本轮已验证收口**：已发现的 legacy Python 生命周期入口 `core.scheduler`、`core.task_queue`、`04_PROTOCOLS/heartbeat` 均 fail-closed；旧源文件保留用于考古，不把此修复扩大为任意脚本/文件系统的 ACL 级封锁。
+- **heartbeat 单一 owner：** 生产 heartbeat 固定为 `owner=ace_daemon`，并携带当前 `run_id`；历史 protocol heartbeat 不再可执行，不能形成第二循环。
+- **workspace 写入序列化：** `AceDaemon` 在 daemon 生命周期内获取并释放 `.workspace.write.lock`。锁冲突返回 `workspace_write_locked` 以及 `owner`、`run_id`、`lock_file`、`recommendation`；malformed lock fail-closed。
+- **Provider 与模型目录边界：** 3000 LiteLLM/OneAPI 与 3002 Responses 兼容层分别报告，不能互相掩盖；当前两个 catalog 都包含 `gpt-5.6-sol`。`OneAPIProvider` 与 SurvivalLoop 的 OneAPI 路径均在 `/chat/completions` 前查询 `/models`，未知模型返回不可重试的 `model_unavailable`。
+- **不能声称的内容：** 本审计没有证明整个 checkout 已消除所有第二生命周期、所有隐式写路径或所有窗口工具的文件级 owner guard；也没有把独立端口的当前 catalog 推广为永久健康承诺。
 
 ## 事实矩阵
 
 | 对象 | 当前作用 | 可直接改变 Runtime | 权威性 |
 |---|---|---:|---|
-| `TaskPool` | 任务生命周期、lease、claim、fencing、recovery | 是 | YES |
+| `AceDaemon` | 唯一现代生产 daemon 生命周期、heartbeat owner、workspace 写锁生命周期 | 是 | YES（唯一现代生产运行时） |
+| `TaskPool` | 由 AceDaemon 使用的任务生命周期、lease、claim、fencing、recovery | 是 | YES（任务状态权威） |
 | Admission / `validate_admission` | 任务进入 TaskPool 前的准入 | 间接 | YES（准入边界） |
 | `agent_team/active_work_manifest.json` | Codex/人类窗口声明、范围冲突提示 | 否 | NO |
 | `agent_team/*/state.json` | durable 协作记录、thread/output 追踪 | 按现有定义仅记录 | NO |
@@ -51,18 +55,19 @@
 
 ## 端口、进程与 HTTP
 
-- 3000：LiteLLM/OneAPI，当前监听；本次实时探针仍为 `/health/liveliness=200`、`/health=500`、`/v1/models=500`。当前 Codex 配置不直连此端口；这是独立路由层风险，未做猜测式修复。
+- 3000：LiteLLM/OneAPI。必须独立报告 health、catalog 和请求结果，不能由 3002 覆盖；当前已验证 catalog 包含 `gpt-5.6-sol`。`OneAPIProvider` 与 SurvivalLoop OneAPI 路径在 `/chat/completions` 前先验证 `/models`，未知模型返回不可重试的 `model_unavailable`。保留端口自身诊断为独立风险。
 - 3001：无监听（连接被拒绝）。
-- 3002：Responses 兼容层，`/healthz` 与 `/v1/models` 返回 200；当前 `C:\Users\User\.codex\config.toml` 的 `base_url=http://127.0.0.1:3002/v1`、`wire_api="responses"`、`notify=[]`，符合当前 Codex 路径。
-- ACE daemon：PID 43004，命令 `ace.py daemon --serve`；daemon state、lock、heartbeat 的 run_id 均为 `54ac1e2004444aa28f45dedd897d0d46`，心跳 `alive`、连续 miss 为 0。当前 TaskPool 只有历史 blocked/archived/graveyard，无 executable pending/active/review/approved。
+- 3002：Responses 兼容层。必须独立报告 health、catalog 和请求结果，不能由 3000 覆盖；当前已验证 catalog 包含 `gpt-5.6-sol`。当前 `C:\Users\User\.codex\config.toml` 的 `base_url=http://127.0.0.1:3002/v1`、`wire_api="responses"`、`notify=[]`，符合当前 Codex 路径。
+- ACE daemon：唯一现代生产运行时为 `AceDaemon`。daemon state、`.workspace.write.lock` 与 heartbeat 共享当前 `run_id`；生产 heartbeat 为 `owner=ace_daemon`，并含 `run_id`。daemon 生命周期获取并释放 workspace 锁；冲突返回完整 `workspace_write_locked` 诊断，malformed lock fail-closed。
 
 ## 仍存在的缺口 / 不作过度修复
 
-1. `core/scheduler.py`、`core/task_queue.py` 历史实现仍存在但已对已发现的 Python 构造入口 fail-closed；仍未证明任意外部脚本都无法直接写旧队列文件，也未做全仓库 syscall/ACL 级排他证明。
-2. `creator="test"` 仍是测试专用 admission bypass；静态可达，生产调用未观察到。应继续限制在测试边界，后续可考虑将测试工厂与生产 API 分离。
+1. `core/scheduler.py`、`core/task_queue.py`、`04_PROTOCOLS/heartbeat.py` 已对已发现的 legacy 生命周期入口 fail-closed；仍未证明任意外部脚本都无法直接写旧队列、TaskPool 或其他共享文件，也未做全仓库 syscall/ACL 级排他证明。
+2. 生产 Admission 已收紧，不能由公开配置、creator 字符串或 CLI 启用缺失 Admission；测试边界不构成生产写入口。后续仍应防止新的测试便利接口泄漏到生产 API。
 3. `DailyShift`/Report/Receipt 等写入是派生记录；本审计只证明已测攻击不会自动驱动 TaskPool，不证明每个未来脚本都遵守该契约。
-4. 3000 的 500 尚未定位根因；由于当前 Codex 不依赖该端口、master key 不可用且没有明确修复授权，保留为独立风险。
-5. 近期心跳历史记录显示 2026-08-29 曾有 Windows `WinError 5` 状态替换失败；现有 `_save_state` 已有有界重试，当前 live heartbeat 正常，但未进行长时间压力复现，因此只能称为“已有修复路径 + 当前未复发”，不能称永久消除。
+4. 3000 与 3002 的健康、catalog 和请求结果均须独立复核；虽当前两侧 catalog 都包含 `gpt-5.6-sol`，但这不能替代各自端口的持续健康诊断。
+5. 近期心跳历史记录显示 2026-08-29 曾有 Windows `WinError 5` 状态替换失败；现有 `_save_state` 已有有界重试，当前 heartbeat identity 与 owner 已验证，但未进行长时间压力复现，因此不能称永久消除。
+6. `.workspace.write.lock` 只序列化已接入 daemon 生命周期的写入；malformed lock 已 fail-closed，但未把直接文件系统写入转化为 OS ACL 保护。
 
 ## WHY THIS DESIGN COULD STILL FAIL
 
@@ -90,5 +95,6 @@ mtime 选记录；粗粒度时间戳可能让观察结果退回 `pending`，从�
 - `ops/test_active_work_manifest.py`、`ops/test_task_admission.py`、`ops/test_legacy_cli_fail_closed.py`：17 passed。
 - 交叉回归：TaskPool/non-convergence/continuity/discovery 35 passed；Daily Shift/Finance/Model Discovery 38 passed；runtime claim/continue-gate/trace 13 passed；quality/admission 14 passed。
 - `python -m py_compile core/task.py ops/test_24h_runtime_mainline.py ops/test_runtime_authority_audit.py`：通过。
+- 全量 `pytest`：`744 passed`；`compileall`：通过；`git diff --check`：仅报告既有 EOF 空行和一处既有尾随空格。
 
-结论标签：`PATCH_APPLIED / PARTIALLY_VERIFIED / REMAINING_RISKS_RECORDED / NO_CLAIM_OF_GLOBAL_ELIMINATION`。
+结论标签：`RUNTIME_BOUNDARY_CLOSED / PARTIALLY_VERIFIED / REMAINING_RISKS_RECORDED / NO_CLAIM_OF_GLOBAL_ACL_ELIMINATION`。

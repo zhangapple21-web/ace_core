@@ -209,19 +209,17 @@ class SekiroHTTPClient:
         elif strategy == SEKIRO_STRATEGY_CONSISTENT_HASH and consistent_key:
             body["consistent_key"] = consistent_key
 
-        # TODO: 真实 HTTP 调用
-        # 当前是骨架，返回模拟结果
-        return self._simulate_invoke(body)
+        raise RuntimeError("Sekiro HTTP transport is not implemented")
 
     def group_list(self) -> Dict[str, Any]:
         """获取分组列表"""
         if not self._available:
             return {"success": False, "error": "not configured", "groups": []}
 
-        # TODO: GET /business/groupList
         return {
-            "success": True,
-            "groups": ["default"],
+            "success": False,
+            "error": "Sekiro HTTP transport is not implemented",
+            "groups": [],
         }
 
     def client_queue(self, group: str) -> Dict[str, Any]:
@@ -229,26 +227,12 @@ class SekiroHTTPClient:
         if not self._available:
             return {"success": False, "error": "not configured", "clients": []}
 
-        # TODO: GET /business/clientQueue?group=xxx
         return {
-            "success": True,
+            "success": False,
+            "error": "Sekiro HTTP transport is not implemented",
             "group": group,
             "online_clients": 0,
             "clients": [],
-        }
-
-    def _simulate_invoke(self, body: Dict[str, Any]) -> Dict[str, Any]:
-        """模拟调用响应（骨架用）"""
-        return {
-            "success": True,
-            "simulated": True,
-            "server": self.server_url,
-            "request_body": body,
-            "client_id": "simulated_client_001",
-            "result": {
-                "note": "this is a simulated response from SekiroHTTPClient skeleton",
-            },
-            "timestamp": __import__("datetime").datetime.now().isoformat(),
         }
 
 

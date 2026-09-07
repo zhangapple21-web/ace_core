@@ -1,4 +1,4 @@
-import subprocess
+﻿import subprocess
 from pathlib import Path
 
 from remote_git_root_audit import audit_repo, discover_repositories
@@ -79,3 +79,5 @@ def test_discovery_includes_linked_worktree_style_git_file(tmp_path):
     worktree.mkdir()
     (worktree / ".git").write_text("gitdir: C:/shared/worktrees/example\n", encoding="utf-8")
     assert worktree.resolve() in discover_repositories(tmp_path)
+
+

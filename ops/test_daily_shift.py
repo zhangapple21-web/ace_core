@@ -1,9 +1,9 @@
-from core.daily_shift import DailyShift
+﻿from core.daily_shift import DailyShift
 from core.free_zone_semantic_exploration import (
     SELECTION_POLICY_VERSION,
     SEMANTIC_SLICE_SCHEMA_VERSION,
 )
-from core.task import TaskPool
+from ops.test_support import FixtureTaskPool as TaskPool
 import json
 
 
@@ -261,3 +261,7 @@ def test_production_daily_shift_does_not_consume_or_surface_free_zone(tmp_path):
     assert "Semantic exploration:" not in markdown
     assert "Lazy Cat:" not in markdown
     assert "Five factories:" not in markdown
+
+
+
+

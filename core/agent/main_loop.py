@@ -192,9 +192,13 @@ class AgentMainLoop:
             state = yield from self._api_call(state, params)
 
             if state.tool_use_blocks:
-                state = yield from self._tool_execution(state)
-                state = yield from self._process_attachments(state)
-                state = yield from self._next_turn(state)
+                # These phases perform synchronous local work and return a
+                # TurnContext; they are not generators.  Using ``yield from``
+                # here attempts to iterate TurnContext and crashes before the
+                # next model turn.
+                state = self._tool_execution(state)
+                state = self._process_attachments(state)
+                state = self._next_turn(state)
             else:
                 state.state = TurnState.DONE
                 return state

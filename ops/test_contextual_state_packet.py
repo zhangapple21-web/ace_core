@@ -1,4 +1,4 @@
-import pytest
+﻿import pytest
 
 from core.contextual_state_packet import ContextualStatePacket
 
@@ -135,3 +135,5 @@ def test_research_candidate_adapter_uses_only_candidate_provenance_and_stays_res
     assert packet["relevant_facts"][0]["evidence_refs"] == ["07_SANDBOX/free_research/inbox/question.json"]
     assert packet["learning_needs"]
     assert packet["side_effects"]["model_called"] is False
+
+

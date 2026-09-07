@@ -1,4 +1,4 @@
-import tempfile
+﻿import tempfile
 from pathlib import Path
 
 from core.discovery import DiscoveryCandidate, DiscoveryMode
@@ -6,7 +6,7 @@ from core.model_work_discovery import ModelWorkDiscovery
 from core.observation import RuntimeObserver
 from core.observation_to_task import ObservationToTaskConverter
 from core.stock_discovery_sources import StockDiscoverySources
-from core.task import TaskPool
+from ops.test_support import FixtureTaskPool as TaskPool
 from core.task_roles import Researcher
 
 
@@ -380,7 +380,9 @@ def test_duplicate_evidence_references_count_as_one():
 
 def test_admitted_model_work_is_visible_beyond_one_hundred_rework_tasks():
     with tempfile.TemporaryDirectory() as directory:
-        pool = TaskPool(str(Path(directory) / "task_pool"))
+        pool = TaskPool(
+            str(Path(directory) / "task_pool"),
+        )
         for index in range(101):
             task = pool.create_task(
                 title=f"Old local rework {index}",
@@ -489,7 +491,9 @@ def test_researcher_preserves_admission_evidence_and_grounds_model_prompt():
 
 def test_claimed_model_rework_is_visible_beyond_old_rework_page():
     with tempfile.TemporaryDirectory() as directory:
-        pool = TaskPool(str(Path(directory) / "task_pool"))
+        pool = TaskPool(
+            str(Path(directory) / "task_pool"),
+        )
         for index in range(101):
             task = pool.create_task(
                 title=f"Old rework {index}",
@@ -545,3 +549,7 @@ def test_claimed_model_rework_is_visible_beyond_old_rework_page():
         selected = Researcher(task_pool=pool).pick_up_task(priority="any")
         assert selected is not None
         assert selected.task_id == model_task.task_id
+
+
+
+

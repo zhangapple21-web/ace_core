@@ -1,4 +1,4 @@
-"""Read-only audit of Git remotes as a recovery-root boundary.
+﻿"""Read-only audit of Git remotes as a recovery-root boundary.
 
 Git is useful as a portable recovery root only when the inspected checkout is
 actually recoverable from its configured remote.  This module deliberately
@@ -162,3 +162,4 @@ def main(argv: Optional[List[str]] = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+

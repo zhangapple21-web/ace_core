@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 """
 为已有碎片索引补充主题标签
 
@@ -44,3 +44,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

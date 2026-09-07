@@ -66,7 +66,9 @@ class SyncManager:
         data_dir: str = None,
         debounce_minutes: int = 60,
         curator_id: str = "ace_runtime_curator",
-        curator_secret: str = "curator_secret_key",  # 本地验证用
+        curator_secret: Optional[str] = None,
+        repo_map: Optional[Dict[str, str]] = None,
+        repository_base: Optional[str] = None,
     ):
         if data_dir is None:
             base = Path(__file__).resolve().parent.parent
@@ -77,6 +79,8 @@ class SyncManager:
         self.debounce_minutes = debounce_minutes
         self.curator_id = curator_id
         self.curator_secret = curator_secret
+        self.repo_map = {name: Path(path) for name, path in (repo_map or {}).items()}
+        self.repository_base = Path(repository_base) if repository_base else None
 
         self.last_sync_file = self.data_dir / "last_sync.json"
         self.sync_log_file = self.data_dir / "sync_log.jsonl"
@@ -104,6 +108,8 @@ class SyncManager:
 
     def _generate_signature(self, plan_hash: str, timestamp: str) -> str:
         """生成 sync plan 签名"""
+        if not self.curator_secret:
+            raise ValueError("curator secret 未配置")
         raw = f"{self.curator_id}:{timestamp}:{plan_hash}:{self.curator_secret}"
         return hashlib.sha256(raw.encode()).hexdigest()[:16]
 
@@ -165,6 +171,13 @@ class SyncManager:
             List[SyncResult]: 每个仓库的执行结果
         """
         # === 契约层验证（第一道防线）===
+        if not self.curator_secret:
+            return [SyncResult(
+                success=False, repo="*", action="verify",
+                files=[], commit_hash=None,
+                error="契约验证失败: curator secret 未配置",
+                duration_ms=0,
+            )]
         verification = self._execution_contract.verify_plan(sync_plan)
         if not verification.valid:
             logger.error(f"Sync plan 契约验证失败: {verification.reason}")
@@ -229,11 +242,16 @@ class SyncManager:
         """同步单个仓库"""
         import shutil
         start = time.time()
-        repo_map = {
-            "mine-seed": "C:\\Users\\USER\\.trae\\work\\6a3be8d2084d33999ccdf8c7\\repos\\mine-seed",
-            "ace-core": "C:\\Users\\USER\\Downloads\\Telegram Desktop\\ace_runtime",
-        }
-        repo_dir = Path(repo_map.get(repo, repo))
+        repo_dir = self.repo_map.get(repo)
+        if repo_dir is None and self.repository_base:
+            repo_dir = self.repository_base / repo
+        if repo_dir is None:
+            return SyncResult(
+                success=False, repo=repo, action="sync",
+                files=[], commit_hash=None,
+                error=f"仓库未配置: {repo}",
+                duration_ms=(time.time() - start) * 1000,
+            )
         if not repo_dir.exists():
             return SyncResult(
                 success=False, repo=repo, action="sync",

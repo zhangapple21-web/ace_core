@@ -1,4 +1,4 @@
-from core.evidence_admission import evidence_signature
+﻿from core.evidence_admission import evidence_signature
 from core.evidence_admission_compat import (
     CURRENT_SIGNATURE_VERSION,
     shadow_report,
@@ -69,3 +69,5 @@ def test_shadow_report_is_explicitly_non_mutating_mode():
     assert report["task_count"] == 1
     assert report["decisions"] == {"admit": 1}
     assert repr(task) == before
+
+

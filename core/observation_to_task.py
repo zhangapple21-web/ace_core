@@ -21,7 +21,10 @@ Observation → Task 自动转换规则引擎
 """
 
 import json
-from datetime import datetime
+import hashlib
+import math
+import re
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, Any, List, Optional, Callable
 from dataclasses import dataclass
@@ -310,25 +313,127 @@ class ObservationToTaskConverter:
         self.task_pool = task_pool
         self.rules = rules or BUILTIN_RULES
         self.model_task_admission = ModelTaskAdmission()
+        self._triggered_timestamps: Dict[str, str] = {}
         self._triggered_cache = self._load_triggered_cache()
+        self._semantic_incidents = self._load_semantic_incidents()
+
+    # These rules describe a continuing condition, rather than a sequence of
+    # independent work items.  Their canonical task survives mechanical
+    # archival until a later observation proves recovery.
+    _PERSISTENT_INCIDENT_RULES = {"fragment_backlog", "cross_agent_idle"}
+    # Runtime caches are idempotency aids, not an append-only event log.
+    _CACHE_SCHEMA_VERSION = 1
+    _TRIGGERED_CACHE_MAX_ENTRIES = 512
+    _TRIGGERED_CACHE_MAX_AGE_DAYS = 7
+    _INCIDENT_CACHE_MAX_ENTRIES = 128
+    _INCIDENT_CACHE_MAX_AGE_DAYS = 30
 
     def _load_triggered_cache(self) -> set:
-        """加载已触发的 Observation ID 集合"""
+        """Load a bounded observation-id cache (migrating the legacy list)."""
         cache_file = self.observer.data_dir / "triggered_obs.json"
         if cache_file.exists():
             try:
-                return set(json.load(open(cache_file, "r", encoding="utf-8")))
+                data = json.load(open(cache_file, "r", encoding="utf-8"))
+                if isinstance(data, dict):
+                    entries = data.get("entries", {})
+                    if isinstance(entries, dict):
+                        cutoff = datetime.now() - timedelta(days=self._TRIGGERED_CACHE_MAX_AGE_DAYS)
+                        retained = {
+                            str(key): value for key, value in entries.items()
+                            if isinstance(value, dict) and self._parse_cache_time(value.get("last_seen_at"), cutoff)
+                        }
+                        self._triggered_timestamps = {key: str(value.get("last_seen_at")) for key, value in retained.items()}
+                        return set(sorted(retained, key=lambda key: retained[key].get("last_seen_at", ""))[-self._TRIGGERED_CACHE_MAX_ENTRIES:])
+                if isinstance(data, list):
+                    now = datetime.now().isoformat()
+                    self._triggered_timestamps = {str(item): now for item in data[-self._TRIGGERED_CACHE_MAX_ENTRIES:]}
+                    return set(self._triggered_timestamps)
             except Exception:
                 return set()
         return set()
 
+    @staticmethod
+    def _parse_cache_time(value: Any, cutoff: datetime) -> bool:
+        try:
+            return datetime.fromisoformat(str(value).replace("Z", "+00:00")).replace(tzinfo=None) >= cutoff
+        except (TypeError, ValueError):
+            return False
+
+    def _mark_triggered(self, obs_id: str):
+        self._triggered_cache.add(obs_id)
+        self._triggered_timestamps[obs_id] = datetime.now().isoformat()
+        if len(self._triggered_cache) > self._TRIGGERED_CACHE_MAX_ENTRIES:
+            keep = sorted(self._triggered_cache, key=lambda key: self._triggered_timestamps.get(key, ""))[-self._TRIGGERED_CACHE_MAX_ENTRIES:]
+            self._triggered_cache = set(keep)
+            self._triggered_timestamps = {key: self._triggered_timestamps[key] for key in keep}
+
     def _save_triggered_cache(self):
         cache_file = self.observer.data_dir / "triggered_obs.json"
         try:
+            entries = {obs_id: {"last_seen_at": self._triggered_timestamps.get(obs_id, datetime.now().isoformat())} for obs_id in sorted(self._triggered_cache)}
             with open(cache_file, "w", encoding="utf-8") as f:
-                json.dump(list(self._triggered_cache), f, ensure_ascii=False)
+                json.dump({"schema_version": self._CACHE_SCHEMA_VERSION, "entries": entries}, f, ensure_ascii=False, indent=2)
         except Exception:
             pass
+
+    def _load_semantic_incidents(self) -> Dict[str, Dict[str, str]]:
+        cache_file = self.observer.data_dir / "semantic_incidents.json"
+        if cache_file.exists():
+            try:
+                data = json.load(open(cache_file, "r", encoding="utf-8"))
+                if not isinstance(data, dict):
+                    return {}
+                cutoff = datetime.now() - timedelta(days=self._INCIDENT_CACHE_MAX_AGE_DAYS)
+                retained = {
+                    str(key): value for key, value in data.items()
+                    if isinstance(value, dict) and self._parse_cache_time(value.get("last_observed_at"), cutoff)
+                }
+                return dict(sorted(retained.items(), key=lambda item: item[1].get("last_observed_at", ""))[-self._INCIDENT_CACHE_MAX_ENTRIES:])
+            except Exception:
+                return {}
+        return {}
+
+    def _save_semantic_incidents(self):
+        cache_file = self.observer.data_dir / "semantic_incidents.json"
+        try:
+            with open(cache_file, "w", encoding="utf-8") as f:
+                json.dump(self._semantic_incidents, f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
+
+    def _record_persistent_incident(self, rule: ConversionRule, state: Dict[str, Any], task_id: str):
+        if rule.name not in self._PERSISTENT_INCIDENT_RULES:
+            return
+        signature = self._semantic_signature(rule, state)
+        if signature:
+            self._semantic_incidents[rule.name] = {
+                "schema_version": self._CACHE_SCHEMA_VERSION,
+                "signature": signature,
+                "task_id": task_id,
+                "last_observed_at": datetime.now().isoformat(),
+                "reason": "persistent_semantic_incident",
+            }
+            self._semantic_incidents = dict(sorted(self._semantic_incidents.items(), key=lambda item: item[1].get("last_observed_at", ""))[-self._INCIDENT_CACHE_MAX_ENTRIES:])
+            self._save_semantic_incidents()
+
+    def _reconcile_persistent_incidents(self, obs: Observation):
+        """Forget an incident only after explicit recovery evidence.
+
+        An unrelated gap observation must not imply recovery.  The relevant
+        state field has to be present and its persistent rule must be false.
+        This preserves generic terminal-task reuse while allowing a recovered
+        incident to reopen when it genuinely returns.
+        """
+        state = obs.system_state if isinstance(obs.system_state, dict) else {}
+        for rule in self.rules:
+            if rule.name not in self._PERSISTENT_INCIDENT_RULES or rule.category != obs.category:
+                continue
+            required_key = "pending_scan" if rule.name == "fragment_backlog" else "last_mine_seed_scan"
+            if required_key not in state or not rule.condition_fn or rule.condition_fn(obs):
+                continue
+            if rule.name in self._semantic_incidents:
+                self._semantic_incidents.pop(rule.name, None)
+                self._save_semantic_incidents()
 
     @staticmethod
     def _lexicon_gap_signature(state: Dict[str, Any]) -> tuple:
@@ -338,6 +443,73 @@ class ObservationToTaskConverter:
             return ()
         return tuple(sorted({str(gap).strip() for gap in gaps if str(gap).strip()}))
 
+    @staticmethod
+    def _normal_text(value: Any) -> str:
+        """Normalize a diagnostic token without erasing its identity."""
+        return re.sub(r"\s+", " ", str(value or "").strip().lower())
+
+    @classmethod
+    def _semantic_signature(cls, rule: ConversionRule, state: Dict[str, Any]) -> str:
+        """Return the stable identity of a recurring observation.
+
+        Observation IDs and rolling counters are deliberately excluded.  The
+        identity changes only when the underlying incident changes, so a
+        persistent error is serviced by one task instead of creating one task
+        per daemon cycle.  This is a deduplication aid, not a quality or
+        admission decision.
+        """
+        name = rule.name
+        payload: Dict[str, Any]
+        if name == "lexicon_category_gap":
+            payload = {"gaps": list(cls._lexicon_gap_signature(state))}
+        elif name == "recent_errors":
+            samples = state.get("error_samples", [])
+            normalized = {
+                cls._normal_text(item)
+                for item in samples
+                if cls._normal_text(item)
+            } if isinstance(samples, list) else set()
+            payload = {"errors": sorted(normalized)}
+        elif name == "cross_agent_idle":
+            payload = {"last_mine_seed_scan": cls._normal_text(state.get("last_mine_seed_scan", "never"))}
+        elif name == "review_queue_bottleneck":
+            review = int(state.get("review", 0) or 0)
+            pending = int(state.get("pending", 0) or 0)
+            active = int(state.get("active", 0) or 0)
+            mode = "review_backlog" if review >= 5 else "review_starvation" if review > 0 and active == 0 and pending == 0 else ""
+            payload = {"mode": mode}
+        elif name == "fragment_backlog":
+            payload = {"condition": bool((state.get("pending_scan", 0) or 0) > 500)}
+        elif name == "scheduled_task_inactive":
+            payload = {"condition": bool(state.get("task_never_run", False))}
+        elif name == "disk_space_low":
+            try:
+                free_pct = float(state.get("disk_free_pct", 0) or 0)
+            except (TypeError, ValueError):
+                free_pct = 0.0
+            # A five-point bucket allows a materially changed disk condition
+            # to reopen while ignoring harmless telemetry jitter.
+            payload = {"free_pct_bucket": math.floor(free_pct / 5)}
+        else:
+            return ""
+        if not payload or payload == {"mode": ""}:
+            return ""
+        canonical = {"rule": name, **payload}
+        return hashlib.sha256(
+            json.dumps(canonical, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
+
+    @classmethod
+    def _task_semantic_signature(cls, task: Any, rule: ConversionRule) -> str:
+        outputs = task.outputs if isinstance(getattr(task, "outputs", None), dict) else {}
+        stored = outputs.get("semantic_signature")
+        if stored:
+            return str(stored)
+        admission = outputs.get("admission", {})
+        evidence = admission.get("evidence", []) if isinstance(admission, dict) else []
+        state = evidence[0].get("system_state", {}) if evidence and isinstance(evidence[0], dict) else {}
+        return cls._semantic_signature(rule, state if isinstance(state, dict) else {})
+
     def _open_semantic_duplicate(self, rule: ConversionRule, state: Dict[str, Any]):
         """Find a still-open task for a recurring invariant observation.
 
@@ -346,21 +518,38 @@ class ObservationToTaskConverter:
         the same until its gap-category set materially changes or the earlier
         task closes.
         """
-        if rule.name != "lexicon_category_gap":
+        if rule.name not in {
+            "lexicon_category_gap",
+            "recent_errors",
+            "cross_agent_idle",
+            "review_queue_bottleneck",
+            "fragment_backlog",
+            "scheduled_task_inactive",
+            "disk_space_low",
+        }:
             return None
-        signature = self._lexicon_gap_signature(state)
+        signature = self._semantic_signature(rule, state)
         if not signature:
             return None
-        for status in ("pending", "active", "review", "approved"):
+        # A blocked non-convergent task is still the canonical open incident.
+        # Counting it here prevents the next observation from recreating the
+        # same task while it waits for genuinely new evidence.
+        for status in ("pending", "active", "review", "approved", "blocked"):
             for task in self.task_pool.list_tasks(status=status, limit=10000):
                 outputs = task.outputs if isinstance(task.outputs, dict) else {}
                 if outputs.get("conversion_rule") != rule.name:
                     continue
-                admission = outputs.get("admission", {})
-                evidence = admission.get("evidence", []) if isinstance(admission, dict) else []
-                previous_state = evidence[0].get("system_state", {}) if evidence and isinstance(evidence[0], dict) else {}
-                if self._lexicon_gap_signature(previous_state) == signature:
+                if self._task_semantic_signature(task, rule) == signature:
+                    self._record_persistent_incident(rule, state, task.task_id)
                     return task
+        if rule.name in self._PERSISTENT_INCIDENT_RULES:
+            incident = self._semantic_incidents.get(rule.name, {})
+            if incident.get("signature") == signature and incident.get("task_id"):
+                task = self.task_pool.load_task(str(incident["task_id"]))
+                if task is not None:
+                    return task
+                self._semantic_incidents.pop(rule.name, None)
+                self._save_semantic_incidents()
         return None
 
     def _convert_discovery_candidate(
@@ -455,7 +644,7 @@ class ObservationToTaskConverter:
             },
         )
         self.observer.mark_consumed(obs.obs_id, task.task_id)
-        self._triggered_cache.add(obs.obs_id)
+        self._mark_triggered(obs.obs_id)
         return {
             "obs_id": obs.obs_id,
             "rule": "discovery_candidate",
@@ -480,6 +669,7 @@ class ObservationToTaskConverter:
             "task_types_created": {},
             "rejection_reasons": {},
             "skipped": 0,
+            "semantic_duplicates": 0,
             "details": [],
         }
 
@@ -487,6 +677,7 @@ class ObservationToTaskConverter:
         result["observations_checked"] = len(unprocessed)
 
         for obs in unprocessed:
+            self._reconcile_persistent_incidents(obs)
             if obs.obs_id in self._triggered_cache:
                 result["skipped"] += 1
                 continue
@@ -541,8 +732,9 @@ class ObservationToTaskConverter:
                 duplicate = self._open_semantic_duplicate(rule, state)
                 if duplicate is not None:
                     self.observer.mark_consumed(obs.obs_id, duplicate.task_id)
-                    self._triggered_cache.add(obs.obs_id)
+                    self._mark_triggered(obs.obs_id)
                     result["skipped"] += 1
+                    result["semantic_duplicates"] += 1
                     result["details"].append({
                         "obs_id": obs.obs_id,
                         "rule": rule.name,
@@ -581,6 +773,7 @@ class ObservationToTaskConverter:
                     ),
                     "evidence": [{
                         "observation_id": obs.obs_id,
+                        "source_ref": f"runtime_observation:{obs.obs_id}",
                         "category": obs.category,
                         "severity": obs.severity,
                         "description": obs.description,
@@ -607,10 +800,12 @@ class ObservationToTaskConverter:
                             "source_obs_id": task_params["source_obs_id"],
                             "source_obs_description": obs.description,
                             "conversion_rule": rule.name,
+                            "semantic_signature": self._semantic_signature(rule, state),
                         },
                     )
                     self.observer.mark_consumed(obs.obs_id, task.task_id)
-                    self._triggered_cache.add(obs.obs_id)
+                    self._record_persistent_incident(rule, state, task.task_id)
+                    self._mark_triggered(obs.obs_id)
                     result["rules_matched"] += 1
                     result["tasks_created"] += 1
                     result["details"].append({

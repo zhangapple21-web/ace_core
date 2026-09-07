@@ -1,4 +1,5 @@
 ﻿import json
+import os
 from pathlib import Path
 from statistics import mean
 from typing import Any, Callable, Dict, List, Optional, Tuple
@@ -9,6 +10,7 @@ from .task_roles import Archivist, Guardian
 from .triple_cross_validation import CrossValidator
 from .governance.knowledge_governor import AdmissionDecision
 from .governance.knowledge_lifecycle import LifecycleStage
+from .runtime_claim import RuntimeClaimStore
 
 
 DAILY_LEARNING_OBSERVATION_LIMIT = 200
@@ -62,8 +64,34 @@ class DailyLearningLoop:
         self.archivist = Archivist(task_pool=self.task_pool)
         self.guardian = Guardian(task_pool=self.task_pool)
         self.deposition = ExperienceDeposition(str(self.data_dir / "knowledge"))
+        self.runtime_claims = RuntimeClaimStore(self.data_dir / "runtime_claims")
 
     def run(self, run_date: str) -> Dict[str, Any]:
+        """Run one daily learning attempt, fail-closed across daemon processes."""
+        claims = getattr(self, "runtime_claims", None)
+        if claims is None:  # Compatibility for narrowly constructed legacy tests.
+            return self._run_unclaimed(run_date)
+        claim = claims.acquire(f"daily_learning:{run_date}")
+        if claim["outcome"] == "completed":
+            return dict(claim["result"])
+        if claim["outcome"] != "acquired":
+            return {
+                "date": run_date,
+                "mode": "none",
+                "outcome": "NO_VALID_LEARNING_TARGET",
+                "reason": f"daily_learning_claim_{claim['outcome']}",
+                "no_side_effects": True,
+            }
+        try:
+            result = self._run_unclaimed(run_date)
+        except Exception:
+            # Keep the immutable running claim.  A later run must demand a
+            # governed recovery decision, never silently rerun this date.
+            raise
+        claims.complete(claim["key"], claim["claim_token"], result)
+        return result
+
+    def _run_unclaimed(self, run_date: str) -> Dict[str, Any]:
         existing = self._load_result(run_date)
         legacy_blocked_result = self._is_legacy_blocked_result(existing)
         if existing is not None and not legacy_blocked_result:
@@ -76,6 +104,7 @@ class DailyLearningLoop:
         # admission/lifecycle path.  TaskPool fairness remains responsible
         # for when the candidate is actually claimed.
         mode, selection = self._choose_candidate(allow_external=True)
+        external_learning = self._external_learning_status(mode)
 
         if selection is None:
             result = {
@@ -83,6 +112,7 @@ class DailyLearningLoop:
                 "mode": "none",
                 "outcome": "NO_VALID_LEARNING_TARGET",
                 "reason": "no_evidence_backed_internal_candidate_or_external_candidate",
+                "external_learning": external_learning,
                 "no_side_effects": True,
             }
             self._record_daily_result(run_date, result)
@@ -97,6 +127,7 @@ class DailyLearningLoop:
                 "outcome": "NO_VALID_LEARNING_TARGET",
                 "reason": "learning_contract_incomplete",
                 "candidate": candidate.title,
+                "external_learning": external_learning,
                 "no_side_effects": True,
             }
             self._record_daily_result(run_date, result)
@@ -110,6 +141,7 @@ class DailyLearningLoop:
                 "outcome": "NO_VALID_LEARNING_TARGET",
                 "reason": "discovery_to_task_conversion_failed",
                 "candidate": candidate.title,
+                "external_learning": external_learning,
                 "no_side_effects": True,
             }
             self._record_daily_result(run_date, result)
@@ -120,6 +152,36 @@ class DailyLearningLoop:
         cross_validation = self._cross_validate(candidate, evidence_items)
         lifecycle = self.lifecycle_manager.create(candidate.fingerprint)
         self.lifecycle_manager.transition(candidate.fingerprint, LifecycleStage.RESEARCH, "evidence_registered", "daily_learning")
+
+        # A catalogue study is a real TaskPool work item, not adopted knowledge.
+        # Let the normal miner/reviewer lifecycle perform archaeology before
+        # daily learning is allowed to classify it as a learned fact.
+        if contract.get("requires_miner") is True:
+            task.evidence = list(evidence_items)
+            task.result = {
+                "learning_contract": contract,
+                "evidence_ids": evidence_ids,
+                "outcome": "queued_research",
+                "reason": "requires_independent_miner_review",
+                "governance_boundary": "Catalogued repositories are study hypotheses, not installed or adopted capabilities.",
+                "no_side_effects": False,
+            }
+            task.outputs["daily_learning"] = task.result
+            self.task_pool.update_task(task)
+            result = {
+                "date": run_date, "mode": mode, "outcome": "queued_research",
+                "reason": "requires_independent_miner_review", "candidate": candidate.title,
+                "task_id": task.task_id,
+                "execution_deferred_by": blocking_task.task_id if blocking_task else None,
+                "evidence_ids": evidence_ids, "source_independence": independence,
+                "cross_validation": cross_validation, "governor_decision": None,
+                "lifecycle_stage": self.lifecycle_manager.get(candidate.fingerprint).current_stage.value,
+                "external_learning": external_learning,
+                "no_side_effects": False,
+            }
+            self._record_daily_result(run_date, result)
+            return result
+
         self.lifecycle_manager.transition(candidate.fingerprint, LifecycleStage.VALIDATION, "source_independence_checked", "daily_learning")
 
         confidence = self._confidence(evidence_items)
@@ -190,6 +252,7 @@ class DailyLearningLoop:
             "cross_validation": cross_validation,
             "governor_decision": governor_record.decision,
             "lifecycle_stage": self.lifecycle_manager.get(candidate.fingerprint).current_stage.value,
+            "external_learning": external_learning,
             "no_side_effects": False,
         }
         self._record_daily_result(run_date, result)
@@ -236,15 +299,30 @@ class DailyLearningLoop:
     ) -> Tuple[str, Optional[Tuple[Any, List[Dict[str, Any]]]]]:
         for source in self.internal_candidate_sources:
             candidates = source() or []
-            if candidates:
-                return "internal", candidates[0]
+            for candidate, evidence_items in candidates:
+                if not self._has_adopted_title(candidate.title):
+                    return "internal", (candidate, evidence_items)
         if not allow_external or self.external_discoverer is None:
             return "none", None
         objective = "Find a currently evidence-backed ACE learning objective not satisfied by internal assets."
         candidates = self.external_discoverer(objective, list(self.source_tiers)) or []
-        if candidates:
-            return "external", candidates[0]
+        for candidate, evidence_items in candidates:
+            if not self._has_adopted_title(candidate.title):
+                return "external", (candidate, evidence_items)
         return "none", None
+
+    def _external_learning_status(self, mode: str) -> Dict[str, Any]:
+        if mode == "internal":
+            return {"status": "NOT_NEEDED_INTERNAL_CANDIDATE", "reason": "internal_candidate_selected_first"}
+        if self.external_discoverer is None:
+            return {"status": "DISABLED_BY_CONFIGURATION", "reason": "no_external_discoverer_configured"}
+        owner = getattr(self.external_discoverer, "__self__", None)
+        reported = getattr(owner, "last_result", None)
+        if isinstance(reported, dict):
+            return dict(reported)
+        if mode == "external":
+            return {"status": "EXTERNAL_CANDIDATE_ADMITTED", "reason": "external_candidate_selected"}
+        return {"status": "EXECUTED_NO_CANDIDATE", "reason": "external_discoverer_returned_no_candidate"}
 
     def _create_task(self, candidate, evidence_items: List[Dict[str, Any]]) -> Optional[Any]:
         for task in self.task_pool.list_tasks(limit=10000):
@@ -410,9 +488,18 @@ class DailyLearningLoop:
         path = self.results_dir / f"{run_date}.json"
         if not path.exists():
             return None
-        return json.loads(path.read_text(encoding="utf-8"))
+        try:
+            result = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return None
+        return result if isinstance(result, dict) else None
 
     def _record_daily_result(self, run_date: str, result: Dict[str, Any]) -> None:
         path = self.results_dir / f"{run_date}.json"
         result.setdefault("candidate_scan_limit", DAILY_LEARNING_OBSERVATION_LIMIT)
-        path.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+        temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+        with temporary.open("w", encoding="utf-8") as handle:
+            handle.write(json.dumps(result, ensure_ascii=False, indent=2))
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)

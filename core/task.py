@@ -18,6 +18,13 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Any, Optional
 
 from core.task_admission import duplicate_task, validate_admission
+from core.execution_discipline import (
+    build_execution_discipline,
+    execution_gate,
+    ensure_execution_discipline,
+    record_checkpoint,
+    record_event,
+)
 from collections import defaultdict
 
 
@@ -416,6 +423,38 @@ class TaskPool:
                 "at": datetime.now().isoformat(),
             })
         task.status = new_status
+        ensure_execution_discipline(task)
+        envelope = task.outputs.get("execution_discipline", {})
+        route = envelope.get("constraints", {}).get("route") if isinstance(envelope, dict) else None
+        record_event(
+            task,
+            "lifecycle_transition",
+            actor=actor or "task_pool",
+            from_status=old_status,
+            to_status=new_status,
+            reason=reason,
+        )
+        if new_status == "approved":
+            record_event(task, "approved", actor=actor or "task_pool")
+        elif new_status == "archived":
+            record_event(task, "archived", actor=actor or "task_pool")
+        if new_status == "active":
+            record_checkpoint(
+                task,
+                "lifecycle_start",
+                actor=actor or "task_pool",
+                route=route,
+                claim_id=task.claim_id or None,
+            )
+        if new_status in {"blocked", "rejected", "archived", "graveyard"}:
+            record_event(task, "stop", actor=actor or "task_pool", reason=reason or new_status)
+            record_checkpoint(
+                task,
+                "lifecycle_stop",
+                status="stopped",
+                actor=actor or "task_pool",
+                reason=reason or new_status,
+            )
         task.touch()
         new_path = self._task_path(task.task_id, new_status)
         self._write_task_atomic(task, new_path)
@@ -451,9 +490,8 @@ class TaskPool:
             recovered.append(task_id)
         return recovered
 
-    def create_task(self, title: str, hypothesis: str = "", creator: str = "observer", priority: str = "medium", tags: Optional[List[str]] = None, depends_on: Optional[List[str]] = None, parent_task: str = "", admission: Optional[Dict[str, Any]] = None, outputs: Optional[Dict[str, Any]] = None) -> Task:
-        if creator != "test":
-            admission = validate_admission(admission)
+    def create_task(self, title: str, hypothesis: str = "", creator: str = "observer", priority: str = "medium", tags: Optional[List[str]] = None, depends_on: Optional[List[str]] = None, parent_task: str = "", admission: Optional[Dict[str, Any]] = None, outputs: Optional[Dict[str, Any]] = None, complexity: Optional[str] = None) -> Task:
+        admission = validate_admission(admission)
         with self._locked():
             existing = self.list_tasks(limit=10000, sort_by="created")
             if admission:
@@ -462,11 +500,24 @@ class TaskPool:
                     return duplicate
             today = datetime.now().strftime("%Y%m%d")
             today_count = sum(1 for task in existing if task.task_id.startswith(f"RQ-{today}"))
+            task_outputs = dict(outputs or {})
+            task_outputs.setdefault(
+                "execution_discipline",
+                build_execution_discipline(
+                    title=title,
+                    hypothesis=hypothesis,
+                    priority=priority,
+                    tags=tags or [],
+                    depends_on=depends_on or [],
+                    admission=admission,
+                    explicit_complexity=complexity,
+                ),
+            )
             task = Task(
                 task_id=f"RQ-{today}-{today_count + 1:03d}", title=title, creator=creator,
                 status="pending", priority=priority, hypothesis=hypothesis, tags=tags or [],
                 depends_on=depends_on or [], parent_task=parent_task,
-                outputs={**(outputs or {}), **({"admission": admission} if admission else {})},
+                outputs={**task_outputs, **({"admission": admission} if admission else {})},
             )
             self._save_task(task)
             return task
@@ -480,10 +531,25 @@ class TaskPool:
             stored = self.load_task(task.task_id)
             if not stored:
                 return False
-            if task.claim_id and (
+            if stored.claim_id and (
                 task.claim_id != stored.claim_id
                 or task.fencing_token != stored.fencing_token
             ):
+                return False
+            if task.status not in TASK_STATUSES:
+                return False
+            # An active task is a leased state.  A malformed active record
+            # without a claim may be observed/recovered, but must not be
+            # advanced through the lifecycle by an unfenced update.
+            if task.status != stored.status and (
+                "active" in {task.status, stored.status}
+            ) and not stored.claim_id:
+                return False
+            if task.status == "active" and stored.status != "active":
+                ready, _ = execution_gate(task, allow_backfill=False)
+                if not ready:
+                    return False
+            if task.status != stored.status and task.status not in ALLOWED_TRANSITIONS[stored.status]:
                 return False
             self._transition(task, task.status)
             return True
@@ -519,11 +585,37 @@ class TaskPool:
                 return None
             task = task or stored
             expected_claim = claim_id or task.claim_id
-            if expected_claim and (
+            if stored.claim_id and (
                 expected_claim != stored.claim_id
                 or task.fencing_token != stored.fencing_token
             ):
                 return None
+            if stored.status == "active" and new_status != "active" and not stored.claim_id:
+                return None
+            if new_status == "active" and stored.status != "active":
+                ready, _ = execution_gate(task, allow_backfill=False)
+                if not ready:
+                    return None
+            # ``active`` is a leased state, not a plain status label.  Older
+            # callers used move_task(pending -> active) as a shorthand and
+            # could therefore create an active record with no owner/claim.
+            # Preserve that API only by materialising the authoritative lease
+            # here; never persist an unowned active task.
+            if stored.status == "pending" and new_status == "active" and not expected_claim:
+                now = datetime.now()
+                owner = (actor or "move_task").strip()
+                task.assignee = owner
+                task.lease_owner = owner
+                task.claim_id = uuid.uuid4().hex
+                task.fencing_token = max(task.fencing_token, stored.fencing_token) + 1
+                task.last_claimed_at = now.isoformat()
+                task.lease_expires_at = (now + timedelta(seconds=300)).isoformat()
+                task.audit_log.append({
+                    "event": "lease_claimed",
+                    "actor": owner,
+                    "at": now.isoformat(),
+                    "reason": "move_task_active_compat",
+                })
             if new_status != stored.status and new_status not in ALLOWED_TRANSITIONS[stored.status]:
                 return None
             if new_status != "active":
@@ -532,8 +624,13 @@ class TaskPool:
 
     def claim_task(self, task_id: str, owner: str, lease_seconds: int = 300) -> Optional[Task]:
         with self._locked():
+            if not isinstance(owner, str) or not owner.strip() or not isinstance(lease_seconds, int) or lease_seconds <= 0:
+                return None
             task = self.load_task(task_id)
             if not task or task.status not in ("pending", "active"):
+                return None
+            ready, _ = execution_gate(task, allow_backfill=False)
+            if not ready:
                 return None
             now = datetime.now()
             if task.status == "pending" and task.retry_after:
@@ -562,6 +659,8 @@ class TaskPool:
 
     def renew_lease(self, task_id: str, owner: str, claim_id: str, lease_seconds: int = 300) -> Optional[Task]:
         with self._locked():
+            if not isinstance(owner, str) or not owner.strip() or not isinstance(claim_id, str) or not claim_id.strip() or not isinstance(lease_seconds, int) or lease_seconds <= 0:
+                return None
             task = self.load_task(task_id)
             if not task or task.status != "active" or task.lease_owner != owner or task.claim_id != claim_id:
                 return None
@@ -667,7 +766,19 @@ class TaskPool:
         for task in self.list_tasks(limit=100000):
             stats[task.status] += 1
             by_priority[task.priority] += 1
-        return {"total": sum(stats.values()), "by_status": stats, "by_priority": dict(by_priority)}
+        total = sum(stats.values())
+        # ``total`` is a historical record count.  Keep it for compatibility,
+        # but expose operational counts explicitly so the daemon log cannot be
+        # mistaken for a 679-item executable backlog.
+        return {
+            "total": total,
+            "by_status": stats,
+            "by_priority": dict(by_priority),
+            "executable": stats["pending"],
+            "in_flight": stats["active"] + stats["review"] + stats["approved"],
+            "blocked": stats["blocked"],
+            "historical": stats["archived"] + stats["graveyard"] + stats["rejected"],
+        }
     def check_heat_upgrade(self, task: Task) -> bool:
         """连续被引用>=3次，自动升级优先级"""
         if task.reference_count >= 3 and task.priority == "low":

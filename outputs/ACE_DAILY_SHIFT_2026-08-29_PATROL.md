@@ -276,3 +276,12 @@ The immediate production interruption, the null-identity discovery defect, the t
 - The only two Free Zone reports permitted for this hourly read are unchanged and still dated 2026-08-28. No 2026-08-29 18:30 receipt is present.
 - The continuity blocker was already notified at 19:08. No additional notification, replacement scheduler, manual Free Zone turn, task creation, or model call is warranted while evidence is unchanged.
 - Next observation condition remains a new dated Free Zone receipt or concrete durable automation failure evidence.
+
+## 23:00 hourly watch
+
+`REAL_BLOCKER_PERSISTS / INTEGRATION_PENDING`
+
+- ACE production remains healthy: exactly one daemon (PID `14312`, run_id `cb06ef54ac214db1b80c41f203418daa`), heartbeat `22:56:06`, completed cycle `22:56:04`; executable TaskPool states remain zero, Model Work Discovery remains zero-candidate, and hourly service remains `NO_PENDING_WORK`.
+- The dedicated Free Zone 18:30 continuity gap persists: the two permitted latest Free Zone reports remain dated 2026-08-28. No 2026-08-29 receipt has appeared; no replacement scheduler or manual turn was created.
+- The three independently routed Grok/ecology research Workers have all completed and are awaiting main-steward evidence review. Their reports are inputs only and have not changed ACE Runtime, TaskPool, Free Zone artifacts, model routes, or reality-bridge authority.
+- Next action: review at most two relevant reports in the next bounded pass, then separately review the third and only accept/reject with explicit evidence and scope.

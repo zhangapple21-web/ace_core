@@ -1,0 +1,19 @@
+{
+  "contract_version": "ace.free_zone_loop_status.v1",
+  "counts": {
+    "consumed": 0,
+    "distilled": 0,
+    "reflected": 0,
+    "released": 0
+  },
+  "exchanges": [],
+  "production_integration": false,
+  "runtime_signal": {
+    "checked_at": "2026-09-07T11:23:05.376256+00:00",
+    "eligibility": "NO_ELIGIBLE_REALITY_GAP",
+    "eligibility_reason": "no_unserviced_claimable_work",
+    "pending_observed": 0,
+    "service_status": "NO_PENDING_WORK"
+  },
+  "semantics": "Counts are per hash-bound exchange; historical bridge totals never prove a current bidirectional loop."
+}

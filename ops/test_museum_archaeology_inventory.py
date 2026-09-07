@@ -1,4 +1,4 @@
-import json
+﻿import json
 from pathlib import Path
 
 from core.museum_archaeology_inventory import (
@@ -95,3 +95,5 @@ def test_environment_awareness_is_inventory_as_constitution_not_a_live_sensor(tm
     assert awareness["status"] == "DESIGN_ONLY"
     assert awareness["disposition"] == ADAPT
     assert awareness["fragment_types"] == ["ECOLOGY_CONSTITUTION"]
+
+

@@ -1,4 +1,4 @@
-import hashlib
+﻿import hashlib
 
 import pytest
 
@@ -73,3 +73,5 @@ def test_missing_provenance_is_rejected():
 def test_short_ohlcv_is_rejected_without_fabricating_features():
     with pytest.raises(ValueError, match="60"):
         build_technical_feature_set(ohlcv_fixture()[:20], provenance(), symbol="600000")
+
+

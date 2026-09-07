@@ -7,12 +7,14 @@ research-only or production financial path.
 """
 
 import json
+import os
 from datetime import datetime, time
 from pathlib import Path
 from typing import Any, Dict, Optional
 from zoneinfo import ZoneInfo
 
 from core.stock_data_reliability import MarketState, assess_market_state
+from core.data_admission_recovery import DataAdmissionRecovery
 
 
 WINDOWS = {
@@ -41,6 +43,7 @@ class FinanceWorkWindows:
         self.matrix_path = self.data_dir / "stock_data_evidence" / "A_SHARE_DATA_CAPABILITY_MATRIX.json"
         self.benchmark_path = self.data_dir / "stock_data_evidence" / "stock_data_benchmark_latest.json"
         self.report_path = self.data_dir / "finance_work_windows_latest.json"
+        self.recovery = DataAdmissionRecovery(self.data_dir)
 
     def _evidence_refs(self):
         return [
@@ -70,6 +73,25 @@ class FinanceWorkWindows:
             "refreshed_probe_count": refresh.get("refreshed_probe_count", 0),
             "evidence_recovered": True,
         }
+
+    @staticmethod
+    def _initial_window_result(value: Any, marker: str) -> Any:
+        """Return the first observed result behind a same-window dedup marker.
+
+        ``build()`` runs on every daemon cycle.  Keeping a marker inside the
+        previous marker causes the persisted ledger to grow on every cycle,
+        even though no new observation occurred.  Preserve the original
+        evidence instead, with a small bound for malformed historic payloads.
+        """
+        result = value
+        for _ in range(8):
+            if not isinstance(result, dict) or result.get("status") != marker:
+                break
+            initial = result.get("initial_result")
+            if not isinstance(initial, dict):
+                break
+            result = initial
+        return result
 
     def _finance_status(self) -> str:
         try:
@@ -105,7 +127,9 @@ class FinanceWorkWindows:
         try:
             previous = json.loads(self.report_path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
-            pass
+            previous = {}
+        if not isinstance(previous, dict):
+            previous = {}
         daily_windows = (
             dict(previous.get("daily_windows", {}))
             if previous.get("date") == observed_at.date().isoformat()
@@ -147,7 +171,12 @@ class FinanceWorkWindows:
             prior_window = daily_windows.get(due, {})
             prior_sentiment = prior_window.get("public_sentiment") if isinstance(prior_window, dict) else None
             if isinstance(prior_sentiment, dict):
-                sentiment_result = {"status": "already_observed_for_window", "initial_result": prior_sentiment}
+                sentiment_result = {
+                    "status": "already_observed_for_window",
+                    "initial_result": self._initial_window_result(
+                        prior_sentiment, "already_observed_for_window"
+                    ),
+                }
             else:
                 try:
                     sentiment_result = self.public_sentiment.collect(window=due, observed_at=observed_at)
@@ -155,12 +184,31 @@ class FinanceWorkWindows:
                     sentiment_result = {"status": "unavailable", "reason": type(exc).__name__}
 
         status = self._finance_status()
+        try:
+            matrix = json.loads(self.matrix_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            matrix = {}
+        recovery = self.recovery.build(matrix, observed_at=observed_at.isoformat())
         if due is None:
             window_status = "WINDOW_NOT_DUE"
         elif status in {"DEGRADED", "RESEARCH_ONLY"}:
             window_status = "RESEARCH_ONLY"
         else:
             window_status = "NO_VALID_OBSERVATION"
+        market_state = (
+            "RESEARCH_ONLY_DATA_DEGRADED"
+            if status in {"DEGRADED", "RESEARCH_ONLY"}
+            else "NO_VALID_OBSERVATION"
+        )
+        counter_evidence = [
+            "pytdx/sina 的早盘受控刷新已恢复部分 quote、1m 与 index 观测，但未覆盖全部 Phase 2 操作。",
+            "baostock 具备部分日线/5m 可用性却存在一致性缺口；finshare 上游血缘不可观测，不能作为独立交叉验证。",
+        ]
+        invalidating_conditions = [
+            "quote、daily_kline、minute_kline_1m、minute_kline_5m、index 五项均具备生产来源且独立交叉验证后，才可改变当前 DEGRADED。",
+            "任一证据过期、覆盖率/字段完整性不足、血缘不可观测或跨源不一致，均使市场状态结论失效。",
+        ]
+        next_validation = "下一交易观察窗口复跑同一固定股票池与五项核心操作，核对来源血缘、时间戳、覆盖率、字段完整性和一致性。"
         window_record = {
             "observed_at": observed_at.isoformat(),
             "window_status": window_status,
@@ -169,6 +217,11 @@ class FinanceWorkWindows:
             "data_refresh_attempted": refresh_result is not None,
             "data_refresh": refresh_result,
             "public_sentiment": sentiment_result,
+            "market_state": market_state,
+            "counter_evidence": counter_evidence,
+            "invalidating_conditions": invalidating_conditions,
+            "next_validation": next_validation,
+            "data_admission_recovery": recovery,
         }
         if due:
             daily_windows[due] = window_record
@@ -186,12 +239,17 @@ class FinanceWorkWindows:
             "evidence_refs": self._evidence_refs(),
             "data_refresh": refresh_result,
             "public_sentiment": sentiment_result,
+            "market_state": market_state,
+            "counter_evidence": counter_evidence,
+            "invalidating_conditions": invalidating_conditions,
+            "next_validation": next_validation,
             "daily_windows": daily_windows,
             "research_question": (
                 "在当前数据准入状态下，哪些金融观察仍可进行，哪些字段缺口阻断实时验证？"
                 if due else None
             ),
             "next_action": "record_observation_and_wait_for_independent_evidence" if due else "wait_for_next_window",
+            "data_admission_recovery": recovery,
             "cognitive_workstreams": [
                 "market_state_research",
                 "data_lineage_audit",
@@ -222,5 +280,10 @@ class FinanceWorkWindows:
         else:
             report["observation_recorded"] = False
         self.report_path.parent.mkdir(parents=True, exist_ok=True)
-        self.report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+        temporary = self.report_path.with_name(f".{self.report_path.name}.{os.getpid()}.tmp")
+        with temporary.open("w", encoding="utf-8") as handle:
+            handle.write(json.dumps(report, ensure_ascii=False, indent=2))
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, self.report_path)
         return report

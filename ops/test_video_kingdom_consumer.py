@@ -1,4 +1,4 @@
-from pathlib import Path
+﻿from pathlib import Path
 import hashlib
 import json
 
@@ -53,3 +53,5 @@ def test_consumer_rejects_tampered_result_hash(tmp_path: Path):
         "record_sha256": "0" * 64, "source_realm": "CONTROLLED_ORIGIN", "production_integration": False, "delivery_approved": False
     }) + "\n", encoding="utf-8")
     assert VideoKingdomConsumer(tmp_path).consume_one_result()["status"] == "RESULT_REJECTED"
+
+

@@ -1,4 +1,4 @@
-import json
+﻿import json
 import sys
 from pathlib import Path
 
@@ -211,3 +211,5 @@ def test_complete_isolated_pairs_are_evaluation_ready_but_do_not_change_route(tm
     assert report["decision"] == "EVALUATION_READY"
     assert report["routing_effect"] is False
     assert report["comparisons"][0]["reconciled_bill_cost"] is True
+
+

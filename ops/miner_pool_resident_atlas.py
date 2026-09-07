@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 """Print a read-only, evidence-first MinerPool resident atlas.
 
 Usage:
@@ -52,3 +52,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+

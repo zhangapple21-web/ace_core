@@ -1,4 +1,4 @@
-import base64
+﻿import base64
 import json
 
 from core.free_zone_autonomy import FreeZoneAutonomy
@@ -304,3 +304,5 @@ def test_local_git_delta_becomes_path_redacted_free_zone_food(tmp_path):
     assert record["evidence"]["content_retained"] is False
     assert record["evidence"]["redacted_path_count"] == 2
     assert "safe_paths" not in record["evidence"]
+
+

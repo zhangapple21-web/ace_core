@@ -42,7 +42,15 @@
     "max_concurrent_tasks": 1
   },
   "runtime": {
-    "miner_pool_assets_path": "C:\\tmp\\private_coze-assets"
+    "miner_pool_assets_path": "C:\\tmp\\private_coze-assets",
+    "allow_external_learning": true,
+    "provider_usage_reconciliation_enabled": true,
+    "free_zone_model_shift": {"enabled": true, "max_tokens": 1024},
+    "external_learning": {
+      "sources": [
+        {"id": "github_ace_research", "type": "github_search", "query": "ACE agent runtime evidence governance", "max_results": 3}
+      ]
+    }
   },
   "event_types": ["OBS", "TASK", "RFC", "CONST"],
   "task_statuses": ["pending", "running", "done", "failed", "archived"]

@@ -1,4 +1,4 @@
-from core.outcome_receipt import OutcomeReceiptRecorder
+﻿from core.outcome_receipt import OutcomeReceiptRecorder
 from core.task import Task
 
 
@@ -40,3 +40,5 @@ def test_verified_receipt_requires_independent_refs_and_groups():
 
     assert receipt["status"] == "VERIFIED"
     assert task.outputs["verified_outcome_receipt"] == receipt
+
+

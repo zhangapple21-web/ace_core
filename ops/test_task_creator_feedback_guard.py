@@ -1,4 +1,4 @@
-import json
+﻿import json
 
 from core.task import TaskPool
 from core.task_creator import TaskCreator
@@ -38,3 +38,6 @@ def test_discovery_mode_experience_cannot_create_a_second_self_referential_task(
 
     assert result["new_experiences"] == []
     assert result["tasks_created"] == []
+
+
+

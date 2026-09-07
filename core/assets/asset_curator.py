@@ -45,6 +45,7 @@ class Asset:
     response_time_ms: Optional[float] = None
     health_score: float = 0.0
     metadata: Dict[str, Any] = field(default_factory=dict)
+    _credential: Optional[str] = field(default=None, init=False, repr=False, compare=False)
 
     def __post_init__(self):
         if self.type not in ASSET_TYPES:
@@ -52,8 +53,30 @@ class Asset:
         if self.auth_type not in AUTH_TYPES:
             raise ValueError(f"Invalid auth type: {self.auth_type}. Must be one of {AUTH_TYPES}")
 
+        secret_keys = {"key", "token", "bot_token", "api_key", "access_token"}
+
+        def sanitize(value):
+            if isinstance(value, dict):
+                sanitized = {}
+                for key, item in value.items():
+                    if isinstance(key, str) and key.lower() in secret_keys:
+                        if self._credential is None and isinstance(item, str):
+                            self._credential = item
+                        if self._credential is not None:
+                            sanitized.setdefault("credential_ref", f"runtime:{self.name}")
+                    else:
+                        sanitized[key] = sanitize(item)
+                return sanitized
+            if isinstance(value, list):
+                return [sanitize(item) for item in value]
+            return value
+
+        self.metadata = sanitize(dict(self.metadata or {}))
+
     def to_dict(self) -> Dict[str, Any]:
-        return asdict(self)
+        data = asdict(self)
+        data.pop("_credential", None)
+        return data
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "Asset":
@@ -470,10 +493,8 @@ class AssetCurator:
 
             try:
                 req = urllib.request.Request(health_url, method="GET")
-                if asset.auth_type == "bearer" and asset.metadata.get("key"):
-                    req.add_header("Authorization", f"Bearer {asset.metadata['key']}")
-                elif asset.auth_type == "api_key" and asset.metadata.get("key"):
-                    req.add_header("Authorization", f"Bearer {asset.metadata['key']}")
+                if asset.auth_type in {"bearer", "api_key"} and asset._credential:
+                    req.add_header("Authorization", f"Bearer {asset._credential}")
 
                 with urllib.request.urlopen(req, timeout=timeout) as response:
                     elapsed_ms = (time.time() - start_time) * 1000
@@ -488,10 +509,8 @@ class AssetCurator:
             base_url = asset.url.rstrip("/") + "/v1/models"
             try:
                 req = urllib.request.Request(base_url, method="GET")
-                if asset.auth_type == "bearer" and asset.metadata.get("key"):
-                    req.add_header("Authorization", f"Bearer {asset.metadata['key']}")
-                elif asset.auth_type == "api_key" and asset.metadata.get("key"):
-                    req.add_header("Authorization", f"Bearer {asset.metadata['key']}")
+                if asset.auth_type in {"bearer", "api_key"} and asset._credential:
+                    req.add_header("Authorization", f"Bearer {asset._credential}")
 
                 with urllib.request.urlopen(req, timeout=timeout) as response:
                     elapsed_ms = (time.time() - start_time) * 1000
@@ -506,8 +525,8 @@ class AssetCurator:
             simple_url = asset.url.rstrip("/")
             try:
                 req = urllib.request.Request(simple_url, method="GET")
-                if asset.auth_type == "bearer" and asset.metadata.get("key"):
-                    req.add_header("Authorization", f"Bearer {asset.metadata['key']}")
+                if asset.auth_type == "bearer" and asset._credential:
+                    req.add_header("Authorization", f"Bearer {asset._credential}")
 
                 with urllib.request.urlopen(req, timeout=timeout) as response:
                     elapsed_ms = (time.time() - start_time) * 1000

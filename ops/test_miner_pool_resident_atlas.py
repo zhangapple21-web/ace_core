@@ -1,4 +1,4 @@
-import sys
+﻿import sys
 from pathlib import Path
 
 
@@ -124,3 +124,5 @@ def test_unverified_shadow_candidate_waits_for_real_dialogue_verification():
     assert resident["routing_eligibility"] == "DIALOGUE_VERIFICATION_REQUIRED"
     assert resident["safe_room"]["room"] == "SHADOW_WAITING_ROOM"
     assert resident["safe_room"]["automatic_model_call"] is False
+
+

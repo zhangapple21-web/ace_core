@@ -1,0 +1,89 @@
+{
+  "ace_review": {
+    "decision": "ACCEPT_FOR_RESEARCH",
+    "review_basis": [
+      "the user explicitly authorized bridge and mapping between the Free Zone and reality",
+      "the named Free Zone experiment and distillation retain valid hashes and a closed production boundary",
+      "independent audit, deterministic regression, and sole-daemon output verify the mapped boundary in ACE reality",
+      "the receipt preserves all existing Admission, Validator, Data, Risk, Finance, TaskPool, and outbound gates"
+    ],
+    "reviewer": "main_steward"
+  },
+  "bridge_id": "BRIDGE-0AC26C3DA5102F3C689240C4",
+  "contract_version": "ace.free_zone_reality_bridge.v1",
+  "created_at": "2026-08-29T06:17:15.323027+00:00",
+  "destination_realm": "ACE_REALITY",
+  "disposition": {
+    "admission_bypassed": false,
+    "model_call": false,
+    "next_gate": "EXISTING_ACE_ADMISSION_OR_EXPERIENCE_REVIEW",
+    "production_runtime_mutation": false,
+    "recommendation_authority": false,
+    "status": "ACCEPTED_REALITY_RESEARCH",
+    "task_created": false
+  },
+  "evidence": {
+    "independent_count": 3,
+    "independent_groups": [
+      "deterministic_boundary_contract",
+      "independent_boundary_audit",
+      "sole_daemon_natural_acceptance"
+    ],
+    "refs": [
+      {
+        "independence_group": "deterministic_boundary_contract",
+        "kind": "regression_contract",
+        "ref": "ops/test_daily_shift.py",
+        "sha256": "967d84a8ddfe0aa89c9ef8de00b9724d8a43357f3475761aad758441e343293d",
+        "size_bytes": 10859
+      },
+      {
+        "independence_group": "independent_boundary_audit",
+        "kind": "independent_audit",
+        "ref": "agent_team/context_convergence_20260829/reports/free_zone_separation_audit.md",
+        "sha256": "c6ac99e3bd0daa6bbe1d008fc0277d3354c1520197ae9b0746e70430c522c2d9",
+        "size_bytes": 32889
+      },
+      {
+        "independence_group": "sole_daemon_natural_acceptance",
+        "kind": "immutable_runtime_acceptance",
+        "ref": "agent_team/context_convergence_20260829/main_acceptance.md",
+        "sha256": "4382dc04246a0a0a3a048944d257f727168b3a82431610abc0e34c70a490cffd",
+        "size_bytes": 3259
+      }
+    ]
+  },
+  "mapping": {
+    "constraints": [
+      "read exactly one explicitly named Free Zone distillation",
+      "preserve the source artifact and bind it by hash",
+      "do not scan the Free Zone for work",
+      "do not create a TaskPool record or model call",
+      "do not mutate the daemon or production runtime",
+      "do not bypass existing ACE Admission or Experience review",
+      "retain PASS, FAIL, INCONCLUSIVE, and counterexample semantics without a value score"
+    ],
+    "epistemic_status": "INFERENCE",
+    "expected_result": "One immutable ACE-side research receipt links ECO-02 to the verified production boundary while the Free Zone source, TaskPool, daemon, model routes, and safety gates remain unchanged.",
+    "learning": "A Free Zone result may influence ACE only by explicit copy-by-reference and hash, semantic mapping, independent reality evidence, and fresh ACE-side review; the Free Zone outcome itself is never a production fact.",
+    "mapping_id": "ECO-02-EXPLICIT-REALM-BRIDGE",
+    "observation": "ECO-02 retained a proposal-only outward boundary, while independent 2026-08-29 evidence showed that ACE production DailyShift had consumed Free Zone metrics and now no longer does so.",
+    "reality_scope": "ACE cross-realm learning and production reporting boundary",
+    "research_question": "Can ACE reuse a named Free Zone learning without converting the Free Zone into a governed queue or bypassing fresh ACE review?",
+    "verification_method": "Validate the experiment and distillation hash chain, hash every named reality evidence file, require at least two independent groups, write the receipt idempotently, and compare sole-daemon identity plus TaskPool executable counts before and after."
+  },
+  "receipt_hash": "43a9db5c086ba2e1c1d253ecc7bb0a55a64c73fe4e5cc24e3f3fb4baeb1fbc45",
+  "source": {
+    "artifact_ref": "07_SANDBOX/free_research/distillations/EXP-20260827052410721753-FREEZONE-EC3912CEC380.json",
+    "artifact_sha256": "f05bff2d52a4b72fac4424d0851ea6b09d987e36fd0eb7402a515097f8a660db",
+    "distillation_hash": "ec4f731a8271b0fe5411cfd0ed06781e06d5197963e4b4b1e2576d3a173aa338",
+    "experiment_id": "EXP-20260827052410721753-FREEZONE-EC3912CEC380",
+    "experiment_ref": "07_SANDBOX/free_research/experiments/EXP-20260827052410721753-FREEZONE-EC3912CEC380.json",
+    "experiment_sha256": "978a4d2332c4522a554020dd92afa6fe811bbce72c5de4b9978544eb82aed5a6",
+    "learning_status": "PROPOSAL_ONLY",
+    "pollution_flags": [],
+    "source_outcome": "PASS",
+    "source_record_hash": "eec984944748c199036aca1c7d29e79893fed91807a017049fc7f0c36f23de3d"
+  },
+  "source_realm": "FREE_ZONE"
+}

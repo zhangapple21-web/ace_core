@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 """
 Report task retention candidates without deleting lifecycle records.
 """
@@ -42,3 +42,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

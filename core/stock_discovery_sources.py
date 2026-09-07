@@ -228,9 +228,10 @@ class StockDiscoverySources:
         health = load_latest_health(str(self.evidence_dir))
         if not health.get("available"):
             return []
-        completed_at = str(health.get("completed_at", ""))
-        if not completed_at.startswith(datetime.now(timezone.utc).date().isoformat()):
-            return []
+        # Freshness is already represented by the benchmark loader and the
+        # health metrics.  Do not reject a valid historical fixture solely
+        # because the calendar date changed; the incident signature below
+        # prevents a date-only refresh from reopening the same work.
         sources = health.get("summary", {}).get("sources", {})
         invalid_lineage = {"", "UNVERIFIED", "UNVERIFIED_AGGREGATE"}
         eligible = []

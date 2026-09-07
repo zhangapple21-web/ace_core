@@ -84,17 +84,29 @@ ACE Runtime（当前层）
 - 现状：存活，实现于lexicon.py
 - 版本：0.8
 
+### 009 — 外部 Agent Runtime 适配边界协议（External Runtime Adaptation Boundary）
+- 来源：外部 Agent Workflow/Runtime 评估经验（首个实例：oh-my-codex）
+- 核心：先核验源码/版本/能力，再做机制映射；外部运行时不得取得 ACE 权威或建立第二事实源
+- 现状：存活，规范正文见 `docs/EXTERNAL_RUNTIME_ADAPTATION_BOUNDARY_v1.md`，实例登记见 `docs/external_runtime_adaptation_register.jsonl`
+- 版本：1.0
+
+### 010 — 执行纪律协议（Execution Discipline Protocol）
+- 来源：OMX-inspired Free Zone Pilot（`OMX-INSPIRED-FZ-20260905`）与 ACE 现有任务生命周期
+- 核心：复杂任务先记录澄清、最小计划、验证边界与停止条件；简单任务走轻量分支；不把未验证的并行、独立审查或恢复语义伪装成能力；所有任务共享八阶段开工流水线和有限证据账本
+- 现状：存活，实现于 `core/execution_discipline.py`，由 `TaskPool.create_task` 与既有生命周期事件接入；正文见 `docs/ACE_START_PROTOCOL_V2.md`
+- 版本：1.1 / 开工协议 v2
+
 ---
 
 ## 协议状态
 
-- 存活协议：8个
+- 存活协议：10个
 - 死亡协议：0个
-- 新建协议：3个（存活协议、最小认知内核、词库演化）
+- 新建协议：5个（存活协议、最小认知内核、词库演化、外部 Runtime 适配边界、执行纪律）
 
 ---
 
 版本：0.2.0
 建立日期：2026-06-27
-更新日期：2026-06-27
+更新日期：2026-09-05
 来源：老张164锚点考古 + R2 MVP设计考古 + ACE代码结构对齐

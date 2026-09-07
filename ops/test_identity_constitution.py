@@ -1,4 +1,4 @@
-from core.identity_constitution import FREE_ZONE_CONTEXTUAL_CONSTITUTION, IdentityConstitution
+﻿from core.identity_constitution import FREE_ZONE_CONTEXTUAL_CONSTITUTION, IdentityConstitution
 
 
 def _packet(*, question="What evidence would change this interpretation?", scope="FREE_ZONE_RESEARCH_ONLY"):
@@ -52,3 +52,5 @@ def test_constitution_refuses_an_unattributed_variant_even_when_it_is_permitted_
     report = constitution.compare(_packet(), _packet(question="A different question"), evidence_refs=[])
 
     assert report["status"] == "VARIANT_UNATTESTED"
+
+

@@ -1,4 +1,4 @@
-import json
+﻿import json
 
 from core.free_research_sandbox import FreeResearchSandbox
 
@@ -75,3 +75,5 @@ def test_free_zone_has_video_capability_without_production_authority(tmp_path):
     assert value["capabilities"]["video_models"] == ["agnes-video-2.5-flash", "agnes-video-v2.0"]
     assert value["capabilities"]["video_generation_mode"] == "FREE_ZONE_ISOLATED_EXPERIMENT"
     assert value["capabilities"]["automatic_production_promotion"] is False
+
+

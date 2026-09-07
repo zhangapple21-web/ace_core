@@ -60,6 +60,23 @@ Build asset index, identify README, discover associated assets, recover what can
 
 **Work Conservation** — Work is discovered, assessed, and accepted, not manufactured merely to satisfy activity quotas. ACE may propose incomplete Candidates; only admitted Work enters the TaskPool. Available models, tools, workers, APIs, or budget never create demand by themselves.
 
+**Long-Horizon Continuity Gate** — Any capability admitted to ACE's recurring
+runtime must have a recovery path after interruption, a backward-compatible
+state format, preserved failure semantics, a readable cross-window narrative,
+and a replacement path for providers/models over months and years. This gate
+belongs to ACE infrastructure; it must not be imposed on the Free Zone's
+unconstrained experiments. A Free Zone artifact crosses the boundary only
+through the existing evidence and review path.
+
+**Whole-System Continuity Audit** — At daemon lifecycle boundaries, and before
+claiming recovery on a copied or restarted checkout, run the existing
+`ops/run_continuity_audit.py`. Its hash chain binds the motherplate anchors to
+bounded runtime, TaskPool-presence, and Free Zone-boundary evidence. Treat
+`CONTINUITY_ESTABLISHED` as a new baseline only; say “the same ACE continues”
+only for `CONTINUITY_VERIFIED` or `CONTINUITY_VERIFIED_AFTER_MIGRATION` with an
+intact chain. `CONTINUITY_DEGRADED` is a fail-closed evidence gap, never an
+invitation to replay work, create tasks, invoke a model, or weaken a gate.
+
 ---
 
 ## Search Policy (6 Layers)

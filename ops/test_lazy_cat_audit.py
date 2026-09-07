@@ -1,4 +1,4 @@
-import json
+﻿import json
 
 from core.free_research_sandbox import FreeResearchSandbox
 from core.free_zone_autonomy import FreeZoneAutonomy
@@ -86,3 +86,5 @@ def test_factory_backed_experiment_is_fit_for_teacher_review_but_never_auto_appr
     assert society["roles"]["teacher"]["review_queue"][0]["experiment_id"] == report["execution"]["experiment_id"]
     assert society["roles"]["teacher"]["may_approve"] is False
     assert society["production_integration"] is False
+
+

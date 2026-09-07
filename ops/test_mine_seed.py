@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 """测试 mine_seed_scanner"""
 import sys
 from pathlib import Path
@@ -23,3 +23,4 @@ for c in commits[:5]:
     print(f'  - {hash_val}: {msg}')
 scanner._save_state()
 print('状态已保存')
+

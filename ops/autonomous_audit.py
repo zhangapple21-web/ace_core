@@ -1,4 +1,4 @@
-import json
+﻿import json
 import math
 import os
 import shutil
@@ -60,13 +60,16 @@ def _parse_time(value):
         return None
 
 
-def _domain(state, reasons=None, evidence=None, action="continue_observation"):
-    return {
+def _domain(state, reasons=None, evidence=None, action="continue_observation", source_observation=None):
+    result = {
         "state": state,
         "reasons": reasons or [],
         "evidence": evidence or [],
         "recommended_action": action,
     }
+    if source_observation is not None:
+        result["source_observation"] = source_observation
+    return result
 
 
 class AutonomousAudit:
@@ -506,8 +509,39 @@ class AutonomousAudit:
         if error or not isinstance(advisor, dict):
             return _domain("NOT_READY", ["advisor_evidence_missing_or_malformed"], evidence, "restore_advisor_evidence")
         if advisor.get("last_run_success") is False:
+            observation = self._status_source_observation(
+                self.paths["advisor_status"], advisor, "last_run_time"
+            )
+            if observation["authority"] != "ACE_RUNTIME" or observation["freshness"] == "STALE":
+                return _domain(
+                    "NOT_READY",
+                    ["advisor_external_historical_failure_unattributed"],
+                    evidence,
+                    "reconcile_current_advisor_authority",
+                    source_observation=observation,
+                )
             return _domain("BLOCKED", ["advisor_persisted_failure"], evidence, "inspect_advisor_failure")
         return _domain("READY", evidence=evidence)
+
+    def _status_source_observation(self, path, payload, timestamp_key):
+        """Classify persisted status before treating it as current ACE authority."""
+        source = Path(path).resolve()
+        ace_root = Path(__file__).resolve().parent.parent
+        try:
+            source.relative_to(ace_root)
+            authority = "ACE_RUNTIME"
+        except ValueError:
+            authority = "EXTERNAL_REPOSITORY"
+        recorded_at = payload.get(timestamp_key)
+        recorded_time = _parse_time(recorded_at)
+        freshness = "UNKNOWN" if recorded_time is None else (
+            "CURRENT" if self.now - recorded_time <= timedelta(hours=24) else "STALE"
+        )
+        return {
+            "authority": authority,
+            "freshness": freshness,
+            "recorded_at": recorded_at if isinstance(recorded_at, str) else None,
+        }
 
     def _risk_domain(self):
         risk, error = _read_json(self.paths["risk_status"])
@@ -534,10 +568,16 @@ class AutonomousAudit:
             if lifecycle["backlog"] > old_lifecycle.get("backlog", lifecycle["backlog"]):
                 anomalies.append("backlog_increasing")
             if lifecycle["blocked"] > old_lifecycle.get("blocked", lifecycle["blocked"]):
-                anomalies.append("blocked_tasks_increasing")
+                anomalies.append("historical_blocked_total_increasing")
             if fairness["starved_count"] > previous.get("fairness", {}).get("starved_count", fairness["starved_count"]):
                 anomalies.append("starvation_increasing")
-        return {"history_days": len(history), "anomalies": anomalies, "production_task_calls": model_calls["PRODUCTION_TASK_CALL"]["count"]}
+        return {
+            "history_days": len(history),
+            "anomalies": anomalies,
+            "backlog_scope": "current_claimable_task_snapshot",
+            "production_task_calls": model_calls["PRODUCTION_TASK_CALL"]["count"],
+            "production_task_calls_scope": "retained_task_pool_total_not_daily_activity",
+        }
 
     def _history_reports(self):
         root = Path(self.paths["audits"]) / "history"
@@ -604,3 +644,4 @@ class AutonomousAudit:
 def run_audit(paths=None):
     audit = AutonomousAudit(paths)
     return audit.write_reports(audit.collect())
+

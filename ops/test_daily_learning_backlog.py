@@ -1,4 +1,4 @@
-from pathlib import Path
+﻿from pathlib import Path
 from types import SimpleNamespace
 
 from core.daily_learning import DailyLearningLoop
@@ -152,3 +152,21 @@ def test_source_independence_excludes_unobservable_and_unverified_lineage():
     assert result["independent_count"] == 1
     assert result["independence_groups"] == ["direct_a"]
     assert result["qualifying_evidence_count"] == 2
+
+
+def test_adopted_first_candidate_does_not_starve_later_learning_backlog_item(tmp_path):
+    adopted = candidate("Already adopted")
+    next_candidate = candidate("Next governed study")
+    loop = loop_for(
+        tmp_path,
+        [],
+        [lambda: [(adopted, [{"source": "a"}])], lambda: [(next_candidate, [{"source": "b"}])]],
+    )
+    loop._record_daily_result("2026-08-25", {"outcome": "adopt", "candidate": "Already adopted"})
+
+    mode, selection = loop._choose_candidate(allow_external=False)
+
+    assert mode == "internal"
+    assert selection[0].title == "Next governed study"
+
+

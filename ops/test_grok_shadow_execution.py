@@ -1,4 +1,4 @@
-from core.miner_pool.miner_pool import MinerPool
+﻿from core.miner_pool.miner_pool import MinerPool
 from core.miner_pool.providers.openai_compatible import ShenwenGrokProvider
 
 
@@ -47,3 +47,5 @@ def test_new_provider_can_receive_its_first_probe():
 
     assert watchdog.is_healthy("new_provider") is False
     assert watchdog.has_health_history("new_provider") is False
+
+

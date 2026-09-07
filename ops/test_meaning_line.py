@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+﻿from datetime import datetime, timezone
 
 from core.meaning_line import CONTRACT_VERSION, validate_meaning_line_batch
 
@@ -70,3 +70,5 @@ def test_same_fixtures_have_the_same_result():
     first = _validate([_candidate()])
     second = _validate([_candidate()])
     assert first == second
+
+

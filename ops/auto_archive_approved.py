@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 """
 Archive Guardian-approved tasks through the canonical Archivist path.
 """
@@ -38,3 +38,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

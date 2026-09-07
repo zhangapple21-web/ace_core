@@ -7,6 +7,8 @@ ACE Runtime 主入口
   python ace.py once         # 处理一轮所有待处理任务
   python ace.py status       # 查看系统状态
   python ace.py submit "标题" "内容"  # 手动提交一个观察
+  python ace.py protocol <任务ID>        # 查看任务开工协议回执（只读）
+  python ace.py start <任务ID> <owner>    # 通过唯一 ACE 开工入口领取任务
   python ace.py test         # 运行端到端测试
   python ace.py daemon       # 运行一次自动考古主循环
 """
@@ -24,8 +26,8 @@ def load_config(base_dir: Path) -> dict:
     return {}
 
 
-def main():
-    base_dir = Path(__file__).parent
+def main(base_dir=None):
+    base_dir = Path(base_dir or Path(__file__).parent).resolve()
     config = load_config(base_dir)
 
     if len(sys.argv) < 2:
@@ -36,6 +38,8 @@ def main():
         print("  python ace.py once         处理一轮")
         print("  python ace.py status       查看状态")
         print("  python ace.py submit <标题> <内容>  提交观察")
+        print("  python ace.py protocol <任务ID>       查看开工协议回执（只读）")
+        print("  python ace.py start <任务ID> <owner>  通过唯一 ACE 开工入口领取任务")
         print("  python ace.py test         端到端测试")
         print()
         print("  python ace.py lexicon list                    列出词库概念")
@@ -48,6 +52,7 @@ def main():
         print()
         print("  python ace.py scan <路径>                      扫描磁盘路径")
         print("  python ace.py scan-fragments <路径>            查找碎片文件")
+        print("  python ace.py assistant <问题>                 最小干扰助手")
         print()
         print("  python ace.py daemon                           运行一次自动考古主循环")
         print("  python ace.py daemon --dry-run                 只看决策，不执行")
@@ -59,62 +64,95 @@ def main():
 
     cmd = sys.argv[1]
 
+    if cmd in {"test", "lexicon", "mem", "scan", "scan-fragments"}:
+        print("旧 CLI 命令已弃用：请迁移到当前 ace daemon/runtime 接口。命令未执行。")
+        raise SystemExit(2)
+
     if cmd == "daemon":
         handle_daemon(base_dir, config, sys.argv[2:])
         return
 
-    if cmd == "status":
-        from ace_daemon import AceDaemon
+    if cmd == "assistant":
+        from core.minimal_assistant import handle_assistant_command
 
+        raise SystemExit(handle_assistant_command(sys.argv[2:]))
+
+    if cmd == "protocol":
+        raise SystemExit(handle_protocol(base_dir, sys.argv[2:]))
+
+    if cmd == "start":
+        raise SystemExit(handle_start(base_dir, sys.argv[2:]))
+
+    from ace_daemon import AceDaemon
+
+    if cmd == "status":
         print(json.dumps(AceDaemon(base_dir, config).get_status(), ensure_ascii=False, indent=2))
         return
 
-    from core.scheduler import Scheduler
+    if cmd in {"run", "once", "submit"}:
+        from core.ace_start import run_runtime
 
-    scheduler = Scheduler(base_dir, config)
+        if cmd == "run":
+            run_runtime(base_dir, config, "run")
+            return
 
-    if cmd == "run":
-        scheduler.start()
+        if cmd == "once":
+            result = run_runtime(base_dir, config, "once")
+            print(json.dumps(result, ensure_ascii=False, indent=2))
+            return
 
-    elif cmd == "once":
-        results = scheduler.run_once()
-        print(f"处理了 {len(results)} 个任务")
-        for r in results:
-            print(f"  [{r.get('node')}] {r.get('status')} — {r.get('task_id')}")
-
-    elif cmd == "status":
-        status = scheduler.status()
-        print(json.dumps(status, ensure_ascii=False, indent=2))
-
-    elif cmd == "submit":
         if len(sys.argv) < 4:
             print("用法: python ace.py submit <标题> <内容>")
             return
         title = sys.argv[2]
         content = sys.argv[3]
-        event_id = scheduler.submit_observation(title, content, source="cli")
-        print(f"已提交观察，事件ID: {event_id}")
+        result = run_runtime(base_dir, config, "submit", title=title, content=content)
+        print(f"已提交观察，观察ID: {result['observation_id']}")
+        print(json.dumps(result["result"], ensure_ascii=False, indent=2))
+        return
 
-        results = scheduler.run_once()
-        print(f"自动处理了 {len(results)} 个下游任务")
+    # Never fall through to the historical core.scheduler lifecycle.  Unknown
+    # commands are rejected before importing the legacy runtime, preserving
+    # TaskPool/AceDaemon as the only reachable production lifecycle entry.
+    print(f"未知命令：{cmd}。命令未执行。")
+    raise SystemExit(2)
 
-    elif cmd == "test":
-        run_e2e_test(scheduler)
 
-    elif cmd == "lexicon":
-        handle_lexicon(scheduler, sys.argv[2:])
+def handle_protocol(base_dir: Path, args) -> int:
+    """Print one task's protocol receipt without running the ACE daemon."""
 
-    elif cmd == "mem":
-        handle_memory(scheduler, sys.argv[2:])
+    if len(args) != 1:
+        print("用法: python ace.py protocol <任务ID>")
+        return 2
+    from core.execution_discipline import protocol_receipt
+    from core.task import TaskPool
 
-    elif cmd == "scan":
-        handle_scan(scheduler, sys.argv[2:])
+    pool = TaskPool(str(base_dir / "task_pool"))
+    task = pool.load_task(args[0])
+    if task is None:
+        print(json.dumps({"valid": False, "error": "task_not_found", "task_id": args[0]}, ensure_ascii=False))
+        return 1
+    print(json.dumps(protocol_receipt(task), ensure_ascii=False, indent=2))
+    return 0
 
-    elif cmd == "scan-fragments":
-        handle_scan_fragments(scheduler, sys.argv[2:])
 
-    else:
-        print(f"未知命令: {cmd}")
+def handle_start(base_dir: Path, args) -> int:
+    """Start exactly one task through TaskPool owner/lease/fencing authority."""
+
+    if len(args) not in {2, 3}:
+        print("用法: python ace.py start <任务ID> <owner> [lease_seconds]")
+        return 2
+    try:
+        lease_seconds = int(args[2]) if len(args) == 3 else 300
+    except ValueError:
+        print(json.dumps({"status": "REJECTED", "reason": "invalid_lease_seconds"}, ensure_ascii=False))
+        return 2
+    from core.ace_start import ace_start
+    from core.task import TaskPool
+
+    result = ace_start(TaskPool(str(base_dir / "task_pool")), args[0], args[1], lease_seconds)
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+    return 0 if result.get("status") == "STARTED" else 1
 
 
 def run_e2e_test(scheduler):
@@ -340,7 +378,7 @@ def handle_scan_fragments(scheduler, args):
 
 
 def handle_daemon(base_dir, config, args):
-    from ace_daemon import AceDaemon
+    from core.ace_start import run_runtime
     dry_run = "--dry-run" in args
     force = "--force" in args
     serve_mode = "--serve" in args
@@ -362,17 +400,16 @@ def handle_daemon(base_dir, config, args):
             except ValueError:
                 pass
 
-    daemon = AceDaemon(base_dir, config)
-
     if serve_mode:
-        result = daemon.run_daemon(
+        result = run_runtime(
+            base_dir, config, "daemon_serve",
             interval_seconds=interval,
             max_iterations=max_iter,
             force=force,
             dry_run=dry_run,
         )
     else:
-        result = daemon.run_once(force=force, dry_run=dry_run)
+        result = run_runtime(base_dir, config, "daemon_once", force=force, dry_run=dry_run)
 
 
 if __name__ == "__main__":

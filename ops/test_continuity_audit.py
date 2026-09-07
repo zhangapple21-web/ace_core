@@ -1,4 +1,4 @@
-import json
+﻿import json
 
 from core.continuity_audit import ContinuityAuditor
 
@@ -221,3 +221,6 @@ def test_daily_shift_exposes_a_continuity_receipt_without_turning_it_into_runtim
     assert report["continuity_audit"]["continuity_status"] == "CONTINUITY_ESTABLISHED"
     assert "natural cycle" not in report["continuity_audit"].get("claim_level", "").lower()
     assert report["free_zone_model_shift"]["runtime_adoption_status"] == "DAEMON_NOT_YET_OBSERVED"
+
+
+

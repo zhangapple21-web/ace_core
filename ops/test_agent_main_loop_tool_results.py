@@ -1,4 +1,4 @@
-import importlib.util
+﻿import importlib.util
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -25,7 +25,11 @@ class DummyToolRegistry:
 
 
 class DummyModelClient:
-    pass
+    def stream_chat(self, *, messages, model, temperature):
+        # First turn asks for one local tool; second turn completes.
+        if not any(message.get("role") == "user" and isinstance(message.get("content"), list) for message in messages):
+            return [MODULE.StreamEvent(type="tool_use", data={"type": "function_call", "name": "demo", "input": {"value": "42"}, "call_id": "call_123"})]
+        return [MODULE.StreamEvent(type="content_block", data="done")]
 
 
 def test_process_attachments_emits_function_call_output_with_call_id_for_openai_style_tools():
@@ -69,3 +73,11 @@ def test_process_attachments_keeps_missing_call_id_in_legacy_shape():
         "tool_use_id": "call_from_id",
         "content": "ok:42",
     }
+
+
+def test_run_advances_after_tool_execution_without_iterating_turn_context():
+    loop = AgentMainLoop(model_client=DummyModelClient(), tool_registry=DummyToolRegistry())
+    events = list(loop.run(MODULE.QueryParams(messages=[] , max_turns=3)))
+    assert any(event.type == "content" and event.data == "done" for event in events)
+
+

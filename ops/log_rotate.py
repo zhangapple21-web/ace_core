@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 """
 ACE 日志轮转脚本 (ID-07)
 
@@ -207,3 +207,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

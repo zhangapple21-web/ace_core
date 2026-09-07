@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 """
 ACE 健康检查脚本 (ID-05)
 
@@ -332,3 +332,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

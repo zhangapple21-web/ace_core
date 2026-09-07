@@ -1,0 +1,72 @@
+{
+  "record_id": "github-change-bridge-closure-20260906",
+  "observed_at_utc": "2026-09-06T09:00:41.2158937Z",
+  "scope": {
+    "repository": "zhangapple21-web/coze-assets",
+    "related_runtime": "zhangapple21-web/ace_core",
+    "purpose": "close currently verifiable GitHub change-evidence work without promoting repository metadata to runtime fact"
+  },
+  "authentication": {
+    "github_cli": "AUTHENTICATED",
+    "account": "zhangapple21-web",
+    "token_exposure": "not emitted",
+    "observed_scopes": ["gist", "read:org", "repo", "workflow"]
+  },
+  "github_state": {
+    "coze_assets": {
+      "visibility": "private",
+      "default_branch": "main",
+      "head_sha": "6acbaff8f3c57ea87b6bea35354e8cda7d0ebfd3",
+      "open_pull_requests": 0,
+      "open_issues": 0,
+      "branch_protected": false,
+      "checks_on_head": {"total": 0, "status_state": "pending", "statuses": 0},
+      "ruleset_api": "UNAVAILABLE_403_PRIVATE_REPOSITORY_PLAN"
+    },
+    "screenshot_boundary": {
+      "status": "HISTORICAL_OR_NOT_CURRENT",
+      "reason": "the screenshot names a reviewable PR, while the current REST listing returns no PRs"
+    }
+  },
+  "local_state": {
+    "coze_assets_checkout": {
+      "path": "C:\\tmp\\_audit_quarantine_coze_assets_20260905",
+      "head_sha": "6acbaff8f3c57ea87b6bea35354e8cda7d0ebfd3",
+      "remote_head_sha": "6acbaff8f3c57ea87b6bea35354e8cda7d0ebfd3",
+      "state": "MATCH_CLEAN"
+    },
+    "ace_core_checkout": {
+      "path": "C:\\tmp\\ace_core",
+      "head_sha": "63ebf25ea846b9e8e677b7d2bd462e43e1365e9b",
+      "remote_head_sha": "63ebf25ea846b9e8e677b7d2bd462e43e1365e9b",
+      "state": "MATCH_DIRTY",
+      "dirty_entries": 352,
+      "worktree_note": "count includes the two receipt files added by this operation; pre-existing files were not modified"
+    }
+  },
+  "secret_boundary": {
+    "secret_md_tracked": false,
+    "credentials_directory_ignored": true,
+    "tracked_miner_env": true,
+    "tracked_miner_env_non_placeholder_exports": 32,
+    "values_emitted": false,
+    "classification": "REVIEW_REQUIRED",
+    "reason": "removing SECRET.md from tracking did not prove that all credential-like material is absent from the repository"
+  },
+  "decision": {
+    "verdict": "CLOSED_WITH_GAPS",
+    "completed": [
+      "direct GitHub API authentication and repository state verification",
+      "current PR/Issue/check status verification",
+      "local-to-remote commit parity verification",
+      "non-disclosing credential-boundary scan"
+    ],
+    "not_claimed": [
+      "PR merged",
+      "ACE runtime lineage integration",
+      "branch protection or active ruleset",
+      "credential rotation or history rewrite"
+    ],
+    "next_authorized_step": "review and rotate any real values in tracked miner_env.sh, then remove them through a dedicated reviewed change"
+  }
+}

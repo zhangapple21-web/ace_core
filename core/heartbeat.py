@@ -37,6 +37,7 @@ class Heartbeat:
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.heartbeat_file = self.data_dir / "heartbeat.json"
         self.status = self._load()
+        self.status["owner"] = "ace_daemon"
 
     def _load(self) -> Dict[str, Any]:
         if self.heartbeat_file.exists():
@@ -46,6 +47,7 @@ class Heartbeat:
             except Exception:
                 pass
         return {
+            "owner": "ace_daemon",
             "born_at": datetime.now().isoformat(),
             "last_beat": None,
             "beat_count": 0,

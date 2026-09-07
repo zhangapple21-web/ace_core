@@ -1,4 +1,4 @@
-import json
+﻿import json
 from datetime import datetime, timezone
 
 from core.public_sentiment_observation import PublicSentimentObservation
@@ -35,6 +35,7 @@ def test_independent_snapshots_form_existing_strategic_candidate(tmp_path):
                 "status": "observed",
                 "lineage_observable": True,
                 "headline_count": 3,
+                "source_timestamp_observable": True,
                 "independence_group": group,
                 "upstream_identity": identity,
                 "source_ref": f"C:/evidence/{name}.html#sha256={name}",
@@ -51,6 +52,16 @@ def test_independent_snapshots_form_existing_strategic_candidate(tmp_path):
             )
         ],
     }
+    for item in report["sources"]:
+        snapshot = tmp_path / "evidence" / f"{item['name']}.html"
+        snapshot.parent.mkdir(parents=True, exist_ok=True)
+        content = f"<html>{item['name']}</html>".encode("utf-8")
+        import hashlib
+        digest = hashlib.sha256(content).hexdigest()
+        snapshot.write_bytes(content)
+        item["snapshot_path"] = str(snapshot)
+        item["content_hash"] = digest
+        item["source_ref"] = f"{snapshot}#sha256={digest}"
     (data / "public_sentiment_latest.json").write_text(json.dumps(report), encoding="utf-8")
     source = StockDiscoverySources(Observer(), str(tmp_path), advisor_workspace=str(tmp_path / "missing"))
     candidates = source.public_sentiment_candidates()
@@ -58,3 +69,5 @@ def test_independent_snapshots_form_existing_strategic_candidate(tmp_path):
     assert len(candidates) == 1
     assert candidates[0].task_type == "strategic"
     assert len(candidates[0].metadata["autonomous_maintenance"]["evidence"]) == 3
+
+

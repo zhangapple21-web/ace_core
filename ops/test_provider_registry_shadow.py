@@ -1,4 +1,4 @@
-from core.governance.provider_registry import ProviderRegistry
+﻿from core.governance.provider_registry import ProviderRegistry
 
 
 def test_register_shadow_catalog_is_unverified_and_non_production(tmp_path):
@@ -13,3 +13,5 @@ def test_register_shadow_catalog_is_unverified_and_non_production(tmp_path):
     assert model.verified is False
     assert model.meta["shadow_only"] is True
     assert model.meta["production_eligible"] is False
+
+

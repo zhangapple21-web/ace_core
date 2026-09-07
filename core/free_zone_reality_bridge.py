@@ -294,7 +294,7 @@ class FreeZoneRealityBridge:
         pollution_flags = experiment.get("pollution_flags")
         if not isinstance(pollution_flags, list):
             raise ValueError("source pollution flags are malformed")
-        return {
+        source_value = {
             "artifact_ref": source.relative_to(self.workspace_root).as_posix(),
             "artifact_sha256": _file_digest(source),
             "experiment_ref": experiment_path.resolve().relative_to(self.workspace_root).as_posix(),
@@ -306,6 +306,27 @@ class FreeZoneRealityBridge:
             "source_outcome": distillation.get("outcome"),
             "pollution_flags": _json_copy(pollution_flags),
         }
+        origin = distillation.get("origin")
+        if origin is not None:
+            source_value["origin_reality_gap"] = self._validate_origin(origin)
+        return source_value
+
+    def _validate_origin(self, origin: Any) -> dict[str, str]:
+        if not isinstance(origin, Mapping) or set(origin) != {"exchange_id", "receipt_sha256"}:
+            raise ValueError("source reality-gap origin is malformed")
+        exchange_id = str(origin.get("exchange_id", "")).strip()
+        receipt_sha256 = str(origin.get("receipt_sha256", "")).strip()
+        if not exchange_id.startswith("EXCHANGE-") or not exchange_id[9:].isalnum() or len(receipt_sha256) != 64:
+            raise ValueError("source reality-gap origin is malformed")
+        receipt_path = self.workspace_root / "08_GOVERNANCE" / "free_zone_exchange" / "receipts" / f"{exchange_id}.json"
+        receipt = self._read_json(receipt_path, "source reality-gap receipt")
+        if receipt.get("receipt_hash") != receipt_sha256:
+            raise ValueError("source reality-gap receipt hash mismatch")
+        if receipt.get("contract_version") != "ace.reality_free_zone_exchange.v1":
+            raise ValueError("unsupported source reality-gap receipt")
+        if receipt.get("disposition", {}).get("status") != "RELEASED_TO_FREE_ZONE":
+            raise ValueError("source reality-gap receipt was not released to Free Zone")
+        return {"exchange_id": exchange_id, "receipt_sha256": receipt_sha256}
 
     @staticmethod
     def _read_json(path: Path, label: str) -> dict[str, Any]:
