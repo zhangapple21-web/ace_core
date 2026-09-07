@@ -1,0 +1,39 @@
+{
+  "mapping_id": "FZ-20260907-COUNTEREXAMPLE-RESEARCH-BRIDGE",
+  "epistemic_status": "UNKNOWN",
+  "observation": "The Free Zone has a recent hash-bound counterexample distillation, while the ACE runtime remains a separate evidence surface.",
+  "learning": "Preserve the counterexample as research material and require a fresh ACE-side review before any runtime or admission consequence.",
+  "reality_scope": "ACE and Free Zone evidence boundary",
+  "research_question": "What independent runtime evidence would be sufficient to decide whether this counterexample should inform an ACE research candidate?",
+  "expected_result": "One immutable bridge receipt records the source, hashes, evidence groups, and a non-promoting disposition.",
+  "verification_method": "Recompute source and receipt hashes; inspect the runtime heartbeat and autonomy report; verify no TaskPool, model, daemon, or production mutation occurred.",
+  "constraints": [
+    "Free Zone remains sandbox-only",
+    "no automatic task creation",
+    "no model invocation",
+    "no production runtime mutation",
+    "existing ACE Admission or Experience review remains authoritative"
+  ],
+  "evidence_refs": [
+    {
+      "ref": "07_SANDBOX/free_research/reports/free_zone_autonomy_latest.json",
+      "independence_group": "free_zone_execution",
+      "kind": "free_zone_execution_report"
+    },
+    {
+      "ref": "research/ace_runtime_evidence_20260907.json",
+      "independence_group": "ace_runtime",
+      "kind": "daemon_heartbeat"
+    }
+  ],
+  "ace_review": {
+    "decision": "HOLD_FOR_EVIDENCE",
+    "reviewer": "main_steward",
+    "review_basis": [
+      "recent source distillation is hash-bound",
+      "runtime adoption is not current because the daemon loaded an older anchor snapshot",
+      "natural daemon-cycle proof is absent",
+      "counterexample must remain visible without promotion"
+    ]
+  }
+}

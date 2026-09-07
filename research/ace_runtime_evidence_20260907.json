@@ -1,0 +1,26 @@
+{
+  "schema_version": "ace.runtime.evidence_snapshot.v1",
+  "captured_at": "2026-09-07T11:01:24.525589+00:00",
+  "source": "06_RUNTIME/ace/data/memory/heartbeat.json",
+  "evidence_class": "RUNTIME_EVIDENCE",
+  "daemon": {
+    "owner": "ace_daemon",
+    "status": "alive",
+    "pid_present": true,
+    "run_id_present": true,
+    "heartbeat_run_id_matches_state": true,
+    "last_beat_reason": "stage:curator_complete"
+  },
+  "continuity": {
+    "status": "CONTINUITY_CHANGED_UNATTESTED",
+    "runtime_adoption": "DAEMON_RESTART_REQUIRED_FOR_CURRENT_ANCHORS",
+    "natural_cycle_proof": false
+  },
+  "boundary": {
+    "taskpool_mutated": false,
+    "model_called": false,
+    "production_changed": false,
+    "free_zone_production_integration": false
+  },
+  "redaction": "No pid value, run id value, provider credential, raw prompt, or raw response is persisted."
+}
