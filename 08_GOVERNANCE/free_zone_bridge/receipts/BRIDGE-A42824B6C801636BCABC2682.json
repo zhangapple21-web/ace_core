@@ -1,0 +1,79 @@
+{
+  "ace_review": {
+    "decision": "HOLD_FOR_EVIDENCE",
+    "review_basis": [
+      "recent source distillation is hash-bound",
+      "runtime adoption is not current because the daemon loaded an older anchor snapshot",
+      "natural daemon-cycle proof is absent",
+      "counterexample must remain visible without promotion"
+    ],
+    "reviewer": "main_steward"
+  },
+  "bridge_id": "BRIDGE-A42824B6C801636BCABC2682",
+  "contract_version": "ace.free_zone_reality_bridge.v1",
+  "created_at": "2026-09-07T11:42:08.109136+00:00",
+  "destination_realm": "ACE_REALITY",
+  "disposition": {
+    "admission_bypassed": false,
+    "model_call": false,
+    "next_gate": "EXISTING_ACE_ADMISSION_OR_EXPERIENCE_REVIEW",
+    "production_runtime_mutation": false,
+    "recommendation_authority": false,
+    "status": "MAPPED_SHADOW",
+    "task_created": false
+  },
+  "evidence": {
+    "independent_count": 2,
+    "independent_groups": [
+      "ace_runtime",
+      "free_zone_execution"
+    ],
+    "refs": [
+      {
+        "independence_group": "ace_runtime",
+        "kind": "daemon_heartbeat",
+        "ref": "research/ace_runtime_evidence_20260907.json",
+        "sha256": "10a3a13d277b0890e97f3789be2d0198628dced80d9697e40d0359e89ef25da8",
+        "size_bytes": 826
+      },
+      {
+        "independence_group": "free_zone_execution",
+        "kind": "free_zone_execution_report",
+        "ref": "07_SANDBOX/free_research/reports/free_zone_autonomy_latest.json",
+        "sha256": "42ef7d97c6d3a9c4ef11872e3d23febd365ee8986e4b4ce2fff1ae881bab9d08",
+        "size_bytes": 17983
+      }
+    ]
+  },
+  "mapping": {
+    "constraints": [
+      "Free Zone remains sandbox-only",
+      "no automatic task creation",
+      "no model invocation",
+      "no production runtime mutation",
+      "existing ACE Admission or Experience review remains authoritative"
+    ],
+    "epistemic_status": "UNKNOWN",
+    "expected_result": "One immutable bridge receipt records the source, hashes, evidence groups, and a non-promoting disposition.",
+    "learning": "Preserve the counterexample as research material and require a fresh ACE-side review before any runtime or admission consequence.",
+    "mapping_id": "FZ-20260907-COUNTEREXAMPLE-RESEARCH-BRIDGE",
+    "observation": "The Free Zone has a recent hash-bound counterexample distillation, while the ACE runtime remains a separate evidence surface.",
+    "reality_scope": "ACE and Free Zone evidence boundary",
+    "research_question": "What independent runtime evidence would be sufficient to decide whether this counterexample should inform an ACE research candidate?",
+    "verification_method": "Recompute source and receipt hashes; inspect the runtime heartbeat and autonomy report; verify no TaskPool, model, daemon, or production mutation occurred."
+  },
+  "receipt_hash": "c314732d35a1249bd5ade50da1e704f597f0407e1ae4ef55e67ffcfe8737a5a4",
+  "source": {
+    "artifact_ref": "07_SANDBOX/free_research/distillations/EXP-MODEL-4E0C5F391483B713.json",
+    "artifact_sha256": "fa718903e00606b852f7dca208c0cfd54b8b76bb5c17fe4e515c68019ba0005e",
+    "distillation_hash": "5d5b0c1c014cb8694e245585a9cf5e97895cf1ab6262de31f9eb67864a0aa144",
+    "experiment_id": "EXP-MODEL-4E0C5F391483B713",
+    "experiment_ref": "07_SANDBOX/free_research/experiments/EXP-MODEL-4E0C5F391483B713.json",
+    "experiment_sha256": "89233306b0889cb35abbbf5bdaba4447d1e51e9d51b4f438a277cf0edaa1913e",
+    "learning_status": "COUNTEREXAMPLE_ONLY",
+    "pollution_flags": [],
+    "source_outcome": "FAIL",
+    "source_record_hash": "ed946b05033c6a5d3731675702d3bb2ca52138ed4a846dc10b666becd93a440b"
+  },
+  "source_realm": "FREE_ZONE"
+}
