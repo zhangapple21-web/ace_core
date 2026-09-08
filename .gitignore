@@ -54,6 +54,8 @@ media_staging/
 episodes/
 temp_*.ps1
 outputs/*.log.err
+outputs/stock_benchmark_*.err
+outputs/yfinance_isolated_probe_*.py
 outputs/test_runs/
 outputs/grok45_probe_state/
 outputs/research_briefs/

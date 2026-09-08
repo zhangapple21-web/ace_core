@@ -9,7 +9,7 @@
   "exchanges": [],
   "production_integration": false,
   "runtime_signal": {
-    "checked_at": "2026-09-08T08:23:13.684428+00:00",
+    "checked_at": "2026-09-08T08:29:39.304803+00:00",
     "eligibility": "NO_ELIGIBLE_REALITY_GAP",
     "eligibility_reason": "no_unserviced_claimable_work",
     "pending_observed": 0,
