@@ -31,6 +31,8 @@ EVIDENCE_FIELDS = (
     "capability_verification_receipts",
     "fallback_compatibility_tests",
 )
+PROMOTION_MIN_CALLS = 3
+PROMOTION_MIN_VERIFICATIONS = 3
 
 
 # Provider-qualified IDs are deliberately kept here so a model with the same
@@ -386,6 +388,7 @@ class CapabilityEvidenceLedger:
             }
             observed = bool(counts.get("independent_call_evidence"))
             blockers = [key for key in EVIDENCE_FIELDS if not counts.get(key)]
+            gate = self.promotion_gate(name, "shenwen:gpt-6-astra")
             if observed and not blockers:
                 state = "EVIDENCE_COMPLETE_PENDING_GOVERNED_PROMOTION"
             elif observed:
@@ -396,6 +399,7 @@ class CapabilityEvidenceLedger:
                 "state": state,
                 "counts": counts,
                 "missing_evidence": blockers,
+                "promotion_gate": gate,
             }
         return {
             "schema_version": ROUTING_SCHEMA_VERSION,
@@ -403,3 +407,61 @@ class CapabilityEvidenceLedger:
             "promotion_status": "PRODUCTION_MODEL_ROUTING_NOT_YET_PROMOTED",
             "capabilities": capabilities,
         }
+
+    def promotion_gate(self, capability: str, provider_and_model: str) -> Dict[str, Any]:
+        """Evaluate whether one labor route may leave candidate status.
+
+        This is intentionally stricter than ``readiness_snapshot``.  A route
+        is promoted only after repeated successful calls, a real recovered
+        fallback, known request cost, repeated independent verification, and
+        at least one compatible fallback test.  The result is a pure decision
+        over persisted evidence; it never changes the registry by itself.
+        """
+
+        bucket = self._bucket(capability)
+        calls = [
+            row for row in bucket["independent_call_evidence"]
+            if row.get("provider_and_model") == provider_and_model
+        ]
+        stability = bucket["provider_stability"].get(provider_and_model, {})
+        recoveries = [
+            row for row in bucket["failure_recovery_evidence"]
+            if provider_and_model in row.get("attempted_routes", [])
+        ]
+        known_costs = [
+            row for row in bucket["cost_records"]
+            if row.get("provider_and_model") == provider_and_model
+            and row.get("status") == "known"
+        ]
+        receipts = [
+            row for row in bucket["capability_verification_receipts"]
+            if row.get("provider_and_model") == provider_and_model
+            and str(row.get("outcome", "")).lower() in {"pass", "passed", "verified"}
+        ]
+        fallback_tests = [
+            row for row in bucket["fallback_compatibility_tests"]
+            if row.get("primary") == provider_and_model and row.get("compatible") is True
+        ]
+        checks = {
+            "independent_calls": len(calls) >= PROMOTION_MIN_CALLS,
+            "provider_stability": (
+                int(stability.get("calls", 0)) >= PROMOTION_MIN_CALLS
+                and int(stability.get("successes", 0)) == int(stability.get("calls", 0))
+            ),
+            "failure_recovery": any(row.get("recovered") is True for row in recoveries),
+            "known_costs": len(known_costs) >= PROMOTION_MIN_CALLS,
+            "verification_receipts": len(receipts) >= PROMOTION_MIN_VERIFICATIONS,
+            "fallback_compatibility": bool(fallback_tests),
+        }
+        return {
+            "provider_and_model": provider_and_model,
+            "eligible": all(checks.values()),
+            "checks": checks,
+            "required": {
+                "minimum_calls": PROMOTION_MIN_CALLS,
+                "minimum_verifications": PROMOTION_MIN_VERIFICATIONS,
+            },
+        }
+
+    def is_promotion_eligible(self, capability: str, provider_and_model: str) -> bool:
+        return bool(self.promotion_gate(capability, provider_and_model).get("eligible"))

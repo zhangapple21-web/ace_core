@@ -1,0 +1,53 @@
+{
+  "schema": "ace.astra-capability-closure.v1",
+  "observed_at": "2026-09-08T18:55:00+08:00",
+  "decision": "PROMOTE_SCOPED_COMPLEX_ESCALATION_ONLY",
+  "production_control_plane": "BLOCKED",
+  "default_model": "gpt-5.6-terra",
+  "codex_config": {
+    "path": "C:/Users/User/.codex/config.toml",
+    "base_url": "http://127.0.0.1:3002/v1",
+    "wire_api": "responses",
+    "notify": [],
+    "default_model_restored": true
+  },
+  "architecture": {
+    "3000": {"role": "OneAPI/LiteLLM model pool", "routing_policy": "not owned here"},
+    "3002": {"role": "Codex Responses compatibility and continuation ingress", "chat_completions": "unsupported_by_design"},
+    "upstream": {"role": "task -> capability -> eligible labor", "fallback": "next evidence-eligible labor only; otherwise fail closed"}
+  },
+  "live_transport": {
+    "3000_models": {"status": 200, "astra_listed": true, "auth_required": true},
+    "3002_models": {"status": 200, "astra_listed": true},
+    "3000_astra_chat": {"status": 200, "content": true, "usage": true},
+    "3002_astra_responses": {"status": 200, "response_status": "completed", "content": true, "usage": true},
+    "3002_astra_chat": {"status": 404, "interpretation": "protocol boundary, not a failure"}
+  },
+  "paired_evaluation": {
+    "receipt": "research/astra_30_case_evaluation_20260908.json",
+    "cases": 30,
+    "astra": {"success": 30, "schema_ok": 30},
+    "terra": {"success": 26, "schema_ok": 24, "timeouts": 4},
+    "paired_gate": "NOT_PASSED",
+    "interpretation": "Astra is stable enough for scoped complex escalation evidence; this is not a comparative quality win and does not authorize replacing Terra."
+  },
+  "fallback_evidence": {
+    "fault": "unknown Astra model returned HTTP 400",
+    "fallback": "gpt-5.6-terra returned content and usage",
+    "status": "OBSERVED_LIVE_FALLBACK",
+    "limitation": "injection tested candidate rejection, not an upstream outage"
+  },
+  "service_hardening": {
+    "watchdog": "3000/3002 independent health checks, mutex, cold start, three-failure confirmation, orphan cleanup, stale heartbeat ensure",
+    "stability_window": "watchdog heartbeats remained healthy after the 3002 restart storm at 14:19-14:36; later heartbeats continued through 18:46",
+    "change": "3000 watchdog model directory now explicitly requires gpt-6-astra; PowerShell regression suite 12/12 passed"
+  },
+  "promotion_gates_remaining": [
+    "reconciled provider billing/cost records",
+    "independent semantic quality scoring and task acceptance, not only schema",
+    "real upstream outage fallback receipt with an eligible alternate",
+    "governed admission decision for production_control_plane",
+    "coding and maximum-context capability receipts"
+  ],
+  "user_visible_contract": "普通任务继续 Terra；复杂 reasoning/planning/受限 long-context 任务可由 auto 作用域选择 Astra；失败只回退到已验证候选；证据不足或超边界则 BLOCKED。"
+}

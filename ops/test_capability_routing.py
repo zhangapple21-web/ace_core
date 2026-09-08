@@ -144,6 +144,60 @@ def test_evidence_readiness_keeps_promotion_fail_closed(tmp_path):
     assert "capability_verification_receipts" in readiness["capabilities"]["deep_reasoning"]["missing_evidence"]
 
 
+def test_governed_promotion_requires_all_evidence_and_changes_only_receipt(tmp_path):
+    from core.miner_pool.capability_routing import CapabilityEvidenceLedger
+    from core.miner_pool.model_router import ModelRouter
+
+    ledger = CapabilityEvidenceLedger(str(tmp_path))
+    for _ in range(3):
+        ledger.record_call(
+            task_type="strategic",
+            capability="deep_reasoning",
+            provider="shenwen",
+            model="gpt-6-astra",
+            success=True,
+            usage={"total_tokens": 4},
+            cost={"total_usd": 0.01, "usage_source": "reconciled"},
+        )
+    # One actual recovered fallback is enough for the recovery gate; the
+    # independent quality receipts remain a separate three-review requirement.
+    ledger.record_call(
+        task_type="strategic",
+        capability="deep_reasoning",
+        provider="shenwen",
+        model="gpt-6-astra",
+        success=True,
+        attempts=[
+            {"model": "shenwen:gpt-6-astra", "success": False, "error": "timeout"},
+            {"model": "shenwen:gpt-5.6-terra", "success": True},
+        ],
+    )
+    for index in range(3):
+        ledger.record_verification(
+            capability="deep_reasoning",
+            provider_and_model="shenwen:gpt-6-astra",
+            outcome="pass",
+            verifier_id=f"verifier-{index}",
+            evidence_hash=f"hash-{index}",
+            independent_group_id=f"group-{index}",
+        )
+    ledger.record_fallback_test(
+        capability="deep_reasoning",
+        primary="shenwen:gpt-6-astra",
+        fallback="shenwen:gpt-5.6-terra",
+        compatible=True,
+        evidence_hash="fallback-hash",
+    )
+
+    router = ModelRouter(available_providers=["shenwen"], evidence_ledger=ledger)
+    decision = router.resolve_route(
+        "strategic", task_context={"complexity": "complex"}
+    )
+    assert decision["selected_route_state"] == "PROMOTED_COMPLEX_ESCALATION"
+    assert decision["evidence_boundary"] == "promoted_complex_route"
+    assert decision["candidate_labor_details"][0]["production_eligible"] is True
+
+
 def test_miner_pool_routes_complex_work_and_recovers_to_terra(tmp_path, monkeypatch):
     from core.miner_pool.miner_pool import MinerPool
     import core.miner_pool.miner_pool as miner_pool_module

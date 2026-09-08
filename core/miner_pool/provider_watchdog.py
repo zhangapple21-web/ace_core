@@ -16,6 +16,8 @@ Provider Watchdog — Provider 健康看门狗
 """
 
 import json
+import os
+import tempfile
 import time
 import socket
 import requests
@@ -112,6 +114,7 @@ class ProviderWatchdog:
         self._switch_events: List[SwitchEvent] = []
         self._state_dir = Path(state_dir) if state_dir else None
         self._loaded = False
+        self._state_load_error = ""
 
         if self._state_dir:
             self._state_dir.mkdir(parents=True, exist_ok=True)
@@ -125,14 +128,23 @@ class ProviderWatchdog:
             state_file = self._state_dir / "watchdog_state.json"
             if state_file.exists():
                 data = json.loads(state_file.read_text(encoding="utf-8"))
+                if not isinstance(data, dict) or not isinstance(data.get("providers", {}), dict):
+                    raise ValueError("watchdog state must be an object with providers")
                 for pname, pdata in data.get("providers", {}).items():
-                    self._providers[pname] = ProviderHealth.from_dict(pdata)
+                    if isinstance(pdata, dict):
+                        self._providers[pname] = ProviderHealth.from_dict(pdata)
                 self._switch_events = [
-                    SwitchEvent(**e) for e in data.get("switch_events", [])[-100:]
+                    SwitchEvent(**e)
+                    for e in data.get("switch_events", [])[-100:]
+                    if isinstance(e, dict)
                 ]
             self._loaded = True
-        except Exception:
+        except Exception as error:
+            # A torn/partial JSON write must not take the pool down.  Start
+            # fail-closed with empty health state and make the recovery reason
+            # observable to callers and the next persisted snapshot.
             self._loaded = False
+            self._state_load_error = str(error)[:200]
 
     def _save_state(self):
         """保存状态到磁盘"""
@@ -144,9 +156,26 @@ class ProviderWatchdog:
                 "switch_events": [e.to_dict() for e in self._switch_events[-200:]],
                 "last_updated": time.time(),
             }
+            if self._state_load_error:
+                data["state_load_error"] = self._state_load_error
             state_file = self._state_dir / "watchdog_state.json"
-            state_file.write_text(json.dumps(data, indent=2, ensure_ascii=False),
-                                  encoding="utf-8")
+            # Replace the state atomically.  A process kill or power loss
+            # during serialization therefore leaves either the previous valid
+            # snapshot or the complete new one, never a truncated JSON file.
+            fd, tmp_name = tempfile.mkstemp(
+                prefix="watchdog_state.", suffix=".tmp", dir=str(self._state_dir)
+            )
+            try:
+                with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                    handle.write(json.dumps(data, indent=2, ensure_ascii=False))
+                    handle.flush()
+                    os.fsync(handle.fileno())
+                os.replace(tmp_name, state_file)
+            finally:
+                try:
+                    os.unlink(tmp_name)
+                except FileNotFoundError:
+                    pass
         except Exception:
             pass
 

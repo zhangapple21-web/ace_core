@@ -1,0 +1,164 @@
+{
+  "schema": "ace.astra-live-paired-evaluation.v1",
+  "observed_at": "2026-09-08T09:33:17.699345+00:00",
+  "endpoint": "http://127.0.0.1:3000/v1/chat/completions",
+  "cases": 4,
+  "paired_success": false,
+  "paired_schema_verification": false,
+  "cost_reconciliation": "UNKNOWN",
+  "production_promotion": "BLOCKED_PENDING_30_PAIRED_CASES_AND_RECONCILED_BILL",
+  "pairs": [
+    {
+      "case_id": "architecture-boundary",
+      "input_sha256": "5c533846fb8b07fae7c1e00572bd4ba9d574e1ed42fdb36a5077846cb73ec2c1",
+      "models": {
+        "gpt-6-astra": {
+          "status": 200,
+          "success": true,
+          "schema_ok": true,
+          "latency_ms": 47768,
+          "usage": {
+            "completion_tokens": 448,
+            "prompt_tokens": 4163,
+            "total_tokens": 4611,
+            "prompt_tokens_details": {
+              "cached_tokens": 3840
+            }
+          },
+          "content_sha256": "7fff624a1a3a98fb8b9c3743cc7d76d4659402f3f16e8f45018f2c6c5f0307e6",
+          "response_model": "gpt-6-astra"
+        },
+        "gpt-5.6-terra": {
+          "status": 200,
+          "success": true,
+          "schema_ok": true,
+          "latency_ms": 26055,
+          "usage": {
+            "completion_tokens": 523,
+            "prompt_tokens": 4541,
+            "total_tokens": 5064,
+            "completion_tokens_details": {
+              "reasoning_tokens": 60
+            }
+          },
+          "content_sha256": "f0819edd4a63a32694d15a180e2392d81cff43fb302c94a4a8c921b095fd879c",
+          "response_model": "gpt-5.6-terra"
+        }
+      }
+    },
+    {
+      "case_id": "capability-routing",
+      "input_sha256": "de1ba5c947e25e696cbb36940a318fe32ed927b32d16f7ba1a6442c821289ebf",
+      "models": {
+        "gpt-6-astra": {
+          "status": 200,
+          "success": true,
+          "schema_ok": true,
+          "latency_ms": 77170,
+          "usage": {
+            "completion_tokens": 577,
+            "prompt_tokens": 4167,
+            "total_tokens": 4744,
+            "prompt_tokens_details": {
+              "cached_tokens": 3840
+            }
+          },
+          "content_sha256": "0a5da8eff0f62e9ba3d316ccf48abb1558bb575d5bc8b09893e43164797b3545",
+          "response_model": "gpt-6-astra"
+        },
+        "gpt-5.6-terra": {
+          "status": 200,
+          "success": true,
+          "schema_ok": true,
+          "latency_ms": 63282,
+          "usage": {
+            "completion_tokens": 317,
+            "prompt_tokens": 858,
+            "total_tokens": 1175
+          },
+          "content_sha256": "44de20c3b1ac65c7459fb0f26c49d62c169b28044cf0939c013a62b192361907",
+          "response_model": "gpt-5.6-terra"
+        }
+      }
+    },
+    {
+      "case_id": "recovery-design",
+      "input_sha256": "fc0040be352548413b3cc961ce76c8c9d0b742b75dd0dab47c4de6d56bcdbff9",
+      "models": {
+        "gpt-6-astra": {
+          "status": 200,
+          "success": true,
+          "schema_ok": true,
+          "latency_ms": 108461,
+          "usage": {
+            "completion_tokens": 1349,
+            "prompt_tokens": 4157,
+            "total_tokens": 5506,
+            "prompt_tokens_details": {
+              "cached_tokens": 3840
+            }
+          },
+          "content_sha256": "38c3f455486a8660a49dbd3039ab9ddd086d55442db9c2fb320b667517c641c0",
+          "response_model": "gpt-6-astra"
+        },
+        "gpt-5.6-terra": {
+          "status": 0,
+          "success": false,
+          "schema_ok": false,
+          "latency_ms": 120010,
+          "usage": {},
+          "content_sha256": "",
+          "response_model": "",
+          "error_class": "TimeoutError"
+        }
+      }
+    },
+    {
+      "case_id": "config-review",
+      "input_sha256": "93b2bc8d389e24c40b9ff0be32f9199a75134b484e7b297c349dbd19a364a03e",
+      "models": {
+        "gpt-6-astra": {
+          "status": 200,
+          "success": true,
+          "schema_ok": true,
+          "latency_ms": 21589,
+          "usage": {
+            "completion_tokens": 244,
+            "prompt_tokens": 4172,
+            "total_tokens": 4416,
+            "prompt_tokens_details": {
+              "cached_tokens": 3840
+            }
+          },
+          "content_sha256": "7702ff1d4cf599d01500c0da33e003362d0932ab569e1ec7e6be1351e2e5c7bd",
+          "response_model": "gpt-6-astra"
+        },
+        "gpt-5.6-terra": {
+          "status": 200,
+          "success": true,
+          "schema_ok": false,
+          "latency_ms": 90720,
+          "usage": {
+            "completion_tokens": 910,
+            "prompt_tokens": 4548,
+            "total_tokens": 5458,
+            "completion_tokens_details": {
+              "reasoning_tokens": 493
+            },
+            "prompt_tokens_details": {
+              "cached_tokens": 3840
+            }
+          },
+          "content_sha256": "a88844724776522742ea4d4fbf3f6054abfeddba0334ee445012a4a2b52780a2",
+          "response_model": "gpt-5.6-terra"
+        }
+      }
+    }
+  ],
+  "limitations": [
+    "small local evaluation set; not a 30-case promotion set",
+    "schema verification is not semantic quality verification",
+    "provider bill reconciliation was not available to this harness",
+    "failure recovery is covered separately by the routing unit tests and remains unproven here with a live forced fault"
+  ]
+}
