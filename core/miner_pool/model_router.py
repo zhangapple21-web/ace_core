@@ -154,6 +154,7 @@ class ModelRouter:
         # 过滤：提供商可用 + 没被排除 + 健康（如果已知）
         for model_id in candidates:
             spec = ModelSpec.from_id(model_id)
+            spec = self._apply_governed_promotion(spec, capability_for_task(task_type))
             if spec.provider not in self._available_providers:
                 continue
             if allowed_providers and spec.provider not in allowed_providers:
@@ -179,6 +180,31 @@ class ModelRouter:
             return spec
 
         return None
+
+    def _apply_governed_promotion(self, spec: ModelSpec, capability: str) -> ModelSpec:
+        """Reflect a completed evidence gate without making promotion implicit.
+
+        Candidate routes remain candidates until the evidence ledger says every
+        gate passed.  This method only changes the returned receipt; the
+        provider registry and the Terra default are untouched.
+        """
+
+        if (
+            spec.full_id == "shenwen:gpt-6-astra"
+            and self._evidence_ledger is not None
+            and self._evidence_ledger.is_promotion_eligible(capability, spec.full_id)
+        ):
+            promoted = ModelSpec(
+                provider=spec.provider,
+                model=spec.model,
+                full_id=spec.full_id,
+                tier=spec.tier,
+                capabilities=spec.capabilities,
+                production_eligible=True,
+                route_state="PROMOTED_COMPLEX_ESCALATION",
+            )
+            return promoted
+        return spec
 
     def resolve_route(
         self,
@@ -231,15 +257,24 @@ class ModelRouter:
                     "production_eligible": spec.production_eligible,
                     "route_state": spec.route_state,
                 }
-                for spec in (ModelSpec.from_id(model_id) for model_id in candidates)
+                for spec in (
+                    self._apply_governed_promotion(
+                        ModelSpec.from_id(model_id), capability
+                    )
+                    for model_id in candidates
+                )
             ],
             "selected_labor": selected.full_id if selected else None,
             "selected_route_state": selected.route_state if selected else "NO_ELIGIBLE_LABOR",
             "watchdog": self._watchdog_snapshot(),
             "evidence_boundary": (
-                "candidate_complex_route_only"
-                if selected and selected.route_state == "POC_COMPLEX_ESCALATION"
-                else "existing_profile"
+                "promoted_complex_route"
+                if selected and selected.route_state == "PROMOTED_COMPLEX_ESCALATION"
+                else (
+                    "candidate_complex_route_only"
+                    if selected and selected.route_state == "POC_COMPLEX_ESCALATION"
+                    else "existing_profile"
+                )
             ),
         }
 

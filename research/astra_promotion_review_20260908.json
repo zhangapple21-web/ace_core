@@ -1,0 +1,43 @@
+{
+  "schema": "ace.model-promotion-review.v1",
+  "observed_at": "2026-09-08",
+  "decision": "SHADOW_COMPLEX_ESCALATION_ONLY",
+  "production_promotion": "BLOCKED",
+  "default_route_unchanged": "gpt-5.6-terra",
+  "architecture_boundary": {
+    "codex": {"endpoint": "http://127.0.0.1:3002/v1", "protocol": "Responses", "role": "Codex compatibility/continuation"},
+    "miner_pool": {"endpoint": "http://127.0.0.1:3000/v1", "protocols": ["Chat Completions", "Responses"], "role": "provider/model pool"},
+    "policy_owner": "upstream task -> capability -> labor router"
+  },
+  "live_transport_checks": [
+    {"endpoint": "http://127.0.0.1:3000/v1/models", "status": 200, "astra_listed": true},
+    {"endpoint": "http://127.0.0.1:3002/v1/models", "status": 200, "astra_listed": true},
+    {"endpoint": "http://127.0.0.1:3000/v1/chat/completions", "model": "gpt-6-astra", "status": 200, "content": true, "usage": true},
+    {"endpoint": "http://127.0.0.1:3002/v1/responses", "model": "gpt-6-astra", "status": 200, "response_status": "completed", "content": true, "usage": true, "response_id": true},
+    {"endpoint": "http://127.0.0.1:3002/v1/responses", "model": "gpt-5.6-terra", "status": 200, "response_status": "completed", "content": true, "usage": true, "response_id": true},
+    {"endpoint": "http://127.0.0.1:3000/v1/chat/completions", "model": "gpt-5.6-terra", "status": 400, "reason": "temperature=0 incompatible with active reasoning; retry with temperature=1 succeeded"}
+  ],
+  "routing_check": {
+    "auto_complex": "shenwen:gpt-6-astra",
+    "current_control_plane_complex": "BLOCKED",
+    "watchdog_provider": "shenwen",
+    "watchdog_status": "HEALTHY",
+    "watchdog_snapshot_stale": false
+  },
+  "promotion_gate": {
+    "paired_evaluation_against_terra": "MISSING",
+    "failure_recovery_with_real_fallback": "MISSING",
+    "capability_receipts_and_fallback_compatibility": "PARTIAL",
+    "reconciled_request_level_cost": "MISSING",
+    "formal_control_plane_admission": "MISSING",
+    "evaluation_tool_result": "UPGRADE_BLOCKED: NO_MATCHED_EVALUATION_CASES"
+  },
+  "allowed_use": "Automatically select Astra for complex reasoning/planning/bounded-long-context tasks in the auto/remote research scope; fail closed or use the next evidence-eligible fallback after execution failure.",
+  "not_allowed": ["do not replace Terra default", "do not claim Astra is locally connected to the Codex control plane", "do not infer coding/max-context/SLA/cost from these probes"],
+  "evidence_refs": [
+    "research/model_routing_astra_probe_20260908.json",
+    "research/model_routing_astra_local_gateway_probe_20260908.json",
+    "research/model_pool_transport_closure_20260908.json",
+    "../ace_video_kingdom_git/research/model_capability_routing_poc_20260908.md"
+  ]
+}
