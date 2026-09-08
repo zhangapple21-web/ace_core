@@ -1,0 +1,91 @@
+{
+  "schema_version": "ace.model-pool-transport-closure.v1",
+  "observed_at": "2026-09-08T07:28:28.0467709Z",
+  "status": "TRANSPORT_AND_ROUTE_POC_CLOSED",
+  "production_promotion": "BLOCKED_PENDING_EVIDENCE",
+  "architecture": {
+    "codex_entry": {
+      "endpoint": "http://127.0.0.1:3002/v1",
+      "process": "local_responses_compat_proxy.py",
+      "protocol": "Responses",
+      "role": "Codex protocol and continuation compatibility layer; not a scheduler"
+    },
+    "miner_pool": {
+      "endpoint": "http://127.0.0.1:3000/v1",
+      "process": "local_oneapi_gateway_launcher.py",
+      "implementation": "LiteLLM/OneAPI",
+      "role": "OpenAI-compatible model pool and provider credential isolation; not the task policy"
+    },
+    "upstream_router": {
+      "role": "task -> capability -> eligible labor",
+      "default_labor": "shenwen:gpt-5.6-terra",
+      "complex_escalation_labor": "shenwen:gpt-6-astra",
+      "fallback_rule": "retry only the next evidence-eligible candidate; fail closed when none exists"
+    }
+  },
+  "live_observations": {
+    "port_3000_listen": true,
+    "port_3002_listen": true,
+    "models_catalog_3000": {
+      "http_status": 200,
+      "model_count": 9,
+      "contains": ["gpt-5.6-terra", "gpt-6-astra", "gpt-5.6-terra", "grok-4.6"]
+    },
+    "models_catalog_3002": {
+      "http_status": 200,
+      "model_count": 9,
+      "contains": ["gpt-5.6-terra", "gpt-6-astra", "gpt-5.6-terra", "grok-4.6"]
+    },
+    "miner_pool_responses_probe": {
+      "endpoint": "http://127.0.0.1:3000/v1/responses",
+      "http_status": 200,
+      "model": "gpt-6-astra",
+      "response_status": "completed",
+      "content_present": true,
+      "usage_present": true
+    },
+    "codex_responses_probe": {
+      "endpoint": "http://127.0.0.1:3002/v1/responses",
+      "http_status": 200,
+      "model": "gpt-6-astra",
+      "response_status": "completed",
+      "content_present": true,
+      "usage_present": true
+    },
+    "miner_pool_chat_probe": {
+      "endpoint": "http://127.0.0.1:3000/v1/chat/completions",
+      "http_status": 200,
+      "model": "gpt-6-astra",
+      "content_present": true,
+      "usage_present": true
+    },
+    "watchdog": {
+      "source": "C:/tmp/ace_core/06_RUNTIME/ace/data/miner_pool/provider_watchdog/watchdog_state.json",
+      "provider": "shenwen",
+      "status": "HEALTHY",
+      "total_calls": 51,
+      "failed_calls": 3,
+      "snapshot_fresh": true
+    }
+  },
+  "routing_verification": {
+    "auto_complex_director": "shenwen:gpt-6-astra",
+    "auto_utility": "zhipu:glm-4-flash",
+    "current_control_plane_complex_director": "BLOCKED_BY_SCOPE_GATE",
+    "production_integration": false,
+    "evidence_boundary": "Astra is a locally callable candidate for the bounded auto POC, not the global default brain"
+  },
+  "remaining_promotion_gates": [
+    "independent paired capability verification against Terra",
+    "failure-recovery evidence with a real fallback",
+    "reconciled cost records",
+    "capability verification receipts and fallback compatibility tests",
+    "explicit governed promotion of the production control-plane scope"
+  ],
+  "configuration_inspiration": [
+    "Keep protocol compatibility (3002) separate from the model pool (3000).",
+    "Expose a common model catalog, but let the upstream capability router choose labor.",
+    "Keep credentials per provider/model entry and never put routing policy in the proxy.",
+    "Treat catalog visibility and one successful request as observations, not automatic promotion."
+  ]
+}

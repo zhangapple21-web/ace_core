@@ -1,0 +1,36 @@
+{
+  "schema_version": "ace.model-route-probe.v1",
+  "observed_on": "2026-09-08",
+  "scope": "local_compatibility_gateway",
+  "endpoint": "http://127.0.0.1:3002/v1",
+  "provider": "OpenAI",
+  "model": "gpt-6-astra",
+  "models_catalog": {
+    "status": 200,
+    "listed": true
+  },
+  "chat_probe": {
+    "status": 404,
+    "request_shape": "single user message; temperature 0; max_tokens 4",
+    "content_present": false,
+    "latency_ms": 69
+  },
+  "responses_probe": {
+    "status": 200,
+    "request_shape": "single user message; max_output_tokens 8",
+    "response_model": "gpt-6-astra",
+    "content_present": true,
+    "usage_present": true,
+    "latency_ms": 14835
+  },
+  "routing_effect": "local_responses_gateway_verified_candidate_complex_escalation",
+  "production_eligible": false,
+  "unknowns": [
+    "The local gateway is not a Chat Completions endpoint; ACE OneAPI chat workers must use 3000 or add a Responses adapter.",
+    "No paired evaluation set has been completed against Terra.",
+    "No reconciled provider bill record is attached to this probe.",
+    "One successful local Responses call does not establish long-term provider stability.",
+    "The direct Shenwen provider probe is separate evidence and must not be substituted for local gateway evidence."
+  ],
+  "next_gate": "attach paired capability verification, failure-recovery, fallback-compatibility, and reconciled-cost evidence before any production promotion"
+}

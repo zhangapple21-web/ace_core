@@ -1,0 +1,17 @@
+{
+  "automatic_delivery": false,
+  "automatic_promotion": false,
+  "automatic_task_creation": false,
+  "contract_version": "ace.free_research_sandbox.v1",
+  "created_at": "2026-08-27T05:47:45.328457+00:00",
+  "distillation_hash": "1e44f3a603387059c39ad8de17e1101e589903c84b6cb186881c45bfe5bbdb64",
+  "evidence_hash": "3b126018065e83e364d87ef8d58ea8f8dfae169247cb41ce079d09f71ecc215b",
+  "experiment_id": "EXP-20260827054740480918-FREEZONE-3A0C70B63F66",
+  "mode": "DISTILLATION_ONLY",
+  "outcome": "INCONCLUSIVE",
+  "pattern": "When A changed local implementation surface may contain one bounded, independently testable research question., investigate via Observe a path-redacted Git delta only, retain a digest and counts, and ask for later dedicated verification rather than trusting the diff..",
+  "production_integration": false,
+  "reason": "inconclusive_result_requires_new_observation",
+  "source_record_hash": "5936fe134cd0600e3bac6ee1cb1f08663760553650a4a7ecf3d41dfd37ae406d",
+  "status": "OPEN_QUESTION"
+}

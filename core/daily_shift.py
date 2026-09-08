@@ -134,6 +134,49 @@ class DailyShift:
             "observation_authority": False,
         }
 
+    def _early_discovery_summary(self, window: Dict[str, Any], day: str) -> Dict[str, Any]:
+        """Expose the same discovery ledger used by the teacher handoff.
+
+        This is intentionally a read-only projection.  It makes the closure
+        testable: the daily shift can show how many point-in-time snapshots
+        were observed, their latest state, and whether the current packet is
+        linked to a snapshot, without inventing a candidate or sending one.
+        """
+        path = self.data_dir / "stock_data_evidence" / "early_opportunity_discovery.v1.jsonl"
+        rows: list[Dict[str, Any]] = []
+        try:
+            with path.open("r", encoding="utf-8") as handle:
+                for line in handle:
+                    if not line.strip():
+                        continue
+                    value = json.loads(line)
+                    if isinstance(value, dict) and value.get("date") == day:
+                        rows.append(value)
+        except (OSError, json.JSONDecodeError):
+            rows = []
+        discovery = window.get("early_opportunity_discovery", {})
+        if not isinstance(discovery, dict):
+            discovery = {}
+        return {
+            "task_id": discovery.get("task_id", "early_opportunity_discovery"),
+            "task_version": discovery.get("task_version"),
+            "window_mode": discovery.get("window_mode", "dynamic"),
+            "snapshot_count": len(rows),
+            "candidate_count_latest": discovery.get("candidate_count", 0),
+            "candidate_status_latest": discovery.get("candidate_status", "UNOBSERVED"),
+            "latest_snapshot_at": discovery.get("last_snapshot_at"),
+            "source_timestamp_latest": discovery.get("snapshot_source_timestamp"),
+            "ledger_path": str(path),
+            "closure_status": (
+                "OBSERVED_BUT_NOT_LINKED"
+                if rows and not discovery.get("handoff")
+                else "DISCOVERY_HANDOFF_DEFINED"
+                if discovery
+                else "NOT_OBSERVED"
+            ),
+            "records": rows[-20:],
+        }
+
     @staticmethod
     def _atomic_write_text(path: Path, content: str) -> None:
         """Persist a shift atomically so readers never observe a partial ledger."""
@@ -231,6 +274,7 @@ class DailyShift:
                 "daily_transition_semantics": "transitions observed for this date across retained task audit logs",
             },
             "finance_window_coverage": self._finance_window_coverage(window),
+            "early_opportunity_discovery": self._early_discovery_summary(window, day),
             "finance_status": growth.get("finance_status", window.get("finance_status", "UNKNOWN")),
             "public_sentiment": {
                 key: sentiment.get(key)
@@ -285,6 +329,7 @@ class DailyShift:
                 f"- Cycle: `{report['daemon']['cycle_status']}` / `{report['daemon']['stop_reason']}`",
                 f"- Finance: `{report['finance_status']}`; window `{window.get('window_status', 'UNKNOWN')}`",
                 f"- Finance windows observed today: `{report['finance_window_coverage']['observed_windows']}`; missing `{report['finance_window_coverage']['missing_windows']}`; source `{report['finance_window_coverage']['source']}`",
+                f"- Early opportunity discovery: `{report['early_opportunity_discovery']['closure_status']}`; snapshots `{report['early_opportunity_discovery']['snapshot_count']}`; latest candidates `{report['early_opportunity_discovery']['candidate_count_latest']}`; status `{report['early_opportunity_discovery']['candidate_status_latest']}`; mode `{report['early_opportunity_discovery']['window_mode']}`",
                 f"- Public sentiment: `{report['public_sentiment'].get('status', 'NOT_OBSERVED')}`; independent content sources `{report['public_sentiment'].get('independent_content_source_count', 0)}`; admission-ready `{report['public_sentiment'].get('admission_ready', False)}`",
                 f"- Market context: `{report['market_context'].get('research_status', 'NOT_RECORDED')}`; recommendation authority `{report['market_context'].get('recommendation_authority', False)}`; pending cross-validation `{len(report['market_context'].get('cross_validation_questions', []))}`",
                 f"- Market review: `{report['market_review'].get('market_state', 'NOT_RECORDED')}`; counter-evidence `{len(report['market_review'].get('counter_evidence', []))}` items; invalidating conditions `{len(report['market_review'].get('invalidating_conditions', []))}`; next validation recorded",

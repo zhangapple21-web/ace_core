@@ -1,0 +1,138 @@
+{
+  "contract_version": "ace.historical_snapshot_watcher.v1",
+  "entries": [
+    {
+      "file_hash": "7e66fbb5f473282605de1e5af17e8dbc040ae251a02f973c743806e33718d730",
+      "path": "C:\\tmp\\ace_core\\06_RUNTIME\\ace\\data\\stock_data_evidence\\A_SHARE_DATA_CAPABILITY_MATRIX.json",
+      "replay_invoked": false,
+      "status": "UNCHANGED"
+    },
+    {
+      "file_hash": "2c11ed1c0f41d2dc1f6fbd007b6170783d1c0cc6e9d29ebeb408be1218288727",
+      "path": "C:\\tmp\\ace_core\\06_RUNTIME\\ace\\data\\stock_data_evidence\\eastmoney_direct_isolation_latest.json",
+      "replay_invoked": false,
+      "status": "UNCHANGED"
+    },
+    {
+      "file_hash": "bdc51cf215a8606c7d03f48b4d045bdd660fdf75886f78252338efb11031b9d0",
+      "path": "C:\\tmp\\ace_core\\06_RUNTIME\\ace\\data\\stock_data_evidence\\stock_data_benchmark_20260822_205503.json",
+      "replay_invoked": false,
+      "status": "UNCHANGED"
+    },
+    {
+      "file_hash": "1e2c886778a31106ef387574eb91df37afccded9ee105895e7da4949d1165ad1",
+      "path": "C:\\tmp\\ace_core\\06_RUNTIME\\ace\\data\\stock_data_evidence\\stock_data_benchmark_20260824_095749.json",
+      "replay_invoked": false,
+      "status": "UNCHANGED"
+    },
+    {
+      "file_hash": "fb660fcf3164b126038c919fdfb5505c3d9af25bafd25c3f15cf7fd0da056dd1",
+      "path": "C:\\tmp\\ace_core\\06_RUNTIME\\ace\\data\\stock_data_evidence\\stock_data_benchmark_20260824_100151.json",
+      "replay_invoked": false,
+      "status": "UNCHANGED"
+    },
+    {
+      "file_hash": "d0c85fec899416ec4aa8ed619db6c61909340f58e1f0f4b95a5c726a830a3a44",
+      "path": "C:\\tmp\\ace_core\\06_RUNTIME\\ace\\data\\stock_data_evidence\\stock_data_benchmark_20260824_101453.json",
+      "replay_invoked": false,
+      "status": "UNCHANGED"
+    },
+    {
+      "file_hash": "11ae1ecce22a69397264b59b3e5d7ba3c040c546f1adc3bab09efc60a5686d74",
+      "path": "C:\\tmp\\ace_core\\06_RUNTIME\\ace\\data\\stock_data_evidence\\stock_data_benchmark_20260824_122141.json",
+      "replay_invoked": false,
+      "status": "UNCHANGED"
+    },
+    {
+      "file_hash": "5e927e6dd2101b3c0949be2b2b957c369212e58c659060ea190bf6af0aedba0a",
+      "path": "C:\\tmp\\ace_core\\06_RUNTIME\\ace\\data\\stock_data_evidence\\stock_data_benchmark_20260824_133604.json",
+      "replay_invoked": false,
+      "status": "UNCHANGED"
+    },
+    {
+      "file_hash": "13f1322432ebc2e63384bced8bc2470b2289577150b1a70094e3bc6d2dbafa42",
+      "path": "C:\\tmp\\ace_core\\06_RUNTIME\\ace\\data\\stock_data_evidence\\stock_data_benchmark_20260825_091919.json",
+      "replay_invoked": false,
+      "status": "UNCHANGED"
+    },
+    {
+      "file_hash": "04952e5cb54febe14a4ed156e862b28dd2e3ad53035d1f54ff5368069d1f9af4",
+      "path": "C:\\tmp\\ace_core\\06_RUNTIME\\ace\\data\\stock_data_evidence\\stock_data_benchmark_20260825_094550.json",
+      "replay_invoked": false,
+      "status": "UNCHANGED"
+    },
+    {
+      "file_hash": "7da02e9b898b928fa5a0ef9460092284ee5b62b78fc5dfd5eba64d38ca0bed80",
+      "path": "C:\\tmp\\ace_core\\06_RUNTIME\\ace\\data\\stock_data_evidence\\stock_data_benchmark_20260825_095518.json",
+      "replay_invoked": false,
+      "status": "UNCHANGED"
+    },
+    {
+      "file_hash": "2703f3843cebbcd24f270f2b1e7a7e414b8d37146c1eeebd56dc45017ab8c106",
+      "path": "C:\\tmp\\ace_core\\06_RUNTIME\\ace\\data\\stock_data_evidence\\stock_data_benchmark_20260825_100937.json",
+      "replay_invoked": false,
+      "status": "UNCHANGED"
+    },
+    {
+      "file_hash": "4df063462f0b37f139ccb732fc91e45105ab090d9a569dcfa26667b0b6cc7c0e",
+      "path": "C:\\tmp\\ace_core\\06_RUNTIME\\ace\\data\\stock_data_evidence\\stock_data_benchmark_20260825_102100.json",
+      "replay_invoked": false,
+      "status": "UNCHANGED"
+    },
+    {
+      "file_hash": "be5271ae4a6d92cb9128eea483a5b7273c0681169ba10dff061924f10043cbfd",
+      "path": "C:\\tmp\\ace_core\\06_RUNTIME\\ace\\data\\stock_data_evidence\\stock_data_benchmark_20260825_103030.json",
+      "replay_invoked": false,
+      "status": "UNCHANGED"
+    },
+    {
+      "file_hash": "45fa90b87f6ba23d7092af620a803e46ec1710ca40a5675779dcbd5de6772541",
+      "path": "C:\\tmp\\ace_core\\06_RUNTIME\\ace\\data\\stock_data_evidence\\stock_data_benchmark_20260825_172614.json",
+      "replay_invoked": false,
+      "status": "UNCHANGED"
+    },
+    {
+      "file_hash": "8a2c8b644ac78b13a3b70648d4ce7b4a8f9bfd5ed36e33bc3e5c67e61d9d7b21",
+      "path": "C:\\tmp\\ace_core\\06_RUNTIME\\ace\\data\\stock_data_evidence\\stock_data_benchmark_20260825_205705.json",
+      "replay_invoked": false,
+      "status": "UNCHANGED"
+    },
+    {
+      "file_hash": "a981d3188e3e67aa0c03908103d876573d0cb276e7752cbfc5433a4bf39e7aa9",
+      "path": "C:\\tmp\\ace_core\\06_RUNTIME\\ace\\data\\stock_data_evidence\\stock_data_benchmark_20260826_093411.json",
+      "replay_invoked": false,
+      "status": "UNCHANGED"
+    },
+    {
+      "file_hash": "0da1e541bdb7091c37dd4afb23f28252ebe5b706fb5f6822adf848291997ec87",
+      "path": "C:\\tmp\\ace_core\\06_RUNTIME\\ace\\data\\stock_data_evidence\\stock_data_benchmark_20260827_093506.json",
+      "replay_invoked": false,
+      "status": "UNCHANGED"
+    },
+    {
+      "file_hash": "f9820f0a09864bc84d7e360aefcb919baa5ab07816237db69fa5ae1ba72e5a10",
+      "path": "C:\\tmp\\ace_core\\06_RUNTIME\\ace\\data\\stock_data_evidence\\stock_data_benchmark_20260828_093647.json",
+      "replay_invoked": false,
+      "status": "UNCHANGED"
+    },
+    {
+      "file_hash": "588ea0dd38e7ee49100186a617bb8fd2f17401431c76201a0bf0277ffa4fcc87",
+      "path": "C:\\tmp\\ace_core\\06_RUNTIME\\ace\\data\\stock_data_evidence\\stock_data_benchmark_20260831_093308.json",
+      "replay_invoked": false,
+      "status": "UNCHANGED"
+    },
+    {
+      "file_hash": "588ea0dd38e7ee49100186a617bb8fd2f17401431c76201a0bf0277ffa4fcc87",
+      "path": "C:\\tmp\\ace_core\\06_RUNTIME\\ace\\data\\stock_data_evidence\\stock_data_benchmark_latest.json",
+      "replay_invoked": false,
+      "status": "UNCHANGED"
+    }
+  ],
+  "mode": "FACTOR_RESEARCH_ONLY",
+  "new_or_changed_count": 0,
+  "production_integration": false,
+  "recommendation_authority": false,
+  "replay_invoked_count": 0,
+  "scanned_count": 21,
+  "watch_root": "C:\\tmp\\ace_core\\06_RUNTIME\\ace\\data\\stock_data_evidence"
+}

@@ -1,0 +1,17 @@
+{
+  "automatic_delivery": false,
+  "automatic_promotion": false,
+  "automatic_task_creation": false,
+  "contract_version": "ace.free_research_sandbox.v1",
+  "created_at": "2026-08-27T10:31:52.453443+00:00",
+  "distillation_hash": "cdb96ffc94bf697b54563b43b14b66fba2da5733edd05d83634bca274ca5355b",
+  "evidence_hash": "dd643127d48df2bf74d29d6a4bd5a47cccd8b54e932f888899f456dea562ed88",
+  "experiment_id": "EXP-20260827103144871989-FREEZONE-A87E1A286B8A",
+  "mode": "DISTILLATION_ONLY",
+  "outcome": "PASS",
+  "pattern": "When The open question EXP-20260827073832008119-FREEZONE-11E52E02A52E can be turned into a distinct next observation without overwriting its original result., investigate via Preserve the parent distillation, formulate an explicit re-observation question, and record the new experiment separately..",
+  "production_integration": false,
+  "reason": "clean_pass_available_for_later_review",
+  "source_record_hash": "b1f084fa12d78c27145340bf4a8aafdc96ee42fc18da81d18b4dacfddc0ee551",
+  "status": "PROPOSAL_ONLY"
+}

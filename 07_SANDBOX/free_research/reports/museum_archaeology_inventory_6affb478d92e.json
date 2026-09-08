@@ -1,0 +1,617 @@
+{
+  "artifacts": [
+    {
+      "artifact_id": "R2_DAILY_KNOWLEDGE_REPORTS",
+      "current_ace_consumption": "No direct ACE consumer of this historical report series.",
+      "disposition": "ADAPT",
+      "evidence_strength": "SERIES_EXECUTION_EVIDENCE",
+      "files": [
+        {
+          "bytes": 9310,
+          "path": "C:\\tmp\\private_claw-soul\\07_OPERATIONS\\knowledge_reports\\daily_report_20260613.json",
+          "schema_keys": [
+            "decisions",
+            "experience",
+            "generated_at",
+            "observation",
+            "report_date",
+            "signals",
+            "summary",
+            "version"
+          ],
+          "sha256": "1cad403a028cdaf161e15a14f220994e4d72ce9406c1182fed8c26c051fc7666",
+          "time_anchors": {
+            "generated_at": "2026-06-13T20:08:29.528603",
+            "report_date": "2026-06-13"
+          }
+        },
+        {
+          "bytes": 16587,
+          "path": "C:\\tmp\\private_claw-soul\\07_OPERATIONS\\knowledge_reports\\daily_report_20260614.json",
+          "schema_keys": [
+            "decisions",
+            "experience",
+            "generated_at",
+            "observation",
+            "report_date",
+            "signals",
+            "summary",
+            "version"
+          ],
+          "sha256": "fbe278f680e514a8fce85949d38998877998dcd9a19ebb91bb8ddfbd255e7999",
+          "time_anchors": {
+            "generated_at": "2026-06-14T20:08:43.860155",
+            "report_date": "2026-06-14"
+          }
+        },
+        {
+          "bytes": 17978,
+          "path": "C:\\tmp\\private_claw-soul\\07_OPERATIONS\\knowledge_reports\\daily_report_20260615.json",
+          "schema_keys": [
+            "decisions",
+            "experience",
+            "generated_at",
+            "observation",
+            "report_date",
+            "signals",
+            "summary",
+            "version"
+          ],
+          "sha256": "59a166f96be824ecce7c579c0d76da25aecb99824660e61cb06125388f33471a",
+          "time_anchors": {
+            "generated_at": "2026-06-15T20:09:42.296605",
+            "report_date": "2026-06-15"
+          }
+        },
+        {
+          "bytes": 18429,
+          "path": "C:\\tmp\\private_claw-soul\\07_OPERATIONS\\knowledge_reports\\daily_report_20260616.json",
+          "schema_keys": [
+            "decisions",
+            "experience",
+            "generated_at",
+            "observation",
+            "report_date",
+            "signals",
+            "summary",
+            "version"
+          ],
+          "sha256": "13adfe3302a3d4664b098bba66bfbc03cd59dd817b42371684f6e27d35176568",
+          "time_anchors": {
+            "generated_at": "2026-06-16T20:08:53.319804",
+            "report_date": "2026-06-16"
+          }
+        },
+        {
+          "bytes": 57090,
+          "path": "C:\\tmp\\private_claw-soul\\07_OPERATIONS\\knowledge_reports\\daily_report_20260617.json",
+          "schema_keys": [
+            "decisions",
+            "experience",
+            "generated_at",
+            "observation",
+            "report_date",
+            "signals",
+            "summary",
+            "version"
+          ],
+          "sha256": "3ac141e10bdf802c32d4a2b74083c5019801c4d0ad32280e871e8cd85000e42b",
+          "time_anchors": {
+            "generated_at": "2026-06-17T20:08:44.413486",
+            "report_date": "2026-06-17"
+          }
+        },
+        {
+          "bytes": 58657,
+          "path": "C:\\tmp\\private_claw-soul\\07_OPERATIONS\\knowledge_reports\\daily_report_20260618.json",
+          "schema_keys": [
+            "decisions",
+            "experience",
+            "generated_at",
+            "observation",
+            "report_date",
+            "signals",
+            "summary",
+            "version"
+          ],
+          "sha256": "1291ccfeff1aae8cbe718268c6d5dd7812efa47eb94e67bac077a9896d47bd43",
+          "time_anchors": {
+            "generated_at": "2026-06-18T20:42:59.368207",
+            "report_date": "2026-06-18"
+          }
+        },
+        {
+          "bytes": 58809,
+          "path": "C:\\tmp\\private_claw-soul\\07_OPERATIONS\\knowledge_reports\\daily_report_20260619.json",
+          "schema_keys": [
+            "decisions",
+            "experience",
+            "generated_at",
+            "observation",
+            "report_date",
+            "signals",
+            "summary",
+            "version"
+          ],
+          "sha256": "dc97d483efa2970f530e84ab4c60c1767f7a3ea92932fb527a881a22f0a3b36f",
+          "time_anchors": {
+            "generated_at": "2026-06-19T20:40:58.648881",
+            "report_date": "2026-06-19"
+          }
+        },
+        {
+          "bytes": 60193,
+          "path": "C:\\tmp\\private_claw-soul\\07_OPERATIONS\\knowledge_reports\\daily_report_20260620.json",
+          "schema_keys": [
+            "decisions",
+            "experience",
+            "generated_at",
+            "observation",
+            "report_date",
+            "signals",
+            "summary",
+            "version"
+          ],
+          "sha256": "ef7a524c3ed24deb8f22565add044289c05d591c66bc825d1dbc7ec02d1e9f05",
+          "time_anchors": {
+            "generated_at": "2026-06-20T20:04:01.201899",
+            "report_date": "2026-06-20"
+          }
+        },
+        {
+          "bytes": 59562,
+          "path": "C:\\tmp\\private_claw-soul\\07_OPERATIONS\\knowledge_reports\\daily_report_20260621.json",
+          "schema_keys": [
+            "decisions",
+            "experience",
+            "generated_at",
+            "observation",
+            "report_date",
+            "signals",
+            "summary",
+            "version"
+          ],
+          "sha256": "959df541f2f5fd1b7438f6da9d6f21cecc7c9827c7b813ae40d5c7bfb89efd8d",
+          "time_anchors": {
+            "generated_at": "2026-06-21T20:40:52.728861",
+            "report_date": "2026-06-21"
+          }
+        },
+        {
+          "bytes": 59541,
+          "path": "C:\\tmp\\private_claw-soul\\07_OPERATIONS\\knowledge_reports\\daily_report_20260622.json",
+          "schema_keys": [
+            "decisions",
+            "experience",
+            "generated_at",
+            "observation",
+            "report_date",
+            "signals",
+            "summary",
+            "version"
+          ],
+          "sha256": "7d61d248c5e51278de93f88ba4e44d59c7e47c07e067cab577af5d0d5f7a618a",
+          "time_anchors": {
+            "generated_at": "2026-06-22T20:04:01.667926",
+            "report_date": "2026-06-22"
+          }
+        },
+        {
+          "bytes": 4822,
+          "path": "C:\\tmp\\private_claw-soul\\07_OPERATIONS\\knowledge_reports\\daily_report_20260623.json",
+          "schema_keys": [
+            "decisions",
+            "experience",
+            "generated_at",
+            "observation",
+            "report_date",
+            "signals",
+            "summary",
+            "version"
+          ],
+          "sha256": "8eac00a2b66240b2fff0ceef733305f18b67fb10376a0466da2cc2cf267ffeac",
+          "time_anchors": {
+            "generated_at": "2026-06-23T20:40:32.696509",
+            "report_date": "2026-06-23"
+          }
+        },
+        {
+          "bytes": 11381,
+          "path": "C:\\tmp\\private_claw-soul\\07_OPERATIONS\\knowledge_reports\\daily_report_20260624.json",
+          "schema_keys": [
+            "decisions",
+            "experience",
+            "generated_at",
+            "observation",
+            "report_date",
+            "signals",
+            "summary",
+            "version"
+          ],
+          "sha256": "496502d604861c77218202bb54ddfa496fae7ade96627cc84087b04ba9969089",
+          "time_anchors": {
+            "generated_at": "2026-06-24T20:04:01.324508",
+            "report_date": "2026-06-24"
+          }
+        },
+        {
+          "bytes": 64202,
+          "path": "C:\\tmp\\private_claw-soul\\07_OPERATIONS\\knowledge_reports\\daily_report_20260625.json",
+          "schema_keys": [
+            "decisions",
+            "experience",
+            "generated_at",
+            "observation",
+            "report_date",
+            "signals",
+            "summary",
+            "version"
+          ],
+          "sha256": "b17fe51f016e1830925ecd0085a0f028862e3afff08b862171a6f3aeb1b422cd",
+          "time_anchors": {
+            "generated_at": "2026-06-25T20:40:55.906594",
+            "report_date": "2026-06-25"
+          }
+        },
+        {
+          "bytes": 65483,
+          "path": "C:\\tmp\\private_claw-soul\\07_OPERATIONS\\knowledge_reports\\daily_report_20260626.json",
+          "schema_keys": [
+            "decisions",
+            "experience",
+            "generated_at",
+            "observation",
+            "report_date",
+            "signals",
+            "summary",
+            "version"
+          ],
+          "sha256": "13b953b6bbccd2d3db60ce5d8424b3939f9a4bc61e1e0ca1a4151e29fe9b8f39",
+          "time_anchors": {
+            "generated_at": "2026-06-26T20:04:01.946001",
+            "report_date": "2026-06-26"
+          }
+        },
+        {
+          "bytes": 66204,
+          "path": "C:\\tmp\\private_claw-soul\\07_OPERATIONS\\knowledge_reports\\daily_report_20260627.json",
+          "schema_keys": [
+            "decisions",
+            "experience",
+            "generated_at",
+            "observation",
+            "report_date",
+            "signals",
+            "summary",
+            "version"
+          ],
+          "sha256": "524a50fd153b3adde8bb577745b97ff0b79978da52c05b9f40bab24e4b705029",
+          "time_anchors": {
+            "generated_at": "2026-06-27T20:04:02.258623",
+            "report_date": "2026-06-27"
+          }
+        },
+        {
+          "bytes": 65698,
+          "path": "C:\\tmp\\private_claw-soul\\07_OPERATIONS\\knowledge_reports\\daily_report_20260628.json",
+          "schema_keys": [
+            "decisions",
+            "experience",
+            "generated_at",
+            "observation",
+            "report_date",
+            "signals",
+            "summary",
+            "version"
+          ],
+          "sha256": "59c1ab608f1a9dca0dfccd6c358dc438fa938ef2a2728a82baba6abf8549811a",
+          "time_anchors": {
+            "generated_at": "2026-06-28T20:04:02.063332",
+            "report_date": "2026-06-28"
+          }
+        },
+        {
+          "bytes": 67620,
+          "path": "C:\\tmp\\private_claw-soul\\07_OPERATIONS\\knowledge_reports\\daily_report_20260629.json",
+          "schema_keys": [
+            "decisions",
+            "experience",
+            "generated_at",
+            "observation",
+            "report_date",
+            "signals",
+            "summary",
+            "version"
+          ],
+          "sha256": "1835513f82d00bc1c877935658f73a32eacfc062264f6105f9acb7cb99aae5b4",
+          "time_anchors": {
+            "generated_at": "2026-06-29T20:04:02.146300",
+            "report_date": "2026-06-29"
+          }
+        },
+        {
+          "bytes": 66902,
+          "path": "C:\\tmp\\private_claw-soul\\07_OPERATIONS\\knowledge_reports\\daily_report_20260630.json",
+          "schema_keys": [
+            "decisions",
+            "experience",
+            "generated_at",
+            "observation",
+            "report_date",
+            "signals",
+            "summary",
+            "version"
+          ],
+          "sha256": "1af3338bffb4342dbcc97eb4d0d5bfbdd06531dc11eb13940078381ff8300d1c",
+          "time_anchors": {
+            "generated_at": "2026-06-30T20:41:04.118531",
+            "report_date": "2026-06-30"
+          }
+        },
+        {
+          "bytes": 66673,
+          "path": "C:\\tmp\\private_claw-soul\\07_OPERATIONS\\knowledge_reports\\daily_report_20260701.json",
+          "schema_keys": [
+            "decisions",
+            "experience",
+            "generated_at",
+            "observation",
+            "report_date",
+            "signals",
+            "summary",
+            "version"
+          ],
+          "sha256": "0e10ca8d6093f26bc1a99b121d689a8db837768c0dec5b0eb74d664c766f9f46",
+          "time_anchors": {
+            "generated_at": "2026-07-01T20:41:11.301081",
+            "report_date": "2026-07-01"
+          }
+        }
+      ],
+      "pattern": "daily_report_*.json",
+      "present": true,
+      "rationale": "A consecutive report series is execution evidence for a reporting cadence, not proof that every embedded conclusion was true.",
+      "safe_semantic": "daily structured evidence ledger: observation, experience, signals, decisions, summary",
+      "source_path": "C:\\tmp\\private_claw-soul\\07_OPERATIONS\\knowledge_reports",
+      "status": "HISTORICAL_EXECUTED",
+      "title": "R2 structured daily knowledge reports"
+    },
+    {
+      "artifact_id": "R2_KNOWLEDGE_SHIFT_ECHO",
+      "current_ace_consumption": "The sandbox preserves experiments, but has no historical-echo selector.",
+      "disposition": "ADAPT",
+      "evidence_strength": "SOURCE_ONLY",
+      "files": [
+        {
+          "bytes": 12447,
+          "path": "C:\\tmp\\private_claw-soul\\lab_02\\06_SCRIPTS\\01_knowledge\\knowledge_shift.py",
+          "sha256": "1926560f1f8ff5f94ff3edc7a58eff32001040ff561a481f437e66d676605ebe"
+        }
+      ],
+      "pattern": "knowledge_shift.py",
+      "present": true,
+      "rationale": "The script is available, but the local reports do not prove this exact script produced the daily reports.",
+      "safe_semantic": "carry unresolved observations forward for a later review window",
+      "source_path": "C:\\tmp\\private_claw-soul\\lab_02\\06_SCRIPTS\\01_knowledge",
+      "status": "CODE_ONLY",
+      "title": "R2 early/noon knowledge shift with prior-day echo"
+    },
+    {
+      "artifact_id": "MINE_SEED_DAILY_SELF_LOOP",
+      "current_ace_consumption": "ACE has its own daemon and sandbox automations; this script is not a current daemon consumer.",
+      "disposition": "CONFLICT",
+      "evidence_strength": "SOURCE_ONLY",
+      "files": [
+        {
+          "bytes": 22052,
+          "path": "C:\\tmp\\mine-seed\\04_PROTOCOLS\\daily_self_loop.py",
+          "sha256": "b8c09c0027ab36e168c41256d66d1941c2c523aeca43bd7818a111dd8a5a92fe"
+        }
+      ],
+      "pattern": "daily_self_loop.py",
+      "present": true,
+      "rationale": "It mixes useful observation semantics with automatic advisor execution, task scheduling, and a second loop.",
+      "safe_semantic": "bounded daily recovery, asset audit, evidence report",
+      "source_path": "C:\\tmp\\mine-seed\\04_PROTOCOLS",
+      "status": "CODE_ONLY",
+      "title": "mine-seed daily self-loop"
+    },
+    {
+      "artifact_id": "MINE_SEED_HEARTBEAT",
+      "current_ace_consumption": "Current ACE has a sole daemon; old heartbeat code has no direct production consumer.",
+      "disposition": "CONFLICT",
+      "evidence_strength": "SOURCE_ONLY",
+      "files": [
+        {
+          "bytes": 52527,
+          "path": "C:\\tmp\\mine-seed\\04_PROTOCOLS\\heartbeat.py",
+          "sha256": "ff54cc730f63cde8c8a3bfeafa1a7de2a5834718c9e05f0b95b05363960a929e"
+        }
+      ],
+      "pattern": "heartbeat.py",
+      "present": true,
+      "rationale": "The code includes Telegram and advisor triggers. A dated heartbeat note proves historical activity, not that this source executed it.",
+      "safe_semantic": "periodic health observation and explicit no-news state",
+      "source_path": "C:\\tmp\\mine-seed\\04_PROTOCOLS",
+      "status": "CODE_ONLY",
+      "title": "mine-seed heartbeat"
+    },
+    {
+      "artifact_id": "MINE_SEED_AUTONOMOUS_LOOP",
+      "current_ace_consumption": "None; deliberately not a production candidate.",
+      "disposition": "REJECT",
+      "evidence_strength": "SOURCE_ONLY",
+      "files": [
+        {
+          "bytes": 18808,
+          "path": "C:\\tmp\\mine-seed\\05_TOOLS\\gateway\\autonomous_loop.py",
+          "sha256": "26b073fb167bf55f68863a0c5424d0f82fe4fd328118debc616ba2ee7c44dc11"
+        }
+      ],
+      "pattern": "autonomous_loop.py",
+      "present": true,
+      "rationale": "This historical loop starts processes, installs dependencies, and can invoke stock-advisor work. It conflicts with the one-daemon boundary.",
+      "safe_semantic": "observe before acting",
+      "source_path": "C:\\tmp\\mine-seed\\05_TOOLS\\gateway",
+      "status": "CODE_ONLY",
+      "title": "mine-seed gateway autonomous loop"
+    },
+    {
+      "artifact_id": "R1_R2_DAILY_ARCHAEOLOGY",
+      "current_ace_consumption": "Repository memory is known to ACE, but the sandbox does not yet use a dated archaeology series as input.",
+      "disposition": "ABSORB",
+      "evidence_strength": "HISTORICAL_ARTIFACT_EVIDENCE",
+      "files": [
+        {
+          "bytes": 12543,
+          "path": "C:\\tmp\\r1-archaeology\\analysis\\archaeology_report_20260627.md",
+          "sha256": "d58346e1ee27943628c9efa1b938e5598adf577719a16eeeeffbd626541f5eba"
+        },
+        {
+          "bytes": 30847,
+          "path": "C:\\tmp\\r1-archaeology\\analysis\\archaeology_report_20260701.md",
+          "sha256": "c9a463f674b87adf2e84ffa3e91e0ce87633db01ae3dd6d30957c8a76571a721"
+        },
+        {
+          "bytes": 28039,
+          "path": "C:\\tmp\\r1-archaeology\\analysis\\archaeology_report_20260702.md",
+          "sha256": "43ebe99a29c013cd9577f832791d0065a9ad130fb8813d53545fa8ca8514434a"
+        },
+        {
+          "bytes": 23101,
+          "path": "C:\\tmp\\r1-archaeology\\analysis\\archaeology_report_20260703.md",
+          "sha256": "3ba64595e381466697a9781efb0589976cdfdd7956a9be3c54ef0f585f1f7677"
+        },
+        {
+          "bytes": 12467,
+          "path": "C:\\tmp\\r1-archaeology\\analysis\\archaeology_report_20260705.md",
+          "sha256": "4f9da2c0ed5a3eee8e8924de766649ae29502e2bcf91465b38e1a21eab46f008"
+        },
+        {
+          "bytes": 21149,
+          "path": "C:\\tmp\\r1-archaeology\\analysis\\archaeology_report_20260707.md",
+          "sha256": "8d620b18addb07fd0979a90f2bad6019425219820fc4e8dbf5717d17d09fea04"
+        },
+        {
+          "bytes": 28792,
+          "path": "C:\\tmp\\r1-archaeology\\analysis\\archaeology_report_20260708.md",
+          "sha256": "a65bd4198f1d4b36294ece3eefdcbffb214a9e380b4044ccc6ae6ef68b88763a"
+        }
+      ],
+      "pattern": "archaeology_report_*.md",
+      "present": true,
+      "rationale": "Multiple dated reports demonstrate recurring archaeology work; their conclusions remain historical claims and require independent review before adoption.",
+      "safe_semantic": "record discoveries, contradictions, missing evidence, and the next bounded question",
+      "source_path": "C:\\tmp\\r1-archaeology\\analysis",
+      "status": "HISTORICAL_EXECUTED",
+      "title": "R1-to-R2 daily archaeology reports"
+    },
+    {
+      "artifact_id": "R1_FIVE_FACTORY_FREEZONE",
+      "current_ace_consumption": "Already represented by free-research experiments, quarantine, curator, court, and teacher queue.",
+      "disposition": "REDUNDANT",
+      "evidence_strength": "ARCHIVAL_CONTEXT_ONLY",
+      "files": [
+        {
+          "bytes": 6207,
+          "path": "C:\\tmp\\mine-seed\\03_DATA\\superseded_archive\\research\\r1_archaeology\\daily\\2026-06-28_R1_五大加工厂_废墟熔炼厂_孟婆人格考古__SUPERSEDED_20260710_143028.md",
+          "sha256": "73d6c8c240364594619958ff091d832a3e4c7f14c63e6f0b7bebdfa75d07d24c"
+        }
+      ],
+      "pattern": "2026-06-28_R1_五大加工厂_废墟熔炼厂_孟婆人格考古__SUPERSEDED_*.md",
+      "present": true,
+      "rationale": "Useful vocabulary, but the current sandbox already implements the safe core without reviving persona machinery.",
+      "safe_semantic": "preserve failures and transform them into reviewable research material",
+      "source_path": "C:\\tmp\\mine-seed\\03_DATA\\superseded_archive\\research\\r1_archaeology\\daily",
+      "status": "SUPERSEDED",
+      "title": "R1 five-factory/freezone model"
+    },
+    {
+      "artifact_id": "R1_COGNITIVE_ROUTING_ARCHAEOLOGY",
+      "current_ace_consumption": "Current task roles and sandbox society cover the role-separation idea.",
+      "disposition": "DUPLICATE",
+      "evidence_strength": "ARCHIVAL_CONTEXT_ONLY",
+      "files": [
+        {
+          "bytes": 9605,
+          "path": "C:\\tmp\\mine-seed\\03_DATA\\superseded_archive\\research\\r1_archaeology\\daily\\2026-06-28_R1认知路由协议考古报告__SUPERSEDED_20260710_143028.md",
+          "sha256": "b9d1b9feca11b8dbf52f564322b51ed54f0c85f9b445a9cf8cf962b3e222c4e7"
+        }
+      ],
+      "pattern": "2026-06-28_R1认知路由协议考古报告__SUPERSEDED_*.md",
+      "present": true,
+      "rationale": "The historical report itself says this concept was already absorbed; it is a provenance source, not an implementation candidate.",
+      "safe_semantic": "separate discovered evidence, role interpretation, and human approval",
+      "source_path": "C:\\tmp\\mine-seed\\03_DATA\\superseded_archive\\research\\r1_archaeology\\daily",
+      "status": "SUPERSEDED",
+      "title": "R1 cognitive routing archaeology"
+    },
+    {
+      "artifact_id": "R2_RUNTIME_DEADLOCK_FORENSICS",
+      "current_ace_consumption": "The current sandbox can preserve failure evidence; no old runtime should be restored.",
+      "disposition": "REJECT",
+      "evidence_strength": "HISTORICAL_ARTIFACT_EVIDENCE",
+      "files": [
+        {
+          "bytes": 4129,
+          "path": "C:\\tmp\\private_claw-soul\\05_PROJECTS\\r1_archaeology\\R2_RUNTIME_FORENSICS.md",
+          "sha256": "7e877fae6d2092a556a43eb5eaec5d3d9a974673a387bf320b47b9bdf7656329"
+        }
+      ],
+      "pattern": "R2_RUNTIME_FORENSICS.md",
+      "present": true,
+      "rationale": "The forensic record describes an old self-locking start loop. It is a counterexample to preserve, not a capability to revive.",
+      "safe_semantic": "treat repeated failure as evidence and retain the counterexample",
+      "source_path": "C:\\tmp\\private_claw-soul\\05_PROJECTS\\r1_archaeology",
+      "status": "HISTORICAL_EXECUTED",
+      "title": "R2 CentralController deadlock forensics"
+    },
+    {
+      "artifact_id": "MINE_SEED_SHADOW_AUDIT",
+      "current_ace_consumption": "ACE already uses a shadow/research boundary and must not revive historical automatic stock-advisor paths.",
+      "disposition": "REDUNDANT",
+      "evidence_strength": "HISTORICAL_ARTIFACT_EVIDENCE",
+      "files": [
+        {
+          "bytes": 5101,
+          "path": "C:\\tmp\\mine-seed\\03_DATA\\shadow_audit\\shadow_audit_log.jsonl",
+          "sha256": "c08adbe5db733b95c8ead61261be30e20118479c60f3670bfaeef58fadacecd1"
+        }
+      ],
+      "pattern": "shadow_audit_log.jsonl",
+      "present": true,
+      "rationale": "The isolation pattern is worth remembering, but this particular lineage includes historic recommendation material and is not reusable as a current source.",
+      "safe_semantic": "read-only shadow observation with a time-bounded review condition",
+      "source_path": "C:\\tmp\\mine-seed\\03_DATA\\shadow_audit",
+      "status": "HISTORICAL_EXECUTED",
+      "title": "mine-seed shadow-audit records"
+    }
+  ],
+  "contract_version": "ace.museum_archaeology_inventory.v1",
+  "explicit_non_actions": [
+    "No historical daemon, scheduler, heartbeat, advisor, Telegram sender, broker, model call, or production config is started or changed.",
+    "No historical narrative is treated as current market, runtime, or recommendation evidence."
+  ],
+  "generated_at": "2026-08-27T10:31:37.231638+00:00",
+  "history_root": "C:\\tmp",
+  "inventory_sha256": "6affb478d92efcdb20c67f9a1fcb4cb262d0e6bf86165d279d621934ecbd853e",
+  "mode": "FREE_RESEARCH_ONLY",
+  "summary": {
+    "artifact_count": 10,
+    "by_disposition": {
+      "ABSORB": 1,
+      "ADAPT": 2,
+      "CONFLICT": 2,
+      "DUPLICATE": 1,
+      "REDUNDANT": 2,
+      "REJECT": 2
+    },
+    "by_status": {
+      "CODE_ONLY": 4,
+      "HISTORICAL_EXECUTED": 4,
+      "SUPERSEDED": 2
+    },
+    "historical_daily_report_count": 19,
+    "present_artifact_count": 10
+  }
+}

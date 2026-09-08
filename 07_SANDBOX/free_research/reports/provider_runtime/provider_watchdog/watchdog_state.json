@@ -1,0 +1,58 @@
+{
+  "providers": {
+    "openrouter": {
+      "provider": "openrouter",
+      "base_url": "https://openrouter.ai/api/v1",
+      "status": "UNHEALTHY",
+      "last_check": 0.0,
+      "last_success": 0.0,
+      "consecutive_failures": 0,
+      "consecutive_successes": 0,
+      "latency_ms": 0,
+      "total_calls": 0,
+      "failed_calls": 0,
+      "error_message": ""
+    },
+    "shenwen": {
+      "provider": "shenwen",
+      "base_url": "https://api.shenwenai.com/v1",
+      "status": "UNHEALTHY",
+      "last_check": 0.0,
+      "last_success": 0.0,
+      "consecutive_failures": 0,
+      "consecutive_successes": 0,
+      "latency_ms": 0,
+      "total_calls": 0,
+      "failed_calls": 0,
+      "error_message": ""
+    },
+    "shenwen_grok": {
+      "provider": "shenwen_grok",
+      "base_url": "https://api.shenwenai.com/v1",
+      "status": "UNHEALTHY",
+      "last_check": 0.0,
+      "last_success": 0.0,
+      "consecutive_failures": 1,
+      "consecutive_successes": 0,
+      "latency_ms": 0,
+      "total_calls": 1,
+      "failed_calls": 1,
+      "error_message": "core.miner_pool.providers.openai_compatible.OpenAICompatibleProvider.chat() got multiple values for keyword argument 'model'"
+    },
+    "shenwen_images": {
+      "provider": "shenwen_images",
+      "base_url": "https://api.shenwenai.com/v1",
+      "status": "UNHEALTHY",
+      "last_check": 0.0,
+      "last_success": 0.0,
+      "consecutive_failures": 0,
+      "consecutive_successes": 0,
+      "latency_ms": 0,
+      "total_calls": 0,
+      "failed_calls": 0,
+      "error_message": ""
+    }
+  },
+  "switch_events": [],
+  "last_updated": 1788053384.3734498
+}

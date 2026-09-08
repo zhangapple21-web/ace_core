@@ -1,0 +1,17 @@
+{
+  "automatic_delivery": false,
+  "automatic_promotion": false,
+  "automatic_task_creation": false,
+  "contract_version": "ace.free_research_sandbox.v1",
+  "created_at": "2026-08-27T05:24:10.835960+00:00",
+  "distillation_hash": "ec4f731a8271b0fe5411cfd0ed06781e06d5197963e4b4b1e2576d3a173aa338",
+  "evidence_hash": "8c59e077be3199380c0a22f102d01c6e1d39e7b4a8331c4a31ee1a9ebe79b929",
+  "experiment_id": "EXP-20260827052410721753-FREEZONE-EC3912CEC380",
+  "mode": "DISTILLATION_ONLY",
+  "outcome": "PASS",
+  "pattern": "When The free zone may explore conflicting or unfashionable hypotheses, but its outward edge is proposal-only and cannot alter production., investigate via Run the local ECO-02 ecological probe and retain its observed outcome..",
+  "production_integration": false,
+  "reason": "clean_pass_available_for_later_review",
+  "source_record_hash": "eec984944748c199036aca1c7d29e79893fed91807a017049fc7f0c36f23de3d",
+  "status": "PROPOSAL_ONLY"
+}

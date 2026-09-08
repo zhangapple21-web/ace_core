@@ -1,0 +1,33 @@
+{
+  "schema_version": "ace.model-route-probe.v1",
+  "observed_on": "2026-09-08",
+  "scope": "direct_provider_chat_completions_probe",
+  "endpoint": "https://api.shenwenai.com/v1",
+  "provider": "shenwen",
+  "model": "gpt-6-astra",
+  "models_catalog": {
+    "status": 200,
+    "listed": true
+  },
+  "chat_probe": {
+    "status": 200,
+    "request_shape": "single user message; temperature 0; max_tokens 8",
+    "response_model": "gpt-6-astra",
+    "content_present": true,
+    "usage": {
+      "prompt_tokens": 10,
+      "completion_tokens": 5,
+      "total_tokens": 15
+    },
+    "latency_ms": 6542
+  },
+  "routing_effect": "candidate_complex_escalation_only",
+  "production_eligible": false,
+  "unknowns": [
+    "No paired evaluation set has been completed against Terra.",
+    "No reconciled provider bill record is attached to this probe.",
+    "One successful probe does not establish long-term provider stability.",
+    "The configured local 127.0.0.1:3002/v1 gateway returned /models=200 but chat/completions=404 by protocol design; the separate Responses success is recorded in model_routing_astra_local_gateway_probe_20260908.json."
+  ],
+  "next_gate": "independent paired cases plus failure-recovery and reconciled-cost evidence"
+}

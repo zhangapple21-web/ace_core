@@ -1,0 +1,17 @@
+{
+  "automatic_delivery": false,
+  "automatic_promotion": false,
+  "automatic_task_creation": false,
+  "contract_version": "ace.free_research_sandbox.v1",
+  "created_at": "2026-08-27T05:22:15.435359+00:00",
+  "distillation_hash": "b913ef5887786da55777884c46681dbab642b18970a3b28f7dc7449f60b91182",
+  "evidence_hash": "b5fe877ad41b7d84767426e5df7a349235a779c9b3b371e07fb2e57a3c4d4af3",
+  "experiment_id": "EXP-20260827-DATA-ENDPOINT-RECOVERY",
+  "mode": "DISTILLATION_ONLY",
+  "outcome": "PASS",
+  "pattern": "When Public market-data suppliers must be classified per operation rather than globally., investigate via Directly compare Tencent quote and corrected minute host, then run an isolated EastMoney quote/1m/index probe..",
+  "production_integration": false,
+  "reason": "clean_pass_available_for_later_review",
+  "source_record_hash": "ff431f8e87fad7004ad5469d56ddc8b68d887f5f349f40fc5d42bf21fe078348",
+  "status": "PROPOSAL_ONLY"
+}

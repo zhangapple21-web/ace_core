@@ -7,6 +7,7 @@ research-only or production financial path.
 """
 
 import json
+import hashlib
 import os
 from datetime import datetime, time
 from pathlib import Path
@@ -25,6 +26,19 @@ WINDOWS = {
     "next_day_watchlist": (time(16, 0), time(23, 59, 59)),
 }
 
+# One task, with a moving discovery window.  These are phases of the existing
+# finance lifecycle; they are not an additional scheduler or a fixed 09:25
+# to 09:35 job.
+DISCOVERY_TASK_VERSION = "ace.early_opportunity_discovery.v1"
+DISCOVERY_PHASES = (
+    "market_universe_candidate_pool",
+    "dynamic_discovery_window",
+    "incremental_refresh",
+    "actionability_gate",
+    "ace_decision",
+    "xiaoyan_expression",
+)
+
 
 class FinanceWorkWindows:
     def __init__(
@@ -34,15 +48,24 @@ class FinanceWorkWindows:
         observer=None,
         data_refresh=None,
         public_sentiment=None,
+        candidate_snapshot_provider=None,
+        refresh_each_cycle: bool = False,
     ):
         self.data_dir = Path(data_dir)
         self.timezone = ZoneInfo(timezone_name)
         self.observer = observer
         self.data_refresh = data_refresh
         self.public_sentiment = public_sentiment
+        # The provider is an observation adapter only.  It may return a
+        # point-in-time candidate snapshot, but it cannot admit or publish a
+        # recommendation.  Keeping it injectable lets the existing daemon
+        # own the market-data implementation and keeps this window a ledger.
+        self.candidate_snapshot_provider = candidate_snapshot_provider
+        self.refresh_each_cycle = bool(refresh_each_cycle)
         self.matrix_path = self.data_dir / "stock_data_evidence" / "A_SHARE_DATA_CAPABILITY_MATRIX.json"
         self.benchmark_path = self.data_dir / "stock_data_evidence" / "stock_data_benchmark_latest.json"
         self.report_path = self.data_dir / "finance_work_windows_latest.json"
+        self.discovery_ledger_path = self.data_dir / "stock_data_evidence" / "early_opportunity_discovery.v1.jsonl"
         self.recovery = DataAdmissionRecovery(self.data_dir)
 
     def _evidence_refs(self):
@@ -143,7 +166,11 @@ class FinanceWorkWindows:
             and self.data_refresh is not None
         ):
             prior_window = daily_windows.get(due, {})
-            if isinstance(prior_window, dict) and prior_window.get("data_refresh_attempted"):
+            if (
+                not self.refresh_each_cycle
+                and isinstance(prior_window, dict)
+                and prior_window.get("data_refresh_attempted")
+            ):
                 # Later daemon cycles must not hide the real bounded refresh
                 # behind a bare dedup marker.  Preserve its auditable result
                 # so the Daily Shift can answer what was actually observed
@@ -200,6 +227,141 @@ class FinanceWorkWindows:
             if status in {"DEGRADED", "RESEARCH_ONLY"}
             else "NO_VALID_OBSERVATION"
         )
+
+        discovery_snapshot = None
+        if due and self.candidate_snapshot_provider is not None:
+            try:
+                value = self.candidate_snapshot_provider(
+                    window=due,
+                    observed_at=observed_at,
+                )
+                discovery_snapshot = value if isinstance(value, dict) else {
+                    "status": "DATA_UNAVAILABLE",
+                    "reason": "candidate_snapshot_provider_returned_non_mapping",
+                }
+            except Exception as exc:
+                discovery_snapshot = {
+                    "status": "DATA_UNAVAILABLE",
+                    "reason": f"candidate_snapshot_provider_failed:{type(exc).__name__}",
+                }
+        # Keep the whole early-discovery flow visible in the same auditable
+        # report.  The phase names describe ownership and ordering; actual
+        # candidate admission remains subject to existing data gates.
+        discovery_task = {
+            "task_version": DISCOVERY_TASK_VERSION,
+            "objective": "提前发现仍来得及参与、正在形成确认的机会",
+            "phases": list(DISCOVERY_PHASES),
+            "window_mode": "dynamic",
+            "window_anchor": due,
+            "first_seen_at": None,
+            "snapshot_count": 0,
+            "last_snapshot_at": observed_at.isoformat() if due else None,
+            "candidate_status": "UNOBSERVED" if due else "OUTSIDE_WINDOW",
+            "actionability_gate": {
+                "required": [
+                    "fresh_snapshot",
+                    "not_limit_up_or_unfillable",
+                    "position_and_odds_defined",
+                    "confirmation_and_invalidation_defined",
+                ],
+                "late_candidate_status": "TOO_LATE",
+                "missing_data_status": "RESEARCH_ONLY",
+            },
+            "handoff": {
+                "ace": "判断是否值得承担可定义风险",
+                "xiaoyan": "在仍可参与时及时表达确认、失效和放弃条件",
+            },
+            "audit_fields": [
+                "window_id", "observed_at", "source_timestamp", "first_seen_at",
+                "snapshot_at", "candidate_status", "sent_at", "too_late_reason",
+            ],
+        }
+        # The window is deliberately incremental: retain an append-only audit
+        # row for every observed cycle.  Candidate admission is still owned by
+        # ACE/data gates; this ledger only makes discovery timing auditable.
+        if due:
+            self.discovery_ledger_path.parent.mkdir(parents=True, exist_ok=True)
+            prior_rows = []
+            try:
+                with self.discovery_ledger_path.open("r", encoding="utf-8") as fh:
+                    prior_rows = [json.loads(line) for line in fh if line.strip()]
+            except (OSError, json.JSONDecodeError):
+                prior_rows = []
+            day = observed_at.date().isoformat()
+            same_day = [r for r in prior_rows if isinstance(r, dict) and r.get("date") == day]
+            window_id = f"{day}:{due}"
+            row = {
+                "schema_version": 1,
+                "task_version": DISCOVERY_TASK_VERSION,
+                "task_id": "early_opportunity_discovery",
+                "window_id": window_id,
+                "date": day,
+                "observed_at": observed_at.isoformat(),
+                "source_timestamp": observed_at.isoformat(),
+                "snapshot_at": observed_at.isoformat(),
+                "candidate_status": "UNOBSERVED",
+                "actionability_status": "DATA_UNAVAILABLE" if status in {"DEGRADED", "RESEARCH_ONLY"} else "PENDING",
+                "candidate_count": 0,
+                "evidence_refs": self._evidence_refs(),
+            }
+            if discovery_snapshot is not None:
+                candidates = discovery_snapshot.get("candidates", [])
+                if not isinstance(candidates, list):
+                    candidates = []
+                prior_first_seen = {}
+                for prior in prior_rows:
+                    if not isinstance(prior, dict) or prior.get("date") != day:
+                        continue
+                    for prior_candidate in prior.get("candidates", []) if isinstance(prior.get("candidates"), list) else []:
+                        if not isinstance(prior_candidate, dict):
+                            continue
+                        symbol = str(prior_candidate.get("symbol", "")).strip()
+                        first_seen = str(prior_candidate.get("first_seen_at", "")).strip()
+                        if symbol and first_seen and symbol not in prior_first_seen:
+                            prior_first_seen[symbol] = first_seen
+                normalized_candidates = []
+                for candidate in candidates:
+                    if not isinstance(candidate, dict):
+                        continue
+                    normalized = dict(candidate)
+                    symbol = str(normalized.get("symbol", "")).strip()
+                    normalized["first_seen_at"] = str(
+                        normalized.get("first_seen_at") or prior_first_seen.get(symbol) or observed_at.isoformat()
+                    )
+                    normalized_candidates.append(normalized)
+                candidates = normalized_candidates
+                snapshot_status = str(discovery_snapshot.get("status", "DATA_UNAVAILABLE")).strip().upper()
+                source_timestamp = discovery_snapshot.get("source_timestamp") or observed_at.isoformat()
+                row.update({
+                    "candidate_status": snapshot_status or "DATA_UNAVAILABLE",
+                    "actionability_status": str(
+                        discovery_snapshot.get("actionability_status")
+                        or ("DATA_UNAVAILABLE" if not candidates else "PENDING")
+                    ).upper(),
+                    "candidate_count": len(candidates),
+                    "candidates": candidates,
+                    "snapshot_source": discovery_snapshot.get("source"),
+                    "source_timestamp": source_timestamp,
+                    "snapshot_source_timestamp": source_timestamp,
+                    "snapshot_reason": discovery_snapshot.get("reason"),
+                    "snapshot_hash": hashlib.sha256(
+                        json.dumps(candidates, ensure_ascii=False, sort_keys=True, default=str).encode("utf-8")
+                    ).hexdigest(),
+                })
+            with self.discovery_ledger_path.open("a", encoding="utf-8") as fh:
+                fh.write(json.dumps(row, ensure_ascii=False) + "\n")
+            discovery_task["window_id"] = window_id
+            discovery_task["snapshot_count"] = len(same_day) + 1
+            discovery_task["last_snapshot_at"] = observed_at.isoformat()
+            discovery_task["ledger_path"] = str(self.discovery_ledger_path)
+            discovery_task["candidate_status"] = row["candidate_status"]
+            discovery_task["candidate_count"] = row["candidate_count"]
+            discovery_task["first_seen_at"] = min(
+                (str(item.get("first_seen_at")) for item in row.get("candidates", []) if isinstance(item, dict) and item.get("first_seen_at")),
+                default=None,
+            )
+            discovery_task["snapshot_source_timestamp"] = row.get("snapshot_source_timestamp")
+            discovery_task["snapshot_reason"] = row.get("snapshot_reason")
         counter_evidence = [
             "pytdx/sina 的早盘受控刷新已恢复部分 quote、1m 与 index 观测，但未覆盖全部 Phase 2 操作。",
             "baostock 具备部分日线/5m 可用性却存在一致性缺口；finshare 上游血缘不可观测，不能作为独立交叉验证。",
@@ -216,12 +378,14 @@ class FinanceWorkWindows:
             "evidence_refs": self._evidence_refs(),
             "data_refresh_attempted": refresh_result is not None,
             "data_refresh": refresh_result,
+            "discovery_snapshot": discovery_snapshot,
             "public_sentiment": sentiment_result,
             "market_state": market_state,
             "counter_evidence": counter_evidence,
             "invalidating_conditions": invalidating_conditions,
             "next_validation": next_validation,
             "data_admission_recovery": recovery,
+            "early_opportunity_discovery": discovery_task,
         }
         if due:
             daily_windows[due] = window_record
@@ -238,6 +402,7 @@ class FinanceWorkWindows:
             "recommendation_allowed": False,
             "evidence_refs": self._evidence_refs(),
             "data_refresh": refresh_result,
+            "discovery_snapshot": discovery_snapshot,
             "public_sentiment": sentiment_result,
             "market_state": market_state,
             "counter_evidence": counter_evidence,
@@ -256,6 +421,7 @@ class FinanceWorkWindows:
                 "prediction_review",
                 "next_day_hypothesis",
             ] if due else [],
+            "early_opportunity_discovery": discovery_task,
         }
         if due and self.observer is not None:
             observation = self.observer.record(

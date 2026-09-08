@@ -47,6 +47,8 @@ def build_teacher_review_packet(
         minimum_recent_sessions=minimum_recent_sessions,
     )
     cards: list[dict[str, Any]] = []
+    discovery_snapshot_refs: list[str] = []
+    discovery_window_ids: list[str] = []
     if lane["candidate_cards_authorized"]:
         seen: set[str] = set()
         for raw in candidates[:2]:
@@ -76,6 +78,24 @@ def build_teacher_review_packet(
                 "source_refs": [str(x) for x in refs],
                 "observed_at": str(raw["observed_at"]),
             })
+            # Preserve the immutable discovery handoff when the upstream
+            # candidate came from the moving early-opportunity window.  The
+            # packet remains review-only; this is lineage, not approval.
+            for field, target in (
+                ("discovery_snapshot_ref", discovery_snapshot_refs),
+                ("window_id", discovery_window_ids),
+            ):
+                value = str(raw.get(field, "")).strip()
+                if value:
+                    cards[-1][field] = value
+                    target.append(value)
+            for field in (
+                "first_seen_at", "source_timestamp", "snapshot_hash",
+                "candidate_status", "actionability_status",
+            ):
+                value = str(raw.get(field, "")).strip()
+                if value:
+                    cards[-1][field] = value.upper() if field.endswith("status") else value
             # These three axes are optional for backwards-compatible packets,
             # but are preserved when the upstream classifier has supplied them.
             for field in ("attack_grade", "conviction", "risk_level"):
@@ -109,6 +129,17 @@ def build_teacher_review_packet(
         "mode": lane["mode"],
         "lane_assessment": lane,
         "candidate_cards": cards,
+        "discovery_handoff": {
+            "task_id": "early_opportunity_discovery",
+            "snapshot_refs": discovery_snapshot_refs,
+            "window_ids": discovery_window_ids,
+            "same_snapshot_required_for_teacher_and_xiaoyan": True,
+            "status": (
+                "LINKED_BUT_TOO_LATE"
+                if any(card.get("actionability_status", "").upper() in {"TOO_LATE", "WINDOW_MISSED", "LATE_HIGH_MOVE"} for card in cards)
+                else "LINKED" if discovery_snapshot_refs else "NOT_LINKED"
+            ),
+        },
         "opportunity_call": opportunity_call,
         "teacher_confirmation_required": True,
         "delivery": {"mode": "MANUAL_ONLY", "telegram_send_performed": False, "order_placed": False},

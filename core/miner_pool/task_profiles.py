@@ -35,6 +35,7 @@ OPENROUTER_CLAUDE = "openrouter:anthropic/claude-3.5-sonnet"
 SHENWEN_GROK_45 = "shenwen_grok:grok-4.5"
 SHENWEN_GROK_46 = "shenwen_grok:grok-4.6"
 SHENWEN_TERRA = "shenwen:gpt-5.6-terra"
+SHENWEN_ASTRA = "shenwen:gpt-6-astra"
 SHENWEN_GPT54_MINI = "shenwen:gpt-5.4-mini"
 
 
@@ -164,6 +165,7 @@ TASK_PROFILES: Dict[str, Dict[str, Any]] = {
         "max_tokens": 4096,
         "timeout": 240,
         "preferred_models": [
+            SHENWEN_TERRA,
             GLM_FLASH,
             ACE_GPT4O,
             GITHUB_GPT4O,
@@ -174,13 +176,19 @@ TASK_PROFILES: Dict[str, Dict[str, Any]] = {
             NIM_QWEN_397B,
         ],
         "strategy": "quality_first",
+        # Terra remains the default.  The router may prepend Astra only when
+        # the task envelope explicitly proves complex/high-risk work.
+        "escalation_models": [SHENWEN_ASTRA],
+        "routing_policy": "terra_default_astra_complex",
     },
     "strategic": {
         "description": "战略推理",
         "expected_model": "gpt-5.6-terra",
         "model_enabled": True,
         "allowed_providers": {"shenwen"},
-        "allowed_models": {SHENWEN_TERRA},
+        # Keep Terra as the historical baseline while allowing the governed
+        # complex-task escalation path to use Astra.
+        "allowed_models": {SHENWEN_TERRA, SHENWEN_ASTRA},
         "preferred_traits": ["strategic", "logical", "thorough"],
         "avoid_traits": ["fast_but_wrong", "superficial"],
         "temperature": 0.5,
@@ -189,6 +197,8 @@ TASK_PROFILES: Dict[str, Dict[str, Any]] = {
         "preferred_models": [SHENWEN_TERRA],
         "fallback_models": [],
         "strategy": "quality_first",
+        "escalation_models": [SHENWEN_ASTRA],
+        "routing_policy": "terra_default_astra_complex",
     },
     "execution": {
         "description": "执行推理",

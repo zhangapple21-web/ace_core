@@ -1,0 +1,65 @@
+{
+  "contract_version": "ace.semantic_seed.v1",
+  "food_kind": "semantic_seed",
+  "source_ref": "local_user_authorized_text:C:/tmp/小说题材/龙语人.txt",
+  "source_snapshot_hash": "C86FC74371202C83E4EDD3F7220A234CB1C4D033C2FD3C886399F03E1243EE6A",
+  "source_kind": "local_novel_text",
+  "rights_boundary": "license_unknown_do_not_publish_or_copy_verbatim",
+  "extracted_mechanism": "A visible absence (skilled people disappearing) points to a sealed institution; a stolen object becomes the key to locating it; several actors pursue incompatible motives; the reveal reframes the disappearance as coerced work rather than simple crime.",
+  "short_drama_ore": {
+    "premise_seed": "A craftsperson's family follows a stolen tool to a workshop that officially does not exist.",
+    "causal_beats": [
+      "A repeated disappearance leaves a specific occupational pattern.",
+      "A supposedly useless stolen object is recognized as a location key.",
+      "A guide with a political motive leads the search toward the hidden site.",
+      "The site contains missing workers whose status contradicts the public story.",
+      "The protagonists must choose rescue, exposure, or bargaining before the institution is destroyed."
+    ],
+    "conflict": "Rescueing the missing workers may expose a technology monopoly and trigger retaliation; the guide wants the same site used for a different political end.",
+    "originalization_rule": "Use new names, setting, object, institution, and dialogue; retain only the abstract causal mechanism."
+  },
+  "evidence_refs": [
+    {
+      "path": "C:/tmp/小说题材/龙语人.txt",
+      "lines": "3254-3254",
+      "fact": "The text states that skilled workers share a disappearance pattern and may be held at a hidden site."
+    },
+    {
+      "path": "C:/tmp/小说题材/龙语人.txt",
+      "lines": "2676-2694",
+      "fact": "The hidden city is described as sealed, technologically valuable, and politically weaponized."
+    },
+    {
+      "path": "C:/tmp/小说题材/龙语人.txt",
+      "lines": "3066-3070",
+      "fact": "The stolen object is used to infer the destination and motivate a direct pursuit."
+    },
+    {
+      "path": "C:/tmp/小说题材/龙语人.txt",
+      "lines": "4554-4556",
+      "fact": "The later reveal identifies the missing workers as secretly held and forced to research."
+    }
+  ],
+  "fact_inference_unknown": {
+    "FACT": "The source file and cited line ranges exist locally; the abstract mechanism is supported by multiple separated passages.",
+    "INFERENCE": "The mechanism can support a 5-10 beat original short-drama spine with a visible causal turn at the hidden-workshop reveal.",
+    "UNKNOWN": "Copyright/license status, audience suitability, and whether the mechanism can be rendered with current provider continuity remain unverified."
+  },
+  "ace_symptom": "The local novel shelf contains causal structures that are not yet indexed as reusable, rights-bounded research units.",
+  "transfer_hypothesis": "Indexing mechanism-level abstractions with line-bound evidence can expand the Free Zone's story options without copying protected text or creating production work.",
+  "counterexample_question": "Does the hidden-workshop spine remain intelligible when the reveal is delayed and all names, props, and institutions are replaced?",
+  "next_verification": "Draft a rights-clean 5-10 beat contract using entirely new entities, then run only a local continuity/schema check before any provider call.",
+  "local_evidence_refs": [
+    "C:/tmp/小说题材/龙语人.txt#SHA256:C86FC74371202C83E4EDD3F7220A234CB1C4D033C2FD3C886399F03E1243EE6A",
+    "C:/tmp/ace_core/agent_team/world_atlas_20260828/residents/living/free_zone_task_wall.v1.json#fz_video_kingdom_001"
+  ],
+  "lineage": [
+    "user_authorized_local_read",
+    "free_zone_only",
+    "metadata_only",
+    "production_integration=false",
+    "outbound_authority=false",
+    "no_provider_call",
+    "no_verbatim_copy"
+  ]
+}

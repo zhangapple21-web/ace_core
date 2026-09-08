@@ -511,3 +511,50 @@ class StockDiscoverySources:
             self.advisor_status_candidates,
             self.lexicon_gap_candidates,
         ]
+
+    def early_opportunity_snapshot(self, *, window: str, observed_at: datetime) -> Dict[str, Any]:
+        """Return an auditable observation envelope for the early-opportunity lane.
+
+        The current benchmark does not yet admit a full-market, fresh quote
+        universe.  In that state this method deliberately returns an empty
+        candidate set with the exact blocker instead of promoting the fixed
+        validation symbols or a stale ranking into a teacher pick.  Once the
+        stock-pool and quote gates are admitted, this is the single adapter
+        seam where a point-in-time forming-candidate selector can be attached.
+        """
+        benchmark = self._read_json(self.evidence_dir / "stock_data_benchmark_latest.json")
+        summary = benchmark.get("summary", {}) if isinstance(benchmark, dict) else {}
+        sources = summary.get("sources", {}) if isinstance(summary, dict) else {}
+        pool_ready = False
+        quote_ready = False
+        for metrics in sources.values() if isinstance(sources, dict) else []:
+            if not isinstance(metrics, dict):
+                continue
+            quality = metrics.get("operation_quality", {})
+            pool = quality.get("stock_pool", {}) if isinstance(quality, dict) else {}
+            quote = quality.get("quote", {}) if isinstance(quality, dict) else {}
+            pool_ready = pool_ready or all(float(pool.get(k, 0) or 0) >= 0.8 for k in (
+                "availability", "coverage", "field_completeness", "freshness"
+            ))
+            quote_ready = quote_ready or all(float(quote.get(k, 0) or 0) >= 0.8 for k in (
+                "availability", "coverage", "field_completeness", "freshness"
+            ))
+        if not pool_ready:
+            reason = "full_market_stock_pool_not_admitted"
+        elif not quote_ready:
+            reason = "fresh_quote_operation_not_admitted"
+        else:
+            reason = "forming_candidate_selector_not_yet_bound_to_admitted_pool"
+        return {
+            "schema_version": 1,
+            "task_version": "ace.early_opportunity_discovery.v1",
+            "window": window,
+            "observed_at": observed_at.isoformat(),
+            "source_timestamp": benchmark.get("completed_at") if isinstance(benchmark, dict) else None,
+            "source": str(self.evidence_dir / "stock_data_benchmark_latest.json"),
+            "status": "DATA_UNAVAILABLE",
+            "actionability_status": "RESEARCH_ONLY",
+            "candidates": [],
+            "reason": reason,
+            "evidence_refs": [str(self.evidence_dir / "stock_data_benchmark_latest.json")],
+        }

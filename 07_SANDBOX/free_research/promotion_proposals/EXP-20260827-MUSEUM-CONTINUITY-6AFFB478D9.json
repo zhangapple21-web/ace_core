@@ -1,0 +1,28 @@
+{
+  "contract_version": "ace.free_research_sandbox.v1",
+  "created_at": "2026-08-27T05:22:15.444047+00:00",
+  "distillation": {
+    "distillation_hash": "5da06d308507ea1533af6057b92f088187f18e487407a2c24045b69e7a8157ba",
+    "evidence_hash": "1586580e0d9deba597038e2353985bf473b3d0ee13b8731c40150ba67bce1b4d",
+    "executable": false,
+    "pattern": "When A verified historical daily-report series can justify a bounded, local museum-observation pulse without reviving any historical runtime., investigate via Read the allow-listed R1/R2 artifact inventory, compare historical execution evidence with code-only and superseded artifacts, and retain only safe semantics..",
+    "source_record_hash": "e900c11088ede6190719d12aeccab86bb432c65529365c414401b8e52d8b3ca3"
+  },
+  "experiment_id": "EXP-20260827-MUSEUM-CONTINUITY-6AFFB478D9",
+  "mode": "PROPOSAL_ONLY",
+  "prohibited_actions": [
+    "automatic_production_write",
+    "automatic_task_creation",
+    "automatic_delivery",
+    "automatic_order"
+  ],
+  "proposal_hash": "ec4c462d5d75fae1765630dbf4ddaa867cb4b7415b8b980bcb4f246b152c692e",
+  "reason": "human_and_governed_review_required",
+  "requires": [
+    "human_confirmation",
+    "existing_admission",
+    "existing_validator"
+  ],
+  "source_record_hash": "e900c11088ede6190719d12aeccab86bb432c65529365c414401b8e52d8b3ca3",
+  "status": "PROPOSAL_ONLY"
+}

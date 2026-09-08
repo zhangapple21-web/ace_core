@@ -1,0 +1,210 @@
+{
+  "version": "1.0",
+  "updated_at": "2026-08-27T22:05:54.624518",
+  "providers": [
+    {
+      "name": "oneapi",
+      "base_url": "http://localhost:3000/v1",
+      "api_key_env": "ONEAPI_KEY",
+      "status": "active",
+      "models": [
+        {
+          "provider": "oneapi",
+          "model_id": "gpt-5.4-mini",
+          "display_name": "OneAPI mapped GPT-4o",
+          "capabilities": ["chat"],
+          "context_window": 0,
+          "max_output": 0,
+          "status": "beta",
+          "verified": true,
+          "last_verified": "2026-09-02T18:01:00+08:00",
+          "last_verification_result": "PASS: local LiteLLM OpenAI-compatible gateway on 127.0.0.1:3000; /v1/models and chat completion succeeded",
+          "aliases": [],
+          "description": "Existing ACE OneAPI channel; candidate only until live health and chat probe pass",
+          "meta": {
+            "shadow_only": false,
+            "production_eligible": true
+          }
+        }
+      ],
+      "description": "Local OpenAI-compatible gateway for ACE automation; verified chat path",
+      "meta": {
+        "last_live_check": "2026-09-02",
+        "live_reachable": true,
+        "implementation": "LiteLLM proxy",
+        "listen": "127.0.0.1:3000"
+      }
+    },
+    {
+      "name": "openrouter",
+      "base_url": "https://openrouter.ai/api/v1",
+      "api_key_env": "",
+      "status": "active",
+      "models": [
+        {
+          "provider": "openrouter",
+          "model_id": "x-ai/grok-4.5",
+          "display_name": "Grok 4.5",
+          "capabilities": [],
+          "context_window": 0,
+          "max_output": 0,
+          "status": "deprecated",
+          "verified": false,
+          "last_verified": "",
+          "last_verification_result": "",
+          "aliases": [],
+          "description": "",
+          "meta": {
+            "shadow_only": true,
+            "production_eligible": false,
+            "deprecation_reason": "superseded: direct Shenwen probe selected; not configured for this rollout",
+            "deprecated_at": "2026-08-26T15:58:26.830814"
+          }
+        },
+        {
+          "provider": "openrouter",
+          "model_id": "x-ai/grok-4.6",
+          "display_name": "Grok 4.6",
+          "capabilities": [],
+          "context_window": 0,
+          "max_output": 0,
+          "status": "deprecated",
+          "verified": false,
+          "last_verified": "",
+          "last_verification_result": "",
+          "aliases": [],
+          "description": "",
+          "meta": {
+            "shadow_only": true,
+            "production_eligible": false,
+            "deprecation_reason": "superseded: direct Shenwen probe selected; not configured for this rollout",
+            "deprecated_at": "2026-08-26T15:58:26.830814"
+          }
+        }
+      ],
+      "description": "OpenRouter Grok candidates; shadow evaluation only",
+      "meta": {}
+    },
+    {
+      "name": "shenwen",
+      "base_url": "https://api.shenwenai.com/v1",
+      "api_key_env": "",
+      "status": "active",
+      "models": [
+        {
+          "provider": "shenwen",
+          "model_id": "gpt-6-astra",
+          "display_name": "GPT-6 Astra",
+          "capabilities": ["deep_reasoning", "complex_planning", "architecture", "coding"],
+          "context_window": 0,
+          "max_output": 0,
+          "status": "beta",
+          "verified": true,
+          "last_verified": "2026-09-08",
+          "last_verification_result": "PASS: direct Shenwen provider /models and minimal Chat Completions probe succeeded; usage returned",
+          "aliases": [],
+          "description": "Complex-task escalation candidate; not the default route until paired evaluation evidence is complete",
+          "meta": {
+            "shadow_only": false,
+            "production_eligible": false,
+            "route_state": "POC_COMPLEX_ESCALATION",
+            "verification_scope": "direct_provider_probe",
+            "local_gateway_probe": "PASS: 127.0.0.1:3002/v1 /models=200 and /responses=200 for gpt-6-astra; /chat/completions is intentionally unsupported",
+            "local_gateway_protocol": "responses",
+            "local_gateway_latency_ms": 14835
+          }
+        },
+        {
+          "provider": "shenwen",
+          "model_id": "grok-4.5",
+          "display_name": "Grok 4.5",
+          "capabilities": [],
+          "context_window": 0,
+          "max_output": 0,
+          "status": "deprecated",
+          "verified": false,
+          "last_verified": "2026-08-26T15:58:16.051295",
+          "last_verification_result": "UNSUPPORTED_MODEL: Shenwen /models and chat probe do not advertise this model",
+          "aliases": [],
+          "description": "",
+          "meta": {
+            "shadow_only": true,
+            "production_eligible": false,
+            "deprecation_reason": "superseded: Grok Heavy requires dedicated shenwen_grok provider",
+            "deprecated_at": "2026-08-26T16:09:45.389484"
+          }
+        },
+        {
+          "provider": "shenwen",
+          "model_id": "grok-4.6",
+          "display_name": "Grok 4.6",
+          "capabilities": [],
+          "context_window": 0,
+          "max_output": 0,
+          "status": "deprecated",
+          "verified": false,
+          "last_verified": "2026-08-26T15:58:16.051295",
+          "last_verification_result": "UNSUPPORTED_MODEL: Shenwen /models and chat probe do not advertise this model",
+          "aliases": [],
+          "description": "",
+          "meta": {
+            "shadow_only": true,
+            "production_eligible": false,
+            "deprecation_reason": "superseded: Grok Heavy requires dedicated shenwen_grok provider",
+            "deprecated_at": "2026-08-26T16:09:45.390985"
+          }
+        }
+      ],
+      "description": "Shenwen channel; Terra remains default and Astra is a complex-task escalation candidate",
+      "meta": {}
+    },
+    {
+      "name": "shenwen_grok",
+      "base_url": "https://api.shenwenai.com/v1",
+      "api_key_env": "",
+      "status": "active",
+      "models": [
+        {
+          "provider": "shenwen_grok",
+          "model_id": "grok-4.5",
+          "display_name": "Grok 4.5",
+          "capabilities": [],
+          "context_window": 0,
+          "max_output": 0,
+          "status": "beta",
+          "verified": true,
+          "last_verified": "2026-08-27T22:05:54.624518",
+          "last_verification_result": "dialogue_probe_success; resolved_model=grok-4.5-build; one_attempt; provider_cost_ticks=3306160",
+          "aliases": [],
+          "description": "",
+          "meta": {
+            "shadow_only": true,
+            "production_eligible": false
+          }
+        },
+        {
+          "provider": "shenwen_grok",
+          "model_id": "grok-4.6",
+          "display_name": "Grok 4.6",
+          "capabilities": [],
+          "context_window": 0,
+          "max_output": 0,
+          "status": "beta",
+          "verified": true,
+          "last_verified": "2026-08-26T16:04:20.322561",
+          "last_verification_result": "PASS: /models and chat probe succeeded; usage returned",
+          "aliases": [],
+          "description": "",
+          "meta": {
+            "shadow_only": true,
+            "production_eligible": false
+          }
+        }
+      ],
+      "description": "Shenwen Grok Heavy channel; shadow evaluation only",
+      "meta": {}
+    }
+  ],
+  "total_providers": 4,
+  "total_models": 8
+}

@@ -28,7 +28,8 @@ MinerPool 不负责思考。
 from .credential_manager import CredentialManager
 from .miner_pool import MinerPool
 from .model_router import ModelRouter
-from .task_profiles import TASK_PROFILES, get_task_profile, list_task_types
+from .task_profiles import TASK_PROFILES, get_task_profile, list_task_types, SHENWEN_ASTRA
+from .capability_routing import CapabilityEvidenceLedger, MODEL_CAPABILITIES
 from .integration import (
     ResearcherWithMinerPool,
     ValidatorWithMinerPool,
@@ -44,6 +45,9 @@ __all__ = [
     "TASK_PROFILES",
     "get_task_profile",
     "list_task_types",
+    "SHENWEN_ASTRA",
+    "CapabilityEvidenceLedger",
+    "MODEL_CAPABILITIES",
     "ResearcherWithMinerPool",
     "ValidatorWithMinerPool",
     "ArchivistWithMinerPool",

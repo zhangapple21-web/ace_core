@@ -262,14 +262,30 @@ class CredentialManager:
             )
 
         # OneAPI
-        oneapi_token = self._extract_pattern(
-            content,
-            r"OneAPI[\s\S]*?Token-miner:\s*`?([\w]+)",
-            group=1,
+        # Accept both the historical English labels and the current private
+        # asset labels.  The latter deliberately selects the miner token, not
+        # the admin token; values are kept in memory only for provider use and
+        # never exposed in stats or route receipts.
+        oneapi_token = (
+            self._extract_pattern(
+                content,
+                r"One\s*API[\s\S]*?Token-miner:\s*`?([^\s`]+)",
+                group=1,
+            )
+            or self._extract_pattern(
+                content,
+                r"One\s*API[\s\S]*?有效API\s*token\(miner-token\):\s*`?([^\s`]+)",
+                group=1,
+            )
+            or self._extract_pattern(
+                content,
+                r"One\s*API[\s\S]*?有效API\s*token\(miner-v2\):\s*`?([^\s`]+)",
+                group=1,
+            )
         )
         oneapi_base = self._extract_pattern(
             content,
-            r"OneAPI[\s\S]*?地址:\s*`?(https?://[^\s`]+)",
+            r"One\s*API[\s\S]*?地址:\s*`?(https?://[^\s`]+)",
             group=1,
             default="http://localhost:3000",
         )

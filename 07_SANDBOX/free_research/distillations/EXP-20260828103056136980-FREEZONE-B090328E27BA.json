@@ -1,0 +1,25 @@
+{
+  "automatic_delivery": false,
+  "automatic_promotion": false,
+  "automatic_task_creation": false,
+  "contract_version": "ace.free_research_sandbox.v1",
+  "created_at": "2026-08-28T10:31:04.955035+00:00",
+  "distillation_hash": "24c94d8402254d01a6b607e9ad978099e413c9486c6ab8555ac2b5ac69b5ebf7",
+  "evidence_hash": "99513cbbd2bedb72d52ac7612287163580a44284bbb87380f6504e0c520f9710",
+  "experiment_id": "EXP-20260828103056136980-FREEZONE-B090328E27BA",
+  "mode": "DISTILLATION_ONLY",
+  "outcome": "PASS",
+  "pattern": "When A verified historical daily-report series can justify a bounded, local museum-observation pulse without reviving any historical runtime., investigate via Re-check the retained allow-listed inventory, its hash, report-series count, and explicit non-actions as an isolated free-zone historical probe..",
+  "production_integration": false,
+  "realm_state": {
+    "authority": "GOVERNED",
+    "contract_version": "ace.free_zone_realm.v1",
+    "outbound_rule": "EXISTING_ADMISSION",
+    "production_integration": false,
+    "realm": "SHADOW",
+    "retention": "SEED"
+  },
+  "reason": "clean_pass_available_for_later_review",
+  "source_record_hash": "3fa04501802f2c1bb0210d9905f651a83bfe005259d42d846c535ed7dabfba6a",
+  "status": "PROPOSAL_ONLY"
+}

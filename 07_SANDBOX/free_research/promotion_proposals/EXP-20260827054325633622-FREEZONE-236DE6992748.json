@@ -1,0 +1,28 @@
+{
+  "contract_version": "ace.free_research_sandbox.v1",
+  "created_at": "2026-08-27T05:43:26.058488+00:00",
+  "distillation": {
+    "distillation_hash": "e8ee73e8b7614bde1e8121440bbe8924f7471b19c0a7f68cd2e50e8f8762de3d",
+    "evidence_hash": "3142bd2a55ce7173c068cad8fcbd68752b19beafe8837e12a16d0434cbb79a22",
+    "executable": false,
+    "pattern": "When A quiet observation window is valid when no evidence-backed work exists; activity must not be manufactured to prove that the system is alive., investigate via Run the local ECO-06 ecological probe and retain its observed outcome..",
+    "source_record_hash": "628e02c6f7d94fabfcbf401dbf25c61b8be02cc6648b15c5b1726908a8a5d05d"
+  },
+  "experiment_id": "EXP-20260827054325633622-FREEZONE-236DE6992748",
+  "mode": "PROPOSAL_ONLY",
+  "prohibited_actions": [
+    "automatic_production_write",
+    "automatic_task_creation",
+    "automatic_delivery",
+    "automatic_order"
+  ],
+  "proposal_hash": "27bc17f5690c5e4ca7cab9a9266ffa03babba043795ff8e05b92dbf0aae9a80b",
+  "reason": "human_and_governed_review_required",
+  "requires": [
+    "human_confirmation",
+    "existing_admission",
+    "existing_validator"
+  ],
+  "source_record_hash": "628e02c6f7d94fabfcbf401dbf25c61b8be02cc6648b15c5b1726908a8a5d05d",
+  "status": "PROPOSAL_ONLY"
+}

@@ -150,11 +150,22 @@ def _record_model_execution(
         # request/response/billing identifier and never backfilled on history.
         trace["ace_local_run_id"] = ace_local_run_id.strip()
     try:
+        envelope = task.outputs.get("execution_discipline", {}) if isinstance(task.outputs, dict) else {}
+        routing_context = {
+            "task_id": task.task_id,
+            "title": task.title,
+            "priority": task.priority,
+            "tags": list(task.tags or []),
+            "complexity": envelope.get("complexity") if isinstance(envelope, dict) else None,
+            "execution_discipline": envelope if isinstance(envelope, dict) else {},
+            "depends_on": list(task.depends_on or []),
+        }
         response = llm_router.chat(
             task_type=task_type,
             messages=[{"role": "user", "content": prompt}],
             system_prompt="Return concise task analysis grounded in the supplied task context.",
             max_retries=3,
+            task_context=routing_context,
         )
     except Exception as error:
         response = {"success": False, "error": str(error)}
@@ -166,6 +177,10 @@ def _record_model_execution(
     trace["cost"] = dict(response.get("cost", {}))
     trace["latency_ms"] = response.get("latency_ms", 0)
     trace["attempts"] = list(response.get("attempts", []))
+    if isinstance(response.get("routing"), dict):
+        trace["router_decision"] = dict(response["routing"])
+    trace["capability"] = str(response.get("capability", ""))
+    trace["routing_complexity"] = str(response.get("complexity", ""))
     trace["fallback_chain"] = list(trace["tried_models"])
     trace["fallback"] = len(trace["tried_models"]) > 1
     if not trace["selected_model"] and trace["tried_models"]:

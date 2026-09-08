@@ -26,7 +26,8 @@ from datetime import datetime
 
 from .credential_manager import CredentialManager, ProviderCredential
 from .model_router import ModelRouter, ModelSpec
-from .task_profiles import get_task_profile
+from .capability_routing import CapabilityEvidenceLedger, capability_for_task, infer_complexity
+from .task_profiles import get_task_profile, list_task_types
 from .provider_watchdog import ProviderWatchdog
 from .providers.openai_compatible import (
     NIMProvider,
@@ -79,8 +80,14 @@ class MinerPool:
     ):
         self._credential_mgr = credential_manager or CredentialManager(coze_assets_path)
         self._providers: Dict[str, OpenAICompatibleProvider] = {}
-        self._router = ModelRouter()
         self._state_dir = Path(state_dir) if state_dir else None
+        self._routing_ledger = CapabilityEvidenceLedger(
+            str(self._state_dir) if self._state_dir else None
+        )
+        self._routing_ledger.ensure_capabilities(
+            capability_for_task(task_type) for task_type in list_task_types()
+        )
+        self._router = ModelRouter(evidence_ledger=self._routing_ledger)
         self._watchdog: Optional[ProviderWatchdog] = None
         self._initialized = False
 
@@ -102,6 +109,7 @@ class MinerPool:
             # 初始化 Watchdog
             watchdog_dir = self._state_dir / "provider_watchdog" if self._state_dir else None
             self._watchdog = ProviderWatchdog(state_dir=str(watchdog_dir) if watchdog_dir else None)
+            self._router.set_watchdog(self._watchdog)
 
             for provider_name in available:
                 cred = self._credential_mgr.get(provider_name)
@@ -143,11 +151,32 @@ class MinerPool:
         """获取 Watchdog 实例"""
         return self._watchdog
 
+    @property
+    def router(self) -> ModelRouter:
+        """Return the single routing authority owned by this pool."""
+        return self._router
+
     def get_health_stats(self) -> Dict[str, Any]:
         """获取 Provider 健康统计"""
         if self._watchdog:
             return self._watchdog.get_stats()
         return {"error": "watchdog not initialized"}
+
+    def get_capability_routing_snapshot(self) -> Dict[str, Any]:
+        """Expose the task -> capability -> labour view for audit/UI use."""
+
+        return {
+            "schema_version": "ace.capability-routing.v1",
+            "system_status": "AUTONOMOUS_CAPABILITY_ROUTING_POC_READY",
+            "promotion_status": "PRODUCTION_MODEL_ROUTING_NOT_YET_PROMOTED",
+            "default_model": "shenwen:gpt-5.6-terra",
+            "complex_escalation_model": "shenwen:gpt-6-astra",
+            "providers": self.available_providers,
+            "watchdog": self._router._watchdog_snapshot(),
+            "router_stats": self._router.get_stats(),
+            "evidence": self._routing_ledger.snapshot(),
+            "evidence_readiness": self._routing_ledger.readiness_snapshot(),
+        }
 
     def run_health_check(self) -> Dict[str, Any]:
         """执行全量 Provider 健康检查"""
@@ -296,8 +325,24 @@ class MinerPool:
             "task_type": task_type,
         }
 
+        # Routing metadata is a first-class result.  It contains no prompt or
+        # secret and is safe to persist in the task execution trace.
+        task_context = kwargs.pop("task_context", None)
+        requested_complexity = kwargs.pop("complexity", None)
+        route_decision = self._router.resolve_route(
+            task_type,
+            task_context=task_context,
+            complexity=requested_complexity,
+        )
+        result["routing"] = route_decision
+        result["capability"] = capability_for_task(task_type)
+        result["complexity"] = infer_complexity(
+            task_type, task_context, requested_complexity
+        )[0]
+
         if not self._providers:
             result["error"] = "no available providers"
+            result["routing"]["selected_route_state"] = "NO_CONFIGURED_PROVIDER"
             return result
 
         # 准备 messages
@@ -341,6 +386,8 @@ class MinerPool:
                     exclude_models=tried,
                     exclude_providers=excluded_providers,
                     include_shadow=include_shadow,
+                    task_context=task_context,
+                    complexity=requested_complexity,
                 )
                 if not spec:
                     last_error = last_error or "no available models for this task type"
@@ -380,6 +427,12 @@ class MinerPool:
             latency_ms = call_result.get("latency_ms", 0)
             error = call_result.get("error", "")
             retryable = not success and self._is_retryable_error(error)
+            call_cost = {}
+            if success and spec.provider in {"shenwen", "shenwen_grok"}:
+                call_cost = self._shenwen_cost(
+                    call_result.get("model", spec.model),
+                    call_result.get("usage", {}),
+                )
             result["attempts"].append({
                 "number": attempt + 1,
                 "model": spec.full_id,
@@ -395,6 +448,11 @@ class MinerPool:
                 task_type=task_type,
                 success=success,
                 latency_ms=latency_ms,
+                provider=spec.provider,
+                usage=call_result.get("usage", {}),
+                cost=call_cost,
+                attempts=result["attempts"],
+                route_state=spec.route_state,
             )
 
             if success:
@@ -404,9 +462,18 @@ class MinerPool:
                 result["provider"] = spec.provider
                 result["usage"] = call_result.get("usage", {})
                 if spec.provider in {"shenwen", "shenwen_grok"}:
-                    result["cost"] = self._shenwen_cost(result["model"], result["usage"])
+                    result["cost"] = call_cost
                 result["latency_ms"] = latency_ms
                 result["tried_models"] = tried
+                result["routing"] = self._router.resolve_route(
+                    task_type,
+                    task_context=task_context,
+                    complexity=requested_complexity,
+                    exclude_models=[],
+                )
+                result["routing"]["selected_labor"] = spec.full_id
+                result["routing"]["selected_route_state"] = spec.route_state
+                result["routing"]["fallback_chain"] = list(tried)
                 self._router.mark_model_health(spec.full_id, True)
                 if self._watchdog:
                     self._watchdog.record_success(spec.provider, latency_ms)
@@ -416,6 +483,14 @@ class MinerPool:
             if self._watchdog:
                 self._watchdog.record_failure(spec.provider, last_error)
             if retryable and attempt + 1 < max_retries:
+                # Give an escalation labour one bounded retry, then release
+                # it so the normal Terra fallback can be selected.  Historical
+                # execution profiles keep their existing same-model retry
+                # semantics.
+                if spec.route_state == "POC_COMPLEX_ESCALATION" and attempt >= 1:
+                    self._router.mark_model_health(spec.full_id, False)
+                    spec = None
+                    continue
                 time.sleep(2 ** attempt)
                 continue
             if retryable:
@@ -427,6 +502,9 @@ class MinerPool:
 
         result["error"] = last_error
         result["tried_models"] = tried
+        result["routing"]["fallback_chain"] = list(tried)
+        result["routing"]["selected_labor"] = tried[-1] if tried else None
+        result["routing"]["selected_route_state"] = "FAILED"
         return result
 
     def multi_chat(

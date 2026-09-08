@@ -1,0 +1,39 @@
+{
+  "contract_version": "ace.museum_archaeology_turn.v1",
+  "court_status": "DEFERRED_TO_OUTBOUND_DISTILLATION",
+  "event": "MUSEUM_FOOD_RECORDED",
+  "food_path": "C:\\tmp\\ace_core\\07_SANDBOX\\free_research\\inbox\\museum_continuity_54ad229da85c.json",
+  "generated_at": "2026-08-28T10:30:47.227358+00:00",
+  "inventory_sha256": "54ad229da85c7ac89087a88b292c520170f6e3bba48aaa09e2eae90372687c33",
+  "inventory_summary": {
+    "artifact_count": 11,
+    "by_disposition": {
+      "ABSORB": 1,
+      "ADAPT": 3,
+      "CONFLICT": 2,
+      "DUPLICATE": 1,
+      "REDUNDANT": 2,
+      "REJECT": 2
+    },
+    "by_fragment_type": {
+      "CONTINUITY_EVIDENCE": 3,
+      "ECOLOGY_CONSTITUTION": 3,
+      "FAILURE_CASE": 1,
+      "ROLE_DOSSIER": 2,
+      "RUN_TRACE": 3,
+      "TOOL_RELIC": 4
+    },
+    "by_status": {
+      "CODE_ONLY": 4,
+      "DESIGN_ONLY": 1,
+      "HISTORICAL_EXECUTED": 4,
+      "SUPERSEDED": 2
+    },
+    "historical_daily_report_count": 19,
+    "present_artifact_count": 11
+  },
+  "mode": "FREE_RESEARCH_ONLY",
+  "museum_role": "INBOUND_FOOD_ONLY",
+  "production_integration": false,
+  "teacher_queue_count": null
+}

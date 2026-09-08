@@ -1,0 +1,25 @@
+{
+  "automatic_delivery": false,
+  "automatic_promotion": false,
+  "automatic_task_creation": false,
+  "contract_version": "ace.free_research_sandbox.v1",
+  "created_at": "2026-09-05T10:32:48.731449+00:00",
+  "distillation_hash": "3e98eb3f42d65bec742f0ef311295039ead177e74b46eb6f2e3acff3de142916",
+  "evidence_hash": "1bc821f048d7a6d95913e5bb555d3abe9460144b7241ebec991f26fac5ed2721",
+  "experiment_id": "EXP-MODEL-6AD8FA30225C44D4",
+  "mode": "DISTILLATION_ONLY",
+  "outcome": "FAIL",
+  "pattern": "When A research-only attestation envelope can make absence, expiry, invalidity, and unverifiability explicit without changing Admission or claiming hardware-backed data provenance., investigate via Compare public attestation claim schemas with a fixture-only envelope containing verifier identity, measurement, nonce, expiry, signature status, and bound payload hash; classify all absent hardware as UNVERIFIED..",
+  "production_integration": false,
+  "realm_state": {
+    "authority": "SANDBOX_ONLY",
+    "contract_version": "ace.free_zone_realm.v1",
+    "outbound_rule": "REOBSERVE",
+    "production_integration": false,
+    "realm": "SHADOW",
+    "retention": "SEED"
+  },
+  "reason": "failed_hypothesis_retained_as_material",
+  "source_record_hash": "0119ebfb7c8c95cc48961fede93873854eea6d18cc9903e13d2d0b074e258e18",
+  "status": "COUNTEREXAMPLE_ONLY"
+}

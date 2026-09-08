@@ -1,0 +1,21 @@
+{
+  "adaptable_artifact_ids": [
+    "R2_DAILY_KNOWLEDGE_REPORTS",
+    "R2_KNOWLEDGE_SHIFT_ECHO",
+    "R1_R2_DAILY_ARCHAEOLOGY",
+    "R1_ENVIRONMENT_AWARENESS"
+  ],
+  "food_kind": "museum_history",
+  "historical_daily_report_count": 19,
+  "hypothesis": "A verified historical daily-report series can justify a bounded, local museum-observation pulse without reviving any historical runtime.",
+  "inventory_contract": "ace.museum_archaeology_inventory.v1",
+  "inventory_report": "C:\\tmp\\ace_core\\07_SANDBOX\\free_research\\reports\\museum_archaeology_inventory_54ad229da85c.json",
+  "inventory_sha256": "54ad229da85c7ac89087a88b292c520170f6e3bba48aaa09e2eae90372687c33",
+  "method": "Re-check the retained allow-listed inventory, its hash, report-series count, and explicit non-actions as an isolated free-zone historical probe.",
+  "mode": "FREE_RESEARCH_ONLY",
+  "non_actions": [
+    "No historical daemon, scheduler, heartbeat, advisor, Telegram sender, broker, model call, or production config is started or changed.",
+    "No historical narrative is treated as current market, runtime, or recommendation evidence."
+  ],
+  "production_integration": false
+}

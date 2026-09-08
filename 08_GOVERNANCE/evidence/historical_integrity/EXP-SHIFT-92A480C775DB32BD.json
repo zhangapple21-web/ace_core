@@ -1,0 +1,24 @@
+{
+  "append_only": true,
+  "anomaly_id": "HIA-20260831-EXP-SHIFT-92A480C775DB32BD",
+  "artifact_id": "EXP-SHIFT-92A480C775DB32BD",
+  "artifact_path": "07_SANDBOX/free_research/distillations/EXP-SHIFT-92A480C775DB32BD.json",
+  "classification": "ARCHIVED_INVALID_HERITAGE",
+  "contract_version": "ace.historical_integrity_registry.v1",
+  "court_policy": "continue_reporting_invalid; do_not_suppress_hash_failure",
+  "declaration_hash": "001b68034177b91bbb3221edf0dea1098e4dd7e321141cbfb24f369eb9003d01",
+  "evidence_refs": [
+    "research://sandbox-turn/20260831",
+    "research://hash-replay/EXP-SHIFT-92A480C775DB32BD",
+    "outputs/research_briefs/ACE_FACTOR_CONTRACT_LIVE_TURN_20260831.md"
+  ],
+  "observed_at": "2026-08-31T11:29:26+08:00",
+  "production_integration": false,
+  "promotion_eligible": false,
+  "reason": "historical distillation hash differs from replayed canonical digest; preserve original artifact and keep Court INVALID visible",
+  "recomputed_hash": "d997fe363f4174c76def025ac65749162f486cce4b17e4bd9b8e29d6c2dee508",
+  "skip_court_validation": false,
+  "source_record_hash": "a6552a722657c5ba772c8acf5d62a54f448d4df7e12a7a366256d9c3805ce03a",
+  "stored_hash": "39621d4b3758243b18823b3cfcb3f493791a586bc1919647140a4feeb0bbdf67",
+  "mode": "HISTORICAL_ARCHAEOLOGY_ONLY"
+}

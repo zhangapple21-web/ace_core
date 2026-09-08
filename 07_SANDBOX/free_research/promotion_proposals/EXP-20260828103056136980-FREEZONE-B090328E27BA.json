@@ -1,0 +1,28 @@
+{
+  "contract_version": "ace.free_research_sandbox.v1",
+  "created_at": "2026-08-28T10:31:04.957578+00:00",
+  "distillation": {
+    "distillation_hash": "24c94d8402254d01a6b607e9ad978099e413c9486c6ab8555ac2b5ac69b5ebf7",
+    "evidence_hash": "99513cbbd2bedb72d52ac7612287163580a44284bbb87380f6504e0c520f9710",
+    "executable": false,
+    "pattern": "When A verified historical daily-report series can justify a bounded, local museum-observation pulse without reviving any historical runtime., investigate via Re-check the retained allow-listed inventory, its hash, report-series count, and explicit non-actions as an isolated free-zone historical probe..",
+    "source_record_hash": "3fa04501802f2c1bb0210d9905f651a83bfe005259d42d846c535ed7dabfba6a"
+  },
+  "experiment_id": "EXP-20260828103056136980-FREEZONE-B090328E27BA",
+  "mode": "PROPOSAL_ONLY",
+  "prohibited_actions": [
+    "automatic_production_write",
+    "automatic_task_creation",
+    "automatic_delivery",
+    "automatic_order"
+  ],
+  "proposal_hash": "e2e8b327a1d3c46e86842d4af94a04cac13d4310146a3d1fd934b3117a4ce501",
+  "reason": "human_and_governed_review_required",
+  "requires": [
+    "human_confirmation",
+    "existing_admission",
+    "existing_validator"
+  ],
+  "source_record_hash": "3fa04501802f2c1bb0210d9905f651a83bfe005259d42d846c535ed7dabfba6a",
+  "status": "PROPOSAL_ONLY"
+}

@@ -1,0 +1,25 @@
+{
+  "automatic_delivery": false,
+  "automatic_promotion": false,
+  "automatic_task_creation": false,
+  "contract_version": "ace.free_research_sandbox.v1",
+  "created_at": "2026-09-05T12:07:15.900695+00:00",
+  "distillation_hash": "a56aad808e838ff8def55baa40bb724daf6d9a5bf1a58915d7f6e82ab51d1478",
+  "evidence_hash": "9f0409b326718f074b6180e19fe4906e70d171236b70bee7ef502e42c0e8ffe1",
+  "experiment_id": "EXP-MODEL-898A05764556A021",
+  "mode": "DISTILLATION_ONLY",
+  "outcome": "FAIL",
+  "pattern": "When If a Free Zone learning seed records one named capability gap, one falsifiable question, and one next verification, then repeated evening turns can revisit the gap when evidence changes without turning a course list or model-call quota into TaskPool work., investigate via At a future dedicated Free Zone shift, verify that the seed is handled only as sandbox material, that any resulting experiment retains this source hash, and that a later re-observation requires a distinct evidence change or preserved counterexample rather than daily repetition..",
+  "production_integration": false,
+  "realm_state": {
+    "authority": "SANDBOX_ONLY",
+    "contract_version": "ace.free_zone_realm.v1",
+    "outbound_rule": "REOBSERVE",
+    "production_integration": false,
+    "realm": "SHADOW",
+    "retention": "SEED"
+  },
+  "reason": "failed_hypothesis_retained_as_material",
+  "source_record_hash": "829767ceb37669f1a6a649047e137be4fc575d7784e630628c5db9d2595993d7",
+  "status": "COUNTEREXAMPLE_ONLY"
+}
