@@ -1,0 +1,25 @@
+{
+  "automatic_delivery": false,
+  "automatic_promotion": false,
+  "automatic_task_creation": false,
+  "contract_version": "ace.free_research_sandbox.v1",
+  "created_at": "2026-09-06T10:35:51.228024+00:00",
+  "distillation_hash": "5d5b0c1c014cb8694e245585a9cf5e97895cf1ab6262de31f9eb67864a0aa144",
+  "evidence_hash": "238987061aaec4b79459613b7b41679f69506f7812b131346bcf03744820e632",
+  "experiment_id": "EXP-MODEL-4E0C5F391483B713",
+  "mode": "DISTILLATION_ONLY",
+  "outcome": "FAIL",
+  "pattern": "When A deterministic offline failure index can surface recurrence, freshness, independent-origin count, and unresolved counterexamples as research-only re-observation prompts without invoking a model or modifying Risk., investigate via First identify independently sourced INVALID and counterexample receipts, then build fixture-only recurrence and recovery cases; retain the RaMem/Fujitsu/CMU attribution as UNKNOWN until primary sources are found..",
+  "production_integration": false,
+  "realm_state": {
+    "authority": "SANDBOX_ONLY",
+    "contract_version": "ace.free_zone_realm.v1",
+    "outbound_rule": "REOBSERVE",
+    "production_integration": false,
+    "realm": "SHADOW",
+    "retention": "SEED"
+  },
+  "reason": "failed_hypothesis_retained_as_material",
+  "source_record_hash": "ed946b05033c6a5d3731675702d3bb2ca52138ed4a846dc10b666becd93a440b",
+  "status": "COUNTEREXAMPLE_ONLY"
+}

@@ -1,0 +1,17 @@
+{
+  "automatic_delivery": false,
+  "automatic_promotion": false,
+  "automatic_task_creation": false,
+  "contract_version": "ace.free_research_sandbox.v1",
+  "created_at": "2026-08-27T05:24:10.844090+00:00",
+  "distillation_hash": "9936c423ec0990e77f6530320ec7caaff9bb359e2040c134252e77e6e2fa984a",
+  "evidence_hash": "9ca68d2b332b738b33797454e52c33cb8f2fce237970f4cc5dda4877f7f221df",
+  "experiment_id": "EXP-20260827052410738737-FREEZONE-AE77F029A17F",
+  "mode": "DISTILLATION_ONLY",
+  "outcome": "PASS",
+  "pattern": "When Distill experience into portable principles and seeds; do not copy historical implementation details as if they were the constitution., investigate via Run the local ECO-04 ecological probe and retain its observed outcome..",
+  "production_integration": false,
+  "reason": "clean_pass_available_for_later_review",
+  "source_record_hash": "8de211b8714dcf9796d26f1f5169e83ed54e7b113494ed739254aab8740b377a",
+  "status": "PROPOSAL_ONLY"
+}

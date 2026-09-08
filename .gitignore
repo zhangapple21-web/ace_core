@@ -43,3 +43,25 @@ task_pool/
 data/
 nodes/
 ace_core_local/
+
+# Local-only coordination and transient execution material.  Canonical
+# protocols, source, tests, receipts and bounded research records remain
+# versioned; these files are rebuildable or contain host-specific state.
+.task_creator_history.json
+.workspace.write.lock
+runtime/
+media_staging/
+episodes/
+temp_*.ps1
+outputs/*.log.err
+outputs/test_runs/
+outputs/grok45_probe_state/
+outputs/research_briefs/
+outputs/*.png
+07_SANDBOX/free_research/autonomy_state.json
+07_SANDBOX/free_research/model_shift_state.json
+07_SANDBOX/free_research/experiments/
+07_SANDBOX/free_research/factories/
+07_SANDBOX/free_research/lazy_cat/
+agent_team/
+archaeology/legacy_runtime/

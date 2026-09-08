@@ -1,0 +1,15 @@
+{
+  "contract_version": "ace.semantic_seed.v1",
+  "food_kind": "semantic_seed",
+  "source_ref": "user_authorized_input:2026-09-01:adapter-mutation-research",
+  "source_snapshot_hash": "e644c0cd253b52c8f72e5dad7f049744f5babbc70f510aa29c4bad2d785b4bd3",
+  "source_kind": "user_authorized_research_input",
+  "extracted_mechanism": "A proposed adapter-only diff is applied only to a disposable sandbox copy, then checked against a hash-bound regression manifest with no production write path.",
+  "ace_symptom": "ACE has sandbox counterexample and test-batch evidence, but no dedicated research contract for source-level adapter mutation proposals.",
+  "transfer_hypothesis": "A disposable-copy mutation probe can preserve evolutionary exploration while rejecting regression, timeout, path-escape, or network-dependent proposals as EVOLUTION_REJECTED.",
+  "counterexample_question": "Can an apparently harmless adapter diff alter a protected import, reach a forbidden path, or pass a partial test selection while failing the declared full manifest?",
+  "next_verification": "Map existing adapter boundaries and test-batch receipts; design a fixture-only RED case for path escape and incomplete manifest coverage before any sandbox executor is proposed.",
+  "local_evidence_refs": ["core/free_research_sandbox.py", "ops/run_test_batches.py", "core/governance/stable_kernel.py"],
+  "external_evidence_refs": [],
+  "lineage": ["user_authorized_input", "free_zone_only", "no_automatic_merge", "no_taskpool_mutation"]
+}

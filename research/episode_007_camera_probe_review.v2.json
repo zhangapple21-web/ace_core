@@ -1,0 +1,79 @@
+{
+  "project_id": "episode_007_virtual_data",
+  "source": "episode_007_camera_probe_v2",
+  "review_basis": {
+    "method": "ffprobe plus 5-frame contact sheets at approximately 0,2,4,6,8 seconds",
+    "rules": [
+      "对白时固定机位，人物完成台词后再切",
+      "动作镜头只允许一个主要运动方向",
+      "动作必须有准备、发力、惯性/回收",
+      "首帧必须是场景动作状态，不得暴露孤立肖像"
+    ],
+    "external_reference_checked": "https://agnes-ai.com/zh-Hans/docs/agnes-video-25-flash"
+  },
+  "shots": [
+    {
+      "shot_id": "C01_DIALOGUE_LOCKED",
+      "core_task": "让阿浪在压抑办公室中完整说完台词，以固定机位承载疲惫和烦躁。",
+      "completion": "LOW",
+      "done": ["灰色旧衬衫和办公室场景稳定", "嘴部和眼神有表演变化", "约10秒可播放"],
+      "missed": ["机位从中近景持续向脸部推进，未保持locked-off", "后段构图明显改变，削弱对白停留"],
+      "force": "N/A（对白镜头）",
+      "inertia": "N/A（对白镜头）",
+      "temporal_continuity": "有连续表演，但镜头位移持续存在",
+      "consistency": "角色服装稳定；空间透视随推进改变",
+      "consequence_forecast": "若放行，整集对白会被模型自动推近，观众会感到镜头在催促人物，无法建立压迫停留。",
+      "decision": "REJECT",
+      "failure_class": "DIALOGUE_CAMERA_DRIFT",
+      "repair_prompt": "固定三脚架中近景，锁定焦距和构图；整段只允许嘴、眼神、呼吸和手部自然表演，禁止推拉、横移、环绕、自动变焦；台词说完后额外停留1秒。"
+    },
+    {
+      "shot_id": "C02_PHONE_SINGLE_JOLT",
+      "core_task": "用一次有重量的摔手机动作具象化阿浪的愤怒，并展示反弹和手腕回收。",
+      "completion": "LOW",
+      "done": ["出现手机和桌面动作素材", "末段可见手机接触/位移"],
+      "missed": ["开头人物全身构图突然跳到桌面特写", "未形成稳定的准备—发力—冲击连续过程", "机位变化不止一次且不是单一短震"],
+      "force": "不达标；冲击重量感弱，主要靠构图跳变制造动感",
+      "inertia": "不达标；手机反弹和手腕回收不完整",
+      "temporal_continuity": "不达标；约前2秒出现明显构图/尺度跳变",
+      "consistency": "服装基本稳定，但人物与桌面空间关系断裂",
+      "consequence_forecast": "若放行，摔手机会继续被误判为图片切换或剪辑跳切，后续拍桌动作也缺少可信基准。",
+      "decision": "REJECT",
+      "failure_class": "ACTION_COMPOSITION_JUMP",
+      "repair_prompt": "从桌面中近景开始，人物手、手机和桌面同时入画；先停留1秒蓄力，再一次连续下砸，接触瞬间只允许一次极短震动；保持同一焦距和轴线，展示手机反弹、手腕回收和余震，禁止从人物全身跳到桌面特写。"
+    },
+    {
+      "shot_id": "C03_DESK_SINGLE_PUSH",
+      "core_task": "让肥哥一次拍桌完成爆发，再回收到疲惫和烟雾中的无力。",
+      "completion": "MEDIUM",
+      "done": ["黑色POLO、烟雾、报表稳定", "拍桌发力和纸张扰动可见", "末段有表情回收"],
+      "missed": ["人物脸部有轻微漂移", "微推幅度仍略大于必要范围"],
+      "force": "基本达标；拍桌有加速和纸张扰动",
+      "inertia": "部分达标；纸张/烟雾有延续，手臂回收略弱",
+      "temporal_continuity": "基本连续，无明显瞬移",
+      "consistency": "服装和场景一致；脸型末段有轻微变化",
+      "consequence_forecast": "可作为探针参考，但若直接放入整集，脸部漂移可能在多镜头累积。",
+      "decision": "CONDITIONAL",
+      "condition": "保留单次微推但缩小幅度；补强手臂回收并做角色脸部抽检。"
+    },
+    {
+      "shot_id": "C04_DIALOGUE_PULLBACK_LATE",
+      "core_task": "先让阿浪机械完成复制粘贴，再在结尾用一次慢拉远收束孤绝感。",
+      "completion": "HIGH",
+      "done": ["前段固定机位建立复制粘贴", "后段单次缓慢拉远", "深夜空间和人物状态稳定"],
+      "missed": ["键盘/鼠标细节较小，需终片确保对白或动作声音可辨"],
+      "force": "N/A（机械动作）",
+      "inertia": "基本存在；拉远后动作继续",
+      "temporal_continuity": "通过；未见明显跳变",
+      "consistency": "通过；暗部、服装、空间连续",
+      "consequence_forecast": "低风险，可作为整集结尾运镜语法模板。",
+      "decision": "PASS"
+    }
+  ],
+  "overall_decision": "REWORK_C01_C02_CONDITIONAL_C03_PASS_C04",
+  "followup": {
+    "C01_DIALOGUE_LOCKED_R2": "抽帧复核后构图已稳定，末尾出现一次非叙事性压暗；可在合成时裁掉最后0.4秒并保留对白完成后的停留。",
+    "C02_PHONE_SINGLE_JOLT_R2": "仍拒绝；人物与桌面关系虽较连续，但中段仍发生明显重构图，且摔击动作未形成清晰冲击/回收。"
+  },
+  "next_action": "C01_R2可纳入探针；C02继续单镜重做，提示词必须明确single continuous shot/no cuts/no reframing，并从手机接触前的桌面近景起跑。C03按条件微调，C04通过后再进入F01-F11扩展。字幕和配音继续暂停，避免在镜头规则未通过时重复返工。"
+}

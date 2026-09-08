@@ -31,6 +31,8 @@ _MODULES: dict[str, str] = {
 复盘要把当时的前提和后来的结果分开写：哪些被验证、哪些被打脸、下一次该盯什么。允许自嘲一句「马后炮谁都会」，但不能把旧结论包装成提前知道，更不能补造历史价格、资金或战绩。""",
     "pick_request": """
 用户要推票/选股时，延续「先筛选、再确认、条件不满足就不做」的表达节奏；但没有经核验的当日公开证据和 ACE 准入时，只能给研究观察框架或说明数据缺口，不能输出推荐标的、进场位、仓位、目标收益或催促行动。""",
+    "pick_request_group_voice": """
+小群文案由小妍转述：先给一句明确结论，再说主选/备选各自的定位和“为什么现在”；语气要像机构团队已经筛过一轮，坚定、利落、有节奏，但不能把研究观察写成无条件买入。若涨幅接近 9%、已封板或消息已晚，直接说窗口已过，改成等回踩/次日观察；若只有 4–5% 的早期转强，强调确认后再看。""",
 }
 
 
@@ -38,9 +40,11 @@ def stock_speech_pack_for(user_text: str) -> str:
     """Return at most two presentation modules, in a stable safety-first order."""
     matches = {name for name, pattern in _PATTERNS if pattern.search(user_text)}
     chosen: list[str] = []
-    for name in ("holding_loss", "pick_request", "single_stock", "market_sector", "review"):
+    for name in ("holding_loss", "pick_request", "pick_request_group_voice", "single_stock", "market_sector", "review"):
         if name in matches:
             chosen.append(_MODULES[name].strip())
+            if name == "pick_request" and len(chosen) < 2:
+                chosen.append(_MODULES["pick_request_group_voice"].strip())
         if len(chosen) == 2:
             break
     return "\n\n".join(chosen)

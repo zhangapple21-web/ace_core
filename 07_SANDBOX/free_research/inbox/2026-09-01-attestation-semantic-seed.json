@@ -1,0 +1,15 @@
+{
+  "contract_version": "ace.semantic_seed.v1",
+  "food_kind": "semantic_seed",
+  "source_ref": "https://learn.microsoft.com/en-us/azure/confidential-computing/attestation-solutions",
+  "source_snapshot_hash": "3ec19fcd8adfc486c778f8a1a520dfa301ed14c57751c906e88e34b6b88ac5fc",
+  "source_kind": "public_document_plus_user_authorized_research_input",
+  "extracted_mechanism": "Remote attestation is evidence about a measured execution environment; any use for data lineage must bind a verifier result to the exact payload hash and freshness challenge.",
+  "ace_symptom": "ACE can record hashes and evidence lineage, but no hardware-attestation verifier or payload-bound proof exists.",
+  "transfer_hypothesis": "A research-only attestation envelope can make absence, expiry, invalidity, and unverifiability explicit without changing Admission or claiming hardware-backed data provenance.",
+  "counterexample_question": "Can a valid environment attestation be replayed for a different L2 snapshot, stale file, or media staging payload when the payload hash and nonce are not cryptographically bound?",
+  "next_verification": "Compare public attestation claim schemas with a fixture-only envelope containing verifier identity, measurement, nonce, expiry, signature status, and bound payload hash; classify all absent hardware as UNVERIFIED.",
+  "local_evidence_refs": ["core/evidence_admission.py", "core/historical_integrity.py"],
+  "external_evidence_refs": ["https://learn.microsoft.com/en-us/azure/confidential-computing/attestation-solutions"],
+  "lineage": ["public_document", "user_authorized_input", "free_zone_only", "hardware_not_present"]
+}

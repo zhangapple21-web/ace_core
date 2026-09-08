@@ -1,0 +1,74 @@
+{
+  "record_id": "episode_007-S01-review-20260904",
+  "episode_id": "episode_007_virtual_data",
+  "scope_ref": "S01",
+  "source_realm": "FREE_ZONE_CANDIDATE",
+  "admission": {
+    "status": "ACCEPTED",
+    "candidate_path": "media_staging/episode_007_virtual_data/video_camera_grammar_v2/S01A.mp4",
+    "candidate_sha256": "deffc2334005da52987c31fbd22e73c2e4d14e3e6c04ce5471d1ca3c23e598ec",
+    "accepting_contract_ref": "episodes/episode_007_virtual_data.six_module.v1.json",
+    "purpose": "bounded S01 review only; not final delivery admission"
+  },
+  "lifecycle": "RESULT_RECORDED",
+  "evidence": [
+    {
+      "evidence_id": "camera_review",
+      "kind": "visual_review",
+      "path": "research/episode_007_camera_probe_review.v2.json",
+      "sha256": "53e4689d06d587061b070146d2437905887aec9a907175203cdfe197f4c86625"
+    },
+    {
+      "evidence_id": "s01a_media",
+      "kind": "media_integrity",
+      "path": "media_staging/episode_007_virtual_data/video_camera_grammar_v2/S01A.mp4",
+      "sha256": "deffc2334005da52987c31fbd22e73c2e4d14e3e6c04ce5471d1ca3c23e598ec"
+    },
+    {
+      "evidence_id": "s01d_repair_media",
+      "kind": "media_integrity",
+      "path": "media_staging/episode_007_virtual_data/video_camera_grammar_v2/S01D_REPAIR.mp4",
+      "sha256": "cf79b93dc4863ffac212c58935227787ede7a9772f9d5f039ebb01660a39b2c7"
+    },
+    {
+      "evidence_id": "subtitle_validation",
+      "kind": "subtitle_receipt",
+      "path": "research/episode_007_slow_v1_subtitle_validation.json",
+      "sha256": "c128bcb777173ff1aff51a257e339a70a53d7c66b2e9deaac67b8df6a024056c"
+    }
+  ],
+  "opinions": [
+    {
+      "opinion_id": "director_s01",
+      "role": "director",
+      "model": "gpt-5.6-terra",
+      "verdict": "REWORK",
+      "evidence_refs": ["camera_review", "s01a_media", "s01d_repair_media"],
+      "findings": ["S01A dialogue/camera grammar remains below locked-off acceptance; S01D repair is retained as bounded action evidence."],
+      "uncertainties": ["No new provider call was made in this review operation."]
+    },
+    {
+      "opinion_id": "final_s01",
+      "role": "final_decider",
+      "model": "gpt-5.6-terra",
+      "verdict": "REWORK",
+      "evidence_refs": ["camera_review", "s01a_media", "s01d_repair_media", "subtitle_validation"],
+      "findings": ["S01 review executed and evidence is hash-bound; the scene is not approved for delivery."],
+      "uncertainties": ["Dialogue content and final audio performance are not established by the current artifacts."]
+    }
+  ],
+  "decision": {
+    "verdict": "REWORK",
+    "decider_opinion_id": "final_s01",
+    "basis_evidence_refs": ["camera_review", "s01a_media", "s01d_repair_media"],
+    "reason": "S01 has usable action evidence but the dialogue camera and performance gate is not met; retain evidence and repair only the bounded S01 shots.",
+    "repair_scope": "S01A locked-off dialogue retake and S01D action continuity check",
+    "expected_gain": "one readable dialogue beat and one continuous phone-impact beat without reframing",
+    "cost_class": "bounded_existing_assets"
+  },
+  "result": {
+    "status": "COMPLETED",
+    "observed_evidence_refs": ["camera_review", "s01a_media", "s01d_repair_media", "subtitle_validation"],
+    "summary": "S01 review completed; decision is REWORK, not delivery approval."
+  }
+}

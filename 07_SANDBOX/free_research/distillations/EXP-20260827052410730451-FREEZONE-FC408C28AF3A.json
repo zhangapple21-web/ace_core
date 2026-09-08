@@ -1,0 +1,17 @@
+{
+  "automatic_delivery": false,
+  "automatic_promotion": false,
+  "automatic_task_creation": false,
+  "contract_version": "ace.free_research_sandbox.v1",
+  "created_at": "2026-08-27T05:24:10.841579+00:00",
+  "distillation_hash": "4df294c3d6d307cef02b6e121dd929b9ac9d7b63a73ddb5b39b62da48fa5337c",
+  "evidence_hash": "8df06b3bd297365fce596ced48299685056d6863e9a7882dd78b70206a5d9b4b",
+  "experiment_id": "EXP-20260827052410730451-FREEZONE-FC408C28AF3A",
+  "mode": "DISTILLATION_ONLY",
+  "outcome": "FAIL",
+  "pattern": "When Failures, dead ends, and contradictions are retained as searchable counterexamples rather than hidden to make reports look successful., investigate via Run the local ECO-03 ecological probe and retain its observed outcome..",
+  "production_integration": false,
+  "reason": "failed_hypothesis_retained_as_material",
+  "source_record_hash": "f025ee6ab56fc719304094fda1af12de3019b777f47161d5ada1ad0f597ecb09",
+  "status": "COUNTEREXAMPLE_ONLY"
+}

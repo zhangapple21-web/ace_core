@@ -1,0 +1,312 @@
+{
+  "at": "2026-08-31T03:29:26.397111+00:00",
+  "automatic_external_fetch": false,
+  "automatic_model_call": false,
+  "automatic_promotion": false,
+  "contract_version": "ace.free_research_sandbox.v1",
+  "design_seed": {
+    "consumption_mode": "sandbox_report_only",
+    "contract_version": "ace.free_research.ecology_constitution.v1",
+    "invariants": [
+      "ECO-01",
+      "ECO-02",
+      "ECO-03",
+      "ECO-04",
+      "ECO-05",
+      "ECO-06"
+    ],
+    "mapping_keys": [
+      "R1_MengPo_decay",
+      "R1_courier",
+      "R1_freezone",
+      "R1_marking_factory",
+      "R1_multi_worlds",
+      "R1_ruin_smelter",
+      "R2_boundary",
+      "R2_continuity",
+      "R2_observation"
+    ],
+    "production_integration": false,
+    "route": [
+      "observe",
+      "question",
+      "hypothesis",
+      "experiment",
+      "counterexample",
+      "evidence",
+      "distill",
+      "govern",
+      "propose",
+      "review",
+      "re-observe"
+    ],
+    "status": "DESIGN_SEED_OBSERVED"
+  },
+  "factories": {
+    "contract_version": "ace.free_zone_factories.v1",
+    "courier_receipt_count": 0,
+    "mark_count": 34,
+    "processing_receipt_count": 25,
+    "production_integration": false,
+    "recovery_thread_count": 34,
+    "smelter_receipt_count": 25,
+    "world_count": 68
+  },
+  "mode": "SANDBOX_SOCIETY_TURN",
+  "production_integration": false,
+  "roles": {
+    "court": {
+      "distillation_integrity_failures": [
+        "EXP-SHIFT-92A480C775DB32BD"
+      ],
+      "distillation_source_mismatches": [],
+      "enforcement": "report_only_no_promotion_authority",
+      "factory_integrity_failures": [],
+      "invalid_record_ids": [],
+      "proposal_integrity_failures": [],
+      "proposal_source_mismatches": [],
+      "status": "INVALID"
+    },
+    "curator": {
+      "action": "distill_all_outcomes",
+      "new_distillations": [
+        {
+          "experiment_id": "EXP-20260831032849538331-FREEZONE-9B80CC0FF5D3",
+          "status": "OPEN_QUESTION"
+        }
+      ],
+      "new_proposal_ids": [],
+      "new_smelter_receipt_ids": [
+        "SMELT-EXP-20260831032849538331-FREEZONE-9B80CC0FF5D3"
+      ]
+    },
+    "free_zone": {
+      "clean_experiment_count": 35,
+      "quarantine_count": 0
+    },
+    "lazy_cat": {
+      "challenge_reconciliation": {
+        "legacy_probe_receipts_created": [],
+        "pending_challenge_count": 4,
+        "production_integration": false
+      },
+      "contract_version": "ace.lazy_cat_audit.v1",
+      "fit_for_teacher_review_count": 24,
+      "may_approve_production": false,
+      "may_block_free_zone": false,
+      "mode": "POST_EXECUTION_FITNESS_AUDIT",
+      "new_challenge_ids": [
+        "CHALLENGE-EXP-SHIFT-92A480C775DB32BD"
+      ],
+      "new_verdict_ids": [
+        "LAZY-CAT-EXP-20260831032849538331-FREEZONE-9B80CC0FF5D3",
+        "LAZY-CAT-EXP-SHIFT-92A480C775DB32BD"
+      ],
+      "pending_challenge_count": 4,
+      "production_integration": false,
+      "return_to_free_zone_count": 11,
+      "total_verdict_count": 35
+    },
+    "teacher": {
+      "counterexample_queue": [
+        {
+          "experiment_id": "EXP-20260827052410730451-FREEZONE-FC408C28AF3A",
+          "reason": "failed_hypothesis_retained_as_material",
+          "status": "COUNTEREXAMPLE_ONLY"
+        },
+        {
+          "experiment_id": "EXP-20260827054740480918-FREEZONE-3A0C70B63F66",
+          "reason": "inconclusive_result_requires_new_observation",
+          "status": "OPEN_QUESTION"
+        },
+        {
+          "experiment_id": "EXP-20260827060326004360-FREEZONE-A4F1993C0D17",
+          "reason": "inconclusive_result_requires_new_observation",
+          "status": "OPEN_QUESTION"
+        },
+        {
+          "experiment_id": "EXP-20260827060326013923-FREEZONE-CF8422CBABC2",
+          "reason": "inconclusive_result_requires_new_observation",
+          "status": "OPEN_QUESTION"
+        },
+        {
+          "experiment_id": "EXP-20260827060326024072-FREEZONE-F967AB004262",
+          "reason": "inconclusive_result_requires_new_observation",
+          "status": "OPEN_QUESTION"
+        },
+        {
+          "experiment_id": "EXP-20260827061740154329-FREEZONE-CB9A571ACD9E",
+          "reason": "inconclusive_result_requires_new_observation",
+          "status": "OPEN_QUESTION"
+        },
+        {
+          "experiment_id": "EXP-20260827073832008119-FREEZONE-11E52E02A52E",
+          "reason": "inconclusive_result_requires_new_observation",
+          "status": "OPEN_QUESTION"
+        },
+        {
+          "experiment_id": "EXP-20260828103056126376-FREEZONE-1931F0733E17",
+          "reason": "inconclusive_result_requires_new_observation",
+          "status": "OPEN_QUESTION"
+        },
+        {
+          "experiment_id": "EXP-20260831032849538331-FREEZONE-9B80CC0FF5D3",
+          "reason": "inconclusive_result_requires_new_observation",
+          "status": "OPEN_QUESTION"
+        },
+        {
+          "experiment_id": "EXP-SHIFT-92A480C775DB32BD",
+          "reason": "inconclusive_result_requires_new_observation",
+          "status": "OPEN_QUESTION"
+        }
+      ],
+      "lazy_cat_queue": [
+        {
+          "experiment_id": "EXP-20260827-DATA-ENDPOINT-RECOVERY",
+          "missing_dimensions": [
+            "boundary_intact",
+            "dissent_blueprint"
+          ],
+          "verdict": "RETURN_TO_FREE_ZONE"
+        },
+        {
+          "experiment_id": "EXP-20260827-MUSEUM-CONTINUITY-6AFFB478D9",
+          "missing_dimensions": [
+            "dissent_blueprint"
+          ],
+          "verdict": "RETURN_TO_FREE_ZONE"
+        },
+        {
+          "experiment_id": "EXP-20260827052215350123-FREEZONE-8BFD6A6BA69E",
+          "missing_dimensions": [
+            "dissent_blueprint"
+          ],
+          "verdict": "RETURN_TO_FREE_ZONE"
+        },
+        {
+          "experiment_id": "EXP-20260827052410721753-FREEZONE-EC3912CEC380",
+          "missing_dimensions": [
+            "dissent_blueprint"
+          ],
+          "verdict": "RETURN_TO_FREE_ZONE"
+        },
+        {
+          "experiment_id": "EXP-20260827052410738737-FREEZONE-AE77F029A17F",
+          "missing_dimensions": [
+            "dissent_blueprint"
+          ],
+          "verdict": "RETURN_TO_FREE_ZONE"
+        },
+        {
+          "experiment_id": "EXP-20260827052656858233-FREEZONE-B5A220B93325",
+          "missing_dimensions": [
+            "dissent_blueprint"
+          ],
+          "verdict": "RETURN_TO_FREE_ZONE"
+        },
+        {
+          "experiment_id": "EXP-20260827054325624071-FREEZONE-9A31BF2F1248",
+          "missing_dimensions": [
+            "dissent_blueprint"
+          ],
+          "verdict": "RETURN_TO_FREE_ZONE"
+        },
+        {
+          "experiment_id": "EXP-20260827054325633622-FREEZONE-236DE6992748",
+          "missing_dimensions": [
+            "dissent_blueprint"
+          ],
+          "verdict": "RETURN_TO_FREE_ZONE"
+        }
+      ],
+      "may_approve": false,
+      "review_queue": [
+        {
+          "experiment_id": "EXP-20260827055345650460-FREEZONE-4666ACB0F19C",
+          "reason": "human_and_governed_review_required",
+          "status": "PROPOSAL_ONLY"
+        },
+        {
+          "experiment_id": "EXP-20260827061740144078-FREEZONE-278E878EC944",
+          "reason": "human_and_governed_review_required",
+          "status": "PROPOSAL_ONLY"
+        },
+        {
+          "experiment_id": "EXP-20260827061740165068-FREEZONE-16EF3BC15454",
+          "reason": "human_and_governed_review_required",
+          "status": "PROPOSAL_ONLY"
+        },
+        {
+          "experiment_id": "EXP-20260827061958251409-FREEZONE-14233A95219C",
+          "reason": "human_and_governed_review_required",
+          "status": "PROPOSAL_ONLY"
+        },
+        {
+          "experiment_id": "EXP-20260827062022129950-FREEZONE-F24A228DD489",
+          "reason": "human_and_governed_review_required",
+          "status": "PROPOSAL_ONLY"
+        },
+        {
+          "experiment_id": "EXP-20260827062022139945-FREEZONE-62E03611E0CE",
+          "reason": "human_and_governed_review_required",
+          "status": "PROPOSAL_ONLY"
+        },
+        {
+          "experiment_id": "EXP-20260827062022148479-FREEZONE-2AF317763217",
+          "reason": "human_and_governed_review_required",
+          "status": "PROPOSAL_ONLY"
+        },
+        {
+          "experiment_id": "EXP-20260827062602381184-FREEZONE-3A2C50B25538",
+          "reason": "human_and_governed_review_required",
+          "status": "PROPOSAL_ONLY"
+        },
+        {
+          "experiment_id": "EXP-20260827062602392686-FREEZONE-2FF68EA36E62",
+          "reason": "human_and_governed_review_required",
+          "status": "PROPOSAL_ONLY"
+        },
+        {
+          "experiment_id": "EXP-20260827062602406943-FREEZONE-095ADD8BEC72",
+          "reason": "human_and_governed_review_required",
+          "status": "PROPOSAL_ONLY"
+        },
+        {
+          "experiment_id": "EXP-20260827073832020910-FREEZONE-D621151C5711",
+          "reason": "human_and_governed_review_required",
+          "status": "PROPOSAL_ONLY"
+        },
+        {
+          "experiment_id": "EXP-20260827073832038140-FREEZONE-25A08E7DB82A",
+          "reason": "human_and_governed_review_required",
+          "status": "PROPOSAL_ONLY"
+        },
+        {
+          "experiment_id": "EXP-20260827103144871989-FREEZONE-A87E1A286B8A",
+          "reason": "human_and_governed_review_required",
+          "status": "PROPOSAL_ONLY"
+        },
+        {
+          "experiment_id": "EXP-20260827103144886345-FREEZONE-D366EFF4160B",
+          "reason": "human_and_governed_review_required",
+          "status": "PROPOSAL_ONLY"
+        },
+        {
+          "experiment_id": "EXP-20260827103144902066-FREEZONE-02AF7DD857DA",
+          "reason": "human_and_governed_review_required",
+          "status": "PROPOSAL_ONLY"
+        },
+        {
+          "experiment_id": "EXP-20260828103056136980-FREEZONE-B090328E27BA",
+          "reason": "human_and_governed_review_required",
+          "status": "PROPOSAL_ONLY"
+        },
+        {
+          "experiment_id": "EXP-20260828103056151775-FREEZONE-0F5601C6D63E",
+          "reason": "human_and_governed_review_required",
+          "status": "PROPOSAL_ONLY"
+        }
+      ]
+    }
+  }
+}

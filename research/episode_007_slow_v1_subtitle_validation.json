@@ -1,0 +1,9 @@
+{
+  "status": "VALID",
+  "cue_count": 18,
+  "fps": 24.0,
+  "minimum_duration_seconds": 0.8333333333333334,
+  "minimum_gap_seconds": 0.08333333333333333,
+  "errors": [],
+  "warnings": []
+}

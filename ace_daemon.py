@@ -427,7 +427,11 @@ class AceDaemon:
                 observer=self.runtime_observer,
                 task_pool=self.task_pool,
             )
-            self.model_router = ModelRouter()
+            # Discovery and execution must observe the same routing authority.
+            # Reusing the MinerPool router keeps provider health, capability
+            # mapping, and fallback evidence on one control plane; the
+            # compatibility fallback is only for legacy test doubles.
+            self.model_router = getattr(self.miner_pool, "router", None) or ModelRouter()
             stock_discovery = StockDiscoverySources(
                 observer=self.runtime_observer,
                 base_dir=str(self.base_dir),
@@ -474,6 +478,11 @@ class AceDaemon:
                 str(self.base_dir / "06_RUNTIME" / "ace" / "data"),
                 observer=self.runtime_observer,
                 data_refresh=refresh_finance_live_data,
+                candidate_snapshot_provider=stock_discovery.early_opportunity_snapshot,
+                # The daemon already owns the cycle cadence.  During the
+                # moving discovery window each cycle must observe again so a
+                # forming candidate can be captured before it becomes late.
+                refresh_each_cycle=True,
                 public_sentiment=PublicSentimentObservation(
                     str(self.base_dir / "06_RUNTIME" / "ace" / "data")
                 ),
@@ -2174,14 +2183,18 @@ class AceDaemon:
             self._log_error("daily_growth", str(e))
 
         try:
-            finance_heartbeat = self._start_stage_heartbeat("finance_work_window")
-            try:
-                result["finance_work_window"] = self.finance_work_windows.build()
-            finally:
-                self._stop_stage_heartbeat(finance_heartbeat)
-                self.heartbeat.status.pop("current_stage", None)
-                self.heartbeat.status.pop("stage_heartbeat_at", None)
-                self.heartbeat.beat(reason="stage:finance_work_window_complete")
+            preflight = self.state.get("cycle_progress", {}).get("finance_preflight")
+            if _preserve_cycle_progress and isinstance(preflight, dict):
+                result["finance_work_window"] = preflight
+            else:
+                finance_heartbeat = self._start_stage_heartbeat("finance_work_window")
+                try:
+                    result["finance_work_window"] = self.finance_work_windows.build()
+                finally:
+                    self._stop_stage_heartbeat(finance_heartbeat)
+                    self.heartbeat.status.pop("current_stage", None)
+                    self.heartbeat.status.pop("stage_heartbeat_at", None)
+                    self.heartbeat.beat(reason="stage:finance_work_window_complete")
         except Exception as e:
             self._log_error("finance_work_window", str(e))
 
@@ -2925,6 +2938,24 @@ class AceDaemon:
                 self.heartbeat.beat(reason="regular")
                 self._complete_cycle_stage("heartbeat", stage_started)
 
+                # Capture the finance observation before provider health and
+                # general task work so the dynamic window is not delayed by
+                # unrelated lifecycle stages.
+                if not dry_run:
+                    try:
+                        finance_heartbeat = self._start_stage_heartbeat("finance_preflight")
+                        try:
+                            self.state.setdefault("cycle_progress", {})["finance_preflight"] = (
+                                self.finance_work_windows.build()
+                            )
+                        finally:
+                            self._stop_stage_heartbeat(finance_heartbeat)
+                            self.heartbeat.status.pop("current_stage", None)
+                            self.heartbeat.status.pop("stage_heartbeat_at", None)
+                            self.heartbeat.beat(reason="stage:finance_preflight_complete")
+                    except Exception as e:
+                        self._log_error("finance_preflight", str(e))
+
                 diagnosis = self.self_healing.diagnose(self.base_dir)
                 health = diagnosis["health_score"]
                 print(f"健康度: {health}/100 | 问题: {diagnosis['issue_count']}个")
@@ -2942,17 +2973,23 @@ class AceDaemon:
 
                 print()
                 stage_started = self._start_cycle_stage("model_health")
-                try:
-                    health_result = self._run_shenwen_daily_health()
-                    if health_result.get("executed"):
-                        successful = sum(1 for call in health_result["record"]["calls"] if call["success"])
-                        health_failed = successful < len(health_result["record"]["calls"])
-                        self.state["continue_gate_provider_degraded"] = health_failed
-                        self.state["continue_gate_fallbacks_configured"] = not health_failed
-                        self._save_state()
-                        print(f"神隐每日健康调用: {successful}/2 成功")
-                except Exception as e:
-                    self._log_error("shenwen_daily_health", str(e))
+                if dry_run and isinstance(self.miner_pool, MinerPool):
+                    # A dry-run is a decision preview.  Provider health calls
+                    # are external work and must not be triggered merely to
+                    # inspect what the next cycle would do.
+                    print("神隐每日健康调用: DRY-RUN 模式，不执行")
+                else:
+                    try:
+                        health_result = self._run_shenwen_daily_health()
+                        if health_result.get("executed"):
+                            successful = sum(1 for call in health_result["record"]["calls"] if call["success"])
+                            health_failed = successful < len(health_result["record"]["calls"])
+                            self.state["continue_gate_provider_degraded"] = health_failed
+                            self.state["continue_gate_fallbacks_configured"] = not health_failed
+                            self._save_state()
+                            print(f"神隐每日健康调用: {successful}/2 成功")
+                    except Exception as e:
+                        self._log_error("shenwen_daily_health", str(e))
                 self._complete_cycle_stage("model_health", stage_started)
 
                 # A failed provider health probe is a protocol failure, not a

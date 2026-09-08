@@ -1,0 +1,17 @@
+{
+  "automatic_delivery": false,
+  "automatic_promotion": false,
+  "automatic_task_creation": false,
+  "contract_version": "ace.free_research_sandbox.v1",
+  "created_at": "2026-08-27T06:03:26.438897+00:00",
+  "distillation_hash": "2d2581241136aaa758b8f1134cca6a906bca62abe2a1aa401c1097defa8c1725",
+  "evidence_hash": "7d29dce87e454bda60394d83ae0e5ad3f31f78a45d880926680bf1a5b789a4cc",
+  "experiment_id": "EXP-20260827060326004360-FREEZONE-A4F1993C0D17",
+  "mode": "DISTILLATION_ONLY",
+  "outcome": "INCONCLUSIVE",
+  "pattern": "When What bounded free-zone probe can repair or explicitly delimit the missing dimensions of EXP-20260827-DATA-ENDPOINT-RECOVERY: boundary_intact, dissent_blueprint?, investigate via Preserve the original artifact, address only the named missing dimensions, and record a separate result without changing production state..",
+  "production_integration": false,
+  "reason": "inconclusive_result_requires_new_observation",
+  "source_record_hash": "9ee2bf88f55d0fc457f82d279d94d68abbf3c1184af9c4ccc9d56e996c81ed34",
+  "status": "OPEN_QUESTION"
+}

@@ -1,0 +1,10 @@
+{
+  "contract_version": "ace.historical_factor_replay.v1",
+  "file_hash": "588ea0dd38e7ee49100186a617bb8fd2f17401431c76201a0bf0277ffa4fcc87",
+  "mode": "FACTOR_RESEARCH_ONLY",
+  "path": "06_RUNTIME\\ace\\data\\stock_data_evidence\\stock_data_benchmark_latest.json",
+  "production_integration": false,
+  "reason": "snapshot_has_no_row_level_ohlcv; benchmark_summary_not_accepted",
+  "recommendation_authority": false,
+  "status": "NO_ELIGIBLE_HISTORICAL_SNAPSHOT"
+}

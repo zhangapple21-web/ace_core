@@ -1,0 +1,15 @@
+{
+  "contract_version": "ace.semantic_seed.v1",
+  "food_kind": "semantic_seed",
+  "source_ref": "user_authorized_input:2026-09-01:offline-failure-learning",
+  "source_snapshot_hash": "4c742330684a7e9248a8a882cd06bd744ab958e6b336e9751b5dba949be66f62",
+  "source_kind": "user_authorized_research_input",
+  "extracted_mechanism": "Historical INVALID records, 404 incidents, and counterexamples can be retained as locally replayable failure evidence rather than deleted or relabeled as success.",
+  "ace_symptom": "Failure records exist across historical integrity and the Free Zone, but there is no demonstrated offline synthesis contract that distinguishes recurrence evidence from a production risk weight.",
+  "transfer_hypothesis": "A deterministic offline failure index can surface recurrence, freshness, independent-origin count, and unresolved counterexamples as research-only re-observation prompts without invoking a model or modifying Risk.",
+  "counterexample_question": "Can a repeated historical failure be mistakenly treated as current evidence after its source has recovered, or can correlated failures be counted as independent evidence?",
+  "next_verification": "First identify independently sourced INVALID and counterexample receipts, then build fixture-only recurrence and recovery cases; retain the RaMem/Fujitsu/CMU attribution as UNKNOWN until primary sources are found.",
+  "local_evidence_refs": ["core/historical_integrity.py", "core/free_research_sandbox.py", "core/counterexample_executor.py"],
+  "external_evidence_refs": [],
+  "lineage": ["user_authorized_input", "free_zone_only", "offline_only", "no_risk_mutation", "attribution_unknown"]
+}

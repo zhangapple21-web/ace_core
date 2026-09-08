@@ -431,6 +431,24 @@ class ProviderWatchdog:
             for name, p in self._providers.items()
         ]
 
+    def health_snapshot(self) -> Dict[str, Any]:
+        """Return the real persisted health view used by routing decisions.
+
+        This is intentionally read-only.  It exposes timestamps and counters
+        so a route receipt can distinguish an observed provider from one that
+        merely appears in a catalog.
+        """
+
+        providers = {}
+        for name, p in self._providers.items():
+            providers[name] = p.to_dict()
+        return {
+            "status": "OBSERVED",
+            "captured_at": time.time(),
+            "providers": providers,
+            "switch_events": [e.to_dict() for e in self._switch_events[-10:]],
+        }
+
     def get_stats(self) -> Dict:
         """获取统计信息"""
         providers = self.list_providers()

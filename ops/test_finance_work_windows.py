@@ -157,6 +157,57 @@ def test_failed_open_refresh_is_audited_and_not_retried_every_cycle(tmp_path):
     assert len(calls) == 1
 
 
+def test_dynamic_discovery_refresh_records_each_cycle_and_keeps_snapshot_lineage(tmp_path):
+    snapshots = []
+
+    def discover(*, window, observed_at):
+        snapshots.append((window, observed_at.isoformat()))
+        return {
+            "status": "FORMING",
+            "actionability_status": "PENDING",
+            "source": "fixture://admitted-universe",
+            "source_timestamp": observed_at.isoformat(),
+            "candidates": [{
+                "symbol": "000001",
+                "first_seen_at": observed_at.isoformat(),
+                "price": 10.0,
+                "change_pct": 4.2,
+                "candidate_status": "FORMING",
+            }],
+        }
+
+    windows = FinanceWorkWindows(
+        str(tmp_path),
+        candidate_snapshot_provider=discover,
+        refresh_each_cycle=True,
+    )
+    first = windows.build(datetime(2026, 8, 25, 9, 31, tzinfo=windows.timezone))
+    second = windows.build(datetime(2026, 8, 25, 9, 36, tzinfo=windows.timezone))
+
+    assert snapshots == [
+        ("open_validation", "2026-08-25T09:31:00+08:00"),
+        ("open_validation", "2026-08-25T09:36:00+08:00"),
+    ]
+    assert first["discovery_snapshot"]["candidates"][0]["symbol"] == "000001"
+    assert second["early_opportunity_discovery"]["candidate_status"] == "FORMING"
+    ledger = (tmp_path / "stock_data_evidence" / "early_opportunity_discovery.v1.jsonl").read_text(encoding="utf-8").splitlines()
+    assert len(ledger) == 2
+    assert all('"window_id": "2026-08-25:open_validation"' in line for line in ledger)
+
+
+def test_discovery_provider_runs_in_morning_and_open_phases(tmp_path):
+    calls = []
+    windows = FinanceWorkWindows(
+        str(tmp_path),
+        candidate_snapshot_provider=lambda **kwargs: calls.append(kwargs["window"]) or {
+            "status": "DATA_UNAVAILABLE", "candidates": []
+        },
+    )
+    windows.build(datetime(2026, 8, 25, 9, 20, tzinfo=windows.timezone))
+    windows.build(datetime(2026, 8, 25, 9, 40, tzinfo=windows.timezone))
+    assert calls == ["morning_observation", "open_validation"]
+
+
 def test_public_sentiment_is_retained_once_per_existing_window(tmp_path):
     calls = []
 

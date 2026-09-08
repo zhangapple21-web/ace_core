@@ -1,0 +1,25 @@
+{
+  "automatic_delivery": false,
+  "automatic_promotion": false,
+  "automatic_task_creation": false,
+  "contract_version": "ace.free_research_sandbox.v1",
+  "created_at": "2026-09-04T10:32:14.920268+00:00",
+  "distillation_hash": "32f144b99c3f14805e85a455419b3a75cff51deed0fc4bf6d7e580380767cd13",
+  "evidence_hash": "2a6fa18e767832cd83fe12aea602f587814697a92c6f311f434c78c5a2ab292f",
+  "experiment_id": "EXP-MODEL-CC034B6C0466EC32",
+  "mode": "DISTILLATION_ONLY",
+  "outcome": "FAIL",
+  "pattern": "When A disposable-copy mutation probe can preserve evolutionary exploration while rejecting regression, timeout, path-escape, or network-dependent proposals as EVOLUTION_REJECTED., investigate via Map existing adapter boundaries and test-batch receipts; design a fixture-only RED case for path escape and incomplete manifest coverage before any sandbox executor is proposed..",
+  "production_integration": false,
+  "realm_state": {
+    "authority": "SANDBOX_ONLY",
+    "contract_version": "ace.free_zone_realm.v1",
+    "outbound_rule": "REOBSERVE",
+    "production_integration": false,
+    "realm": "SHADOW",
+    "retention": "SEED"
+  },
+  "reason": "failed_hypothesis_retained_as_material",
+  "source_record_hash": "2c7eebad03deecdc879887e0de5116d861ce99367936df3e7b1e6fcd4e0c1dd0",
+  "status": "COUNTEREXAMPLE_ONLY"
+}

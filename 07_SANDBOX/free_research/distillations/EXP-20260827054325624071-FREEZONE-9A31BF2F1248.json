@@ -1,0 +1,17 @@
+{
+  "automatic_delivery": false,
+  "automatic_promotion": false,
+  "automatic_task_creation": false,
+  "contract_version": "ace.free_research_sandbox.v1",
+  "created_at": "2026-08-27T05:43:26.049866+00:00",
+  "distillation_hash": "4cb779f72a78dd25ab2743129707e51b570e739796352aea003bf347df99fa97",
+  "evidence_hash": "589314af01d2ecacd6e53d0363986a889abba4bc40e1a9666d8688d9d7cf24ff",
+  "experiment_id": "EXP-20260827054325624071-FREEZONE-9A31BF2F1248",
+  "mode": "DISTILLATION_ONLY",
+  "outcome": "PASS",
+  "pattern": "When Explorer, curator, court, teacher, and production runtime have different permissions; no role silently inherits another role's authority., investigate via Run the local ECO-05 ecological probe and retain its observed outcome..",
+  "production_integration": false,
+  "reason": "clean_pass_available_for_later_review",
+  "source_record_hash": "0aa97d842f81d52916ce93615d245caf9a280acbede49054ad85c583dfc61a17",
+  "status": "PROPOSAL_ONLY"
+}
