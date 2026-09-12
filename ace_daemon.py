@@ -51,6 +51,7 @@ from core.local_archaeologist import LocalArchaeologist
 from core.skill_generator import SkillGenerator
 from core.observation import RuntimeObserver
 from core.observation_to_task import ObservationToTaskConverter
+from core.host_session_observer import observe_host_sessions
 from core.discovery import DiscoveryCandidate, DiscoveryMode
 from core.model_work_discovery import ModelWorkDiscovery
 from core.daily_growth import DailyGrowthLedger
@@ -61,6 +62,7 @@ from core.hourly_service import HourlyTaskService
 from core.continuity_audit import ContinuityAuditor
 from core.free_zone_model_shift import FreeZoneModelShift
 from core.free_zone_autonomy import FreeZoneAutonomy
+from core.sandbox_society import SandboxSociety
 from core.reality_gap_relay import RealityGapRelay
 from core.free_zone_loop_status import FreeZoneLoopStatus
 from core.daily_learning import DAILY_LEARNING_OBSERVATION_LIMIT, DailyLearningLoop
@@ -2270,6 +2272,10 @@ class AceDaemon:
         except Exception as e:
             self._log_error("free_zone_autonomy", str(e))
         try:
+            result["sandbox_society"] = self._run_sandbox_society_if_due()
+        except Exception as e:
+            self._log_error("sandbox_society", str(e))
+        try:
             result["free_zone_model_shift"] = self._run_free_zone_model_shift_if_due()
         except Exception as e:
             self._log_error("free_zone_model_shift", str(e))
@@ -2351,6 +2357,37 @@ class AceDaemon:
             "at": now.isoformat(),
             "candidate_count": (report.get("discovery") or {}).get("candidate_count"),
             "production_integration": report.get("production_integration", False),
+            "automatic_model_call": report.get("automatic_model_call", False),
+        }
+        self._save_state()
+        return report
+
+    def _run_sandbox_society_if_due(self) -> Dict[str, Any]:
+        """Distill completed free-zone experiments on the same evening clock.
+
+        This is not a second scheduler.  It reuses the existing 18:30 dedicated
+        shift so curiosity can execute and then be preserved, without promoting
+        sandbox material into production.
+        """
+        now = datetime.now()
+        if (now.hour, now.minute) < (18, 30):
+            return {"status": "WAITING_FOR_DEDICATED_SHIFT"}
+        day = now.strftime("%Y-%m-%d")
+        if self.state.get("sandbox_society_date") == day:
+            return {"status": "ALREADY_RUN_TODAY"}
+        report = SandboxSociety(
+            self.base_dir / "07_SANDBOX" / "free_research"
+        ).run_turn()
+        curator = (report.get("roles") or {}).get("curator") or {}
+        self.state["sandbox_society_date"] = day
+        self.state["sandbox_society_last"] = {
+            "status": report.get("mode", "UNKNOWN"),
+            "at": now.isoformat(),
+            "curator_action": curator.get("action"),
+            "new_distillations": len(curator.get("new_distillations") or []),
+            "new_proposal_ids": len(curator.get("new_proposal_ids") or []),
+            "production_integration": report.get("production_integration", False),
+            "automatic_promotion": report.get("automatic_promotion", False),
             "automatic_model_call": report.get("automatic_model_call", False),
         }
         self._save_state()
@@ -2635,6 +2672,18 @@ class AceDaemon:
                             obs_count += 1
             except Exception:
                 pass
+
+        # === 宿主会话感知（只读元数据，不建任务、不读对话正文） ===
+        try:
+            snapshot = observe_host_sessions(
+                observer=self.runtime_observer,
+                base_dir=self.base_dir,
+                manifest_path=self.base_dir / "agent_team" / "active_work_manifest.json",
+            )
+            if snapshot.get("observation_id"):
+                obs_count += 1
+        except Exception:
+            pass
 
         return obs_count
 

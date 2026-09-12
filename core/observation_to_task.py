@@ -681,6 +681,17 @@ class ObservationToTaskConverter:
             if obs.obs_id in self._triggered_cache:
                 result["skipped"] += 1
                 continue
+            if obs.source == "host_session" or obs.category == "environment_change":
+                # Perception only: never become Work, and do not clog unprocessed.
+                self.observer.mark_consumed(obs.obs_id, "PERCEPTION_ONLY")
+                self._mark_triggered(obs.obs_id)
+                result["skipped"] += 1
+                result["details"].append({
+                    "obs_id": obs.obs_id,
+                    "status": "perception_only",
+                    "reason": "host_session_does_not_create_tasks",
+                })
+                continue
 
             for rule in self.rules:
                 if not rule.matches(obs):
