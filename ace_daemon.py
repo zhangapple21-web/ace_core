@@ -204,6 +204,10 @@ class AceDaemon:
         self.obs_to_task_converter = None  # Observation → Task 转换器
         self.discovery_mode = None
         self.daily_learning = None
+        self.daily_growth = None
+        self.finance_work_windows = None
+        self.daily_shift = None
+        self.hourly_task_service = None
         # A hash-bound auditor records the continuity of the whole portable
         # motherplate.  It observes; it never becomes a second runtime or
         # changes TaskPool / Admission authority.
@@ -512,7 +516,8 @@ class AceDaemon:
             self.lifecycle_lock_file = task_pool_dir / ".lifecycle.lock"
         except Exception as e:
             self._log_error("task_lifecycle_init", str(e))
-            self.task_pool = None
+            # Do not wipe a constructed TaskPool. Later-stage failures
+            # (timezone, finance windows) must not kill the evening clock.
 
         self.heartbeat = Heartbeat(self.data_dir)
         self.self_healing = SelfHealing(self.data_dir)
@@ -974,6 +979,8 @@ class AceDaemon:
             "fallback": {},
             "trace_complete": 0,
         }
+        if not self.task_pool:
+            return metrics
         for task in self.task_pool.list_tasks(limit=10000):
             outputs = task.outputs if isinstance(task.outputs, dict) else {}
             admission = outputs.get("model_task_admission")
@@ -1857,7 +1864,7 @@ class AceDaemon:
         task_total = 0.0
         task_successful = 0
         task_call_count = 0
-        for task in self.task_pool.list_tasks(limit=10000):
+        for task in (self.task_pool.list_tasks(limit=10000) if self.task_pool else []):
             traces = task.outputs.get("model_execution", []) if isinstance(task.outputs, dict) else []
             for trace in traces:
                 if not isinstance(trace, dict):
@@ -2266,7 +2273,10 @@ class AceDaemon:
         except Exception as e:
             self._log_error("task_creator", str(e))
 
-        result["model_pipeline"] = self._model_pipeline_metrics()
+        try:
+            result["model_pipeline"] = self._model_pipeline_metrics()
+        except Exception as e:
+            self._log_error("model_pipeline_metrics", str(e))
         try:
             result["free_zone_autonomy"] = self._run_free_zone_autonomy_if_due()
         except Exception as e:
@@ -2992,16 +3002,17 @@ class AceDaemon:
                 # unrelated lifecycle stages.
                 if not dry_run:
                     try:
-                        finance_heartbeat = self._start_stage_heartbeat("finance_preflight")
-                        try:
-                            self.state.setdefault("cycle_progress", {})["finance_preflight"] = (
-                                self.finance_work_windows.build()
-                            )
-                        finally:
-                            self._stop_stage_heartbeat(finance_heartbeat)
-                            self.heartbeat.status.pop("current_stage", None)
-                            self.heartbeat.status.pop("stage_heartbeat_at", None)
-                            self.heartbeat.beat(reason="stage:finance_preflight_complete")
+                        if self.finance_work_windows:
+                            finance_heartbeat = self._start_stage_heartbeat("finance_preflight")
+                            try:
+                                self.state.setdefault("cycle_progress", {})["finance_preflight"] = (
+                                    self.finance_work_windows.build()
+                                )
+                            finally:
+                                self._stop_stage_heartbeat(finance_heartbeat)
+                                self.heartbeat.status.pop("current_stage", None)
+                                self.heartbeat.status.pop("stage_heartbeat_at", None)
+                                self.heartbeat.beat(reason="stage:finance_preflight_complete")
                     except Exception as e:
                         self._log_error("finance_preflight", str(e))
 
@@ -3216,7 +3227,11 @@ class AceDaemon:
         if self.skill_generator and not dry_run:
             print("【技能注册中...】")
             try:
-                archived_tasks = self.task_pool.list_tasks(status="archived", limit=100)
+                archived_tasks = (
+                    self.task_pool.list_tasks(status="archived", limit=100)
+                    if self.task_pool
+                    else []
+                )
                 skill_result = self.skill_generator.analyze_archived_tasks(archived_tasks)
                 print(f"  分析归档任务: {skill_result['tasks_analyzed']}个")
                 print(f"  发现模式: {skill_result['patterns_found']}种")
@@ -3450,10 +3465,29 @@ class AceDaemon:
             )
         else:
             print("  (任务生命周期系统未初始化)")
+        # Evening sandbox clock is independent of TaskPool.  If lifecycle
+        # already ran it, the date gate returns ALREADY_RUN_TODAY.
+        try:
+            lifecycle_result["free_zone_autonomy"] = self._run_free_zone_autonomy_if_due()
+        except Exception as e:
+            self._log_error("free_zone_autonomy", str(e))
+        try:
+            lifecycle_result["sandbox_society"] = self._run_sandbox_society_if_due()
+        except Exception as e:
+            self._log_error("sandbox_society", str(e))
         self.state.setdefault("cycle_progress", {})["model_pipeline"] = lifecycle_result.get(
             "model_pipeline", {}
         )
-        work_allocation = AutonomousWorkAllocation(self.task_pool).report(lifecycle_result)
+        if self.task_pool:
+            work_allocation = AutonomousWorkAllocation(self.task_pool).report(lifecycle_result)
+        else:
+            work_allocation = {
+                "outcome": "NO_VALID_AUTONOMOUS_WORK",
+                "total_existing_work": 0,
+                "reason": "task_pool_unavailable",
+                "allocator_created_task_count": 0,
+                "no_synthetic_work_by_allocator": True,
+            }
         lifecycle_result["work_allocation"] = work_allocation
         self.state.setdefault("cycle_progress", {})["work_allocation"] = work_allocation
         self._save_state()
