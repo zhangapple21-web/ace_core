@@ -17,6 +17,26 @@
 
 ---
 
+## Runtime Snapshot (2026-09-12)
+
+换窗先读这一段。不要用下方 2026-07-10 Open Tasks 当现场，也不要重开 8001/8003/1443 端口审计。
+
+- **身份：** 看 `06_RUNTIME/ace/data/memory/heartbeat.json`，不看 `daemon_state.run_status=alive`。生产 owner 固定 `ace_daemon`，每条含 `run_id`。
+- **宿主重启路径：** `ACE_Daemon_Boot`（`ops/install_tasks.ps1`）开机 + 约 10 分钟探活；Execute=`pythonw.exe`，`ace.py daemon --serve`，工作目录 `C:\tmp\ace_core`。3000/3002 由 `ACE-Local-OneAPI` 独立拉起，不经过 AceDaemon。
+- **时间切片：** 9/8 `cycle_complete` → 9/11 13:20 `host_termination`（刷机）→ 心跳 stale。9/12 计划任务把 daemon 拉回。现场 pid 会变，不以某个 pid 当身份。
+- **NameError：** `_run_task_lifecycle_unlocked` 曾引用 `run_once` 局部名 `_preserve_cycle_progress`，每轮 `finance_work_window` 打日志。源码已改为：有 `cycle_progress.finance_preflight` dict 就复用；否则且 `self.finance_work_windows` 非空才 `build()`。14:47 仍是旧进程在打；14:48 自启后应不再出现该 NameError。补丁在本机工作树；本地 `.git/objects` 损坏，远程同步走干净克隆独立分支，禁止 `git add .`。
+- **政策卡投影：** `PolicyCardStore.project` / `_project_verified_policy_cards` 会跑，但只投影 `verified_outcome_receipt` 且 `VERIFIED`、≥2 独立证据组。2026-09-12 全机无 `policy_cards.json`、无 `policy_feedback/` 目录、连续性收据 `task_file_count=0`。空转，不是新卡生效。
+- **金融门禁：** daemon 在跑 ≠ 荐股生产开了。Finance 仍 `RESEARCH_ONLY`，Advisor `BLOCKED`，Owner TG `OFF`，quote 源未准入。
+- **R1 端口即边界：** 职责在代码，不是本机 TCP 监听口。8001→AceDaemon+Admission+CoreSyncer allowlist+Telegram 出口；8003→`07_SANDBOX/free_research`；1443→`08_GOVERNANCE/free_zone_bridge` 收据；3000→本机网关。不重开端口。
+- **文明地图：** `civilization_map.py` 会扫 GitHub stale 并写本文件 `## Civilization Map`；**daemon 从不调用扫描器**，所以会停更。不要把扫描器塞进生产循环，也不扩 CoreSyncer allowlist。
+- **CoreSyncer：** 窄母板 allowlist（`AGENTS.md` / `README.md` / `ace_daemon.py` + 指定后缀）。脏工作树正常。`runtime.allow_repository_sync` 未设则默认 false。
+- **连续性：** 聊天窗不是 ACE 记忆本体。说「同一个 ACE 继续」需要 `CONTINUITY_VERIFIED` 或 `CONTINUITY_VERIFIED_AFTER_MIGRATION`；`CONTINUITY_ESTABLISHED` 只是新基线。auditor 不启 daemon、不重放工作。Codex 同窗压缩能保住结论；新开一条没有日记忆的窗仍会从头审计——所以本段必须更新。
+- **明确不做：** 不重开 8001/8003/1443；不另启第二份 daemon；不把拾荒网接入生产；不扩 CoreSyncer；secrets / mine-seed-credentials 不上公共远程。
+
+对照材料（已推独立 docs 分支，不是生产准入）：`docs/ACE_CIVILIZATION_MAP_DAILY_20260912.md`、`docs/ACE_R1_PORT_BOUNDARY_VS_DRAWERS_20260912.md`。
+
+---
+
 ## Current Sprint
 
 **P0: Environment Awareness — Closing the loop**
@@ -83,24 +103,26 @@ It doesn't keep gaining new abilities — it keeps improving collaboration effic
 
 ---
 
-## Civilization Map (7 repos)
+## Civilization Map
+
+Last scanned: 2026-09-12T12:50:36.047744
 
 ```
 zhangapple21-web
 │
-├── 🏠 mine-seed              Active     9.3MB   R2 HQ (今天的主战场)
-├── ⚡ ace_core               Active     1.5MB   Runtime 精选 (刚从 8 天停更恢复)
-├── 🏛️ r1-archaeology          Warming    310KB   考古档案馆 (昨天更新过)
-├── 🌱 r1-open-source-seed    Stale       32KB   开源种子 (几乎空的)
-├── 📜 R1                     Dormant      0KB   文明思想/官网 (空壳)
-├── 🧪 -                      Dormant      0KB   测试仓库
-└── 🔑 coze-assets            PRIVATE      ?     文明钥匙 (密钥，绝不公开)
+├── 🟡 ace_core             Runtime Core         1d stale
+├── 🔴 mine-seed            Civilization Seed    3d stale
+├── 🔴 r1-archaeology       Civilization Memory  5d stale
+├── 🔴 -                    Unknown              10d stale
+├── 🔴 R1_continuity_archive Unknown              24d stale
+├── 🔴 R1                   Civilization Philosophy 55d stale
+├── 🔴 aum-protocol         Unknown              59d stale
+├── 🔴 r1-open-source-seed  Open Source Seed     66d stale
 ```
 
-**Cross-repo observation:** Each repo is an organ, not a silo.
-When one is stale, it's a civilization health problem, not just "inactive".
-
----
+**Stats**: 8 repos (8 public, 0 private)
+**Stale**: 4
+**Critical**: mine-seed
 
 ## Latest Evolution (this week)
 
@@ -150,4 +172,4 @@ When opening the repository tomorrow morning:
 
 ---
 
-*Last updated: 2026-07-10 20:30*
+*Last updated: 2026-09-12 14:55（Runtime Snapshot 覆盖现场；下方 2026-07-10 段落保留为历史）*

@@ -2184,9 +2184,9 @@ class AceDaemon:
 
         try:
             preflight = self.state.get("cycle_progress", {}).get("finance_preflight")
-            if _preserve_cycle_progress and isinstance(preflight, dict):
+            if isinstance(preflight, dict):
                 result["finance_work_window"] = preflight
-            else:
+            elif self.finance_work_windows:
                 finance_heartbeat = self._start_stage_heartbeat("finance_work_window")
                 try:
                     result["finance_work_window"] = self.finance_work_windows.build()
