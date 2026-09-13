@@ -1,0 +1,43 @@
+{
+  "automatic_production_promotion": false,
+  "automatic_task_creation": false,
+  "constraints": [
+    "no TaskPool creation",
+    "no model call",
+    "no production runtime mutation",
+    "existing Admission, Validator, Data, Risk, and Finance gates remain authoritative"
+  ],
+  "evidence": {
+    "independent_count": 2,
+    "independent_groups": [
+      "daemon_state",
+      "task_lifecycle_report"
+    ],
+    "refs": [
+      {
+        "independence_group": "daemon_state",
+        "kind": "runtime_state",
+        "ref": "06_RUNTIME/ace/data/memory/daemon_state.json",
+        "sha256": "82107881fc3655155c41ede534a54a10fec92532228dac8e2f8d74e74ccf7c17",
+        "size_bytes": 88518
+      },
+      {
+        "independence_group": "task_lifecycle_report",
+        "kind": "runtime_report",
+        "ref": "06_RUNTIME/ace/data/hourly_task_service_latest.json",
+        "sha256": "97ed3be7f109db5f0f8c48dc13bb13b45ef60f127690556cb8f013d61cfb357e",
+        "size_bytes": 37267
+      }
+    ]
+  },
+  "expected_result": "A Free Zone probe retains a falsifiable explanation or counterexample while ACE lifecycle ownership remains unchanged.",
+  "food_kind": "ace_reality_gap",
+  "hypothesis": "Which bounded counterexample explains the unserviced claimable backlog without changing lifecycle authority?",
+  "method": "Recheck the bound hourly report and daemon state hashes; verify zero TaskPool, routing, model, or production mutation by this relay.",
+  "observation": "The existing daemon lifecycle reported 1 claimable item(s) but did not service them in the recorded hour.",
+  "origin": {
+    "exchange_id": "EXCHANGE-9A6ADE0264CBC10764A4836B",
+    "receipt_sha256": "54617a3e6aad2a43f7e5c6d58f2fb35f1a52a6a5015fd2ca1d417b48b1a4643b"
+  },
+  "production_integration": false
+}

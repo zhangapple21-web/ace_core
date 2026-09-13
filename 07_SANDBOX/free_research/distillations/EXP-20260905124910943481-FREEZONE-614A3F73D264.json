@@ -1,0 +1,48 @@
+{
+  "automatic_delivery": false,
+  "automatic_promotion": false,
+  "automatic_task_creation": false,
+  "contextual_state": {
+    "learning_needs": [
+      {
+        "fact_id": "FACT-INDEPENDENT-CONFIRMATION",
+        "reason": "A future observable fact could falsify the named active hypothesis.",
+        "required_by_hypotheses": [
+          "HYP-EVIDENCE-INSUFFICIENT"
+        ],
+        "status": "MISSING"
+      },
+      {
+        "fact_id": "FACT-INDEPENDENT-COUNTEREVIDENCE",
+        "reason": "A future observable fact could falsify the named active hypothesis.",
+        "required_by_hypotheses": [
+          "HYP-CANDIDATE-TRANSFER"
+        ],
+        "status": "MISSING"
+      }
+    ],
+    "packet_hash": "cb51de27eaee10c2fd32f86919b3956570ab1889ec68960b33762458602c2d7f",
+    "packet_id": "CSP-C4C5273F0E25BF03E3DD768C",
+    "scope": "FREE_ZONE_RESEARCH_ONLY"
+  },
+  "contract_version": "ace.free_research_sandbox.v1",
+  "created_at": "2026-09-12T04:43:24.445210+00:00",
+  "distillation_hash": "fb0859ed864822925ea0dd73b29df804c0101288db6feaa3c9f23e8e07162492",
+  "evidence_hash": "48e99b18078a6ed67f0f2f544540caec964db72bddeeb4b4785ef6077959e994",
+  "experiment_id": "EXP-20260905124910943481-FREEZONE-614A3F73D264",
+  "mode": "DISTILLATION_ONLY",
+  "outcome": "INCONCLUSIVE",
+  "pattern": "When Inspect free-zone input 2026-09-05-local-novel-ore-hidden-workshop.json, investigate via Run an isolated local probe over the preserved inbox payload..",
+  "production_integration": false,
+  "realm_state": {
+    "authority": "SANDBOX_ONLY",
+    "contract_version": "ace.free_zone_realm.v1",
+    "outbound_rule": "REOBSERVE",
+    "production_integration": false,
+    "realm": "SHADOW",
+    "retention": "SEED"
+  },
+  "reason": "inconclusive_result_requires_new_observation",
+  "source_record_hash": "d01fc0a134f7095ee2bbe4fa06e102ed50f0ef143eb8785645d5805b06e97433",
+  "status": "OPEN_QUESTION"
+}

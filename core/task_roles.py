@@ -27,6 +27,7 @@ from .execution_discipline import (
     record_checkpoint,
     record_event,
 )
+from .delivery_protocols import ensure_task_protocols, protocol_errors, validate_release_receipt
 from .miner_pool.task_profiles import get_task_profile
 
 
@@ -164,7 +165,9 @@ def _record_model_execution(
             task_type=task_type,
             messages=[{"role": "user", "content": prompt}],
             system_prompt="Return concise task analysis grounded in the supplied task context.",
-            max_retries=3,
+            # Provider fallback is owned by the gateway; ACE gets one bounded
+            # task attempt so a failed request cannot multiply upstream spend.
+            max_retries=1,
             task_context=routing_context,
         )
     except Exception as error:
@@ -1162,6 +1165,18 @@ class Validator:
             record_event(task, "stop", actor="execution_discipline", reason=reason)
             self.task_pool.update_task(task)
             raise RuntimeError(reason)
+        protocols = ensure_task_protocols(task, refresh_evidence=True)
+        # At the Validator boundary, a structurally valid but UNKNOWN or
+        # incomplete packet is still a gate failure.  Ordinary TaskPool work
+        # may carry such a packet while evidence is being collected.
+        protocol_failures = protocol_errors(protocols, require_evidence=True)
+        if protocols.get("active"):
+            task.outputs["delivery_protocol_checks"] = {
+                "checked_by": "validator",
+                "at": datetime.now().isoformat(),
+                "errors": protocol_failures,
+                "active": True,
+            }
         record_event(task, "reviewed", actor="validator")
         record_checkpoint(task, "validation_start", actor="validator")
         evidence_signature = self.evidence_signature(task)
@@ -1210,6 +1225,14 @@ class Validator:
             advisory_objections.append(counter_example)
 
         evidence_count = len(self._unique_evidence(task))
+        if protocols.get("active"):
+            packet = protocols.get("evidence_packet", {})
+            packet_items = packet.get("items", []) if isinstance(packet, dict) else []
+            evidence_count = len({
+                (item.get("source", ""), item.get("content", ""))
+                for item in packet_items
+                if isinstance(item, dict) and item.get("source") and item.get("content")
+            })
         if evidence_count == 0:
             objection = "没有任何证据支持，研究不充分"
             objections.append(objection)
@@ -1228,6 +1251,11 @@ class Validator:
             objection = "未主动寻找反例，存在确认偏误风险"
             objections.append(objection)
             advisory_objections.append(objection)
+
+        if protocols.get("active") and protocol_failures:
+            objection = "交付协议不完整: " + "; ".join(protocol_failures)
+            objections.append(objection)
+            hard_objections.append(objection)
 
         if self.memory_index and task.evidence:
             first_ev = task.evidence[0]
@@ -1674,6 +1702,7 @@ class Guardian:
     def judge(self, task: Task) -> Dict[str, Any]:
         """审判一个归档的任务，决定它的最终去向"""
         ensure_execution_discipline(task)
+        protocols = ensure_task_protocols(task, refresh_evidence=True)
         record_event(task, "guardian_reviewed", actor="guardian")
         decision = {
             "task_id": task.task_id,
@@ -1714,6 +1743,36 @@ class Guardian:
         else:
             decision["verdict"] = "experience"
             decision["reason"] = "证据有限，暂存经验库待后续验证"
+
+        # Only a proposed long-term rule activates the gate for an otherwise
+        # ordinary task.  Exploration and daily observation remain untouched.
+        if decision["verdict"] in {"axiom", "constraint"} and not protocols.get("active"):
+            protocols = ensure_task_protocols(task, refresh_evidence=True, force=True)
+        if protocols.get("active"):
+            # Guardian is the final consumer before a long-term promotion;
+            # require a source-backed, complete packet at this boundary too.
+            protocol_failures = protocol_errors(protocols, require_evidence=True)
+            scope = protocols.get("scope", {})
+            if scope.get("delivery_required"):
+                receipt = task.outputs.get("release_receipt", {}) if isinstance(task.outputs, dict) else {}
+                receipt_check = validate_release_receipt(
+                    receipt,
+                    task.task_id,
+                    require_verified=True,
+                )
+                protocol_failures.extend(
+                    f"release_receipt:{error}" for error in receipt_check.get("errors", [])
+                )
+            task.outputs["delivery_protocol_checks"] = {
+                "checked_by": "guardian",
+                "at": datetime.now().isoformat(),
+                "errors": list(dict.fromkeys(protocol_failures)),
+                "active": True,
+            }
+            if protocol_failures and decision["verdict"] in {"axiom", "constraint"}:
+                decision["verdict"] = "experience"
+                decision["promoted"] = False
+                decision["reason"] = "关键节点协议未通过，暂不升格为长期规则: " + "; ".join(protocol_failures)
 
         task.guardian_decision = decision["verdict"]
         add_evidence_ledger_entry(

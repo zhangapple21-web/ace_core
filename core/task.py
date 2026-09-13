@@ -25,6 +25,11 @@ from core.execution_discipline import (
     record_checkpoint,
     record_event,
 )
+from core.delivery_protocols import (
+    ensure_task_protocols,
+    protocol_errors,
+    validate_release_receipt,
+)
 from collections import defaultdict
 
 
@@ -519,6 +524,9 @@ class TaskPool:
                 depends_on=depends_on or [], parent_task=parent_task,
                 outputs={**task_outputs, **({"admission": admission} if admission else {})},
             )
+            protocols = ensure_task_protocols(task)
+            if protocols.get("active") and protocol_errors(protocols):
+                raise ValueError("delivery_protocol_invalid:" + ",".join(protocol_errors(protocols)))
             self._save_task(task)
             return task
 
@@ -537,6 +545,9 @@ class TaskPool:
             ):
                 return False
             if task.status not in TASK_STATUSES:
+                return False
+            protocols = ensure_task_protocols(task)
+            if protocols.get("active") and protocol_errors(protocols):
                 return False
             # An active task is a leased state.  A malformed active record
             # without a claim may be observed/recovered, but must not be
@@ -592,6 +603,33 @@ class TaskPool:
                 return None
             if stored.status == "active" and new_status != "active" and not stored.claim_id:
                 return None
+            # External delivery is a key-node gate, not a default lifecycle
+            # requirement.  When it is explicitly declared, an approved task
+            # cannot be archived until a verified release receipt exists.
+            # This keeps ordinary observation/exploration tasks untouched while
+            # preventing "approved" from being mistaken for delivered.
+            if new_status == "archived":
+                protocols = ensure_task_protocols(task, refresh_evidence=True)
+                if protocols.get("active") and protocols.get("scope", {}).get("delivery_required"):
+                    receipt = task.outputs.get("release_receipt", {}) if isinstance(task.outputs, dict) else {}
+                    receipt_check = validate_release_receipt(
+                        receipt,
+                        task.task_id,
+                        require_verified=True,
+                    )
+                    if not receipt_check.get("valid"):
+                        errors = [
+                            f"release_receipt:{error}"
+                            for error in receipt_check.get("errors", [])
+                        ]
+                        task.outputs["delivery_protocol_checks"] = {
+                            "checked_by": "task_pool",
+                            "at": datetime.now().isoformat(),
+                            "errors": errors,
+                            "active": True,
+                        }
+                        self._write_task_atomic(task, self._task_path(task.task_id, stored.status))
+                        return None
             if new_status == "active" and stored.status != "active":
                 ready, _ = execution_gate(task, allow_backfill=False)
                 if not ready:

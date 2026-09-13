@@ -7,11 +7,34 @@ $ErrorActionPreference = "Stop"
 
 $ScriptDir = $PSScriptRoot
 $BaseDir = Split-Path -Parent $ScriptDir
-$PythonExe = (Get-Command python -ErrorAction SilentlyContinue).Source
+
+function Resolve-AcePython {
+    $candidates = @(
+        $env:ACE_PYTHON,
+        (Join-Path $env:LOCALAPPDATA "Programs\Python\Python311\python.exe"),
+        "C:\Users\Administrator\AppData\Local\Programs\Python\Python311\python.exe"
+    )
+    foreach ($candidate in $candidates) {
+        if ($candidate -and (Test-Path -LiteralPath $candidate)) {
+            return $candidate
+        }
+    }
+    $cmd = Get-Command python -ErrorAction SilentlyContinue
+    if ($cmd -and $cmd.Source -and ($cmd.Source -notmatch 'WindowsApps')) {
+        return $cmd.Source
+    }
+    return $null
+}
+
+$PythonExe = Resolve-AcePython
 if (-not $PythonExe) {
-    Write-Host "[ERROR] python.exe was not found on PATH" -ForegroundColor Red
+    Write-Host "[ERROR] real python.exe was not found (WindowsApps stub is ignored)" -ForegroundColor Red
     exit 1
 }
+
+# pythonw keeps the boot/liveness probe off the desktop.
+$PythonW = Join-Path (Split-Path -Parent $PythonExe) "pythonw.exe"
+$LaunchExe = if (Test-Path -LiteralPath $PythonW) { $PythonW } else { $PythonExe }
 
 $DaemonScript = Join-Path -Path $BaseDir -ChildPath "ace.py"
 $DaemonArguments = '"{0}" daemon --serve' -f $DaemonScript
@@ -23,7 +46,7 @@ $LivenessTrigger = New-ScheduledTaskTrigger -Once `
 $tasks = @(@{
     Name = "ACE_Daemon_Boot"
     Description = "ACE boot daemon main loop"
-    Command = $PythonExe
+    Command = $LaunchExe
     Arguments = $DaemonArguments
     Trigger = @($BootTrigger, $LivenessTrigger)
     Delay = "PT5M"

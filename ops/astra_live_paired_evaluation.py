@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import time
 import urllib.error
 import urllib.request
@@ -43,7 +44,7 @@ def _call(endpoint: str, model: str, prompt: str) -> dict:
         endpoint,
         data=json.dumps(body, ensure_ascii=False).encode("utf-8"),
         headers={
-            "Authorization": "Bearer local-ace-oneapi-20260902",
+            "Authorization": f"Bearer {os.environ.get('ONE_API_KEY') or os.environ.get('ONEAPI_API_KEY', '')}",
             "Content-Type": "application/json",
         },
         method="POST",

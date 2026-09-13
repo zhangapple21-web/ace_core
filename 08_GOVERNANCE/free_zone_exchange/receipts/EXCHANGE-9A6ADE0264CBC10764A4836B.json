@@ -1,0 +1,64 @@
+{
+  "ace_review": {
+    "decision": "RELEASE_TO_FREE_ZONE",
+    "review_basis": [
+      "positive unserviced claimable count",
+      "attributed sole-daemon lifecycle report",
+      "separate daemon state snapshot"
+    ],
+    "reviewer": "ace_reality_runtime_relay"
+  },
+  "contract_version": "ace.reality_free_zone_exchange.v1",
+  "created_at": "2026-09-12T06:48:43.650306+00:00",
+  "destination_realm": "FREE_ZONE",
+  "disposition": {
+    "admission_bypassed": false,
+    "model_call": false,
+    "production_runtime_mutation": false,
+    "recommendation_authority": false,
+    "semantics": "research food only; Free Zone may experiment, refuse, or remain inconclusive",
+    "status": "RELEASED_TO_FREE_ZONE",
+    "task_created": false
+  },
+  "evidence": {
+    "independent_count": 2,
+    "independent_groups": [
+      "daemon_state",
+      "task_lifecycle_report"
+    ],
+    "refs": [
+      {
+        "independence_group": "daemon_state",
+        "kind": "runtime_state",
+        "ref": "06_RUNTIME/ace/data/memory/daemon_state.json",
+        "sha256": "82107881fc3655155c41ede534a54a10fec92532228dac8e2f8d74e74ccf7c17",
+        "size_bytes": 88518
+      },
+      {
+        "independence_group": "task_lifecycle_report",
+        "kind": "runtime_report",
+        "ref": "06_RUNTIME/ace/data/hourly_task_service_latest.json",
+        "sha256": "97ed3be7f109db5f0f8c48dc13bb13b45ef60f127690556cb8f013d61cfb357e",
+        "size_bytes": 37267
+      }
+    ]
+  },
+  "exchange_id": "EXCHANGE-9A6ADE0264CBC10764A4836B",
+  "gap": {
+    "constraints": [
+      "no TaskPool creation",
+      "no model call",
+      "no production runtime mutation",
+      "existing Admission, Validator, Data, Risk, and Finance gates remain authoritative"
+    ],
+    "epistemic_status": "FACT",
+    "expected_result": "A Free Zone probe retains a falsifiable explanation or counterexample while ACE lifecycle ownership remains unchanged.",
+    "gap_id": "ACE-GAP-UNSERVICED-2026-09-12T06:00Z",
+    "observation": "The existing daemon lifecycle reported 1 claimable item(s) but did not service them in the recorded hour.",
+    "reality_scope": "existing ACE TaskPool lifecycle service",
+    "research_question": "Which bounded counterexample explains the unserviced claimable backlog without changing lifecycle authority?",
+    "verification_method": "Recheck the bound hourly report and daemon state hashes; verify zero TaskPool, routing, model, or production mutation by this relay."
+  },
+  "receipt_hash": "54617a3e6aad2a43f7e5c6d58f2fb35f1a52a6a5015fd2ca1d417b48b1a4643b",
+  "source_realm": "ACE_REALITY"
+}

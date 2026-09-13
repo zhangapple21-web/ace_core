@@ -1,0 +1,1352 @@
+{
+  "can_consume_as_market_signal": false,
+  "contract_version": "ace.tn6_indicator_bridge.v1",
+  "entries": [
+    {
+      "file_name": "AI智能交易.tn6",
+      "mapped_factors": [],
+      "parse_status": "BINARY_FORMULA_UNPARSED",
+      "relative_path": "指标-通信达/AI智能交易/AI智能交易/AI智能交易.tn6",
+      "semantic_tags": [
+        "opaque_model"
+      ],
+      "sha256": "415f02826e3e29a3d42f2a04c5ec4e47356ab8196819e21ba9eab8b3d42b6579",
+      "size_bytes": 14832
+    },
+    {
+      "file_name": "AI量化分时主图副图.tn6",
+      "mapped_factors": [
+        "intraday_volume_price_turnover"
+      ],
+      "parse_status": "BINARY_FORMULA_UNPARSED",
+      "relative_path": "指标-通信达/AI量化分时主图副图/AI量化分时主图副图.tn6",
+      "semantic_tags": [
+        "intraday_orderflow",
+        "opaque_model"
+      ],
+      "sha256": "5b331c6df0a8617de3ec3a844b2cfbc5061a4cf47dd53a5d807a856a542db430",
+      "size_bytes": 26040
+    },
+    {
+      "file_name": "CCI日周月共振.tn6",
+      "mapped_factors": [
+        "intraday_volume_price_turnover"
+      ],
+      "parse_status": "BINARY_FORMULA_UNPARSED",
+      "relative_path": "指标-通信达/CCI日周月共振/CCI日周月共振/CCI日周月共振.tn6",
+      "semantic_tags": [
+        "trend_technical"
+      ],
+      "sha256": "b91b9fc6296af4d5f3b796a71bd5ea9f4d7e63746256afa945e3535a6a87e05d",
+      "size_bytes": 21104
+    },
+    {
+      "file_name": "DK笑脸主图+选股.tn6",
+      "mapped_factors": [],
+      "parse_status": "BINARY_FORMULA_UNPARSED",
+      "relative_path": "指标-通信达/DK笑脸主图 选股/DK笑脸主图+选股/DK笑脸主图+选股.tn6",
+      "semantic_tags": [],
+      "sha256": "7e4588a0618a1cc530567f0763d94967305980ac5f73049f8624f239670915be",
+      "size_bytes": 13232
+    },
+    {
+      "file_name": "FK精准启主图副图选股.tn6",
+      "mapped_factors": [],
+      "parse_status": "BINARY_FORMULA_UNPARSED",
+      "relative_path": "指标-通信达/FK精准启主图副图选股/FK精准启主图副图选股.tn6",
+      "semantic_tags": [],
+      "sha256": "52f0a4ea78a4ee4d0b5baeafc3b3a6367178fb28d0188e76eb427d9763e29036",
+      "size_bytes": 27544
+    },
+    {
+      "file_name": "LSTM分时操盘系统.tn6",
+      "mapped_factors": [
+        "intraday_volume_price_turnover"
+      ],
+      "parse_status": "BINARY_FORMULA_UNPARSED",
+      "relative_path": "指标-通信达/LSTM分时操盘系统/LSTM分时操盘系统.tn6",
+      "semantic_tags": [
+        "intraday_orderflow",
+        "opaque_model"
+      ],
+      "sha256": "6a131cdd5a40b2f5b17f80a3cd31de1645ace37709f8026f872ca628b202b079",
+      "size_bytes": 26600
+    },
+    {
+      "file_name": "MACD水上起爆主图+选股.tn6",
+      "mapped_factors": [
+        "intraday_volume_price_turnover"
+      ],
+      "parse_status": "BINARY_FORMULA_UNPARSED",
+      "relative_path": "指标-通信达/MACD水上起爆主图 选股/MACD水上起爆主图+选股/MACD水上起爆主图+选股.tn6",
+      "semantic_tags": [
+        "breakout_momentum",
+        "trend_technical"
+      ],
+      "sha256": "1d67648b52959d5a6af44486726d7c31ee64ef85761381cb0a88a4b5c2e67304",
+      "size_bytes": 13152
+    },
+    {
+      "file_name": "MACD资金量能副图+选股.tn6",
+      "mapped_factors": [
+        "flow_continuity_1_3d",
+        "intraday_volume_price_turnover"
+      ],
+      "parse_status": "BINARY_FORMULA_UNPARSED",
+      "relative_path": "指标-通信达/MACD资金量能副图 选股/MACD资金量能副图+选股/MACD资金量能副图+选股.tn6",
+      "semantic_tags": [
+        "flow_turnover",
+        "trend_technical"
+      ],
+      "sha256": "65bec3828a3b69d087dcd5bd04e9e21299d32f2d973dac61bd45dafe5f385f82",
+      "size_bytes": 14816
+    },
+    {
+      "file_name": "N-发起反攻附图选股指标.tn6",
+      "mapped_factors": [
+        "intraday_volume_price_turnover"
+      ],
+      "parse_status": "BINARY_FORMULA_UNPARSED",
+      "relative_path": "指标-通信达/N-发起反攻附图选股指标/N-发起反攻附图选股指标.tn6",
+      "semantic_tags": [
+        "early_structure"
+      ],
+      "sha256": "bfc37871869a41d66d43e8ce1a17bebcc84772a3c5107e9aa6dcec0ecd225781",
+      "size_bytes": 12304
+    },
+    {
+      "file_name": "N型多态SVIP幅图选股指标.tn6",
+      "mapped_factors": [
+        "intraday_volume_price_turnover"
+      ],
+      "parse_status": "BINARY_FORMULA_UNPARSED",
+      "relative_path": "指标-通信达/N型多态SVIP幅图选股指标/N型多态SVIP幅图选股指标.tn6",
+      "semantic_tags": [
+        "early_structure"
+      ],
+      "sha256": "7a2af829fd264f1a865554e8685aaa725906e8d4839c6a162dbeaf6ea33fd980",
+      "size_bytes": 36320
+    },
+    {
+      "file_name": "N型战法主副图+选股.tn6",
+      "mapped_factors": [
+        "intraday_volume_price_turnover"
+      ],
+      "parse_status": "BINARY_FORMULA_UNPARSED",
+      "relative_path": "指标-通信达/N型战法主副图 选股/N型战法主副图+选股/N型战法主副图+选股.tn6",
+      "semantic_tags": [
+        "early_structure"
+      ],
+      "sha256": "38bd1cce4fe12f95721a0dad44b5eef86441b2bf43405b1793c863eaf438c433",
+      "size_bytes": 31976
+    },
+    {
+      "file_name": "N字一剑封喉副图+选股.tn6",
+      "mapped_factors": [
+        "intraday_volume_price_turnover"
+      ],
+      "parse_status": "BINARY_FORMULA_UNPARSED",
+      "relative_path": "指标-通信达/N字一剑封喉副图 选股/N字一剑封喉副图+选股/N字一剑封喉副图+选股.tn6",
+      "semantic_tags": [
+        "early_structure"
+      ],
+      "sha256": "c6484ec9dca554033ef1b23ddb20d2fe7b2955a5100c25d19e4a414689e27758",
+      "size_bytes": 12832
+    },
+    {
+      "file_name": "N字结构主副图+选股.tn6",
+      "mapped_factors": [
+        "intraday_volume_price_turnover"
+      ],
+      "parse_status": "BINARY_FORMULA_UNPARSED",
+      "relative_path": "指标-通信达/N字结构主副图 选股/N字结构主副图+选股/N字结构主副图+选股.tn6",
+      "semantic_tags": [
+        "early_structure"
+      ],
+      "sha256": "3dce68c3e0b60b50ebd19e712b6f830d709b1983a22c61b941f1daebd5b1d9eb",
+      "size_bytes": 20584
+    },
+    {
+      "file_name": "N形战法副图+选股.tn6",
+      "mapped_factors": [],
+      "parse_status": "BINARY_FORMULA_UNPARSED",
+      "relative_path": "指标-通信达/N形战法副图 选股/N形战法副图+选股/N形战法副图+选股.tn6",
+      "semantic_tags": [],
+      "sha256": "0a007698ce6d0481727a915419aa494bd5fa08e870829b28e84f3f76f1200fc9",
+      "size_bytes": 12200
+    },
+    {
+      "file_name": "T+0分时副图+黑马启动副选.tn6",
+      "mapped_factors": [
+        "intraday_volume_price_turnover"
+      ],
+      "parse_status": "BINARY_FORMULA_UNPARSED",
+      "relative_path": "指标-通信达/T+0分时副图+黑马启动副选/T+0分时副图+黑马启动副选.tn6",
+      "semantic_tags": [
+        "intraday_orderflow",
+        "breakout_momentum"
+      ],
+      "sha256": "98d4d00c2b40afb3e845f59b2f15f8387945b3614f98898ae72b0ff56b2d129f",
+      "size_bytes": 42872
+    },
+    {
+      "file_name": "W底形态幅图选股.tn6",
+      "mapped_factors": [
+        "intraday_volume_price_turnover"
+      ],
+      "parse_status": "BINARY_FORMULA_UNPARSED",
+      "relative_path": "指标-通信达/W底形态幅图选股/W底形态幅图选股.tn6",
+      "semantic_tags": [
+        "early_structure"
+      ],
+      "sha256": "d0424e2f8cb3f1b7c64cc18f592808529f0bee802f29db41c68758b48f6da184",
+      "size_bytes": 12056
+    },
+    {
+      "file_name": "2025《寻龙诀AI量化系统》主副图选股.tn6",
+      "mapped_factors": [],
+      "parse_status": "BINARY_FORMULA_UNPARSED",
+      "relative_path": "指标-通信达/《寻龙诀AI量化系统》主副图选股/2025《寻龙诀AI量化系统》主副图选股/2025《寻龙诀AI量化系统》主副图选股.tn6",
+      "semantic_tags": [
+        "opaque_model"
+      ],
+      "sha256": "e3360e1f2deee7e5aea7e4b4d8dbc9a8b7c6f6b1c70101677c3dd92aa0208fd6",
+      "size_bytes": 27528
+    },
+    {
+      "file_name": "《神龙摆尾》主图+副图+选股.tn6",
+      "mapped_factors": [],
+      "parse_status": "BINARY_FORMULA_UNPARSED",
+      "relative_path": "指标-通信达/《神龙摆尾》主图 副图 选股/《神龙摆尾》主图+副图+选股/《神龙摆尾》主图+副图+选股.tn6",
+      "semantic_tags": [],
+      "sha256": "7f1d295f73174517ca93d98e54bb46d9f6d830bd106a71ff02aea760d500ccd6",
+      "size_bytes": 21632
+    },
+    {
+      "file_name": "股市罗盘.tn6",
+      "mapped_factors": [],
+      "parse_status": "BINARY_FORMULA_UNPARSED",
+      "relative_path": "指标-通信达/【股市罗盘】主图选股指标/股市罗盘.tn6",
+      "semantic_tags": [],
+      "sha256": "13076ea5d5857574049afc83c4f201edc5794dcd049e1818567c6f5d2dc5a6fc",
+      "size_bytes": 21712
+    },
+    {
+      "file_name": "丁丁角度排序.tn6",
+      "mapped_factors": [
+        "intraday_volume_price_turnover"
+      ],
+      "parse_status": "BINARY_FORMULA_UNPARSED",
+      "relative_path": "指标-通信达/丁丁角度排序/丁丁角度排序/丁丁角度排序.tn6",
+      "semantic_tags": [
+        "trend_technical"
+      ],
+      "sha256": "2b643397449a6007fafcc4d89f46efa3ef957815e3be6a62cb92190321f52bbc",
+      "size_bytes": 6760
+    },
+    {
+      "file_name": "二板山外山副图+选股.tn6",
+      "mapped_factors": [],
+      "parse_status": "BINARY_FORMULA_UNPARSED",
+      "relative_path": "指标-通信达/二板山外山副图 选股/二板山外山副图+选股/二板山外山副图+选股.tn6",
+      "semantic_tags": [],
+      "sha256": "e26b7302a41e8d4dd902bfd0e7a2311d318723d58be9d749244473f316eab8d0",
+      "size_bytes": 12256
+    },
+    {
+      "file_name": "低位二次金叉附图选股指标.tn6",
+      "mapped_factors": [
+        "intraday_volume_price_turnover"
+      ],
+      "parse_status": "BINARY_FORMULA_UNPARSED",
+      "relative_path": "指标-通信达/低位二次金叉附图选股指标/低位二次金叉附图选股指标.tn6",
+      "semantic_tags": [
+        "early_structure"
+      ],
+      "sha256": "d50b50a7eb7cd96101abc87f6bc338af86f98de515f7bcc1c55a45172cf4b5b9",
+      "size_bytes": 15240
+    },
+    {
+      "file_name": "低位成妖副图+选股.tn6",
+      "mapped_factors": [
+        "intraday_volume_price_turnover"
+      ],
+      "parse_status": "BINARY_FORMULA_UNPARSED",
+      "relative_path": "指标-通信达/低位成妖副图 选股/低位成妖副图+选股/低位成妖副图+选股.tn6",
+      "semantic_tags": [
+        "breakout_momentum",
+        "early_structure"
+      ],
+      "sha256": "5beb289c20000b7337aa5cfbd9fea49b0d50bcbae4dfa3b63a072ada39ad1039",
+      "size_bytes": 12328
+    },
+    {
+      "file_name": "低开阳线买入附图选股指标.tn6",
+      "mapped_factors": [],
+      "parse_status": "BINARY_FORMULA_UNPARSED",
+      "relative_path": "指标-通信达/低开阳线买入附图选股指标/低开阳线买入附图选股指标.tn6",
+      "semantic_tags": [],
+      "sha256": "a9355e4ea08c12600a8feff25569fb3e63ae4b89ca2f0ed3e7959e9127b600b7",
+      "size_bytes": 12120
+    },
+    {
+      "file_name": "倍量过左肩 火箭发射 黄金柱 .tn6",
+      "mapped_factors": [
+        "intraday_volume_price_turnover"
+      ],
+      "parse_status": "BINARY_FORMULA_UNPARSED",
+      "relative_path": "指标-通信达/倍量过左肩 火箭发射 黄金柱/倍量过左肩 火箭发射 黄金柱 .tn6",
+      "semantic_tags": [
+        "breakout_momentum"
+      ],
+      "sha256": "0ef96a7098ceefa55b7d7231c4e8a49bb653199970e1cd4001bd81d4f0efc657",
+      "size_bytes": 27448
+    },
+    {
+      "file_name": "倍量龙妖副图 选股.tn6",
+      "mapped_factors": [],
+      "parse_status": "BINARY_FORMULA_UNPARSED",
+      "relative_path": "指标-通信达/倍量龙妖副图 选股/倍量龙妖副图 选股.tn6",
+      "semantic_tags": [],
+      "sha256": "3a6754edc32c4f6ad409c5a881f4ec407942dd44da052a978f2c539d5290020b",
+      "size_bytes": 16800
+    },
+    {
+      "file_name": "凤凰传奇副图+选股.tn6",
+      "mapped_factors": [],
+      "parse_status": "BINARY_FORMULA_UNPARSED",
+      "relative_path": "指标-通信达/凤凰传奇副图 选股/凤凰传奇副图+选股/凤凰传奇副图+选股.tn6",
+      "semantic_tags": [],
+      "sha256": "4b594809c585b953447b17312e645c6498920cd939efe3ad990d3ecb417fda67",
+      "size_bytes": 19472
+    },
+    {
+      "file_name": "凤凰振翅.tn6",
+      "mapped_factors": [],
+      "parse_status": "BINARY_FORMULA_UNPARSED",
+      "relative_path": "指标-通信达/凤凰振翅/凤凰振翅.tn6",
+      "semantic_tags": [],
+      "sha256": "0d9ffdaca60fe932319a09fbc32fde1019eef4bd0b1b83a4c8f2498ee24029cf",
+      "size_bytes": 19176
+    },
+    {
+      "file_name": "分时VIPT0+分时机构买卖.tn6",
+      "mapped_factors": [
+        "intraday_volume_price_turnover"
+      ],
+      "parse_status": "BINARY_FORMULA_UNPARSED",
+      "relative_path": "指标-通信达/分时VIPT0 分时机构买卖/分时VIPT0+分时机构买卖/分时VIPT0+分时机构买卖.tn6",
+      "semantic_tags": [
+        "intraday_orderflow"
+      ],
+      "sha256": "f46eed5ee9ead1e1b417ed8be212b3ef86b1235f708dcdc4e85c5574fe9038d7",
+      "size_bytes": 170080
+    },
+    {
+      "file_name": "分时主买主图.tn6",
+      "mapped_factors": [
+        "intraday_volume_price_turnover"
+      ],
+      "parse_status": "BINARY_FORMULA_UNPARSED",
+      "relative_path": "指标-通信达/分时主买主图/分时主买主图/分时主买主图.tn6",
+      "semantic_tags": [
+        "intraday_orderflow"
+      ],
+      "sha256": "af3d77f42842f79e6b6a25f8a066572ff653de6f5b30619f0e832cced20c8dc8",
+      "size_bytes": 119008
+    },
+    {
+      "file_name": "分时异动捉涨停主图.tn6",
+      "mapped_factors": [
+        "intraday_volume_price_turnover"
+      ],
+      "parse_status": "BINARY_FORMULA_UNPARSED",
+      "relative_path": "指标-通信达/分时异动捉涨停主图/分时异动捉涨停主图.tn6",
+      "semantic_tags": [
+        "intraday_orderflow",
+        "breakout_momentum"
+      ],
+      "sha256": "3e3a23ccd70f3e6320df5d65d35c4c6262ee40f3d87bb81942de7d6499e733ff",
+      "size_bytes": 9744
+    },
+    {
+      "file_name": "分时突破T+0.tn6",
+      "mapped_factors": [
+        "intraday_volume_price_turnover"
+      ],
+      "parse_status": "BINARY_FORMULA_UNPARSED",
+      "relative_path": "指标-通信达/分时突破T 0/分时突破T+0/分时突破T+0.tn6",
+      "semantic_tags": [
+        "intraday_orderflow",
+        "breakout_momentum"
+      ],
+      "sha256": "9cf1cfc7a8833c120b84077c6acd803b1c9f9ae230a83b077b3b4d9cfbfa43d2",
+      "size_bytes": 14072
+    },
+    {
+      "file_name": "分时计算器.tn6",
+      "mapped_factors": [
+        "intraday_volume_price_turnover"
+      ],
+      "parse_status": "BINARY_FORMULA_UNPARSED",
+      "relative_path": "指标-通信达/分时计算器/分时计算器.tn6",
+      "semantic_tags": [
+        "intraday_orderflow"
+      ],
+      "sha256": "21995098dd94c804d2d3d7b4d8c57a6ccd70b153cd583c8cd64acb7b0239d880",
+      "size_bytes": 16120
+    },
+    {
+      "file_name": "动能节奏副图+龙头狙击选股.tn6",
+      "mapped_factors": [
+        "intraday_volume_price_turnover"
+      ],
+      "parse_status": "BINARY_FORMULA_UNPARSED",
+      "relative_path": "指标-通信达/动能节奏副图 龙头狙击选股/动能节奏副图+龙头狙击选股/动能节奏副图+龙头狙击选股.tn6",
+      "semantic_tags": [
+        "breakout_momentum"
+      ],
+      "sha256": "0f5fec5df278654bb5eba79c8ef0bceb4520a7dc8a7c349c458533e5c1a6f217",
+      "size_bytes": 14976
+    },
+    {
+      "file_name": "博涨主副图选股.tn6",
+      "mapped_factors": [],
+      "parse_status": "BINARY_FORMULA_UNPARSED",
+      "relative_path": "指标-通信达/博涨主副图选股/博涨主副图选股.tn6",
+      "semantic_tags": [],
+      "sha256": "bfcd32fa7aff2f671c9eae3036b8bb46ce83722c2503e9e0b61056856907e357",
+      "size_bytes": 18632
+    },
+    {
+      "file_name": "发家致富附图选股指标.tn6",
+      "mapped_factors": [],
+      "parse_status": "BINARY_FORMULA_UNPARSED",
+      "relative_path": "指标-通信达/发家致富附图选股指标/发家致富附图选股指标.tn6",
+      "semantic_tags": [],
+      "sha256": "fc03074510c1675964e1684174876de38db5982a41fc16d9bc0c46885d5e28c7",
+      "size_bytes": 13336
+    },
+    {
+      "file_name": "多周期趋势.tn6",
+      "mapped_factors": [
+        "intraday_volume_price_turnover"
+      ],
+      "parse_status": "BINARY_FORMULA_UNPARSED",
+      "relative_path": "指标-通信达/多周期趋势/多周期趋势.tn6",
+      "semantic_tags": [
+        "trend_technical"
+      ],
+      "sha256": "7eaf05c37438a38049239a89140e805c08eaa377227109d7fac0a1b2610c14f2",
+      "size_bytes": 7992
+    },
+    {
+      "file_name": "多头买点副图+选股.tn6",
+      "mapped_factors": [],
+      "parse_status": "BINARY_FORMULA_UNPARSED",
+      "relative_path": "指标-通信达/多头买点副图 选股/多头买点副图+选股/多头买点副图+选股.tn6",
+      "semantic_tags": [],
+      "sha256": "719a4440218e776fc3a02c0f26c60fb1974fece5dcd66de92339db2f4f4dcf95",
+      "size_bytes": 12808
+    },
+    {
+      "file_name": "多空日周平衡副图+选股.tn6",
+      "mapped_factors": [],
+      "parse_status": "BINARY_FORMULA_UNPARSED",
+      "relative_path": "指标-通信达/多空日周平衡副图 选股/多空日周平衡副图+选股/多空日周平衡副图+选股.tn6",
+      "semantic_tags": [],
+      "sha256": "a53069c79d6fb5197cfc714c325147eae44f7b5d0bdcbbdb0701d7ea33911e0b",
+      "size_bytes": 14104
+    },
+    {
+      "file_name": "大V反转主图+XG.tn6",
+      "mapped_factors": [
+        "intraday_volume_price_turnover"
+      ],
+      "parse_status": "BINARY_FORMULA_UNPARSED",
+      "relative_path": "指标-通信达/大V反转主图 XG/大V反转主图+XG/大V反转主图+XG.tn6",
+      "semantic_tags": [
+        "early_structure"
+      ],
+      "sha256": "5e85a578fe61b438270f97b7721cd8c95a9790b79e6767e93c63785b7a9da44a",
+      "size_bytes": 12840
+    },
+    {
+      "file_name": "大单频率 笔均额.tn6",
+      "mapped_factors": [
+        "flow_continuity_1_3d",
+        "intraday_volume_price_turnover"
+      ],
+      "parse_status": "BINARY_FORMULA_UNPARSED",
+      "relative_path": "指标-通信达/大单频率 笔均额/大单频率 笔均额.tn6",
+      "semantic_tags": [
+        "intraday_orderflow",
+        "flow_turnover"
+      ],
+      "sha256": "69a47e5b38e3926bf37d0c545408b1afb79ac46110e6f8aef9a8e184f45872a2",
+      "size_bytes": 16104
+    },
+    {
+      "file_name": "大妖幅图+选股.tn6",
+      "mapped_factors": [],
+      "parse_status": "BINARY_FORMULA_UNPARSED",
+      "relative_path": "指标-通信达/大妖幅图 选股/大妖幅图+选股/大妖幅图+选股.tn6",
+      "semantic_tags": [],
+      "sha256": "9a8e476e3d83ef06bad4243f4406be67346ad550d70cf358cadacab1daa353de",
+      "size_bytes": 13192
+    },
+    {
+      "file_name": "大底部逆转主图+选股.tn6",
+      "mapped_factors": [
+        "intraday_volume_price_turnover"
+      ],
+      "parse_status": "BINARY_FORMULA_UNPARSED",
+      "relative_path": "指标-通信达/大底部逆转主图 选股/大底部逆转主图+选股/大底部逆转主图+选股.tn6",
+      "semantic_tags": [
+        "early_structure"
+      ],
+      "sha256": "2dd47e24199a14c186f13eb60aeb75ba76385861d28bb9c7493ab67ba9fae2d2",
+      "size_bytes": 12360
+    },
+    {
+      "file_name": "大波黑马起步.tn6",
+      "mapped_factors": [],
+      "parse_status": "BINARY_FORMULA_UNPARSED",
+      "relative_path": "指标-通信达/大波黑马起步/大波黑马起步/大波黑马起步.tn6",
+      "semantic_tags": [],
+      "sha256": "a836ad3c9be14a9d0bd5dfc5b639b0999b24ba84bf128691ebd4c0a48d32bef2",
+      "size_bytes": 9112
+    },
+    {
+      "file_name": "大牛回踩主图+选股.tn6",
+      "mapped_factors": [
+        "intraday_volume_price_turnover"
+      ],
+      "parse_status": "BINARY_FORMULA_UNPARSED",
+      "relative_path": "指标-通信达/大牛回踩主图 选股/大牛回踩主图+选股/大牛回踩主图+选股.tn6",
+      "semantic_tags": [
+        "early_structure"
+      ],
+      "sha256": "eb30c217ee4ebfc598d55f63fd44de075ae19f7fce876bb120cb163dd3c6e560",
+      "size_bytes": 12936
+    },
+    {
+      "file_name": "大盘专用逃顶.tn6",
+      "mapped_factors": [
+        "market_sentiment_index_environment"
+      ],
+      "parse_status": "BINARY_FORMULA_UNPARSED",
+      "relative_path": "指标-通信达/大盘专用逃顶/大盘专用逃顶.tn6",
+      "semantic_tags": [
+        "market_regime"
+      ],
+      "sha256": "c7c00ed06ab15f394c93283535409c4e52862102a8c107d375d5785552aba22c",
+      "size_bytes": 7928
+    },
+    {
+      "file_name": "大盘游资接力.tn6",
+      "mapped_factors": [
+        "flow_continuity_1_3d",
+        "intraday_volume_price_turnover",
+        "market_sentiment_index_environment"
+      ],
+      "parse_status": "BINARY_FORMULA_UNPARSED",
+      "relative_path": "指标-通信达/大盘游资接力/大盘游资接力/大盘游资接力.tn6",
+      "semantic_tags": [
+        "flow_turnover",
+        "market_regime"
+      ],
+      "sha256": "a34f9e52955b0a394907544ad254398942feced5cc0d226450ec1e6300c1424f",
+      "size_bytes": 20616
+    },
+    {
+      "file_name": "大胆买副图+选股.tn6",
+      "mapped_factors": [],
+      "parse_status": "BINARY_FORMULA_UNPARSED",
+      "relative_path": "指标-通信达/大胆买副图 选股/大胆买副图+选股/大胆买副图+选股.tn6",
+      "semantic_tags": [],
+      "sha256": "d9e59cdca72259dd7338912c3ff94c52f6f305f5e4a8d09741329691f10f442c",
+      "size_bytes": 12360
+    },
+    {
+      "file_name": "大资金加速副图+选股.tn6",
+      "mapped_factors": [
+        "flow_continuity_1_3d",
+        "intraday_volume_price_turnover"
+      ],
+      "parse_status": "BINARY_FORMULA_UNPARSED",
+      "relative_path": "指标-通信达/大资金加速副图+选股/大资金加速副图+选股.tn6",
+      "semantic_tags": [
+        "flow_turnover"
+      ],
+      "sha256": "11f34dc6e16652b3ea20f6f1e30bfbddf7e3cb6833064e031b438a1f201b1240",
+      "size_bytes": 19712
+    },
+    {
+      "file_name": "大金坑副图+选股.tn6",
+      "mapped_factors": [],
+      "parse_status": "BINARY_FORMULA_UNPARSED",
+      "relative_path": "指标-通信达/大金坑副图 选股/大金坑副图+选股/大金坑副图+选股.tn6",
+      "semantic_tags": [],
+      "sha256": "132a2fbde8dea8befb4685f6381c7e9c42e3a5be5afab481b2d79a9780cd0ab8",
+      "size_bytes": 12496
+    },
+    {
+      "file_name": "安全竞价.tn6",
+      "mapped_factors": [
+        "auction_opening_support"
+      ],
+      "parse_status": "BINARY_FORMULA_UNPARSED",
+      "relative_path": "指标-通信达/安全竞价/安全竞价/安全竞价.tn6",
+      "semantic_tags": [
+        "auction"
+      ],
+      "sha256": "f2500c8cd864e4e091598e344f1f8199fe80b083e03fa635eac5b34b52fca41a",
+      "size_bytes": 7072
+    },
+    {
+      "file_name": "定龙选股副图指标.tn6",
+      "mapped_factors": [],
+      "parse_status": "BINARY_FORMULA_UNPARSED",
+      "relative_path": "指标-通信达/定龙选股副图指标/定龙选股副图指标.tn6",
+      "semantic_tags": [],
+      "sha256": "0e7a426fd01a15e0cb9fbc89440bdcedad2f3cfb8b001ada03ca540e2389cf30",
+      "size_bytes": 16328
+    },
+    {
+      "file_name": "底部启动幅图选股指标.tn6",
+      "mapped_factors": [
+        "intraday_volume_price_turnover"
+      ],
+      "parse_status": "BINARY_FORMULA_UNPARSED",
+      "relative_path": "指标-通信达/底部启动幅图选股指标/底部启动幅图选股指标.tn6",
+      "semantic_tags": [
+        "breakout_momentum",
+        "early_structure"
+      ],
+      "sha256": "3c4fe22183eba504a2acbf2287fe505e12059a6e3cf747f722c507d5de9bf48e",
+      "size_bytes": 20656
+    },
+    {
+      "file_name": "底部掘金副图+选股指标.tn6",
+      "mapped_factors": [
+        "intraday_volume_price_turnover"
+      ],
+      "parse_status": "BINARY_FORMULA_UNPARSED",
+      "relative_path": "指标-通信达/底部掘金副图 选股指标/底部掘金副图+选股指标/底部掘金副图+选股指标.tn6",
+      "semantic_tags": [
+        "early_structure"
+      ],
+      "sha256": "c38071660f481624960375127292072dce9d0b3e3e5cb143625870e69d8e85eb",
+      "size_bytes": 13024
+    },
+    {
+      "file_name": "底部突破主图+选股.tn6",
+      "mapped_factors": [
+        "intraday_volume_price_turnover"
+      ],
+      "parse_status": "BINARY_FORMULA_UNPARSED",
+      "relative_path": "指标-通信达/底部突破主图 选股/底部突破主图+选股/底部突破主图+选股.tn6",
+      "semantic_tags": [
+        "breakout_momentum",
+        "early_structure"
+      ],
+      "sha256": "ec592ce3f68053b4d71649e016c34d526ebc7531d823234d6256f7ce57c43796",
+      "size_bytes": 18440
+    },
+    {
+      "file_name": "底部起涨副图+选股.tn6",
+      "mapped_factors": [
+        "intraday_volume_price_turnover"
+      ],
+      "parse_status": "BINARY_FORMULA_UNPARSED",
+      "relative_path": "指标-通信达/底部起涨副图 选股/底部起涨副图+选股/底部起涨副图+选股.tn6",
+      "semantic_tags": [
+        "early_structure"
+      ],
+      "sha256": "24079e291cba73dff2af6ff8bb5266ee90de9ec045a19e35b4dd7effc1d34192",
+      "size_bytes": 13408
+    },
+    {
+      "file_name": "底部首板涨停副图+选股.tn6",
+      "mapped_factors": [
+        "intraday_volume_price_turnover"
+      ],
+      "parse_status": "BINARY_FORMULA_UNPARSED",
+      "relative_path": "指标-通信达/底部首板涨停副图 选股/底部首板涨停副图+选股/底部首板涨停副图+选股.tn6",
+      "semantic_tags": [
+        "breakout_momentum",
+        "early_structure"
+      ],
+      "sha256": "c214288f990eb6dbb7cad87b5a3fc5e18de2124c588ae61a5eb846c389f8294f",
+      "size_bytes": 12504
+    },
+    {
+      "file_name": "弹射起步副图选股.tn6",
+      "mapped_factors": [],
+      "parse_status": "BINARY_FORMULA_UNPARSED",
+      "relative_path": "指标-通信达/弹射起步副图选股/弹射起步副图选股.tn6",
+      "semantic_tags": [],
+      "sha256": "598846b37787dde1793e6c867be6ebf59c4a56f475cb167fb77bbe28cd06b564",
+      "size_bytes": 12408
+    },
+    {
+      "file_name": "成交量盘口.tn6",
+      "mapped_factors": [
+        "intraday_volume_price_turnover"
+      ],
+      "parse_status": "BINARY_FORMULA_UNPARSED",
+      "relative_path": "指标-通信达/成交量盘口/成交量盘口.tn6",
+      "semantic_tags": [
+        "intraday_orderflow"
+      ],
+      "sha256": "66da97ad1eac019fbfe2dc735f5eead6e1b7609e7d83bc16d13427053bf991dd",
+      "size_bytes": 6832
+    },
+    {
+      "file_name": "成功率81副图+选股.tn6",
+      "mapped_factors": [],
+      "parse_status": "BINARY_FORMULA_UNPARSED",
+      "relative_path": "指标-通信达/成功率81副图 选股图/成功率81副图+选股图/成功率81副图+选股.tn6",
+      "semantic_tags": [],
+      "sha256": "cf41ff5a6eea7d23a1c8223e1687f568377807670a43c2b4d4509e920bf71c51",
+      "size_bytes": 15584
+    },
+    {
+      "file_name": "捕鱼主图副图选股指标.tn6",
+      "mapped_factors": [],
+      "parse_status": "BINARY_FORMULA_UNPARSED",
+      "relative_path": "指标-通信达/捕鱼主图副图选股指标/捕鱼主图副图选股指标.tn6",
+      "semantic_tags": [],
+      "sha256": "57d6804edaeec7d61529cb7433673525066c2bae9f8eb00db4651614dd812114",
+      "size_bytes": 21560
+    },
+    {
+      "file_name": "敢死队资金.tn6",
+      "mapped_factors": [
+        "flow_continuity_1_3d",
+        "intraday_volume_price_turnover"
+      ],
+      "parse_status": "BINARY_FORMULA_UNPARSED",
+      "relative_path": "指标-通信达/敢死队资金/敢死队资金/敢死队资金.tn6",
+      "semantic_tags": [
+        "flow_turnover"
+      ],
+      "sha256": "a714111543728b090a8dab0df3bd8923615c8d83a543ae2fdd937d6b07415523",
+      "size_bytes": 7640
+    },
+    {
+      "file_name": "断口涨跌副图+选股.tn6",
+      "mapped_factors": [],
+      "parse_status": "BINARY_FORMULA_UNPARSED",
+      "relative_path": "指标-通信达/断口涨跌副图 选股/断口涨跌副图+选股/断口涨跌副图+选股.tn6",
+      "semantic_tags": [],
+      "sha256": "b94826326ad3d5d8b24eb154e1d2dc2a1de0ceb5595f5f75b7f1a21a9866093d",
+      "size_bytes": 12776
+    },
+    {
+      "file_name": "暴力拉升副图+选股.tn6",
+      "mapped_factors": [],
+      "parse_status": "BINARY_FORMULA_UNPARSED",
+      "relative_path": "指标-通信达/暴力拉升副图 选股/暴力拉升副图+选股/暴力拉升副图+选股.tn6",
+      "semantic_tags": [],
+      "sha256": "b1514971223ce1a612e41fb186eab5522fc15fa8490396553924a1a54100a593",
+      "size_bytes": 13112
+    },
+    {
+      "file_name": "暴涨先知副图+选股.tn6",
+      "mapped_factors": [],
+      "parse_status": "BINARY_FORMULA_UNPARSED",
+      "relative_path": "指标-通信达/暴涨先知副图 选股/暴涨先知副图+选股/暴涨先知副图+选股.tn6",
+      "semantic_tags": [],
+      "sha256": "e2934b3d4ac01fc271671c07b3a18b33d7ffb7b9b1d7e6b4f864c9a720d4e525",
+      "size_bytes": 12216
+    },
+    {
+      "file_name": "暴涨启爆点副图+选股.tn6",
+      "mapped_factors": [],
+      "parse_status": "BINARY_FORMULA_UNPARSED",
+      "relative_path": "指标-通信达/暴涨启爆点副图 选股/暴涨启爆点副图+选股/暴涨启爆点副图+选股.tn6",
+      "semantic_tags": [],
+      "sha256": "d8db4cfaeca084fdf78ed6434e35b7b3017b94d8460088f186fa21eb420c3603",
+      "size_bytes": 12776
+    },
+    {
+      "file_name": "板块排名.tn6",
+      "mapped_factors": [
+        "sector_strength_rotation"
+      ],
+      "parse_status": "BINARY_FORMULA_UNPARSED",
+      "relative_path": "指标-通信达/板块排名/板块排名.tn6",
+      "semantic_tags": [
+        "sector_rotation"
+      ],
+      "sha256": "fe758b5b79324a07aa1dea70de5040d4a5871c954a37d478f3aae513318ff154",
+      "size_bytes": 68392
+    },
+    {
+      "file_name": "概念板块热点排序.tn6",
+      "mapped_factors": [
+        "sector_strength_rotation"
+      ],
+      "parse_status": "BINARY_FORMULA_UNPARSED",
+      "relative_path": "指标-通信达/概念板块热点排序/概念板块热点排序/概念板块热点排序.tn6",
+      "semantic_tags": [
+        "sector_rotation"
+      ],
+      "sha256": "c492abc36648687dd60ba1ab61c37b74b43cc57b59667f07f64f603d3c2cff93",
+      "size_bytes": 12304
+    },
+    {
+      "file_name": "波段001.tn6",
+      "mapped_factors": [],
+      "parse_status": "BINARY_FORMULA_UNPARSED",
+      "relative_path": "指标-通信达/波段001/波段001/波段001.tn6",
+      "semantic_tags": [],
+      "sha256": "253917430a9e1a80a136cc23a5c140c85e6a1b75327ebf7520437c236363cd8e",
+      "size_bytes": 19384
+    },
+    {
+      "file_name": "波段上拐主图+选股.tn6",
+      "mapped_factors": [],
+      "parse_status": "BINARY_FORMULA_UNPARSED",
+      "relative_path": "指标-通信达/波段上拐主图 选股/波段上拐主图+选股/波段上拐主图+选股.tn6",
+      "semantic_tags": [],
+      "sha256": "97fb2e79d1364894843429117d2d945bd08ef125481e4f37454e0babaa92602f",
+      "size_bytes": 14224
+    },
+    {
+      "file_name": "波段神器副图+选股.tn6",
+      "mapped_factors": [],
+      "parse_status": "BINARY_FORMULA_UNPARSED",
+      "relative_path": "指标-通信达/波段神器副图 选股/波段神器副图+选股/波段神器副图+选股.tn6",
+      "semantic_tags": [],
+      "sha256": "33b5ff2f5fa9d2559ac43b5bdb59d25d3696107727f995a99093e8fdd911a986",
+      "size_bytes": 12760
+    },
+    {
+      "file_name": "波段能量 买卖波段副图 选股.tn6",
+      "mapped_factors": [],
+      "parse_status": "BINARY_FORMULA_UNPARSED",
+      "relative_path": "指标-通信达/波段能量 买卖波段副图 选股/波段能量 买卖波段副图 选股.tn6",
+      "semantic_tags": [],
+      "sha256": "0c48340213282d4d0acc3b2a5c900aa8b3a1c2d1f48f8aabdb0cb0ea2daf0621",
+      "size_bytes": 19016
+    },
+    {
+      "file_name": "波谷中线抄底副图+选股.tn6",
+      "mapped_factors": [
+        "intraday_volume_price_turnover"
+      ],
+      "parse_status": "BINARY_FORMULA_UNPARSED",
+      "relative_path": "指标-通信达/波谷中线抄底副图 选股/波谷中线抄底副图+选股/波谷中线抄底副图+选股.tn6",
+      "semantic_tags": [
+        "early_structure"
+      ],
+      "sha256": "c102aba2064aecd856c583569b965b4765faec06ba94d6f2f1e43754a5a9d8a0",
+      "size_bytes": 13216
+    },
+    {
+      "file_name": "2024清北竞价绝杀排序.tn6",
+      "mapped_factors": [
+        "auction_opening_support"
+      ],
+      "parse_status": "BINARY_FORMULA_UNPARSED",
+      "relative_path": "指标-通信达/清北竞价绝杀排序/2024清北竞价绝杀排序.tn6",
+      "semantic_tags": [
+        "auction"
+      ],
+      "sha256": "1b911903791a2cfa19d091d017880d320e6690cf584d0a81847aa210ad4f2997",
+      "size_bytes": 7568
+    },
+    {
+      "file_name": "点爆突破主图+选股.tn6",
+      "mapped_factors": [
+        "intraday_volume_price_turnover"
+      ],
+      "parse_status": "BINARY_FORMULA_UNPARSED",
+      "relative_path": "指标-通信达/点爆突破主图 选股图/点爆突破主图+选股图/点爆突破主图+选股.tn6",
+      "semantic_tags": [
+        "breakout_momentum"
+      ],
+      "sha256": "0a7e3bd4cee1ec3b047538ededaeb75a7b58717a5719edf1302958a18791228b",
+      "size_bytes": 17928
+    },
+    {
+      "file_name": "烽火启动副图+选股.tn6",
+      "mapped_factors": [
+        "intraday_volume_price_turnover"
+      ],
+      "parse_status": "BINARY_FORMULA_UNPARSED",
+      "relative_path": "指标-通信达/烽火启动副图 选股/烽火启动副图+选股/烽火启动副图+选股.tn6",
+      "semantic_tags": [
+        "breakout_momentum"
+      ],
+      "sha256": "94953b5b0e425dd2c028697f9d28ba7b6e05799a7bda60ed018fa450b9d7a0a8",
+      "size_bytes": 16008
+    },
+    {
+      "file_name": "烽火起爆副图+选股.tn6",
+      "mapped_factors": [
+        "intraday_volume_price_turnover"
+      ],
+      "parse_status": "BINARY_FORMULA_UNPARSED",
+      "relative_path": "指标-通信达/烽火起爆副图 选股/烽火起爆副图+选股/烽火起爆副图+选股.tn6",
+      "semantic_tags": [
+        "breakout_momentum"
+      ],
+      "sha256": "502dfc4ec997f39a4dc2ef4e7ae855abf88f04e762c780f7686c7ec8d856b154",
+      "size_bytes": 14552
+    },
+    {
+      "file_name": "爆点启爆副图+选股.tn6",
+      "mapped_factors": [],
+      "parse_status": "BINARY_FORMULA_UNPARSED",
+      "relative_path": "指标-通信达/爆点启爆副图 选股图/爆点启爆副图+选股图/爆点启爆副图+选股.tn6",
+      "semantic_tags": [],
+      "sha256": "9479f07a41a6ec891a65c02c64eb6197ab76b1afb2183b1ac7167abc875b53ae",
+      "size_bytes": 13088
+    },
+    {
+      "file_name": "独霸金牛王副图+选股.tn6",
+      "mapped_factors": [],
+      "parse_status": "BINARY_FORMULA_UNPARSED",
+      "relative_path": "指标-通信达/独霸金牛王副图+选股/独霸金牛王副图+选股.tn6",
+      "semantic_tags": [],
+      "sha256": "7b04321426136ba995f69c086fbb5ce28b4c2f11c7e4e03a661fbb8c159d084f",
+      "size_bytes": 12656
+    },
+    {
+      "file_name": "电闪雷鸣变天副图+选股.tn6",
+      "mapped_factors": [],
+      "parse_status": "BINARY_FORMULA_UNPARSED",
+      "relative_path": "指标-通信达/电闪雷鸣变天副图 选股/电闪雷鸣变天副图+选股/电闪雷鸣变天副图+选股.tn6",
+      "semantic_tags": [],
+      "sha256": "22ad6146cbc34badb8a48e2f758b5f75c711e6aa50f363675abb83d9e62fbfda",
+      "size_bytes": 12520
+    },
+    {
+      "file_name": "白羊竞价排序附图.tn6",
+      "mapped_factors": [
+        "auction_opening_support"
+      ],
+      "parse_status": "BINARY_FORMULA_UNPARSED",
+      "relative_path": "指标-通信达/白羊竞价排序附图/白羊竞价排序附图.tn6",
+      "semantic_tags": [
+        "auction"
+      ],
+      "sha256": "82dd93956c20d6ea90a96dba60d249ee65258a22958220639cd03e7e910e8471",
+      "size_bytes": 7528
+    },
+    {
+      "file_name": "百分百换手.tn6",
+      "mapped_factors": [
+        "flow_continuity_1_3d",
+        "intraday_volume_price_turnover"
+      ],
+      "parse_status": "BINARY_FORMULA_UNPARSED",
+      "relative_path": "指标-通信达/百分百换手/百分百换手/百分百换手.tn6",
+      "semantic_tags": [
+        "flow_turnover"
+      ],
+      "sha256": "b212f8c28f2b3325afa5f3df7592945457a7919290f74cf4bfdc668d16a6d90c",
+      "size_bytes": 7352
+    },
+    {
+      "file_name": "短线起爆点副图+选股.tn6",
+      "mapped_factors": [
+        "intraday_volume_price_turnover"
+      ],
+      "parse_status": "BINARY_FORMULA_UNPARSED",
+      "relative_path": "指标-通信达/短线起爆点副图 选股/短线起爆点副图+选股/短线起爆点副图+选股.tn6",
+      "semantic_tags": [
+        "breakout_momentum"
+      ],
+      "sha256": "88aac38a066d46ea72e54d6744bb26cc98a96d22d6463a16aa4b172a022f01af",
+      "size_bytes": 12704
+    },
+    {
+      "file_name": "短线高手副图+选股.tn6",
+      "mapped_factors": [],
+      "parse_status": "BINARY_FORMULA_UNPARSED",
+      "relative_path": "指标-通信达/短线高手副图 选股/短线高手副图+选股/短线高手副图+选股.tn6",
+      "semantic_tags": [],
+      "sha256": "2dd71ee091d81fd8a839cac2710de487cc327cb74e539f48aacacfd65fdeecda",
+      "size_bytes": 12768
+    },
+    {
+      "file_name": "筹码抄底.tn6",
+      "mapped_factors": [
+        "flow_continuity_1_3d",
+        "intraday_volume_price_turnover"
+      ],
+      "parse_status": "BINARY_FORMULA_UNPARSED",
+      "relative_path": "指标-通信达/筹码抄底/筹码抄底.tn6",
+      "semantic_tags": [
+        "flow_turnover",
+        "early_structure"
+      ],
+      "sha256": "10556d8f18f2105731db4e7d905f93e09f221ed6065c3d1e887c8335d697bfc0",
+      "size_bytes": 7728
+    },
+    {
+      "file_name": "筹码猎杀副图+XG.tn6",
+      "mapped_factors": [
+        "flow_continuity_1_3d",
+        "intraday_volume_price_turnover"
+      ],
+      "parse_status": "BINARY_FORMULA_UNPARSED",
+      "relative_path": "指标-通信达/筹码猎杀副图 XG/筹码猎杀副图+XG/筹码猎杀副图+XG.tn6",
+      "semantic_tags": [
+        "flow_turnover"
+      ],
+      "sha256": "5c7669496762c2674408099ed442be94c69ea0cba3548797b241e9f832a837ea",
+      "size_bytes": 12032
+    },
+    {
+      "file_name": "翻倍航母副图+选股.tn6",
+      "mapped_factors": [],
+      "parse_status": "BINARY_FORMULA_UNPARSED",
+      "relative_path": "指标-通信达/翻倍航母副图 选股/翻倍航母副图+选股/翻倍航母副图+选股.tn6",
+      "semantic_tags": [],
+      "sha256": "71b3adce5d1048f6abdd85fc54055fffb8f59bbfc90b79b3aa20170cbb3a9b3a",
+      "size_bytes": 108728
+    },
+    {
+      "file_name": "财主抓涨停主附图选股全套.tn6",
+      "mapped_factors": [
+        "intraday_volume_price_turnover"
+      ],
+      "parse_status": "BINARY_FORMULA_UNPARSED",
+      "relative_path": "指标-通信达/财主抓涨停主附图选股全套/财主抓涨停主附图选股全套.tn6",
+      "semantic_tags": [
+        "breakout_momentum"
+      ],
+      "sha256": "f441a45461ae9e2163104c4e9ec60a29796ef019ed022a43ce0f59d31df9580f",
+      "size_bytes": 35048
+    },
+    {
+      "file_name": "赤霞捉妖副图选股.tn6",
+      "mapped_factors": [],
+      "parse_status": "BINARY_FORMULA_UNPARSED",
+      "relative_path": "指标-通信达/赤霞捉妖副图选股/赤霞捉妖副图选股.tn6",
+      "semantic_tags": [],
+      "sha256": "5303a44d08b91a24f9f9a715390310544b1a3993a8904cdc946ea9e7266b4f01",
+      "size_bytes": 13616
+    },
+    {
+      "file_name": "超级大牛股副图+选股.tn6",
+      "mapped_factors": [],
+      "parse_status": "BINARY_FORMULA_UNPARSED",
+      "relative_path": "指标-通信达/超级大牛股副图 选股/超级大牛股副图+选股/超级大牛股副图+选股.tn6",
+      "semantic_tags": [],
+      "sha256": "9d6d46a84df37259ba80b64cbea297b749d77dace09bb4f98d937fea4a2142cf",
+      "size_bytes": 13400
+    },
+    {
+      "file_name": "超级疯牛2.tn6",
+      "mapped_factors": [
+        "intraday_volume_price_turnover"
+      ],
+      "parse_status": "BINARY_FORMULA_UNPARSED",
+      "relative_path": "指标-通信达/超级疯牛2/超级疯牛2.tn6",
+      "semantic_tags": [
+        "breakout_momentum"
+      ],
+      "sha256": "65b735f165e3e8faf5edd8657fa1e8d6013bcfcc8fe3075d41a2af56105f0da9",
+      "size_bytes": 14392
+    },
+    {
+      "file_name": "超级资金战法2025.tn6",
+      "mapped_factors": [
+        "flow_continuity_1_3d",
+        "intraday_volume_price_turnover"
+      ],
+      "parse_status": "BINARY_FORMULA_UNPARSED",
+      "relative_path": "指标-通信达/超级资金战法2025/超级资金战法2025.tn6",
+      "semantic_tags": [
+        "flow_turnover"
+      ],
+      "sha256": "2ab46109410ea779ba61c278ac3b7149a2af4560f7b2026fa88053d1c1183ce4",
+      "size_bytes": 41888
+    },
+    {
+      "file_name": "超跌反弹副图+选股.tn6",
+      "mapped_factors": [],
+      "parse_status": "BINARY_FORMULA_UNPARSED",
+      "relative_path": "指标-通信达/超跌反弹副图 选股/超跌反弹副图+选股/超跌反弹副图+选股.tn6",
+      "semantic_tags": [],
+      "sha256": "8e95dcc2f8d7567c17d3a2e05d5d02108e9f8962107b9bcae45602947f4d17ca",
+      "size_bytes": 13464
+    },
+    {
+      "file_name": "避风港指标.tn6",
+      "mapped_factors": [
+        "market_sentiment_index_environment"
+      ],
+      "parse_status": "BINARY_FORMULA_UNPARSED",
+      "relative_path": "指标-通信达/避风港指标/避风港指标.tn6",
+      "semantic_tags": [
+        "market_regime"
+      ],
+      "sha256": "41c9efbe2193edf44a4a8a746975a5bc4d1a4c9a0342391c43018c2b03365c1b",
+      "size_bytes": 11976
+    },
+    {
+      "file_name": "错杀阴线幅图选股.tn6",
+      "mapped_factors": [],
+      "parse_status": "BINARY_FORMULA_UNPARSED",
+      "relative_path": "指标-通信达/错杀阴线幅图选股/错杀阴线幅图选股.tn6",
+      "semantic_tags": [],
+      "sha256": "9dbe5ee2333dc78657e0eacef1514a16dbd32bbc0bc6936b35b96091c4415cb4",
+      "size_bytes": 13000
+    },
+    {
+      "file_name": "飞天中流主副图+选股.tn6",
+      "mapped_factors": [],
+      "parse_status": "BINARY_FORMULA_UNPARSED",
+      "relative_path": "指标-通信达/飞天中流主副图 选股/飞天中流主副图+选股/飞天中流主副图+选股.tn6",
+      "semantic_tags": [],
+      "sha256": "e2647c87168ff779c83e11c9242ab650b5cd17719a8fd48d93a4b63f656d77d0",
+      "size_bytes": 18192
+    },
+    {
+      "file_name": "飞天双阳主副图选股.tn6",
+      "mapped_factors": [],
+      "parse_status": "BINARY_FORMULA_UNPARSED",
+      "relative_path": "指标-通信达/飞天双阳主副图选股/飞天双阳主副图选股.tn6",
+      "semantic_tags": [],
+      "sha256": "72a4d4ddcb5628087dd14d4591068085eec3971bb4218b888cd7fc198ee97aef",
+      "size_bytes": 17808
+    },
+    {
+      "file_name": "飞蝶妖龙套装（升级版）.tn6",
+      "mapped_factors": [],
+      "parse_status": "BINARY_FORMULA_UNPARSED",
+      "relative_path": "指标-通信达/飞蝶妖龙套装（升级版）/飞蝶妖龙套装（升级版）/飞蝶妖龙套装（升级版）.tn6",
+      "semantic_tags": [],
+      "sha256": "049bc4a3e51e93b1ee5804e94ea147bfc905767729721faf2e676f66c4677c4c",
+      "size_bytes": 54400
+    },
+    {
+      "file_name": "飞马飙升附图选股.tn6",
+      "mapped_factors": [],
+      "parse_status": "BINARY_FORMULA_UNPARSED",
+      "relative_path": "指标-通信达/飞马飙升附图选股/飞马飙升附图选股.tn6",
+      "semantic_tags": [],
+      "sha256": "2ba0bd096426521096c8e00b18510704a57fe3595afbfe42d7843c46d413912c",
+      "size_bytes": 13304
+    },
+    {
+      "file_name": "飞龙在天副图+选股.tn6",
+      "mapped_factors": [],
+      "parse_status": "BINARY_FORMULA_UNPARSED",
+      "relative_path": "指标-通信达/飞龙在天副图 选股/飞龙在天副图+选股/飞龙在天副图+选股.tn6",
+      "semantic_tags": [],
+      "sha256": "b43cf92e2977ec2d0738a05b1ebd88e64df26282a560d50501031196713cd7e8",
+      "size_bytes": 12136
+    }
+  ],
+  "entry_count": 100,
+  "experience_prior": {
+    "can_consume_as_market_signal": false,
+    "changes_candidate_grade": false,
+    "changes_conviction": false,
+    "changes_risk_level": false,
+    "contract_version": "ace.tn6_experience_fusion.v1",
+    "epistemic_status": "HYPOTHESIS_ONLY",
+    "motifs": [
+      {
+        "epistemic_status": "HYPOTHESIS_ONLY",
+        "label": "竞价主动性与开盘承接",
+        "mapped_factor": "auction_opening_support",
+        "motif_id": "opening_agency",
+        "observed_name_count": 3,
+        "sample_ratio": 0.03,
+        "source_tag": "auction",
+        "test_question": "竞价强度是否在开盘后得到承接，而非高开低走？",
+        "validation_required": "point_in_time_market_replay"
+      },
+      {
+        "epistemic_status": "HYPOTHESIS_ONLY",
+        "label": "主动买盘与分时回踩",
+        "mapped_factor": "intraday_volume_price_turnover",
+        "motif_id": "active_orderflow_retest",
+        "observed_name_count": 10,
+        "sample_ratio": 0.1,
+        "source_tag": "intraday_orderflow",
+        "test_question": "拉升是否有量、回踩是否缩量、放量后是否滞涨？",
+        "validation_required": "point_in_time_market_replay"
+      },
+      {
+        "epistemic_status": "HYPOTHESIS_ONLY",
+        "label": "资金连续性与换手效率",
+        "mapped_factor": "flow_continuity_1_3d",
+        "motif_id": "flow_continuity",
+        "observed_name_count": 9,
+        "sample_ratio": 0.09,
+        "source_tag": "flow_turnover",
+        "test_question": "当日资金是否与近1–3日方向一致，价格是否有效响应？",
+        "validation_required": "point_in_time_market_replay"
+      },
+      {
+        "epistemic_status": "HYPOTHESIS_ONLY",
+        "label": "板块扩散与梯队",
+        "mapped_factor": "sector_strength_rotation",
+        "motif_id": "sector_breadth_expansion",
+        "observed_name_count": 2,
+        "sample_ratio": 0.02,
+        "source_tag": "sector_rotation",
+        "test_question": "强势是否由至少两个代表标的同步，而非单点脉冲？",
+        "validation_required": "point_in_time_market_replay"
+      },
+      {
+        "epistemic_status": "HYPOTHESIS_ONLY",
+        "label": "首段启动与平台突破",
+        "mapped_factor": "intraday_volume_price_turnover",
+        "motif_id": "first_breakout",
+        "observed_name_count": 16,
+        "sample_ratio": 0.16,
+        "source_tag": "breakout_momentum",
+        "test_question": "是否仍在启动段或首次突破，而不是末端加速？",
+        "validation_required": "point_in_time_market_replay"
+      },
+      {
+        "epistemic_status": "HYPOTHESIS_ONLY",
+        "label": "低位结构与第一次回踩",
+        "mapped_factor": "intraday_volume_price_turnover",
+        "motif_id": "first_pullback_position",
+        "observed_name_count": 18,
+        "sample_ratio": 0.18,
+        "source_tag": "early_structure",
+        "test_question": "回踩是否守住关键结构，且距离失效点仍可接受？",
+        "validation_required": "point_in_time_market_replay"
+      },
+      {
+        "epistemic_status": "HYPOTHESIS_ONLY",
+        "label": "指数环境与风险开关",
+        "mapped_factor": "market_sentiment_index_environment",
+        "motif_id": "market_regime_gate",
+        "observed_name_count": 3,
+        "sample_ratio": 0.03,
+        "source_tag": "market_regime",
+        "test_question": "个股强势是否得到指数/风格环境支持？",
+        "validation_required": "point_in_time_market_replay"
+      }
+    ],
+    "next_action": "replay_each_motif_against_point_in_time_data_with_veteran_counterexamples",
+    "operating_path": [
+      "position_or_expectation_gap",
+      "sector_confirmation",
+      "opening_or_intraday_confirmation",
+      "invalidation_and_exit"
+    ],
+    "research_status": "RESEARCH_ONLY",
+    "score_contribution": 0.0,
+    "source_bridge_contract": "ace.tn6_indicator_bridge.v1",
+    "source_entry_count": 100,
+    "source_inventory_hash": "7938d5e3783f338b3d39594f0e104165b5a41eff2f8d360b370e2dc4ff6a360e",
+    "use": "research_hypothesis_generation_only",
+    "veteran_alignment": [
+      {
+        "alignment_status": "UNVALIDATED_ALIGNMENT",
+        "epistemic_status": "EXPERIENCE_TO_VALIDATE",
+        "matched_tn6_motifs": [
+          "first_breakout",
+          "first_pullback_position"
+        ],
+        "motifs": [
+          "first_breakout",
+          "first_pullback_position"
+        ],
+        "rule_id": "veteran-position-before-strength-v1",
+        "statement": "先看预期差和可参与位置，再看涨幅；末端加速不等于机会。"
+      },
+      {
+        "alignment_status": "UNVALIDATED_ALIGNMENT",
+        "epistemic_status": "EXPERIENCE_TO_VALIDATE",
+        "matched_tn6_motifs": [
+          "market_regime_gate",
+          "sector_breadth_expansion"
+        ],
+        "motifs": [
+          "sector_breadth_expansion",
+          "market_regime_gate"
+        ],
+        "rule_id": "veteran-sector-before-single-v1",
+        "statement": "个股强必须放回板块梯队验证，单点脉冲不能冒充主线。"
+      },
+      {
+        "alignment_status": "UNVALIDATED_ALIGNMENT",
+        "epistemic_status": "EXPERIENCE_TO_VALIDATE",
+        "matched_tn6_motifs": [
+          "active_orderflow_retest",
+          "opening_agency"
+        ],
+        "motifs": [
+          "opening_agency",
+          "active_orderflow_retest"
+        ],
+        "rule_id": "veteran-confirm-then-act-v1",
+        "statement": "竞价或分时主动性要在开盘后得到承接；确认后敢做，失效后敢退。"
+      },
+      {
+        "alignment_status": "UNVALIDATED_ALIGNMENT",
+        "epistemic_status": "EXPERIENCE_TO_VALIDATE",
+        "matched_tn6_motifs": [
+          "flow_continuity"
+        ],
+        "motifs": [
+          "flow_continuity"
+        ],
+        "rule_id": "veteran-flow-continuity-v1",
+        "statement": "资金看当日与近1–3日连续性，价格没有有效响应就不把流入当强势。"
+      },
+      {
+        "alignment_status": "UNVALIDATED_ALIGNMENT",
+        "epistemic_status": "EXPERIENCE_TO_VALIDATE",
+        "matched_tn6_motifs": [
+          "active_orderflow_retest",
+          "first_breakout",
+          "market_regime_gate"
+        ],
+        "motifs": [
+          "first_breakout",
+          "active_orderflow_retest",
+          "market_regime_gate"
+        ],
+        "rule_id": "veteran-risk-conviction-separate-v1",
+        "statement": "机会强度、当前信念和风险等级分开；高风险可以高信念，但必须缩短验证窗口。"
+      }
+    ]
+  },
+  "inventory_hash": "7938d5e3783f338b3d39594f0e104165b5a41eff2f8d360b370e2dc4ff6a360e",
+  "mapped_factor_counts": {
+    "auction_opening_support": 3,
+    "flow_continuity_1_3d": 9,
+    "intraday_volume_price_turnover": 47,
+    "market_sentiment_index_environment": 3,
+    "sector_strength_rotation": 2
+  },
+  "missing_factor_coverage": [
+    "next_day_path_exit"
+  ],
+  "next_action": "obtain_licensed_formula_export_or_replay_indicator_hits_against_point_in_time_data",
+  "observed_at": "2026-09-12T10:00:00+08:00",
+  "parse_status": "BINARY_FORMULA_UNPARSED",
+  "production_integration": false,
+  "recommendation_authority": false,
+  "research_status": "RESEARCH_ONLY",
+  "root": "C:\\tmp\\指标-2025合集",
+  "semantic_tag_counts": {
+    "auction": 3,
+    "breakout_momentum": 16,
+    "early_structure": 18,
+    "flow_turnover": 9,
+    "intraday_orderflow": 10,
+    "market_regime": 3,
+    "opaque_model": 4,
+    "sector_rotation": 2,
+    "trend_technical": 5
+  }
+}

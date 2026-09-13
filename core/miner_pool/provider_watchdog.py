@@ -268,13 +268,35 @@ class ProviderWatchdog:
         except Exception:
             return False
 
-    def deep_check(self, provider_name: str, test_model: str = "gpt-4o") -> Dict:
+    def _update_status(self, provider: ProviderHealth, status: str, error: str = ""):
+        """更新探针失败状态；健康检查本身不得因状态记录异常而中断。"""
+        provider.status = status
+        provider.last_check = time.time()
+        if error:
+            provider.error_message = error
+        if status in (UNHEALTHY, OFFLINE):
+            provider.consecutive_failures += 1
+            provider.consecutive_successes = 0
+        self._save_state()
+
+    def deep_check(self, provider_name: str, test_model: str = None) -> Dict:
         """
         L3/L4 深度检查：HTTP + 功能验证
         """
         p = self._providers.get(provider_name)
         if not p:
             return {"status": "unknown", "error": "provider not found"}
+
+        # OneAPI is a local mapped-model gateway.  The old generic gpt-4o
+        # probe is not in its current catalog and can report a healthy gateway
+        # as unhealthy.  Keep the direct watchdog path aligned with the
+        # verified local route; callers can still pass an explicit model.
+        if not test_model:
+            test_model = (
+                os.environ.get("ONEAPI_MODEL", "gpt-5.4-mini")
+                if provider_name == "oneapi"
+                else "gpt-4o"
+            )
 
         api_key = self._api_keys.get(provider_name, "")
         base_url = p.base_url.rstrip("/")
@@ -510,7 +532,12 @@ class ProviderWatchdog:
         test_models = test_models or {}
         results = {}
         for name in self._providers:
-            model = test_models.get(name, "gpt-4o")
+            model = test_models.get(
+                name,
+                os.environ.get("ONEAPI_MODEL", "gpt-5.4-mini")
+                if name == "oneapi"
+                else "gpt-4o",
+            )
             results[name] = self.deep_check(name, test_model=model)
         return results
 

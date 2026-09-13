@@ -1,0 +1,129 @@
+{
+  "generated_at": "2026-09-12T12:50:36.047744",
+  "kind": "civilization_map_daily_refresh",
+  "scanner": "C:\\tmp\\ace_core\\core\\civilization_map.py",
+  "mode": "--scan --report",
+  "not_run": ["--auto", "--resurrection", "04_PROTOCOLS/civilization_map.py", "ace_daemon hook", "core_syncer allowlist expand"],
+  "limitation": "Unauthenticated GitHub API; private repos (coze-assets) are invisible. Local dirty trees and uncommitted work are not recovered by remote.",
+  "github_org": "zhangapple21-web",
+  "scan": {
+    "total_repos": 8,
+    "public_repos": 8,
+    "private_repos": 0,
+    "stale_count": 4,
+    "critical_stale": ["mine-seed"]
+  },
+  "repositories": [
+    {
+      "name": "ace_core",
+      "role": "Runtime Core",
+      "critical": true,
+      "max_stale_days": 2,
+      "pushed_at": "2026-09-11T03:33:53Z",
+      "days_stale": 1,
+      "stale_level": "Warning",
+      "severity": "medium",
+      "url": "https://github.com/zhangapple21-web/ace_core"
+    },
+    {
+      "name": "mine-seed",
+      "role": "Civilization Seed",
+      "critical": true,
+      "max_stale_days": 1,
+      "pushed_at": "2026-09-08T11:56:33Z",
+      "days_stale": 3,
+      "stale_level": "Critical",
+      "severity": "high",
+      "url": "https://github.com/zhangapple21-web/mine-seed"
+    },
+    {
+      "name": "r1-archaeology",
+      "role": "Civilization Memory",
+      "critical": false,
+      "max_stale_days": 7,
+      "pushed_at": "2026-09-06T08:48:46Z",
+      "days_stale": 5,
+      "stale_level": "Critical",
+      "severity": "high",
+      "url": "https://github.com/zhangapple21-web/r1-archaeology"
+    },
+    {
+      "name": "-",
+      "role": "Unknown",
+      "critical": false,
+      "max_stale_days": 30,
+      "pushed_at": "2026-09-01T15:14:34Z",
+      "days_stale": 10,
+      "stale_level": "Dormant",
+      "severity": "high",
+      "url": "https://github.com/zhangapple21-web/-"
+    },
+    {
+      "name": "R1_continuity_archive",
+      "role": "Unknown",
+      "critical": false,
+      "max_stale_days": 30,
+      "pushed_at": "2026-08-19T00:07:40Z",
+      "days_stale": 24,
+      "stale_level": "Dormant",
+      "severity": "high",
+      "url": "https://github.com/zhangapple21-web/R1_continuity_archive"
+    },
+    {
+      "name": "R1",
+      "role": "Civilization Philosophy",
+      "critical": false,
+      "max_stale_days": 30,
+      "pushed_at": "2026-07-19T00:08:34Z",
+      "days_stale": 55,
+      "stale_level": "Abandoned",
+      "severity": "critical",
+      "url": "https://github.com/zhangapple21-web/R1"
+    },
+    {
+      "name": "aum-protocol",
+      "role": "Unknown",
+      "critical": false,
+      "max_stale_days": 30,
+      "pushed_at": "2026-07-14T08:47:58Z",
+      "days_stale": 59,
+      "stale_level": "Abandoned",
+      "severity": "critical",
+      "url": "https://github.com/zhangapple21-web/aum-protocol"
+    },
+    {
+      "name": "r1-open-source-seed",
+      "role": "Open Source Seed",
+      "critical": false,
+      "max_stale_days": 30,
+      "pushed_at": "2026-07-08T02:09:53Z",
+      "days_stale": 66,
+      "stale_level": "Abandoned",
+      "severity": "critical",
+      "url": "https://github.com/zhangapple21-web/r1-open-source-seed"
+    }
+  ],
+  "local_memory_freshness": {
+    "ace_core_CURRENT_STATE_map_before": "2026-07-10 handmade snapshot",
+    "ace_core_CURRENT_STATE_map_after": "2026-09-12T12:50:36 scanner block",
+    "ace_core_08_ARCHAEOLOGY_CIVILIZATION_MAP": "v0.2 2026-08-25 design snapshot, not overwritten",
+    "ace_core_09_KNOWLEDGE_CIVILIZATION_MAP": "v0.1 2026-06-29 design snapshot, not overwritten",
+    "ace_core_02_MEMORY_environment": "2026-08-31",
+    "ace_core_runtime_memory_index": "2026-09-08T20:03:04 entry_count=4225",
+    "ace_core_core_syncer_last_push": "2026-09-01T12:38:26",
+    "mine-seed_civilization_daily": "last file civilization_daily_20260819.md",
+    "mine-seed_remote_pushed_at": "2026-09-08T11:56:33Z"
+  },
+  "why_not_daily": [
+    "ace_daemon never calls civilization_map.py",
+    "CoreSyncer last PUSHED 2026-09-01; CURRENT_STATE.md / 02_MEMORY / research/ are outside motherplate allowlist",
+    "mine-seed civilization_daily.py is a local report generator, not a GitHub org map, and stopped 2026-08-19",
+    "private coze-assets cannot be scanned without GitHub auth"
+  ],
+  "sync_boundary": {
+    "auto_push": false,
+    "git_add_dot": false,
+    "core_syncer_allowlist_changed": false,
+    "reason": "observation files and CURRENT_STATE.md are outside CoreSyncer allowlist; ace_core .git/objects still broken"
+  }
+}

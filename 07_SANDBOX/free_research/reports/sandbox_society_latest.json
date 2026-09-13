@@ -1,5 +1,5 @@
 {
-  "at": "2026-08-31T03:29:26.397111+00:00",
+  "at": "2026-09-12T10:31:58.290627+00:00",
   "automatic_external_fetch": false,
   "automatic_model_call": false,
   "automatic_promotion": false,
@@ -45,12 +45,12 @@
   "factories": {
     "contract_version": "ace.free_zone_factories.v1",
     "courier_receipt_count": 0,
-    "mark_count": 34,
-    "processing_receipt_count": 25,
+    "mark_count": 67,
+    "processing_receipt_count": 42,
     "production_integration": false,
-    "recovery_thread_count": 34,
-    "smelter_receipt_count": 25,
-    "world_count": 68
+    "recovery_thread_count": 67,
+    "smelter_receipt_count": 42,
+    "world_count": 134
   },
   "mode": "SANDBOX_SOCIETY_TURN",
   "production_integration": false,
@@ -71,41 +71,47 @@
       "action": "distill_all_outcomes",
       "new_distillations": [
         {
-          "experiment_id": "EXP-20260831032849538331-FREEZONE-9B80CC0FF5D3",
-          "status": "OPEN_QUESTION"
+          "experiment_id": "EXP-20260912073117538942-FREEZONE-8E3FDBF67CDD",
+          "status": "PROPOSAL_ONLY"
+        },
+        {
+          "experiment_id": "EXP-20260912103156525534-FREEZONE-68D26962229A",
+          "status": "PROPOSAL_ONLY"
         }
       ],
-      "new_proposal_ids": [],
+      "new_proposal_ids": [
+        "EXP-20260912073117538942-FREEZONE-8E3FDBF67CDD",
+        "EXP-20260912103156525534-FREEZONE-68D26962229A"
+      ],
       "new_smelter_receipt_ids": [
-        "SMELT-EXP-20260831032849538331-FREEZONE-9B80CC0FF5D3"
+        "SMELT-EXP-20260912073117538942-FREEZONE-8E3FDBF67CDD",
+        "SMELT-EXP-20260912103156525534-FREEZONE-68D26962229A"
       ]
     },
     "free_zone": {
-      "clean_experiment_count": 35,
+      "clean_experiment_count": 56,
       "quarantine_count": 0
     },
     "lazy_cat": {
       "challenge_reconciliation": {
         "legacy_probe_receipts_created": [],
-        "pending_challenge_count": 4,
+        "pending_challenge_count": 3,
         "production_integration": false
       },
       "contract_version": "ace.lazy_cat_audit.v1",
-      "fit_for_teacher_review_count": 24,
+      "fit_for_teacher_review_count": 41,
       "may_approve_production": false,
       "may_block_free_zone": false,
       "mode": "POST_EXECUTION_FITNESS_AUDIT",
-      "new_challenge_ids": [
-        "CHALLENGE-EXP-SHIFT-92A480C775DB32BD"
-      ],
+      "new_challenge_ids": [],
       "new_verdict_ids": [
-        "LAZY-CAT-EXP-20260831032849538331-FREEZONE-9B80CC0FF5D3",
-        "LAZY-CAT-EXP-SHIFT-92A480C775DB32BD"
+        "LAZY-CAT-EXP-20260912073117538942-FREEZONE-8E3FDBF67CDD",
+        "LAZY-CAT-EXP-20260912103156525534-FREEZONE-68D26962229A"
       ],
-      "pending_challenge_count": 4,
+      "pending_challenge_count": 3,
       "production_integration": false,
-      "return_to_free_zone_count": 11,
-      "total_verdict_count": 35
+      "return_to_free_zone_count": 15,
+      "total_verdict_count": 56
     },
     "teacher": {
       "counterexample_queue": [
@@ -153,6 +159,56 @@
           "experiment_id": "EXP-20260831032849538331-FREEZONE-9B80CC0FF5D3",
           "reason": "inconclusive_result_requires_new_observation",
           "status": "OPEN_QUESTION"
+        },
+        {
+          "experiment_id": "EXP-20260904103214370092-FREEZONE-B7D198CD1F20",
+          "reason": "inconclusive_result_requires_new_observation",
+          "status": "OPEN_QUESTION"
+        },
+        {
+          "experiment_id": "EXP-20260905103248693362-FREEZONE-2EABE7C21474",
+          "reason": "inconclusive_result_requires_new_observation",
+          "status": "OPEN_QUESTION"
+        },
+        {
+          "experiment_id": "EXP-20260905122708466394-FREEZONE-8F80AAA1F4B8",
+          "reason": "inconclusive_result_requires_new_observation",
+          "status": "OPEN_QUESTION"
+        },
+        {
+          "experiment_id": "EXP-20260905124910943481-FREEZONE-614A3F73D264",
+          "reason": "inconclusive_result_requires_new_observation",
+          "status": "OPEN_QUESTION"
+        },
+        {
+          "experiment_id": "EXP-20260907103302102276-FREEZONE-D3EEEC3F0F50",
+          "reason": "inconclusive_result_requires_new_observation",
+          "status": "OPEN_QUESTION"
+        },
+        {
+          "experiment_id": "EXP-20260908103746392391-FREEZONE-1648EAE12DDA",
+          "reason": "inconclusive_result_requires_new_observation",
+          "status": "OPEN_QUESTION"
+        },
+        {
+          "experiment_id": "EXP-MODEL-4E0C5F391483B713",
+          "reason": "failed_hypothesis_retained_as_material",
+          "status": "COUNTEREXAMPLE_ONLY"
+        },
+        {
+          "experiment_id": "EXP-MODEL-6AD8FA30225C44D4",
+          "reason": "failed_hypothesis_retained_as_material",
+          "status": "COUNTEREXAMPLE_ONLY"
+        },
+        {
+          "experiment_id": "EXP-MODEL-898A05764556A021",
+          "reason": "failed_hypothesis_retained_as_material",
+          "status": "COUNTEREXAMPLE_ONLY"
+        },
+        {
+          "experiment_id": "EXP-MODEL-CC034B6C0466EC32",
+          "reason": "failed_hypothesis_retained_as_material",
+          "status": "COUNTEREXAMPLE_ONLY"
         },
         {
           "experiment_id": "EXP-SHIFT-92A480C775DB32BD",
@@ -303,6 +359,61 @@
         },
         {
           "experiment_id": "EXP-20260828103056151775-FREEZONE-0F5601C6D63E",
+          "reason": "human_and_governed_review_required",
+          "status": "PROPOSAL_ONLY"
+        },
+        {
+          "experiment_id": "EXP-20260901103147234260-FREEZONE-D3D1B04AFF30",
+          "reason": "human_and_governed_review_required",
+          "status": "PROPOSAL_ONLY"
+        },
+        {
+          "experiment_id": "EXP-20260901143250748952-FREEZONE-2CC071C000BF",
+          "reason": "human_and_governed_review_required",
+          "status": "PROPOSAL_ONLY"
+        },
+        {
+          "experiment_id": "EXP-20260905103515739983-FREEZONE-5ABC68882EF0",
+          "reason": "human_and_governed_review_required",
+          "status": "PROPOSAL_ONLY"
+        },
+        {
+          "experiment_id": "EXP-20260905115547678104-FREEZONE-5AD138A5DB97",
+          "reason": "human_and_governed_review_required",
+          "status": "PROPOSAL_ONLY"
+        },
+        {
+          "experiment_id": "EXP-20260906103151407076-FREEZONE-6389C950E0CC",
+          "reason": "human_and_governed_review_required",
+          "status": "PROPOSAL_ONLY"
+        },
+        {
+          "experiment_id": "EXP-20260906103551160239-FREEZONE-8A1688A0DCB5",
+          "reason": "human_and_governed_review_required",
+          "status": "PROPOSAL_ONLY"
+        },
+        {
+          "experiment_id": "EXP-20260907103520056247-FREEZONE-A9A956A53EBD",
+          "reason": "human_and_governed_review_required",
+          "status": "PROPOSAL_ONLY"
+        },
+        {
+          "experiment_id": "EXP-20260908103152275868-FREEZONE-6C76C0111F97",
+          "reason": "human_and_governed_review_required",
+          "status": "PROPOSAL_ONLY"
+        },
+        {
+          "experiment_id": "EXP-20260912044244967011-FREEZONE-A96CA8242E81",
+          "reason": "human_and_governed_review_required",
+          "status": "PROPOSAL_ONLY"
+        },
+        {
+          "experiment_id": "EXP-20260912073117538942-FREEZONE-8E3FDBF67CDD",
+          "reason": "human_and_governed_review_required",
+          "status": "PROPOSAL_ONLY"
+        },
+        {
+          "experiment_id": "EXP-20260912103156525534-FREEZONE-68D26962229A",
           "reason": "human_and_governed_review_required",
           "status": "PROPOSAL_ONLY"
         }

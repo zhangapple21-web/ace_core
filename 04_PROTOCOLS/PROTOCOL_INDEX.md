@@ -26,6 +26,9 @@ ACE Runtime（当前层）
 ├── 任务生命周期协议
 ├── 节点协作协议
 ├── Guardian判决协议
+├── Work Contract（关键节点工作契约）
+├── Evidence Packet（关键节点证据包）
+└── Release Receipt（对外交付收据）
 ├── 记忆索引协议
 ├── 词库演化协议
 ├── 心跳协议
@@ -96,13 +99,20 @@ ACE Runtime（当前层）
 - 现状：存活，实现于 `core/execution_discipline.py`，由 `TaskPool.create_task` 与既有生命周期事件接入；正文见 `docs/ACE_START_PROTOCOL_V2.md`
 - 版本：1.1 / 开工协议 v2
 
+### 011 — 关键节点交付协议（Work Contract / Evidence Packet / Release Receipt）
+- 来源：软件工程专家工作流与 ACE 既有证据闭环
+- 核心：只在生产、对外交付、长期规则沉淀等关键节点启用；普通观察、自由区探索和日常小步试错不进入协议门禁
+- 现状：存活，实现于 `core/delivery_protocols.py`，由 `TaskPool`、`Validator`、`Guardian` 在既有生命周期边界消费
+- 模板：`WORK_CONTRACT_TEMPLATE.json`、`EVIDENCE_PACKET_TEMPLATE.json`、`RELEASE_RECEIPT_TEMPLATE.json`
+- 版本：1.0
+
 ---
 
 ## 协议状态
 
-- 存活协议：10个
+- 存活协议：11个
 - 死亡协议：0个
-- 新建协议：5个（存活协议、最小认知内核、词库演化、外部 Runtime 适配边界、执行纪律）
+- 新建协议：6个（存活协议、最小认知内核、词库演化、外部 Runtime 适配边界、执行纪律、关键节点交付）
 
 ---
 

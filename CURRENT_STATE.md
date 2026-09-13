@@ -17,6 +17,29 @@
 
 ---
 
+## Runtime Snapshot (2026-09-12)
+
+换窗先读这一段。不要用下方 2026-07-10 Open Tasks 当现场，也不要重开 8001/8003/1443 端口审计。
+
+- **身份：** 看 `06_RUNTIME/ace/data/memory/heartbeat.json`，不看 `daemon_state.run_status=alive`。生产 owner 固定 `ace_daemon`，每条含 `run_id`。
+- **宿主重启路径：** `ACE_Daemon_Boot`（`ops/install_tasks.ps1`）开机 + 约 10 分钟探活；Execute=`pythonw.exe`，`ace.py daemon --serve`，工作目录 `C:\tmp\ace_core`。3000/3002 由 `ACE-Local-OneAPI` 独立拉起，不经过 AceDaemon。仓库脚本没有 Disable；任务可被外部关掉。本轮曾 Ready→**Disabled**（LastTaskResult -1）→只 `Enable-ScheduledTask`，不另启第二份 daemon。15:17 探活拉起 sole pid **28196**，`run_id=e47919c264dc4ae7bd6b815036b306d4`，任务现 `Running`。
+- **时间切片：** 9/8 `cycle_complete` → 9/11 13:20 `host_termination`（刷机）→ 心跳 stale。9/12 Trae 拉 26108 → 14:35 pythonw 26812 → 14:48 自启 9996（死后心跳假活）→ Enable 后 15:18 pid 28196。现场 pid 会变，不以某个 pid 当身份。
+- **NameError：** `_run_task_lifecycle_unlocked` 曾引用 `run_once` 局部名 `_preserve_cycle_progress`，每轮 `finance_work_window` 打日志。源码已改为：有 `cycle_progress.finance_preflight` dict 就复用；否则且 `self.finance_work_windows` 非空才 `build()`。日志最新一条仍是 **14:47:17**（26812）；15:18 之后没有新的该 NameError。补丁在本机工作树；本地 `.git/objects` 损坏，远程同步走干净克隆独立分支 `fix/finance-work-window-nameerror`（`5fb6f94`），禁止 `git add .`，未合 main。
+- **政策卡投影：** `PolicyCardStore.project` / `_project_verified_policy_cards` 会跑，但只投影 `verified_outcome_receipt` 且 `VERIFIED`、≥2 独立证据组。2026-09-12 全机无 `policy_cards.json`、无 `policy_feedback/`。`RQ-20260912-002` 在 `task_pool/blocked/`，`blocked_non_convergent`（相同证据集重审上限），**不是**政策卡已生效。
+- **申文 10054（2026-09-12 15:40 核）：** Codex `base_url=http://127.0.0.1:3002/v1`（Responses）。链：Codex → 3002 pid 2184 → 3000 pid 6440 LiteLLM → `https://api.shenwenai.com`。3000/3002 都在听；`/v1/models` 带本地 master key 200；无 key 的 `/health` 500 是鉴权不是网关死。申文 443 TCP 通。短 `grok-4.6` chat 经 3000 已 200/`pong`（~2.3s，0 fallback）。用户贴的 WinError 10054 / HTTP 500 是对端 RST 长流，LiteLLM 包成 500。yaml 已有 `allowed_fails: 3`、`cooldown_time: 10`、主模型 fallback `grok-4.6`。
+- **Trae 窗走 3000 + custom_auth（2026-09-12 16:26 核）：** Trae 聊天窗原先直连 `https://api.shenwenai.com`，RST/10054 会冲进聊天窗。意图是把 14 条 `custom_openai_compatible` `base_url` 改到 `http://127.0.0.1:3000/v1/chat/completions`。16:26 只读核 `C:\Users\Administrator\AppData\Roaming\Trae\User\globalStorage\state.vscdb` key `7683184598163637266_AI.agent.model.model_list_map`：**leftover `api.shenwenai.com` 仍 14 条，local `127.0.0.1:3000` = 0**（7 条 `/chat/completions` + 7 条 `/v1/chat/completions`）。未改 ak/sk。进程内存可能仍缓存/回写旧 URL，需重载 Trae 窗才保证生效；磁盘现状不是 3000。
+- **3000 鉴权重启：** 只杀 3000 旧 pid 29572，hidden vbs + Python311 拉 `local_oneapi_gateway_launcher.py`。新 pid **28376**；**3002 仍 2184**（`shenwen_responses_compat_proxy.py`），未动 AceDaemon。`local_oneapi_config.yaml`：`litellm_settings.num_retries=3`、`router_settings.num_retries=3`、`general_settings.custom_auth=local_oneapi_custom_auth.user_api_key_auth`。stderr 有 `local_oneapi_custom_auth: loaded and accepting local/shenwen keys`。四条 probe 全 HTTP 200：`models_master` / `models_swa` / `chat_master` / `chat_swa`（短 `grok-4.6`）。申文对端 RST 不能从上游根除；目标是 RST 在 3000 内重试/fallback，不再以 `api.shenwenai.com` 直冲 Trae 窗。
+- **金融门禁：** daemon 在跑 ≠ 荐股生产开了。Finance 仍 `RESEARCH_ONLY`，Advisor `BLOCKED`，Owner TG `OFF`，quote 源未准入。
+- **R1 端口即边界：** 职责在代码，不是本机 TCP 监听口。8001→AceDaemon+Admission+CoreSyncer allowlist+Telegram 出口；8003→`07_SANDBOX/free_research`；1443→`08_GOVERNANCE/free_zone_bridge` 收据；3000→本机网关。不重开端口。
+- **文明地图：** `civilization_map.py` 会扫 GitHub stale 并写本文件 `## Civilization Map`；**daemon 从不调用扫描器**，所以会停更。不要把扫描器塞进生产循环，也不扩 CoreSyncer allowlist。
+- **CoreSyncer：** 窄母板 allowlist（`AGENTS.md` / `README.md` / `ace_daemon.py` + 指定后缀）。脏工作树正常。`runtime.allow_repository_sync` 未设则默认 false。
+- **连续性：** 聊天窗不是 ACE 记忆本体。说「同一个 ACE 继续」需要 `CONTINUITY_VERIFIED` 或 `CONTINUITY_VERIFIED_AFTER_MIGRATION`；`CONTINUITY_ESTABLISHED` 只是新基线。auditor 不启 daemon、不重放工作。Codex 同窗压缩能保住结论；新开一条没有日记忆的窗仍会从头审计——所以本段必须更新。
+- **明确不做：** 不重开 8001/8003/1443；不另启 daemon；不 git add .；不把拾荒网接入生产；不扩 CoreSyncer；secrets / mine-seed-credentials 不上公共远程。
+
+对照材料（已推独立 docs 分支，不是生产准入）：`docs/ACE_CIVILIZATION_MAP_DAILY_20260912.md`、`docs/ACE_R1_PORT_BOUNDARY_VS_DRAWERS_20260912.md`。
+
+---
+
 ## Current Sprint
 
 **P0: Environment Awareness — Closing the loop**
@@ -83,24 +106,26 @@ It doesn't keep gaining new abilities — it keeps improving collaboration effic
 
 ---
 
-## Civilization Map (7 repos)
+## Civilization Map
+
+Last scanned: 2026-09-12T12:50:36.047744
 
 ```
 zhangapple21-web
 │
-├── 🏠 mine-seed              Active     9.3MB   R2 HQ (今天的主战场)
-├── ⚡ ace_core               Active     1.5MB   Runtime 精选 (刚从 8 天停更恢复)
-├── 🏛️ r1-archaeology          Warming    310KB   考古档案馆 (昨天更新过)
-├── 🌱 r1-open-source-seed    Stale       32KB   开源种子 (几乎空的)
-├── 📜 R1                     Dormant      0KB   文明思想/官网 (空壳)
-├── 🧪 -                      Dormant      0KB   测试仓库
-└── 🔑 coze-assets            PRIVATE      ?     文明钥匙 (密钥，绝不公开)
+├── 🟡 ace_core             Runtime Core         1d stale
+├── 🔴 mine-seed            Civilization Seed    3d stale
+├── 🔴 r1-archaeology       Civilization Memory  5d stale
+├── 🔴 -                    Unknown              10d stale
+├── 🔴 R1_continuity_archive Unknown              24d stale
+├── 🔴 R1                   Civilization Philosophy 55d stale
+├── 🔴 aum-protocol         Unknown              59d stale
+├── 🔴 r1-open-source-seed  Open Source Seed     66d stale
 ```
 
-**Cross-repo observation:** Each repo is an organ, not a silo.
-When one is stale, it's a civilization health problem, not just "inactive".
-
----
+**Stats**: 8 repos (8 public, 0 private)
+**Stale**: 4
+**Critical**: mine-seed
 
 ## Latest Evolution (this week)
 
@@ -150,4 +175,4 @@ When opening the repository tomorrow morning:
 
 ---
 
-*Last updated: 2026-07-10 20:30*
+*Last updated: 2026-09-12 14:55（Runtime Snapshot 覆盖现场；下方 2026-07-10 段落保留为历史）*

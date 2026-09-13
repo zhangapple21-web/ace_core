@@ -19,6 +19,7 @@
 """
 
 import json
+import os
 import time
 from pathlib import Path
 from typing import Dict, List, Any, Optional
@@ -191,6 +192,12 @@ class MinerPool:
                 if ":" in first:
                     provider, model = first.split(":", 1)
                     test_models[provider] = model
+        # OneAPI is a local mapped-model gateway, not a direct OpenAI
+        # catalog.  Its historical generic probe (gpt-4o) is not advertised
+        # by the current gateway and turns a healthy /models + chat path into
+        # a false UNHEALTHY result.  Keep this probe pinned to the verified
+        # local mapping used by the OneAPI provider.
+        test_models.setdefault("oneapi", os.environ.get("ONEAPI_MODEL", "gpt-5.4-mini"))
         return self._watchdog.run_full_check(test_models=test_models)
 
     @staticmethod

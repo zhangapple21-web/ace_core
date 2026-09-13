@@ -1,0 +1,48 @@
+{
+  "automatic_delivery": false,
+  "automatic_promotion": false,
+  "automatic_task_creation": false,
+  "contextual_state": {
+    "learning_needs": [
+      {
+        "fact_id": "FACT-INDEPENDENT-CONFIRMATION",
+        "reason": "A future observable fact could falsify the named active hypothesis.",
+        "required_by_hypotheses": [
+          "HYP-EVIDENCE-INSUFFICIENT"
+        ],
+        "status": "MISSING"
+      },
+      {
+        "fact_id": "FACT-INDEPENDENT-COUNTEREVIDENCE",
+        "reason": "A future observable fact could falsify the named active hypothesis.",
+        "required_by_hypotheses": [
+          "HYP-CANDIDATE-TRANSFER"
+        ],
+        "status": "MISSING"
+      }
+    ],
+    "packet_hash": "a0f627398b637b669cbbf786b2533be8c6354c73b9f312edab64ef5cf49c4409",
+    "packet_id": "CSP-BED3CC1BCC7211C04FF1A0BB",
+    "scope": "FREE_ZONE_RESEARCH_ONLY"
+  },
+  "contract_version": "ace.free_research_sandbox.v1",
+  "created_at": "2026-09-12T04:43:24.486172+00:00",
+  "distillation_hash": "baac43cc785ba3eb9bb33c31151f610e17c1e95f5ca8b548d3feacc6474ee994",
+  "evidence_hash": "6b5d774391ccfbcb2ed58764318d5f02ad7084cb36f9662db79252242133b549",
+  "experiment_id": "EXP-20260912044244967011-FREEZONE-A96CA8242E81",
+  "mode": "DISTILLATION_ONLY",
+  "outcome": "PASS",
+  "pattern": "When The counterexample EXP-MODEL-CC034B6C0466EC32 can be turned into a distinct next observation without overwriting its original result., investigate via Preserve the parent distillation, formulate an explicit re-observation question, and record the new experiment separately..",
+  "production_integration": false,
+  "realm_state": {
+    "authority": "GOVERNED",
+    "contract_version": "ace.free_zone_realm.v1",
+    "outbound_rule": "EXISTING_ADMISSION",
+    "production_integration": false,
+    "realm": "SHADOW",
+    "retention": "SEED"
+  },
+  "reason": "clean_pass_available_for_later_review",
+  "source_record_hash": "5d74f5fd4c4a310ab03803781c690be2c667b2ecd1db7c9fbd378b9e9e0a70e3",
+  "status": "PROPOSAL_ONLY"
+}

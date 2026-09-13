@@ -51,6 +51,7 @@ from core.local_archaeologist import LocalArchaeologist
 from core.skill_generator import SkillGenerator
 from core.observation import RuntimeObserver
 from core.observation_to_task import ObservationToTaskConverter
+from core.self_evolution import SelfEvolutionCoordinator
 from core.host_session_observer import observe_host_sessions
 from core.discovery import DiscoveryCandidate, DiscoveryMode
 from core.model_work_discovery import ModelWorkDiscovery
@@ -202,6 +203,7 @@ class AceDaemon:
         self.skill_generator = None
         self.runtime_observer = None  # RO：持续观察者
         self.obs_to_task_converter = None  # Observation → Task 转换器
+        self.self_evolution = None  # 主动发现→融合→提案协调器
         self.discovery_mode = None
         self.daily_learning = None
         self.daily_growth = None
@@ -430,6 +432,11 @@ class AceDaemon:
             obs_data_dir = self.base_dir / "06_RUNTIME" / "ace" / "data" / "observations"
             self.runtime_observer = RuntimeObserver(str(obs_data_dir))
             self.obs_to_task_converter = ObservationToTaskConverter(
+                observer=self.runtime_observer,
+                task_pool=self.task_pool,
+            )
+            self.self_evolution = SelfEvolutionCoordinator(
+                base_dir=self.base_dir,
                 observer=self.runtime_observer,
                 task_pool=self.task_pool,
             )
@@ -2072,6 +2079,22 @@ class AceDaemon:
         except Exception as e:
             self._log_error("file_scanner", str(e))
 
+        # 主动演化入口：把运行态瓶颈、近期考古和兄弟仓库活动融合成
+        # 一个有证据的 Observation；后续仍由既有 Converter/Validator/
+        # Guardian 决定是否进入 TaskPool，避免第二套执行权限。
+        try:
+            if self.self_evolution:
+                task_stats = self.task_pool.get_stats() if self.task_pool else {}
+                result["self_evolution"] = self.self_evolution.run_cycle(
+                    runtime_state={
+                        "task_pool": task_stats,
+                        "recent_error_count": len(self.state.get("errors", [])),
+                    }
+                )
+        except Exception as e:
+            self._log_error("self_evolution", str(e))
+            result["self_evolution"] = {"status": "ERROR", "error": str(e)}
+
         if self.event_listener:
             try:
                 evt_result = self.event_listener.scan_and_process()
@@ -2193,9 +2216,9 @@ class AceDaemon:
 
         try:
             preflight = self.state.get("cycle_progress", {}).get("finance_preflight")
-            if _preserve_cycle_progress and isinstance(preflight, dict):
+            if isinstance(preflight, dict):
                 result["finance_work_window"] = preflight
-            else:
+            elif self.finance_work_windows:
                 finance_heartbeat = self._start_stage_heartbeat("finance_work_window")
                 try:
                     result["finance_work_window"] = self.finance_work_windows.build()
