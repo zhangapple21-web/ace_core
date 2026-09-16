@@ -905,7 +905,9 @@ class Researcher:
             (
                 f"Task: {task.title}\nHypothesis: {task.hypothesis}\n"
                 "Role: analyze the supplied evidence, identify alternatives and "
-                "invalidating conditions. Do not invent evidence.\n"
+                "invalidating conditions. Do not invent evidence. Return JSON with "
+                "facts, evidence, inference, unknowns, objections, "
+                "next_verification, and stop_condition when a model is available.\n"
                 f"Admitted evidence:\n{evidence_context or '(none)'}"
             ),
             ace_local_run_id=self._ace_local_run_id(),
@@ -1212,11 +1214,19 @@ class Validator:
             (
                 f"Task: {task.title}\nHypothesis: {task.hypothesis}\n"
                 "Role: identify counterexamples and validation risks. Return only a JSON object "
-                "with optional hard_objections, advisory_objections, and counter_examples arrays of concise strings."
+                "with facts, evidence, inference, unknowns, objections, next_verification, "
+                "stop_condition, and optional hard_objections, advisory_objections, "
+                "counter_examples arrays of concise strings."
             ),
             ace_local_run_id=self._ace_local_run_id(),
         )
         model_objections = self._model_objections(model_response)
+        execution_feedback = {}
+        execution_traces = task.outputs.get("model_execution", [])
+        if isinstance(execution_traces, list) and execution_traces:
+            latest_trace = execution_traces[-1]
+            if isinstance(latest_trace, dict):
+                execution_feedback = latest_trace.get("execution_feedback", {})
 
         objections = []
         hard_objections = []
@@ -1230,6 +1240,21 @@ class Validator:
         for counter_example in model_objections["counter_examples"]:
             objections.append(counter_example)
             advisory_objections.append(counter_example)
+
+        # A successful validator call is not sufficient for approval.  If the
+        # model answered without the contract's verifiable structure, route the
+        # task back to research so the next attempt must produce facts,
+        # unknowns, objections and a minimal verification step.  No model call
+        # or no configured model keeps the existing local validation behavior.
+        if (
+            isinstance(model_response, dict)
+            and model_response.get("success") is True
+            and isinstance(execution_feedback, dict)
+            and execution_feedback.get("status") != "STRUCTURED"
+        ):
+            objection = "模型验证结果缺少结构化事实/未知/反例/下一步验证，不能直接批准"
+            objections.append(objection)
+            hard_objections.append(objection)
 
         evidence_count = len(self._unique_evidence(task))
         if protocols.get("active"):
