@@ -147,3 +147,32 @@ def test_validator_does_not_approve_successful_but_unstructured_model_output():
         assert result["passed"] is False
         assert stored.status == "pending"
         assert "结构化" in stored.outputs["rework_reason"]
+
+
+def test_next_retry_uses_structure_repair_route_after_unstructured_feedback():
+    from core.miner_pool.model_router import ModelRouter
+
+    router = ModelRouter(available_providers=["oneapi"])
+    decision = router.resolve_route(
+        "reasoning",
+        task_context={
+            "execution_feedback": {
+                "status": "TEXT_UNSTRUCTURED",
+                "structured": False,
+            }
+        },
+    )
+    assert decision["feedback_policy"] == "STRUCTURE_REPAIR"
+    assert decision["selected_labor"] == "oneapi:gpt-5.6-terra"
+    assert "oneapi:gpt-6-astra" not in decision["candidate_labor"]
+
+    complex_retry = router.resolve_route(
+        "reasoning",
+        task_context={
+            "execution_discipline": {"complexity": "complex"},
+            "execution_feedback": {"status": "TEXT_UNSTRUCTURED"},
+        },
+    )
+    assert complex_retry["feedback_policy"] == "STRUCTURE_REPAIR"
+    assert complex_retry["selected_labor"] == "oneapi:gpt-5.6-terra"
+    assert "oneapi:gpt-6-astra" not in complex_retry["candidate_labor"]

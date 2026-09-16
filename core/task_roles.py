@@ -162,6 +162,13 @@ def _record_model_execution(
             "execution_discipline": envelope if isinstance(envelope, dict) else {},
             "depends_on": list(task.depends_on or []),
         }
+        prior_traces = task.outputs.get("model_execution", []) if isinstance(task.outputs, dict) else []
+        if isinstance(prior_traces, list) and prior_traces:
+            prior_feedback = prior_traces[-1].get("execution_feedback") if isinstance(prior_traces[-1], dict) else None
+            if isinstance(prior_feedback, dict):
+                # This is a bounded routing hint from the previous attempt,
+                # not a claim about the truth of the model's content.
+                routing_context["execution_feedback"] = dict(prior_feedback)
         response = llm_router.chat(
             task_type=task_type,
             messages=[{"role": "user", "content": prompt}],

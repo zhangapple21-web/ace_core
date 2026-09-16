@@ -238,6 +238,7 @@ class ModelRouter:
             task_context=task_context,
             complexity=complexity,
         )
+        feedback_policy = self._feedback_policy(task_context)
         return {
             "schema_version": "ace.route-decision.v1",
             "task_type": task_type,
@@ -266,6 +267,7 @@ class ModelRouter:
             ],
             "selected_labor": selected.full_id if selected else None,
             "selected_route_state": selected.route_state if selected else "NO_ELIGIBLE_LABOR",
+            "feedback_policy": feedback_policy,
             "watchdog": self._watchdog_snapshot(),
             "evidence_boundary": (
                 "promoted_complex_route"
@@ -288,7 +290,16 @@ class ModelRouter:
         task_context: Optional[Dict[str, Any]],
     ) -> List[str]:
         candidates = self._get_sorted_candidates(profile, strategy)
-        if is_complex_escalation(complexity, task_context):
+        feedback_policy = self._feedback_policy(task_context)
+        if feedback_policy == "STRUCTURE_REPAIR":
+            # A successful but unstructured answer needs a cheaper, bounded
+            # repair pass.  Do not escalate to Astra again merely because the
+            # prior call was unsuccessful at satisfying the output contract.
+            escalation_models = set(profile.get("escalation_models", []))
+            repaired = [model for model in candidates if model not in escalation_models]
+            if repaired:
+                candidates = repaired
+        if is_complex_escalation(complexity, task_context) and feedback_policy != "STRUCTURE_REPAIR":
             # Escalation list is explicit per task profile.  It is placed in
             # front, but normal Terra remains the first fallback.
             candidates = list(profile.get("escalation_models", [])) + candidates
@@ -298,6 +309,19 @@ class ModelRouter:
             if model_id not in result:
                 result.append(model_id)
         return result
+
+    @staticmethod
+    def _feedback_policy(task_context: Optional[Dict[str, Any]]) -> str:
+        context = task_context if isinstance(task_context, dict) else {}
+        feedback = context.get("execution_feedback", {})
+        if not isinstance(feedback, dict):
+            return "NONE"
+        status = str(feedback.get("status", "")).upper()
+        if status == "TEXT_UNSTRUCTURED":
+            return "STRUCTURE_REPAIR"
+        if status == "NO_CONTENT":
+            return "CONTENT_RECOVERY"
+        return "NONE"
 
     def _watchdog_snapshot(self) -> Dict[str, Any]:
         watchdog = self._watchdog
