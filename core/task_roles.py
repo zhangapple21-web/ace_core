@@ -29,6 +29,7 @@ from .execution_discipline import (
 )
 from .delivery_protocols import ensure_task_protocols, protocol_errors, validate_release_receipt
 from .miner_pool.task_profiles import get_task_profile
+from .execution_contract import build_execution_system_prompt, summarize_execution_feedback
 
 
 LOCAL_ARCHAEOLOGY_TAGS = {"archaeology", "local_archaeology", "fragment", "碎片考古", "考古"}
@@ -164,7 +165,12 @@ def _record_model_execution(
         response = llm_router.chat(
             task_type=task_type,
             messages=[{"role": "user", "content": prompt}],
-            system_prompt="Return concise task analysis grounded in the supplied task context.",
+            system_prompt=build_execution_system_prompt(
+                role=role,
+                task_type=task_type,
+                task_id=task.task_id,
+                role_instruction="Return concise task analysis grounded in the supplied task context.",
+            ),
             # Provider fallback is owned by the gateway; ACE gets one bounded
             # task attempt so a failed request cannot multiply upstream spend.
             max_retries=1,
@@ -192,6 +198,7 @@ def _record_model_execution(
             trace["provider"] = selected_provider
     trace["error"] = str(response.get("error", ""))
     trace["api_result"] = "success" if response.get("success") else "failed"
+    trace["execution_feedback"] = summarize_execution_feedback(response.get("content", ""))
     allowed = _model_result_allowed(profile, trace["provider"], trace["selected_model"])
     if response.get("success") and not allowed:
         trace["error"] = "selected provider/model violates task profile"

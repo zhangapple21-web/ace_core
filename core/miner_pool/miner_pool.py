@@ -43,6 +43,7 @@ from .providers.openai_compatible import (
     ShenwenGrokProvider,
     ShenwenImagesProvider,
 )
+from ..execution_contract import ensure_execution_contract
 
 
 PROVIDER_FACTORY = {
@@ -335,6 +336,12 @@ class MinerPool:
         # Routing metadata is a first-class result.  It contains no prompt or
         # secret and is safe to persist in the task execution trace.
         task_context = kwargs.pop("task_context", None)
+        context_task_id = task_context.get("task_id", "") if isinstance(task_context, dict) else ""
+        system_prompt = ensure_execution_contract(
+            system_prompt,
+            task_type=task_type,
+            task_id=str(context_task_id),
+        )
         requested_complexity = kwargs.pop("complexity", None)
         route_decision = self._router.resolve_route(
             task_type,
