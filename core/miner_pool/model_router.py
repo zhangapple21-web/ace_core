@@ -308,6 +308,18 @@ class ModelRouter:
         for model_id in candidates:
             if model_id not in result:
                 result.append(model_id)
+        # Route receipts must describe the labor that can actually be used by
+        # this router.  When a provider set is explicitly configured, remove
+        # candidates from unavailable providers before exposing the candidate
+        # order.  This keeps escalation deterministic (for example, a
+        # Shenwen-only runtime must expose shenwen:gpt-6-astra rather than an
+        # unreachable OneAPI twin of the same model).
+        if self._available_providers:
+            result = [
+                model_id
+                for model_id in result
+                if model_id.split(":", 1)[0] in self._available_providers
+            ]
         return result
 
     @staticmethod

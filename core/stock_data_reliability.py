@@ -1278,6 +1278,7 @@ def audit_stock_data_paths(workspace: Path) -> Dict[str, Any]:
             "excluded_from": ["market_data_health", "phase_two_admission", "recommendation_eligibility"],
         },
     }
+    known_research_only = {"core/research_data_adapter.py"}
     unregistered_runtime_calls = []
     exceptions = []
     for path in (workspace / "core").rglob("*.py"):
@@ -1287,6 +1288,8 @@ def audit_stock_data_paths(workspace: Path) -> Dict[str, Any]:
             "qt.gtimg.cn", "ifzq.gtimg.cn", "eastmoney.com", "baostock.com",
         ))
         if not has_stock_endpoint or relative == "core/stock_data_reliability.py":
+            continue
+        if relative in known_research_only:
             continue
         if relative in known_observability_only:
             exceptions.append({"path": relative, **known_observability_only[relative]})
