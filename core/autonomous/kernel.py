@@ -342,7 +342,6 @@ class AutonomousKernel:
         """provider 的默认模型"""
         defaults = {
             "glm": "glm-4-flash",
-            "openrouter": "anthropic/claude-3.5-sonnet",
             "nim": "deepseek-ai/deepseek-v4-flash",
             "apiyi": "gemini-pro",
             "sambanova": "Meta-Llama-3.1-405B-Instruct",

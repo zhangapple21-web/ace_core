@@ -104,19 +104,6 @@ class LLMRouter:
                     priority=20,
                 ))
 
-            # OpenRouter（备用）
-            if openrouter_key := env_vars.get("OPENROUTER_KEY"):
-                self.models.append(ModelInfo(
-                    name="claude-3.5-sonnet",
-                    provider="openrouter",
-                    config=LLMConfig(
-                        base_url="https://openrouter.ai/api/v1/chat/completions",
-                        api_key=openrouter_key,
-                        model="anthropic/claude-3.5-sonnet",
-                    ),
-                    priority=25,
-                ))
-
             # NVIDIA NIM Keys（备用，模型路径待验证）
             nim_keys = [
                 ("NIM_KEY_8", "deepseek-ai/deepseek-v4"),

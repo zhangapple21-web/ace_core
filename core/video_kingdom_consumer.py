@@ -59,10 +59,16 @@ class VideoKingdomConsumer:
             if not isinstance(bridge_id, str) or bridge_id in seen:
                 continue
             result = self._validate_result_bridge(item)
-            if result["status"] == "RESULT_CONSUMED":
+            try:
                 self._result_receipt(result)
-            else:
-                self._result_receipt(result)
+            except OSError as exc:
+                return {
+                    "status": "RESULT_RECEIPT_FAILED",
+                    "bridge_id": result.get("bridge_id"),
+                    "attempted_status": result.get("status"),
+                    "error": str(exc),
+                    "production_integration": False,
+                }
             return result
         return {"status": "NO_PENDING_RESULT", "production_integration": False}
 

@@ -180,7 +180,7 @@ Three completed discovery windows with zero Candidates require an `INVESTIGATE_D
 - **Capability Graph** — 13 capabilities with inheritance, capability-first routing
 - **Provider Health Monitor** — Track latency/success_rate/status, health-score-driven routing
 - **Provider Failure Sediment** — Auto-write Experience when provider degrades (failure→experience→constraint)
-- **Model Registry** — 4 providers: Ollama → GitHub Models → Zhipu GLM → OpenRouter
+- **Model Registry** — 3 providers: Ollama → GitHub Models → Zhipu GLM
 - **Local Miner** — Unified `call_model()` with auto-fallback, no TRAE dependency
 - **Experience Sediment** — Write findings to `02_MEMORY/experience/`
 - **RoundTable (historical, not wired)** — The duplicate protocol implementation has no production consumer. Validator, Guardian, and Archivist remain separate wired lifecycle roles; do not infer a running council from file presence.
@@ -198,8 +198,6 @@ Prefer:
   GitHub Models
       ↓
   Zhipu GLM
-      ↓
-  OpenRouter
 ```
 
 Never bind to one provider. Always have a fallback chain.
@@ -406,7 +404,7 @@ mine-seed (R2 HQ, everything starts here)
 
 - Heartbeat runs EnvSensor but doesn't run Awareness Loop (scan→question→task→miner not wired)
 - Awareness Loop investigation rules too narrow (only 6 categories, misses `new_files` etc.)
-- OpenRouter + GitHub Models keys expired (401) — need rotation
+- GitHub Models key expired (401) — need rotation
 - akshare not installed (falls back to Tencent API)
 - Provider Health not persisted across restarts (in-memory only)
 - No Explorer/Scout capability for autonomous asset discovery

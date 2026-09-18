@@ -1,0 +1,81 @@
+{
+  "automatic_delivery": false,
+  "automatic_promotion": false,
+  "automatic_task_creation": false,
+  "contextual_state": {
+    "learning_needs": [
+      {
+        "fact_id": "FACT-INDEPENDENT-CONFIRMATION",
+        "reason": "A future observable fact could falsify the named active hypothesis.",
+        "required_by_hypotheses": [
+          "HYP-EVIDENCE-INSUFFICIENT"
+        ],
+        "status": "MISSING"
+      },
+      {
+        "fact_id": "FACT-INDEPENDENT-COUNTEREVIDENCE",
+        "reason": "A future observable fact could falsify the named active hypothesis.",
+        "required_by_hypotheses": [
+          "HYP-CANDIDATE-TRANSFER"
+        ],
+        "status": "MISSING"
+      }
+    ],
+    "packet_hash": "35b47660988e50067b3934573855196e65e1c08499c17729fb69da126808766b",
+    "packet_id": "CSP-2452B1DB3783F01142523EA8",
+    "scope": "FREE_ZONE_RESEARCH_ONLY"
+  },
+  "contract_version": "ace.free_research_sandbox.v1",
+  "created_at": "2026-09-18T10:33:40.904900+00:00",
+  "distillation_hash": "8d02caf9585b98aa63256106d41d85b7d47c11e29e6e85d89d96240ad86c2487",
+  "evidence_hash": "31c8f0b67cb74fd1caea853df779f17016792732737825dea43b425cde556eed",
+  "experiment_id": "EXP-20260918103340632411-FREEZONE-BD1C0B6C9967",
+  "mode": "DISTILLATION_ONLY",
+  "outcome": "INCONCLUSIVE",
+  "pattern": "When A deterministic offline failure index can surface recurrence, freshness, independent-origin count, and unresolved counterexamples as research-only re-observation prompts without invoking a model or modifying Risk., investigate via First identify independently sourced INVALID and counterexample receipts, then build fixture-only recurrence and recovery cases; retain the RaMem/Fujitsu/CMU attribution as UNKNOWN until primary sources are found..",
+  "production_integration": false,
+  "realm_state": {
+    "authority": "SANDBOX_ONLY",
+    "contract_version": "ace.free_zone_realm.v1",
+    "outbound_rule": "REOBSERVE",
+    "production_integration": false,
+    "realm": "SHADOW",
+    "retention": "SEED"
+  },
+  "reason": "inconclusive_result_requires_new_observation",
+  "semantic_seed": {
+    "ace_symptom": "Failure records exist across historical integrity and the Free Zone, but there is no demonstrated offline synthesis contract that distinguishes recurrence evidence from a production risk weight.",
+    "automatic_model_call": false,
+    "automatic_promotion": false,
+    "consumption_mode": "sandbox_report_only",
+    "contract_version": "ace.semantic_seed.v1",
+    "counterexample_question": "Can a repeated historical failure be mistakenly treated as current evidence after its source has recovered, or can correlated failures be counted as independent evidence?",
+    "external_evidence_refs": [],
+    "extracted_mechanism": "Historical INVALID records, 404 incidents, and counterexamples can be retained as locally replayable failure evidence rather than deleted or relabeled as success.",
+    "independent_evidence_status": "NOT_ASSESSED",
+    "lineage": [
+      "user_authorized_input",
+      "free_zone_only",
+      "offline_only",
+      "no_risk_mutation",
+      "attribution_unknown"
+    ],
+    "local_evidence_refs": [
+      "core/historical_integrity.py",
+      "core/free_research_sandbox.py",
+      "core/counterexample_executor.py"
+    ],
+    "next_verification": "First identify independently sourced INVALID and counterexample receipts, then build fixture-only recurrence and recovery cases; retain the RaMem/Fujitsu/CMU attribution as UNKNOWN until primary sources are found.",
+    "production_integration": false,
+    "seed_hash": "4e0c5f391483b71388bd62c2ca79f0c91e57d3504a2ef7446e66dcf9d34e4cf7",
+    "source_evidence_weight": "UNASSESSED",
+    "source_kind": "user_authorized_research_input",
+    "source_ref": "user_authorized_input:2026-09-01:offline-failure-learning",
+    "source_snapshot_hash": "4c742330684a7e9248a8a882cd06bd744ab958e6b336e9751b5dba949be66f62",
+    "status": "PENDING",
+    "taskpool_authority": false,
+    "transfer_hypothesis": "A deterministic offline failure index can surface recurrence, freshness, independent-origin count, and unresolved counterexamples as research-only re-observation prompts without invoking a model or modifying Risk."
+  },
+  "source_record_hash": "a34921b456e2741d571946cc6e310bc98f0323fde730784e719753634190964c",
+  "status": "OPEN_QUESTION"
+}

@@ -54,7 +54,7 @@ Goal: Make ACE autonomously discover problems, ask questions, research answers, 
 
 ### What was accomplished
 
-1. **去TRAE化完成** — Local Miner v2, multi-source fallback (Ollama → GitHub → Zhipu → OpenRouter)
+1. **去TRAE化完成** — Local Miner v2, multi-source fallback (Ollama → GitHub → Zhipu)
 2. **Capability Graph** — 13 capabilities with inheritance, capability-first routing
 3. **Provider Health Monitor** — Health-score-driven routing, skip down providers
 4. **Environment Layer (ENV-001)** — Sensor + SituationBuilder, integrated into Heartbeat
@@ -91,7 +91,6 @@ It doesn't keep gaining new abilities — it keeps improving collaboration effic
 
 | Problem | Severity | Impact | Status |
 |---|---|---|---|
-| OpenRouter key expired (401) | Medium | Fallback chain works, but one less provider | 🟡 Open |
 | GitHub Models key expired (401) | Medium | Fallback chain works, but one less provider | 🟡 Open |
 | akshare not installed | Low | Falls back to Tencent API, stock coverage limited | 🟡 Open |
 | Provider Health not persisted across restarts | Medium | In-memory only, restart = reset | 🟡 Open |

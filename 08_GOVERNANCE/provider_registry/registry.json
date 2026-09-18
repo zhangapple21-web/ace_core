@@ -1,6 +1,6 @@
 {
   "version": "1.0",
-  "updated_at": "2026-08-27T22:05:54.624518",
+  "updated_at": "2026-09-17T13:49:56+08:00",
   "providers": [
     {
       "name": "oneapi",
@@ -12,7 +12,9 @@
           "provider": "oneapi",
           "model_id": "gpt-5.4-mini",
           "display_name": "OneAPI mapped GPT-4o",
-          "capabilities": ["chat"],
+          "capabilities": [
+            "chat"
+          ],
           "context_window": 0,
           "max_output": 0,
           "status": "beta",
@@ -25,6 +27,32 @@
             "shadow_only": false,
             "production_eligible": true
           }
+        },
+        {
+          "provider": "oneapi",
+          "model_id": "deepseek-v4.1-flash",
+          "display_name": "DeepSeek V4.1 Flash via local gateway",
+          "capabilities": [
+            "chat",
+            "execution",
+            "classification",
+            "coding"
+          ],
+          "context_window": 0,
+          "max_output": 0,
+          "status": "beta",
+          "verified": true,
+          "last_verified": "2026-09-17T13:49:56+08:00",
+          "last_verification_result": "PASS: LiteLLM ace-auto pool already advertises auto-ds41 / deepseek-v4.1-flash; dedicated upstream probe succeeded 2026-09-17",
+          "aliases": [
+            "auto-ds41"
+          ],
+          "description": "Gateway backup for ACE MinerPool long-labor; primary path is shenwen_ds41",
+          "meta": {
+            "shadow_only": false,
+            "production_eligible": true,
+            "route_state": "PRODUCTION_LABOR"
+          }
         }
       ],
       "description": "Local OpenAI-compatible gateway for ACE automation; verified chat path",
@@ -36,56 +64,6 @@
       }
     },
     {
-      "name": "openrouter",
-      "base_url": "https://openrouter.ai/api/v1",
-      "api_key_env": "",
-      "status": "active",
-      "models": [
-        {
-          "provider": "openrouter",
-          "model_id": "x-ai/grok-4.5",
-          "display_name": "Grok 4.5",
-          "capabilities": [],
-          "context_window": 0,
-          "max_output": 0,
-          "status": "deprecated",
-          "verified": false,
-          "last_verified": "",
-          "last_verification_result": "",
-          "aliases": [],
-          "description": "",
-          "meta": {
-            "shadow_only": true,
-            "production_eligible": false,
-            "deprecation_reason": "superseded: direct Shenwen probe selected; not configured for this rollout",
-            "deprecated_at": "2026-08-26T15:58:26.830814"
-          }
-        },
-        {
-          "provider": "openrouter",
-          "model_id": "x-ai/grok-4.6",
-          "display_name": "Grok 4.6",
-          "capabilities": [],
-          "context_window": 0,
-          "max_output": 0,
-          "status": "deprecated",
-          "verified": false,
-          "last_verified": "",
-          "last_verification_result": "",
-          "aliases": [],
-          "description": "",
-          "meta": {
-            "shadow_only": true,
-            "production_eligible": false,
-            "deprecation_reason": "superseded: direct Shenwen probe selected; not configured for this rollout",
-            "deprecated_at": "2026-08-26T15:58:26.830814"
-          }
-        }
-      ],
-      "description": "OpenRouter Grok candidates; shadow evaluation only",
-      "meta": {}
-    },
-    {
       "name": "shenwen",
       "base_url": "https://api.shenwenai.com/v1",
       "api_key_env": "",
@@ -95,7 +73,12 @@
           "provider": "shenwen",
           "model_id": "gpt-6-astra",
           "display_name": "GPT-6 Astra",
-          "capabilities": ["deep_reasoning", "complex_planning", "architecture", "coding"],
+          "capabilities": [
+            "deep_reasoning",
+            "complex_planning",
+            "architecture",
+            "coding"
+          ],
           "context_window": 0,
           "max_output": 0,
           "status": "beta",
@@ -203,6 +186,45 @@
       ],
       "description": "Shenwen Grok Heavy channel; shadow evaluation only",
       "meta": {}
+    },
+    {
+      "name": "shenwen_ds41",
+      "base_url": "https://api.shenwenai.com/v1",
+      "api_key_env": "SHENWEN_DS41_API_KEY",
+      "status": "active",
+      "models": [
+        {
+          "provider": "shenwen_ds41",
+          "model_id": "deepseek-v4.1-flash",
+          "display_name": "DeepSeek V4.1 Flash",
+          "capabilities": [
+            "chat",
+            "execution",
+            "classification",
+            "coding"
+          ],
+          "context_window": 0,
+          "max_output": 0,
+          "status": "beta",
+          "verified": true,
+          "last_verified": "2026-09-17T13:49:56+08:00",
+          "last_verification_result": "PASS: dedicated Shenwen DS41 channel GET /models returned deepseek-v4.1-flash; POST chat/completions deepseek-v4.1-flash HTTP 200 ~1.66s on 2026-09-17; ordinary SHENWEN_API_KEY is unsupported for this model; evidence C:\\tmp\\probe-swa-ds41.txt",
+          "aliases": [],
+          "description": "Dedicated Shenwen DeepSeek V4.1 Flash channel for ACE MinerPool long labor; production eligible, not shadow",
+          "meta": {
+            "shadow_only": false,
+            "production_eligible": true,
+            "route_state": "PRODUCTION_LABOR",
+            "verification_scope": "direct_provider_probe",
+            "requires_dedicated_key": true
+          }
+        }
+      ],
+      "description": "Shenwen DeepSeek V4.1 Flash dedicated channel; production labor, not the default brain",
+      "meta": {
+        "last_live_check": "2026-09-17",
+        "live_reachable": true
+      }
     }
   ],
   "total_providers": 4,

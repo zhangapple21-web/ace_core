@@ -1,4 +1,4 @@
-﻿# ACE 运维脚本 - 巡检执行器 (ID-08)
+# ACE 运维脚本 - 巡检执行器 (ID-08)
 #
 # 每30/60分钟自动执行：
 #   1. 健康检查
@@ -49,6 +49,17 @@ def run_script(script_name: str, args: list = None) -> dict:
         return {"success": False, "error": "超时（120秒）"}
     except Exception as e:
         return {"success": False, "error": str(e)}
+
+
+def _failure_details(result: dict) -> dict:
+    details = {}
+    for key in ("returncode", "stdout", "stderr", "error"):
+        if key not in result or result[key] is None:
+            continue
+        value = result[key].strip() if isinstance(result[key], str) else result[key]
+        if value != "":
+            details[key] = value
+    return details
 
 
 def write_snapshot(snapshot: dict):
@@ -115,7 +126,8 @@ def main():
             if not args.quiet:
                 print(f"  解析失败: {e}")
     else:
-        snapshot["checks"]["health"] = {"error": hc_result.get("error", "执行失败")}
+        snapshot["checks"]["health"] = _failure_details(hc_result)
+        snapshot["checks"]["health"].setdefault("error", "执行失败")
         snapshot["overall"] = "error"
         if not args.quiet:
             print(f"  失败: {hc_result.get('error', '未知错误')}")
@@ -140,13 +152,15 @@ def main():
         except Exception as e:
             snapshot["checks"]["status"] = {"error": str(e)}
     else:
-        snapshot["checks"]["status"] = {"error": ss_result.get("error", "执行失败")}
+        snapshot["checks"]["status"] = _failure_details(ss_result)
+        snapshot["checks"]["status"].setdefault("error", "执行失败")
 
     # 3. 日志轮转（仅full模式）
     if args.full:
         if not args.quiet:
             print("【3/4】日志轮转...")
-        lr_result = run_script("log_rotate.py", ["--verbose" if not args.quiet else ""])
+        lr_args = ["--verbose"] if not args.quiet else []
+        lr_result = run_script("log_rotate.py", lr_args)
         snapshot["checks"]["log_rotate"] = {"success": lr_result["success"]}
         if not args.quiet:
             print(f"  {'完成' if lr_result['success'] else '失败'}")

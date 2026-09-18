@@ -34,13 +34,13 @@ from .providers.openai_compatible import (
     NIMProvider,
     GitHubModelsProvider,
     GLMProvider,
-    OpenRouterProvider,
     APIYiProvider,
     SambaNovaProvider,
     OneAPIProvider,
     OpenAICompatibleProvider,
     ShenwenProvider,
     ShenwenGrokProvider,
+    ShenwenDs41Provider,
     ShenwenImagesProvider,
 )
 from ..execution_contract import ensure_execution_contract
@@ -50,7 +50,6 @@ PROVIDER_FACTORY = {
     "nim": NIMProvider,
     "github_models": GitHubModelsProvider,
     "glm": GLMProvider,
-    "openrouter": OpenRouterProvider,
     "apiyi": APIYiProvider,
     "sambanova": SambaNovaProvider,
     "oneapi": OneAPIProvider,
@@ -59,6 +58,7 @@ PROVIDER_FACTORY = {
     "ace_proxy": OpenAICompatibleProvider,  # ACE 自己的 OpenAI 兼容代理
     "shenwen": ShenwenProvider,
     "shenwen_grok": ShenwenGrokProvider,
+    "shenwen_ds41": ShenwenDs41Provider,
     "shenwen_images": ShenwenImagesProvider,
 }
 
@@ -442,7 +442,7 @@ class MinerPool:
             error = call_result.get("error", "")
             retryable = not success and self._is_retryable_error(error)
             call_cost = {}
-            if success and spec.provider in {"shenwen", "shenwen_grok"}:
+            if success and spec.provider in {"shenwen", "shenwen_grok", "shenwen_ds41"}:
                 call_cost = self._shenwen_cost(
                     call_result.get("model", spec.model),
                     call_result.get("usage", {}),
@@ -475,7 +475,7 @@ class MinerPool:
                 result["model"] = call_result.get("model", spec.model)
                 result["provider"] = spec.provider
                 result["usage"] = call_result.get("usage", {})
-                if spec.provider in {"shenwen", "shenwen_grok"}:
+                if spec.provider in {"shenwen", "shenwen_grok", "shenwen_ds41"}:
                     result["cost"] = call_cost
                 result["latency_ms"] = latency_ms
                 result["tried_models"] = tried
@@ -505,11 +505,22 @@ class MinerPool:
                     self._router.mark_model_health(spec.full_id, False)
                     spec = None
                     continue
-                time.sleep(2 ** attempt)
+                same_model_attempts = sum(
+                    1 for item in result["attempts"] if item.get("model") == spec.full_id
+                )
+                # One same-model retry covers a 502 blip.  Spending the whole
+                # budget on DS41 leaves the daily miner idle even when OneAPI
+                # or mini remains configured.
+                if same_model_attempts < 2:
+                    time.sleep(2 ** attempt)
+                    continue
+                self._router.mark_model_health(spec.full_id, False)
+                spec = None
                 continue
             if retryable:
                 self._router.mark_model_health(spec.full_id, False)
-                break
+                spec = None
+                continue
 
             self._router.mark_model_health(spec.full_id, False)
             spec = None

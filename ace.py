@@ -378,6 +378,8 @@ def handle_scan_fragments(scheduler, args):
 
 
 def handle_daemon(base_dir, config, args):
+    from core.silent_windows import install_daemon_silence
+    install_daemon_silence()
     from core.ace_start import run_runtime
     dry_run = "--dry-run" in args
     force = "--force" in args

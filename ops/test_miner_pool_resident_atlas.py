@@ -1,4 +1,4 @@
-﻿import sys
+import sys
 from pathlib import Path
 
 
@@ -70,12 +70,12 @@ def test_atlas_never_promotes_execution_success_or_deprecated_history():
     registry = {
         "providers": [
             {
-                "name": "openrouter",
+                "name": "glm",
                 "status": "inactive",
                 "models": [
                     {
-                        "provider": "openrouter",
-                        "model_id": "x-ai/grok-4.6",
+                        "provider": "glm",
+                        "model_id": "glm-4-flash",
                         "status": "deprecated",
                         "verified": True,
                         "meta": {"production_eligible": True},
@@ -86,8 +86,8 @@ def test_atlas_never_promotes_execution_success_or_deprecated_history():
     }
     atlas = build_resident_atlas(
         registry,
-        {"research": {"preferred_models": ["openrouter:x-ai/grok-4.6"]}},
-        [{"provider": "openrouter", "model": "x-ai/grok-4.6", "api_result": "success"}],
+        {"research": {"preferred_models": ["glm:glm-4-flash"]}},
+        [{"provider": "glm", "model": "glm-4-flash", "api_result": "success"}],
     )
 
     resident = atlas["residents"][0]

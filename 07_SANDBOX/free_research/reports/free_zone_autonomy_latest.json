@@ -1,5 +1,5 @@
 {
-  "at": "2026-09-12T10:31:56.554079+00:00",
+  "at": "2026-09-18T10:33:40.660916+00:00",
   "automatic_external_fetch": false,
   "automatic_model_call": false,
   "automatic_production_promotion": false,
@@ -14,19 +14,18 @@
   },
   "claim": {
     "allocation": {
-      "candidate_probability": 0.25,
+      "candidate_probability": 0.5,
       "draw_number": 1,
-      "draw_state_digest": "0ffa85344d618b04a438f508d57763877e8c4ba01863bd8f3f5db34f9a3f33fe",
+      "draw_state_digest": "cc8dec07aad538ee5020d054179908764a6b455609605ad1062410ee6b322fd6",
       "member_index": 1,
       "selection_reason": "SOURCE_FAIR_ROUND_ROBIN_THEN_UNDERREPRESENTED_SEMANTIC_SLICE_DRAW",
       "semantic_slice": {
         "descriptive_only": true,
         "dimensions": {
-          "challenge_gap_signature": "boundary_intact+dissent_blueprint",
-          "epistemic_shape": "post_audit_challenge",
-          "execution_stance": "COUNTEREXAMPLE_SEARCH",
-          "provenance_class": "sandbox_audit",
-          "source_kind": "lazy_cat_challenge"
+          "epistemic_shape": "transferable_mechanism_pending_verification",
+          "execution_stance": "DIRECT_OBSERVATION",
+          "provenance_class": "source_preserving_semantic_seed",
+          "source_kind": "semantic_seed"
         },
         "outcome_used": false,
         "production_value_used": false,
@@ -34,27 +33,27 @@
         "schema_version": "ace.free_zone.semantic_slice.v2",
         "slice_basis": [
           "candidate.source_kind",
-          "candidate.challenge.missing_dimensions"
+          "candidate.parent_status"
         ],
-        "slice_id": "challenge_gap_signature=boundary_intact+dissent_blueprint|epistemic_shape=post_audit_challenge|execution_stance=COUNTEREXAMPLE_SEARCH|provenance_class=sandbox_audit|source_kind=lazy_cat_challenge"
+        "slice_id": "epistemic_shape=transferable_mechanism_pending_verification|execution_stance=DIRECT_OBSERVATION|provenance_class=source_preserving_semantic_seed|source_kind=semantic_seed"
       },
       "slice_draw_counts_before": {
-        "challenge_gap_signature=boundary_intact+dissent_blueprint|epistemic_shape=post_audit_challenge|execution_stance=COUNTEREXAMPLE_SEARCH|provenance_class=sandbox_audit|source_kind=lazy_cat_challenge": 1
+        "epistemic_shape=transferable_mechanism_pending_verification|execution_stance=DIRECT_OBSERVATION|provenance_class=source_preserving_semantic_seed|source_kind=semantic_seed": 2
       },
-      "slice_random_draw": 0.33633760788623546,
+      "slice_random_draw": 0.507297336700705,
       "slice_weights": [
         {
-          "candidate_count": 4,
-          "prior_draw_count": 1,
+          "candidate_count": 2,
+          "prior_draw_count": 2,
           "probability": 1.0,
-          "slice_id": "challenge_gap_signature=boundary_intact+dissent_blueprint|epistemic_shape=post_audit_challenge|execution_stance=COUNTEREXAMPLE_SEARCH|provenance_class=sandbox_audit|source_kind=lazy_cat_challenge",
-          "weight": 0.5
+          "slice_id": "epistemic_shape=transferable_mechanism_pending_verification|execution_stance=DIRECT_OBSERVATION|provenance_class=source_preserving_semantic_seed|source_kind=semantic_seed",
+          "weight": 0.3333333333333333
         }
       ],
-      "source_kind": "lazy_cat_challenge"
+      "source_kind": "semantic_seed"
     },
-    "claimed_at": "2026-09-12T10:31:56.519092+00:00",
-    "fingerprint": "lazy_cat_challenge:CHALLENGE-EXP-MODEL-6AD8FA30225C44D4:attempt:1",
+    "claimed_at": "2026-09-18T10:33:40.624183+00:00",
+    "fingerprint": "inbox:f9561c7195f6d2f5c50aa0e876508322fbc843af170d1f51bc6bd4464052b2de",
     "realm_state": {
       "authority": "SANDBOX_ONLY",
       "contract_version": "ace.free_zone_realm.v1",
@@ -66,11 +65,10 @@
     "semantic_slice": {
       "descriptive_only": true,
       "dimensions": {
-        "challenge_gap_signature": "boundary_intact+dissent_blueprint",
-        "epistemic_shape": "post_audit_challenge",
-        "execution_stance": "COUNTEREXAMPLE_SEARCH",
-        "provenance_class": "sandbox_audit",
-        "source_kind": "lazy_cat_challenge"
+        "epistemic_shape": "transferable_mechanism_pending_verification",
+        "execution_stance": "DIRECT_OBSERVATION",
+        "provenance_class": "source_preserving_semantic_seed",
+        "source_kind": "semantic_seed"
       },
       "outcome_used": false,
       "production_value_used": false,
@@ -78,30 +76,29 @@
       "schema_version": "ace.free_zone.semantic_slice.v2",
       "slice_basis": [
         "candidate.source_kind",
-        "candidate.challenge.missing_dimensions"
+        "candidate.parent_status"
       ],
-      "slice_id": "challenge_gap_signature=boundary_intact+dissent_blueprint|epistemic_shape=post_audit_challenge|execution_stance=COUNTEREXAMPLE_SEARCH|provenance_class=sandbox_audit|source_kind=lazy_cat_challenge"
+      "slice_id": "epistemic_shape=transferable_mechanism_pending_verification|execution_stance=DIRECT_OBSERVATION|provenance_class=source_preserving_semantic_seed|source_kind=semantic_seed"
     },
-    "source_kind": "lazy_cat_challenge",
-    "source_ref": "C:\\tmp\\ace_core\\07_SANDBOX\\free_research\\lazy_cat\\challenges\\CHALLENGE-EXP-MODEL-6AD8FA30225C44D4.json",
+    "source_kind": "semantic_seed",
+    "source_ref": "C:\\tmp\\ace_core\\07_SANDBOX\\free_research\\inbox\\2026-09-01-offline-failure-learning-semantic-seed.json",
     "status": "CLAIMED"
   },
   "claims": [
     {
       "allocation": {
-        "candidate_probability": 0.25,
+        "candidate_probability": 0.5,
         "draw_number": 1,
-        "draw_state_digest": "0ffa85344d618b04a438f508d57763877e8c4ba01863bd8f3f5db34f9a3f33fe",
+        "draw_state_digest": "cc8dec07aad538ee5020d054179908764a6b455609605ad1062410ee6b322fd6",
         "member_index": 1,
         "selection_reason": "SOURCE_FAIR_ROUND_ROBIN_THEN_UNDERREPRESENTED_SEMANTIC_SLICE_DRAW",
         "semantic_slice": {
           "descriptive_only": true,
           "dimensions": {
-            "challenge_gap_signature": "boundary_intact+dissent_blueprint",
-            "epistemic_shape": "post_audit_challenge",
-            "execution_stance": "COUNTEREXAMPLE_SEARCH",
-            "provenance_class": "sandbox_audit",
-            "source_kind": "lazy_cat_challenge"
+            "epistemic_shape": "transferable_mechanism_pending_verification",
+            "execution_stance": "DIRECT_OBSERVATION",
+            "provenance_class": "source_preserving_semantic_seed",
+            "source_kind": "semantic_seed"
           },
           "outcome_used": false,
           "production_value_used": false,
@@ -109,27 +106,27 @@
           "schema_version": "ace.free_zone.semantic_slice.v2",
           "slice_basis": [
             "candidate.source_kind",
-            "candidate.challenge.missing_dimensions"
+            "candidate.parent_status"
           ],
-          "slice_id": "challenge_gap_signature=boundary_intact+dissent_blueprint|epistemic_shape=post_audit_challenge|execution_stance=COUNTEREXAMPLE_SEARCH|provenance_class=sandbox_audit|source_kind=lazy_cat_challenge"
+          "slice_id": "epistemic_shape=transferable_mechanism_pending_verification|execution_stance=DIRECT_OBSERVATION|provenance_class=source_preserving_semantic_seed|source_kind=semantic_seed"
         },
         "slice_draw_counts_before": {
-          "challenge_gap_signature=boundary_intact+dissent_blueprint|epistemic_shape=post_audit_challenge|execution_stance=COUNTEREXAMPLE_SEARCH|provenance_class=sandbox_audit|source_kind=lazy_cat_challenge": 1
+          "epistemic_shape=transferable_mechanism_pending_verification|execution_stance=DIRECT_OBSERVATION|provenance_class=source_preserving_semantic_seed|source_kind=semantic_seed": 2
         },
-        "slice_random_draw": 0.33633760788623546,
+        "slice_random_draw": 0.507297336700705,
         "slice_weights": [
           {
-            "candidate_count": 4,
-            "prior_draw_count": 1,
+            "candidate_count": 2,
+            "prior_draw_count": 2,
             "probability": 1.0,
-            "slice_id": "challenge_gap_signature=boundary_intact+dissent_blueprint|epistemic_shape=post_audit_challenge|execution_stance=COUNTEREXAMPLE_SEARCH|provenance_class=sandbox_audit|source_kind=lazy_cat_challenge",
-            "weight": 0.5
+            "slice_id": "epistemic_shape=transferable_mechanism_pending_verification|execution_stance=DIRECT_OBSERVATION|provenance_class=source_preserving_semantic_seed|source_kind=semantic_seed",
+            "weight": 0.3333333333333333
           }
         ],
-        "source_kind": "lazy_cat_challenge"
+        "source_kind": "semantic_seed"
       },
-      "claimed_at": "2026-09-12T10:31:56.519092+00:00",
-      "fingerprint": "lazy_cat_challenge:CHALLENGE-EXP-MODEL-6AD8FA30225C44D4:attempt:1",
+      "claimed_at": "2026-09-18T10:33:40.624183+00:00",
+      "fingerprint": "inbox:f9561c7195f6d2f5c50aa0e876508322fbc843af170d1f51bc6bd4464052b2de",
       "realm_state": {
         "authority": "SANDBOX_ONLY",
         "contract_version": "ace.free_zone_realm.v1",
@@ -141,11 +138,10 @@
       "semantic_slice": {
         "descriptive_only": true,
         "dimensions": {
-          "challenge_gap_signature": "boundary_intact+dissent_blueprint",
-          "epistemic_shape": "post_audit_challenge",
-          "execution_stance": "COUNTEREXAMPLE_SEARCH",
-          "provenance_class": "sandbox_audit",
-          "source_kind": "lazy_cat_challenge"
+          "epistemic_shape": "transferable_mechanism_pending_verification",
+          "execution_stance": "DIRECT_OBSERVATION",
+          "provenance_class": "source_preserving_semantic_seed",
+          "source_kind": "semantic_seed"
         },
         "outcome_used": false,
         "production_value_used": false,
@@ -153,12 +149,12 @@
         "schema_version": "ace.free_zone.semantic_slice.v2",
         "slice_basis": [
           "candidate.source_kind",
-          "candidate.challenge.missing_dimensions"
+          "candidate.parent_status"
         ],
-        "slice_id": "challenge_gap_signature=boundary_intact+dissent_blueprint|epistemic_shape=post_audit_challenge|execution_stance=COUNTEREXAMPLE_SEARCH|provenance_class=sandbox_audit|source_kind=lazy_cat_challenge"
+        "slice_id": "epistemic_shape=transferable_mechanism_pending_verification|execution_stance=DIRECT_OBSERVATION|provenance_class=source_preserving_semantic_seed|source_kind=semantic_seed"
       },
-      "source_kind": "lazy_cat_challenge",
-      "source_ref": "C:\\tmp\\ace_core\\07_SANDBOX\\free_research\\lazy_cat\\challenges\\CHALLENGE-EXP-MODEL-6AD8FA30225C44D4.json",
+      "source_kind": "semantic_seed",
+      "source_ref": "C:\\tmp\\ace_core\\07_SANDBOX\\free_research\\inbox\\2026-09-01-offline-failure-learning-semantic-seed.json",
       "status": "CLAIMED"
     }
   ],
@@ -175,15 +171,15 @@
   },
   "event": "FREE_ZONE_EXPERIMENT_EXECUTED",
   "execution": {
-    "challenge_probe_id": "LAZY-CAT-PROBE-CHALLENGE-EXP-MODEL-6AD8FA30225C44D4-EXP-20260912103156525534-FREEZONE-68D26962229A",
-    "experiment_id": "EXP-20260912103156525534-FREEZONE-68D26962229A",
-    "factory_thread_id": "THREAD-68D26962229A93A7",
-    "factory_world_id": "WORLD-THREAD-68D26962229A93A7-COUNTEREXAMPLE_SEARCH",
-    "outcome": "PASS",
-    "record_hash": "fa696e94f9a328a03c4a841289b79ff2a05fd26575e17697c731d1dd5ff24b62"
+    "challenge_probe_id": null,
+    "experiment_id": "EXP-20260918103340632411-FREEZONE-BD1C0B6C9967",
+    "factory_thread_id": "THREAD-BD1C0B6C99674072",
+    "factory_world_id": "WORLD-THREAD-BD1C0B6C99674072-DIRECT_OBSERVATION",
+    "outcome": "INCONCLUSIVE",
+    "record_hash": "a34921b456e2741d571946cc6e310bc98f0323fde730784e719753634190964c"
   },
   "execution_evidence": {
-    "check_out_at": "2026-09-12T10:31:56.554079+00:00",
+    "check_out_at": "2026-09-18T10:33:40.660916+00:00",
     "natural_daemon_cycle": "UNKNOWN",
     "runtime_proof": false,
     "semantics": "an explicit sandbox trigger proves attribution only; it grants no ACE reality or production authority",
@@ -194,29 +190,29 @@
     "status": "EXPLICIT_TRIGGER_RECORDED",
     "trigger": {
       "kind": "EXISTING_DAEMON_DEDICATED_SHIFT",
-      "pid": 28196,
+      "pid": 8280,
       "runner": "ace_daemon.py"
     }
   },
   "executions": [
     {
-      "challenge_probe_id": "LAZY-CAT-PROBE-CHALLENGE-EXP-MODEL-6AD8FA30225C44D4-EXP-20260912103156525534-FREEZONE-68D26962229A",
-      "experiment_id": "EXP-20260912103156525534-FREEZONE-68D26962229A",
-      "factory_thread_id": "THREAD-68D26962229A93A7",
-      "factory_world_id": "WORLD-THREAD-68D26962229A93A7-COUNTEREXAMPLE_SEARCH",
-      "outcome": "PASS",
-      "record_hash": "fa696e94f9a328a03c4a841289b79ff2a05fd26575e17697c731d1dd5ff24b62"
+      "challenge_probe_id": null,
+      "experiment_id": "EXP-20260918103340632411-FREEZONE-BD1C0B6C9967",
+      "factory_thread_id": "THREAD-BD1C0B6C99674072",
+      "factory_world_id": "WORLD-THREAD-BD1C0B6C99674072-DIRECT_OBSERVATION",
+      "outcome": "INCONCLUSIVE",
+      "record_hash": "a34921b456e2741d571946cc6e310bc98f0323fde730784e719753634190964c"
     }
   ],
   "factories": {
     "contract_version": "ace.free_zone_factories.v1",
     "courier_receipt_count": 0,
-    "mark_count": 67,
-    "processing_receipt_count": 42,
+    "mark_count": 70,
+    "processing_receipt_count": 44,
     "production_integration": false,
-    "recovery_thread_count": 67,
-    "smelter_receipt_count": 40,
-    "world_count": 134
+    "recovery_thread_count": 70,
+    "smelter_receipt_count": 43,
+    "world_count": 140
   },
   "food_chain": [
     "inbound_food",
@@ -230,7 +226,7 @@
   "judgment": {
     "approval_required": false,
     "quality_decision_performed": false,
-    "selected_fingerprint": "lazy_cat_challenge:CHALLENGE-EXP-MODEL-6AD8FA30225C44D4:attempt:1",
+    "selected_fingerprint": "inbox:f9561c7195f6d2f5c50aa0e876508322fbc843af170d1f51bc6bd4464052b2de",
     "selection_semantics": "resource_allocation_only"
   },
   "mode": "FREE_ZONE_AUTONOMY_TURN",
@@ -281,6 +277,12 @@
         "source_record_hash": null
       },
       {
+        "fingerprint": "distillation:OPEN_QUESTION:EXP-20260917104158930647-FREEZONE-9165B67BB51A",
+        "semantic_slice_id": "epistemic_shape=open_question_reobservation|execution_stance=DIRECT_OBSERVATION|provenance_class=sandbox_distillation|source_kind=distillation",
+        "source_kind": "distillation",
+        "source_record_hash": null
+      },
+      {
         "fingerprint": "inbox:af0a985b4854acd1b4af0262cffda6017c272622a53fd8314b7e8a38ac9e383d",
         "semantic_slice_id": "epistemic_shape=transferable_mechanism_pending_verification|execution_stance=DIRECT_OBSERVATION|provenance_class=source_preserving_semantic_seed|source_kind=semantic_seed",
         "source_kind": "semantic_seed",
@@ -305,12 +307,6 @@
         "source_record_hash": "89f3c417776ab4b950cffb3d2cdbf072000048b4fbbf4f5e436b83822bdad472"
       },
       {
-        "fingerprint": "lazy_cat_challenge:CHALLENGE-EXP-MODEL-6AD8FA30225C44D4:attempt:1",
-        "semantic_slice_id": "challenge_gap_signature=boundary_intact+dissent_blueprint|epistemic_shape=post_audit_challenge|execution_stance=COUNTEREXAMPLE_SEARCH|provenance_class=sandbox_audit|source_kind=lazy_cat_challenge",
-        "source_kind": "lazy_cat_challenge",
-        "source_record_hash": "d4732bf8274de921d991817d0945eb170c6bb4a32691b8eadeca9782a6f9825e"
-      },
-      {
         "fingerprint": "lazy_cat_challenge:CHALLENGE-EXP-MODEL-898A05764556A021:attempt:1",
         "semantic_slice_id": "challenge_gap_signature=boundary_intact+dissent_blueprint|epistemic_shape=post_audit_challenge|execution_stance=COUNTEREXAMPLE_SEARCH|provenance_class=sandbox_audit|source_kind=lazy_cat_challenge",
         "source_kind": "lazy_cat_challenge",
@@ -323,30 +319,29 @@
         "source_record_hash": "84c55ede082fbe132b5a1dee300e30bf9bbd6f4a24114b8add3514a0f177b27a"
       },
       {
-        "fingerprint": "local_git:3f19719ae3380af6888566cfabc89021db12a245264e750f1d36a9c4c7dd0e59",
+        "fingerprint": "local_git:6032da173937cf5f3d8c281bde218c5779f0f967bb5199b1070c216d7a2c26a1",
         "semantic_slice_id": "epistemic_shape=path_redacted_change_probe|execution_stance=DIRECT_OBSERVATION|provenance_class=local_git|source_kind=local_git",
         "source_kind": "local_git",
         "source_record_hash": null
       }
     ],
-    "candidate_snapshot_sha256": "81582ff5ca42b32e8f3408ea7b63724f8859e95c5511ac4ed4ebcfd8e5b887ed",
+    "candidate_snapshot_sha256": "093eb4f8e0dde0a7c6ebda6c336508e61efce03a69b11153e5a2e213610e868e",
     "contract_version": "ace.free_zone_semantic_exploration.v1",
     "draws": [
       {
-        "candidate_probability": 0.25,
+        "candidate_probability": 0.5,
         "draw_number": 1,
-        "draw_state_digest": "0ffa85344d618b04a438f508d57763877e8c4ba01863bd8f3f5db34f9a3f33fe",
+        "draw_state_digest": "cc8dec07aad538ee5020d054179908764a6b455609605ad1062410ee6b322fd6",
         "member_index": 1,
-        "selected_fingerprint": "lazy_cat_challenge:CHALLENGE-EXP-MODEL-6AD8FA30225C44D4:attempt:1",
+        "selected_fingerprint": "inbox:f9561c7195f6d2f5c50aa0e876508322fbc843af170d1f51bc6bd4464052b2de",
         "selection_reason": "SOURCE_FAIR_ROUND_ROBIN_THEN_UNDERREPRESENTED_SEMANTIC_SLICE_DRAW",
         "semantic_slice": {
           "descriptive_only": true,
           "dimensions": {
-            "challenge_gap_signature": "boundary_intact+dissent_blueprint",
-            "epistemic_shape": "post_audit_challenge",
-            "execution_stance": "COUNTEREXAMPLE_SEARCH",
-            "provenance_class": "sandbox_audit",
-            "source_kind": "lazy_cat_challenge"
+            "epistemic_shape": "transferable_mechanism_pending_verification",
+            "execution_stance": "DIRECT_OBSERVATION",
+            "provenance_class": "source_preserving_semantic_seed",
+            "source_kind": "semantic_seed"
           },
           "outcome_used": false,
           "production_value_used": false,
@@ -354,24 +349,24 @@
           "schema_version": "ace.free_zone.semantic_slice.v2",
           "slice_basis": [
             "candidate.source_kind",
-            "candidate.challenge.missing_dimensions"
+            "candidate.parent_status"
           ],
-          "slice_id": "challenge_gap_signature=boundary_intact+dissent_blueprint|epistemic_shape=post_audit_challenge|execution_stance=COUNTEREXAMPLE_SEARCH|provenance_class=sandbox_audit|source_kind=lazy_cat_challenge"
+          "slice_id": "epistemic_shape=transferable_mechanism_pending_verification|execution_stance=DIRECT_OBSERVATION|provenance_class=source_preserving_semantic_seed|source_kind=semantic_seed"
         },
         "slice_draw_counts_before": {
-          "challenge_gap_signature=boundary_intact+dissent_blueprint|epistemic_shape=post_audit_challenge|execution_stance=COUNTEREXAMPLE_SEARCH|provenance_class=sandbox_audit|source_kind=lazy_cat_challenge": 1
+          "epistemic_shape=transferable_mechanism_pending_verification|execution_stance=DIRECT_OBSERVATION|provenance_class=source_preserving_semantic_seed|source_kind=semantic_seed": 2
         },
-        "slice_random_draw": 0.33633760788623546,
+        "slice_random_draw": 0.507297336700705,
         "slice_weights": [
           {
-            "candidate_count": 4,
-            "prior_draw_count": 1,
+            "candidate_count": 2,
+            "prior_draw_count": 2,
             "probability": 1.0,
-            "slice_id": "challenge_gap_signature=boundary_intact+dissent_blueprint|epistemic_shape=post_audit_challenge|execution_stance=COUNTEREXAMPLE_SEARCH|provenance_class=sandbox_audit|source_kind=lazy_cat_challenge",
-            "weight": 0.5
+            "slice_id": "epistemic_shape=transferable_mechanism_pending_verification|execution_stance=DIRECT_OBSERVATION|provenance_class=source_preserving_semantic_seed|source_kind=semantic_seed",
+            "weight": 0.3333333333333333
           }
         ],
-        "source_kind": "lazy_cat_challenge"
+        "source_kind": "semantic_seed"
       }
     ],
     "outcome_used": false,
@@ -382,7 +377,7 @@
     "runtime_version": "python-3.11",
     "selected_count": 1,
     "selection_policy_version": "ace.free_zone.source_fair_semantic_stochastic.v2",
-    "selection_seed": 2958290438105952715,
+    "selection_seed": 12845674079402461394,
     "semantic_slice_count": 5,
     "semantic_slice_schema_version": "ace.free_zone.semantic_slice.v2",
     "slice_draw_counts_after": {
@@ -391,10 +386,10 @@
       "epistemic_shape=counterexample_reobservation|execution_stance=DIRECT_OBSERVATION|provenance_class=sandbox_distillation|source_kind=distillation": 4,
       "epistemic_shape=historical_inventory_probe|execution_stance=DIRECT_OBSERVATION|provenance_class=local_museum|source_kind=museum_history": 1,
       "epistemic_shape=open_question_reobservation|execution_stance=DIRECT_OBSERVATION|provenance_class=sandbox_distillation|source_kind=distillation": 3,
-      "epistemic_shape=path_redacted_change_probe|execution_stance=DIRECT_OBSERVATION|provenance_class=local_git|source_kind=local_git": 6,
+      "epistemic_shape=path_redacted_change_probe|execution_stance=DIRECT_OBSERVATION|provenance_class=local_git|source_kind=local_git": 7,
       "epistemic_shape=post_audit_challenge|execution_stance=COUNTEREXAMPLE_SEARCH|provenance_class=sandbox_audit|source_kind=lazy_cat_challenge": 2,
       "epistemic_shape=raw_semantic_observation_pending_structure|execution_stance=DIRECT_OBSERVATION|provenance_class=sandbox_inbox|source_kind=semantic_seed_unstructured": 1,
-      "epistemic_shape=transferable_mechanism_pending_verification|execution_stance=DIRECT_OBSERVATION|provenance_class=source_preserving_semantic_seed|source_kind=semantic_seed": 2
+      "epistemic_shape=transferable_mechanism_pending_verification|execution_stance=DIRECT_OBSERVATION|provenance_class=source_preserving_semantic_seed|source_kind=semantic_seed": 3
     }
   }
 }

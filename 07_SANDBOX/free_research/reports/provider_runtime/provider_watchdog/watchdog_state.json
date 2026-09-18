@@ -1,18 +1,5 @@
 {
   "providers": {
-    "openrouter": {
-      "provider": "openrouter",
-      "base_url": "https://openrouter.ai/api/v1",
-      "status": "UNHEALTHY",
-      "last_check": 0.0,
-      "last_success": 0.0,
-      "consecutive_failures": 0,
-      "consecutive_successes": 0,
-      "latency_ms": 0,
-      "total_calls": 0,
-      "failed_calls": 0,
-      "error_message": ""
-    },
     "shenwen": {
       "provider": "shenwen",
       "base_url": "https://api.shenwenai.com/v1",

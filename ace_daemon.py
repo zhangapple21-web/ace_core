@@ -14,6 +14,7 @@ TRAE 负责叫醒，ACE 自己决定今天挖什么、怎么挖、挖多少。
 """
 
 import json
+import hashlib
 import os
 import signal
 import sys
@@ -66,6 +67,7 @@ from core.free_zone_autonomy import FreeZoneAutonomy
 from core.sandbox_society import SandboxSociety
 from core.reality_gap_relay import RealityGapRelay
 from core.free_zone_loop_status import FreeZoneLoopStatus
+from core.free_zone_reflection_relay import FreeZoneReflectionRelay
 from core.daily_learning import DAILY_LEARNING_OBSERVATION_LIMIT, DailyLearningLoop
 from core.open_source_learning import OpenSourceLearningBacklog
 from core.external_learning_discovery import ExternalLearningDiscovery
@@ -215,6 +217,7 @@ class AceDaemon:
         # changes TaskPool / Admission authority.
         self.continuity_auditor = ContinuityAuditor(base_dir)
         self.reality_gap_relay = RealityGapRelay(base_dir)
+        self.free_zone_reflection_relay = None
         self.free_zone_loop_status = FreeZoneLoopStatus(base_dir)
         self.miner_pool = None
         self.model_router = None
@@ -328,6 +331,11 @@ class AceDaemon:
         try:
             task_pool_dir = self.base_dir / "task_pool"
             self.task_pool = TaskPool(str(task_pool_dir))
+            self.free_zone_reflection_relay = FreeZoneReflectionRelay(
+                self.base_dir,
+                sandbox_root=self.base_dir / "07_SANDBOX" / "free_research",
+                task_pool=self.task_pool,
+            )
             self.observer = Observer(
                 task_pool=self.task_pool,
                 lexicon=self.lexicon,
@@ -890,6 +898,11 @@ class AceDaemon:
         self.state["continuation_context_fresh"] = True
         self.state["continue_gate_failure_count"] = 0
         self.state["continue_gate_prior_attempt_without_receipt"] = False
+        # A fresh process gets one chance to re-probe the configured local
+        # model gateway.  Do not inherit a stale provider-degraded latch from
+        # a previous run and close the gate before the health probe executes.
+        self.state["continue_gate_provider_degraded"] = False
+        self.state["continue_gate_fallbacks_configured"] = True
         continuity_auditor = getattr(self, "continuity_auditor", None)
         if continuity_auditor is not None:
             try:
@@ -1765,6 +1778,8 @@ class AceDaemon:
             limit=DAILY_LEARNING_OBSERVATION_LIMIT
         ):
             candidate = self._data_health_learning_candidate(observation)
+            if candidate is None:
+                candidate = self._checkup_failure_learning_candidate(observation)
             if candidate is not None:
                 candidates.append(candidate)
         return candidates
@@ -1838,6 +1853,86 @@ class AceDaemon:
             task_type="reasoning",
             severity="high",
             candidate_source="stock_data_health",
+            metadata={"learning": learning},
+        )
+        return candidate, evidence
+
+    def _failed_checkup_probe_details(self, payload: Any) -> Optional[Dict[str, Any]]:
+        if not isinstance(payload, dict):
+            return None
+        details: Dict[str, Any] = {}
+        for key in ("returncode", "stdout", "stderr", "error"):
+            if key not in payload or payload[key] is None:
+                continue
+            value = payload[key].strip() if isinstance(payload[key], str) else payload[key]
+            if value != "":
+                details[key] = value
+        if not details:
+            return None
+        if "error" not in details and details.get("returncode") in (0, None):
+            return None
+        return details
+
+    def _checkup_failure_learning_candidate(self, observation) -> Optional[Any]:
+        if not observation.auto_generated or observation.source != "checkup_history":
+            return None
+        state = observation.system_state if isinstance(observation.system_state, dict) else {}
+        snapshot = state.get("checkup_snapshot")
+        if not isinstance(snapshot, dict) or snapshot.get("overall") not in {"error", "warning"}:
+            return None
+        checks = snapshot.get("checks")
+        if not isinstance(checks, dict):
+            return None
+        path = state.get("checkup_path") or "checkup_history"
+        evidence = []
+        for name, payload in checks.items():
+            if not isinstance(name, str):
+                continue
+            details = self._failed_checkup_probe_details(payload)
+            if details is None:
+                continue
+            evidence.append({
+                "source": name,
+                "source_ref": f"{path}#{name}",
+                "content": json.dumps(details, ensure_ascii=False, sort_keys=True),
+                "confidence": 0.95,
+                "author": "checkup_probe",
+                "source_location": path,
+                "metadata": {
+                    "source_tier": "technical_primary",
+                    "publisher": name,
+                    "upstream_identity": f"ops.{name}",
+                    "independence_group": f"checkup_probe:{name}",
+                    "lineage_observable": True,
+                    "directness": "primary",
+                    "retrieval_method": "checkup_snapshot",
+                    "cross_validation_source": "internal",
+                    "observation_id": observation.obs_id,
+                },
+            })
+        if len(evidence) < 2:
+            return None
+        fingerprint = f"checkup_failure_learning:{observation.signature or observation.obs_id}"
+        learning = {
+            "why_learn": "Independent checkup probes failed with captured diagnostics, exposing a runtime failure boundary.",
+            "learning_objective": "Establish the measured failure diagnostics and permitted recovery boundary for independent checkup probes.",
+            "required_evidence": ["two independent failed checkup probe diagnostics"],
+            "mastery_criteria": [
+                "Record each failed probe diagnostic, independence group, and verification result in the governed learning outcome."
+            ],
+        }
+        candidate = DiscoveryCandidate(
+            fingerprint=fingerprint,
+            title="学习巡检独立探针失败边界",
+            description=observation.description,
+            reason=learning["why_learn"],
+            objective=learning["learning_objective"],
+            completion_criteria=learning["mastery_criteria"][0],
+            verification_method="Reinspect the recorded checkup snapshot and compare each failed probe diagnostic with its independence group.",
+            priority="medium",
+            task_type="reasoning",
+            severity="high",
+            candidate_source="checkup_failure",
             metadata={"learning": learning},
         )
         return candidate, evidence
@@ -1919,16 +2014,74 @@ class AceDaemon:
         self.state["shenwen_provider_usage_billing"] = result["state"]
         return result
 
+    _PRODUCTION_LABOR_PROVIDERS = frozenset({"shenwen_ds41", "shenwen", "glm", "oneapi"})
+
+    def _miner_pool_provider_names(self):
+        miner_pool = getattr(self, "miner_pool", None)
+        names = set()
+        if miner_pool is None:
+            return names
+        available = getattr(miner_pool, "available_providers", None)
+        if callable(available):
+            try:
+                available = available()
+            except Exception:
+                available = None
+        if isinstance(available, (list, tuple, set, frozenset)):
+            names.update(str(item) for item in available if item)
+        providers = getattr(miner_pool, "_providers", None)
+        if isinstance(providers, dict):
+            names.update(str(item) for item in providers.keys() if item)
+        return {item.lower() for item in names}
+
+    def _production_fallbacks_configured(self):
+        """True when a production labor channel can still do work.
+
+        Daily health probe failures are not the same as having no fallback.
+        DS41 / Shenwen / GLM / OneAPI remaining in MinerPool must keep the
+        continuation gate open so the miner does not sit idle all day.
+        """
+        return bool(self._miner_pool_provider_names() & self._PRODUCTION_LABOR_PROVIDERS)
+
+    def _sync_continue_gate_from_daily_health(self, health_result):
+        record = health_result.get("record") if isinstance(health_result, dict) else None
+        calls = record.get("calls") if isinstance(record, dict) else None
+        calls = calls if isinstance(calls, list) else []
+        successful = sum(1 for call in calls if isinstance(call, dict) and call.get("success") is True)
+        health_failed = bool(calls) and successful < len(calls)
+        fallbacks = self._production_fallbacks_configured()
+        if not fallbacks:
+            fallbacks = any(
+                isinstance(call, dict)
+                and call.get("success") is True
+                and str(call.get("provider") or "").lower() in self._PRODUCTION_LABOR_PROVIDERS
+                for call in calls
+            )
+        self.state["continue_gate_provider_degraded"] = health_failed
+        self.state["continue_gate_fallbacks_configured"] = fallbacks
+        self._save_state()
+        return {
+            "successful": successful,
+            "total": len(calls),
+            "health_failed": health_failed,
+            "fallbacks_configured": fallbacks,
+        }
+
     def _run_shenwen_daily_health(self, run_date: Optional[str] = None) -> Dict[str, Any]:
         date = run_date or datetime.now().date().isoformat()
         records = self.state.setdefault("shenwen_daily_health", {})
-        if date in records:
+        existing = records.get(date)
+        existing_failed = isinstance(existing, dict) and any(
+            call.get("success") is not True for call in (existing.get("calls") or [])
+        )
+        recovery_probe_done = self.state.get("shenwen_daily_health_recovery_probe_date") == date
+        if date in records and (not existing_failed or recovery_probe_done):
             return {"date": date, "executed": False, "record": records[date]}
 
         calls = []
         for task_type, model in (
             ("strategic", "gpt-5.6-terra"),
-            ("execution", "gpt-5.4-mini"),
+            ("execution", "deepseek-v4.1-flash"),
         ):
             try:
                 response = self.miner_pool.chat(
@@ -1956,6 +2109,8 @@ class AceDaemon:
 
         record = {"date": date, "calls": calls, "completed_at": datetime.now().isoformat()}
         records[date] = record
+        if existing_failed:
+            self.state["shenwen_daily_health_recovery_probe_date"] = date
         self._refresh_shenwen_daily_cost(date)
         self._save_state()
         return {"date": date, "executed": True, "record": record}
@@ -2309,6 +2464,11 @@ class AceDaemon:
         except Exception as e:
             self._log_error("sandbox_society", str(e))
         try:
+            if self.free_zone_reflection_relay:
+                result["free_zone_reflection"] = self.free_zone_reflection_relay.reflect_available()
+        except Exception as e:
+            self._log_error("free_zone_reflection", str(e))
+        try:
             result["free_zone_model_shift"] = self._run_free_zone_model_shift_if_due()
         except Exception as e:
             self._log_error("free_zone_model_shift", str(e))
@@ -2499,6 +2659,61 @@ class AceDaemon:
             "delegated_to": "task_lifecycle",
             "lifecycle": lifecycle,
         }
+
+    def _run_local_only_work(self, limit: int = 2) -> Dict[str, Any]:
+        """Consume evidence-only work while model continuation is closed.
+
+        A degraded provider must not freeze the whole ecology.  This narrow
+        lane handles only the feedback tasks created by the Free Zone relay:
+        it verifies local hashes, records the result, and leaves the task in
+        ``review`` for the normal validator/guardian path.  It never calls a
+        provider and never promotes anything to production.
+        """
+        summary = {"claimed": 0, "reviewed": 0, "blocked": 0, "provider_calls": 0, "production_integration": False}
+        if not self.task_pool:
+            return summary
+        for candidate in self.task_pool.list_tasks(status="pending", limit=10000, sort_by="created"):
+            if summary["claimed"] >= limit:
+                break
+            admission = (candidate.outputs or {}).get("admission", {})
+            source_ref = str(admission.get("source_ref", ""))
+            if not source_ref.startswith("free_zone_observation:"):
+                continue
+            task = self.task_pool.claim_task(candidate.task_id, "ace-local-evidence", lease_seconds=300)
+            if not task:
+                continue
+            summary["claimed"] += 1
+            try:
+                feedback = (task.outputs or {}).get("free_zone_feedback", {})
+                source = feedback.get("source", {})
+                source_path = self.base_dir / str(source.get("ref", ""))
+                feedback_id = str(feedback.get("feedback_id", ""))
+                feedback_path = self.base_dir / "08_GOVERNANCE" / "free_zone_bridge" / "feedback" / f"{feedback_id}.json"
+                if not source_path.is_file() or not feedback_path.is_file():
+                    raise ValueError("free_zone_feedback_evidence_missing")
+                distillation = json.loads(source_path.read_text(encoding="utf-8"))
+                receipt = json.loads(feedback_path.read_text(encoding="utf-8"))
+                stored_distillation_hash = str(source.get("distillation_sha256", ""))
+                unsigned_distillation = dict(distillation)
+                unsigned_distillation.pop("distillation_hash", None)
+                actual_distillation_hash = hashlib.sha256(json.dumps(unsigned_distillation, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+                unsigned_feedback = dict(receipt)
+                stored_feedback_hash = unsigned_feedback.pop("feedback_hash", "")
+                actual_feedback_hash = hashlib.sha256(json.dumps(unsigned_feedback, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+                if stored_distillation_hash != actual_distillation_hash or stored_feedback_hash != actual_feedback_hash:
+                    raise ValueError("free_zone_feedback_hash_mismatch")
+                task.add_evidence("本地验证通过：自由区 distillation 与 ACE feedback 回执哈希一致。", source=str(feedback_path.relative_to(self.base_dir).as_posix()))
+                task.research_notes.append({"note": "本地证据核验完成，等待独立 Validator/Guardian；未调用模型。", "researcher": "ace-local-evidence", "at": datetime.now().isoformat()})
+                task.result = {"outcome": "LOCAL_EVIDENCE_VERIFIED", "distillation_hash": actual_distillation_hash, "feedback_hash": actual_feedback_hash, "production_integration": False}
+                task.status = "review"
+                if self.task_pool.update_task(task):
+                    summary["reviewed"] += 1
+                else:
+                    summary["blocked"] += 1
+            except Exception as error:
+                self.task_pool.fail_task(task.task_id, str(error), actor="ace-local-evidence", failure_type="external_condition")
+                summary["blocked"] += 1
+        return summary
 
     def _execute_task_with_worker(self, task) -> Dict[str, Any]:
         return {
@@ -2703,6 +2918,24 @@ class AceDaemon:
                                 category="improvement",
                             )
                             obs_count += 1
+                    overall = last_checkup.get("overall")
+                    if overall in {"error", "warning"}:
+                        self.runtime_observer.record(
+                            description=f"巡检结果为 {overall}，已捕获探针诊断。",
+                            system_state={
+                                "checkup_path": str(checkup_file),
+                                "checkup_snapshot": last_checkup,
+                            },
+                            severity="high" if overall == "error" else "medium",
+                            source="checkup_history",
+                            category="health",
+                            auto_generated=True,
+                            dedup_key={
+                                "timestamp": last_time,
+                                "overall": overall,
+                            },
+                        )
+                        obs_count += 1
             except Exception:
                 pass
 
@@ -3012,6 +3245,17 @@ class AceDaemon:
                 # trustworthy continuation proof.
                 boundary = self._check_continue_gate()
                 if boundary.get("status") != "CONTINUE":
+                    # Provider degradation closes model-backed continuation,
+                    # but must not strand already-admitted local evidence
+                    # work.  Consume only the bounded, hash-verifiable lane;
+                    # then let the scheduler start a fresh context later.
+                    local_work = self._run_local_only_work(limit=2)
+                    self.state["local_only_work_last"] = {
+                        **local_work,
+                        "at": datetime.now().isoformat(),
+                    }
+                    self._save_state()
+                    print(f"继续闸门关闭；本地证据车道已处理 {local_work.get('reviewed', 0)} 个任务")
                     stop_reason = "CONTINUE_GATE_CLOSED"
                     break
 
@@ -3065,12 +3309,8 @@ class AceDaemon:
                     try:
                         health_result = self._run_shenwen_daily_health()
                         if health_result.get("executed"):
-                            successful = sum(1 for call in health_result["record"]["calls"] if call["success"])
-                            health_failed = successful < len(health_result["record"]["calls"])
-                            self.state["continue_gate_provider_degraded"] = health_failed
-                            self.state["continue_gate_fallbacks_configured"] = not health_failed
-                            self._save_state()
-                            print(f"神隐每日健康调用: {successful}/2 成功")
+                            summary = self._sync_continue_gate_from_daily_health(health_result)
+                            print("神隐每日健康调用: %s/%s 成功" % (summary["successful"], summary["total"]))
                     except Exception as e:
                         self._log_error("shenwen_daily_health", str(e))
                 self._complete_cycle_stage("model_health", stage_started)

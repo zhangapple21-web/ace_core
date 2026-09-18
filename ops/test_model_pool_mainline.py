@@ -281,15 +281,19 @@ def test_role_profiles_register_native_strategic_execution_and_free_boundaries()
     free = get_task_profile("free_exploration")
 
     assert strategic["expected_model"] == "gpt-5.6-terra"
-    assert strategic["preferred_models"] == ["shenwen:gpt-5.6-terra"]
-    assert strategic["allowed_providers"] == {"shenwen"}
+    assert strategic["preferred_models"] == ["oneapi:gpt-5.6-terra", "shenwen:gpt-5.6-terra"]
+    assert strategic["allowed_providers"] == {"shenwen", "oneapi"}
     assert execution["expected_model"] == "gpt-5.4-mini"
-    assert execution["preferred_models"] == ["shenwen:gpt-5.4-mini"]
-    assert execution["allowed_providers"] == {"shenwen"}
-    assert free["allowed_providers"] == {"glm", "nim", "ollama"}
+    assert execution["preferred_models"] == [
+        "shenwen_ds41:deepseek-v4.1-flash",
+        "oneapi:deepseek-v4.1-flash",
+        "oneapi:gpt-5.4-mini",
+        "shenwen:gpt-5.4-mini",
+    ]
+    assert execution["allowed_providers"] == {"shenwen_ds41", "shenwen", "oneapi"}
+    assert free["allowed_providers"] == {"shenwen_ds41", "oneapi", "glm", "nim", "ollama"}
     assert "shenwen:gpt-5.6-terra" not in free["preferred_models"]
     assert "shenwen:gpt-5.4-mini" not in free["preferred_models"]
-
 
 def test_strategic_uses_native_profile_and_records_terra_result():
     response = {

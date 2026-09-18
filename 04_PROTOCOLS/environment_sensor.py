@@ -321,7 +321,7 @@ class SituationBuilder:
     # 能力图谱 — 关键词到 capability 的映射
     CAPABILITY_KEYWORDS = {
         "stock_data": ["stock", "quant", "trading", "akshare", "tushare", "kline", "quote"],
-        "llm_inference": ["model", "gpt", "llm", "inference", "openrouter"],
+        "llm_inference": ["model", "gpt", "llm", "inference"],
         "environment": ["sensor", "scan", "environment", "heartbeat"],
         "runtime": ["runtime", "scheduler", "router", "worker"],
         "external_asset": ["github", "repo", "trending"],

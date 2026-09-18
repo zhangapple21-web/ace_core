@@ -1,7 +1,7 @@
 """
 OpenAI 兼容提供商适配器
 
-所有 OpenAI 兼容的 API（NIM、GitHub Models、OpenRouter、API易、OneAPI、SambaNova 等）
+所有 OpenAI 兼容的 API（NIM、GitHub Models、API易、OneAPI、SambaNova 等）
 都可以用这个适配器。
 
 只在必要时创建特化适配器。
@@ -68,7 +68,7 @@ class OpenAICompatibleProvider(BaseProvider):
                 "max_tokens": max_tokens,
             }
             # 传递额外参数
-            for k in ["top_p", "frequency_penalty", "presence_penalty", "stream"]:
+            for k in ["top_p", "frequency_penalty", "presence_penalty", "stream", "thinking", "reasoning_effort"]:
                 if k in kwargs:
                     payload[k] = kwargs[k]
 
@@ -91,8 +91,7 @@ class OpenAICompatibleProvider(BaseProvider):
                     choices = resp_data.get("choices", [])
                     if choices:
                         msg = choices[0].get("message", {})
-                        content = msg.get("content", "")
-                        result["content"] = content if isinstance(content, str) else ""
+                        result["content"] = self._message_text(msg)
                         result["model"] = resp_data.get("model", model)
                         result["usage"] = resp_data.get("usage", {})
                         if result["content"].strip():
@@ -134,6 +133,11 @@ class OpenAICompatibleProvider(BaseProvider):
         except Exception:
             return []
 
+    @staticmethod
+    def _message_text(msg: Dict[str, Any]) -> str:
+        content = msg.get("content", "") if isinstance(msg, dict) else ""
+        return content if isinstance(content, str) else ""
+
 
 class ShenwenProvider(OpenAICompatibleProvider):
     provider_name = "shenwen"
@@ -148,6 +152,27 @@ class ShenwenGrokProvider(OpenAICompatibleProvider):
 
     def __init__(self, api_key: str, base_url: str = "https://api.shenwenai.com/v1", **kwargs):
         super().__init__(api_key, base_url, provider_name="shenwen_grok", **kwargs)
+
+
+class ShenwenDs41Provider(OpenAICompatibleProvider):
+    """Shenwen DeepSeek V4.1 Flash channel (separate key/entitlement)."""
+    provider_name = "shenwen_ds41"
+
+    def __init__(self, api_key: str, base_url: str = "https://api.shenwenai.com/v1", **kwargs):
+        super().__init__(api_key, base_url, provider_name="shenwen_ds41", **kwargs)
+
+    @staticmethod
+    def _message_text(msg: Dict[str, Any]) -> str:
+        # Shenwen's DS41 channel often fills reasoning_content first and
+        # may return content=null when the token budget is tight.  Do not
+        # send thinking=disabled here: the gateway accepts it but then
+        # returns empty content.  Use the reasoning text as a last-resort
+        # worker answer so long labor does not fail closed.
+        content = OpenAICompatibleProvider._message_text(msg)
+        if content.strip():
+            return content
+        reasoning = msg.get("reasoning_content") if isinstance(msg, dict) else ""
+        return reasoning if isinstance(reasoning, str) else ""
 
 
 class ShenwenImagesProvider(OpenAICompatibleProvider):
@@ -270,21 +295,6 @@ class GLMProvider(OpenAICompatibleProvider):
 
     def __init__(self, api_key: str, base_url: str = "https://open.bigmodel.cn/api/paas/v4", **kwargs):
         super().__init__(api_key, base_url, provider_name="glm", **kwargs)
-
-
-class OpenRouterProvider(OpenAICompatibleProvider):
-    """OpenRouter 提供商"""
-
-    provider_name = "openrouter"
-
-    def __init__(self, api_key: str, base_url: str = "https://openrouter.ai/api/v1", **kwargs):
-        super().__init__(api_key, base_url, provider_name="openrouter", **kwargs)
-
-    def _build_headers(self, extra_headers: Dict = None) -> Dict[str, str]:
-        headers = super()._build_headers(extra_headers)
-        headers["HTTP-Referer"] = "https://ace-runtime.local"
-        headers["X-Title"] = "ACE Runtime"
-        return headers
 
 
 class APIYiProvider(OpenAICompatibleProvider):

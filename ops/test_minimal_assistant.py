@@ -1,4 +1,4 @@
-﻿import sys
+import sys
 from pathlib import Path
 
 import pytest
@@ -49,14 +49,14 @@ def test_resolve_assistant_config_uses_official_defaults_for_openai_env(monkeypa
 
 def test_resolve_assistant_config_prefers_known_provider_model_when_base_url_matches(monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
-    monkeypatch.setenv("OPENAI_BASE_URL", "https://openrouter.ai/api/v1")
+    monkeypatch.setenv("OPENAI_BASE_URL", "https://open.bigmodel.cn/api/paas/v4")
     monkeypatch.delenv("OPENAI_MODEL", raising=False)
 
     config = resolve_assistant_config()
 
-    assert config.provider == "openrouter"
-    assert config.base_url == "https://openrouter.ai/api/v1"
-    assert config.model == "anthropic/claude-3.5-sonnet"
+    assert config.provider == "glm"
+    assert config.base_url == "https://open.bigmodel.cn/api/paas/v4"
+    assert config.model == "glm-4-flash"
 
 
 def test_resolve_assistant_config_maps_shenwen_gateway_and_uses_verified_default(monkeypatch):

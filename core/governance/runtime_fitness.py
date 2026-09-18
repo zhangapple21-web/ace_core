@@ -140,7 +140,6 @@ class RuntimeFitnessChecker:
     PROVIDER_TIMEOUTS = {
         "nim": 60,
         "oneapi": 45,
-        "openrouter": 45,
         "sambanova": 30,
     }
 

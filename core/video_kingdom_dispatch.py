@@ -8,9 +8,15 @@ from __future__ import annotations
 
 import hashlib
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
+
+CLAIM_LEASE_SECONDS = 30 * 60
+
+
+class QueueUnreadableError(RuntimeError):
+    """Queue file exists but is not a usable dispatch payload."""
 
 
 class VideoKingdomDispatch:
@@ -88,27 +94,83 @@ class VideoKingdomDispatch:
         return datetime.now(timezone.utc).date().isoformat()
 
     def _read(self) -> dict[str, Any]:
-        try:
-            value = json.loads(self.queue.read_text(encoding="utf-8"))
-            return value if isinstance(value, dict) else {}
-        except (OSError, json.JSONDecodeError):
+        if not self.queue.is_file():
             return {}
+        try:
+            raw = self.queue.read_text(encoding="utf-8")
+        except OSError as exc:
+            raise QueueUnreadableError(f"dispatch queue is unreadable: {exc}") from exc
+        try:
+            value = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            self._isolate_corrupt_queue()
+            raise QueueUnreadableError("dispatch queue is not valid JSON") from exc
+        if not isinstance(value, dict):
+            self._isolate_corrupt_queue()
+            raise QueueUnreadableError("dispatch queue root must be an object")
+        return value
+
+    def _isolate_corrupt_queue(self) -> None:
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+        isolated = self.queue.with_name(f"{self.queue.name}.corrupt.{stamp}")
+        try:
+            isolated.write_bytes(self.queue.read_bytes())
+        except OSError:
+            return
 
     def claim_next(self) -> dict[str, Any] | None:
         """Atomically-ish claim one pending card for the next bounded shift.
 
         The ACE daemon is the single writer, so a small read/modify/write is
         sufficient here.  A claim is never a provider call or publication.
+        Live CLAIMED leases are left alone; expired leases may be reclaimed.
         """
         payload = self._read()
         cards = payload.get("cards", []) if isinstance(payload.get("cards"), list) else []
+        now = datetime.now(timezone.utc)
+        chosen: dict[str, Any] | None = None
+        reclaimed = False
         for card in cards:
-            if isinstance(card, dict) and card.get("status") == "PENDING":
-                card["status"] = "CLAIMED"
-                card["claimed_at"] = datetime.now(timezone.utc).isoformat()
-                self._write(payload, cards)
-                return dict(card)
-        return None
+            if isinstance(card, dict) and card.get("status") == "CLAIMED" and self._claim_expired(card, now):
+                chosen = card
+                reclaimed = True
+                break
+        if chosen is None:
+            for card in cards:
+                if isinstance(card, dict) and card.get("status") == "PENDING":
+                    chosen = card
+                    break
+        if chosen is None:
+            return None
+        chosen["status"] = "CLAIMED"
+        chosen["claimed_at"] = now.isoformat()
+        chosen["claim_expires_at"] = (now + timedelta(seconds=CLAIM_LEASE_SECONDS)).isoformat()
+        if reclaimed:
+            chosen["reclaimed"] = True
+        self._write(payload, cards)
+        return dict(chosen)
+
+    @staticmethod
+    def _claim_expired(card: dict[str, Any], now: datetime) -> bool:
+        raw = card.get("claim_expires_at") or card.get("claimed_at")
+        if not isinstance(raw, str) or not raw.strip():
+            return True
+        parsed = VideoKingdomDispatch._parse_timestamp(raw)
+        if parsed is None:
+            return True
+        if isinstance(card.get("claim_expires_at"), str) and card.get("claim_expires_at").strip():
+            return parsed <= now
+        return parsed + timedelta(seconds=CLAIM_LEASE_SECONDS) <= now
+
+    @staticmethod
+    def _parse_timestamp(value: str) -> datetime | None:
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc)
 
     def finish(self, task_id: str, *, status: str, evidence: dict[str, Any] | None = None,
                error: str | None = None) -> dict[str, Any]:

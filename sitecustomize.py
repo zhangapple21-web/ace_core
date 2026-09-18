@@ -14,3 +14,11 @@ except Exception:
     # Never hide the original script error; the ACE daemon still performs its
     # explicit boundary check and writes a durable handoff receipt.
     pass
+
+# Long-labor daemon children (git.exe, probes) must not flash a console.
+try:
+    from core.silent_windows import install_daemon_silence, is_ace_daemon_argv
+    if is_ace_daemon_argv():
+        install_daemon_silence()
+except Exception:
+    pass

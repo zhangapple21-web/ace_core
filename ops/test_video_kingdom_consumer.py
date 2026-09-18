@@ -1,4 +1,4 @@
-﻿from pathlib import Path
+from pathlib import Path
 import hashlib
 import json
 
@@ -53,5 +53,32 @@ def test_consumer_rejects_tampered_result_hash(tmp_path: Path):
         "record_sha256": "0" * 64, "source_realm": "CONTROLLED_ORIGIN", "production_integration": False, "delivery_approved": False
     }) + "\n", encoding="utf-8")
     assert VideoKingdomConsumer(tmp_path).consume_one_result()["status"] == "RESULT_REJECTED"
+
+
+def test_receipt_write_failure_does_not_mark_consumed(tmp_path: Path, monkeypatch):
+    record = tmp_path / "research" / "decision_records" / "ep1.json"
+    record.parent.mkdir(parents=True)
+    record.write_text('{"result":"evidence only"}\n', encoding="utf-8")
+    digest = hashlib.sha256(record.read_bytes()).hexdigest()
+    outbox = tmp_path / "research" / "ace_result_outbox.v1.jsonl"
+    outbox.write_text(json.dumps({
+        "bridge_id": "VK-RESULT-RETRY", "record_id": "ep1-s01", "episode_id": "ep1", "scope_ref": "S01",
+        "decision_verdict": "REWORK", "result_status": "COMPLETED", "record_path": "research/decision_records/ep1.json",
+        "record_sha256": digest, "source_realm": "CONTROLLED_ORIGIN", "production_integration": False, "delivery_approved": False
+    }) + "\n", encoding="utf-8")
+    consumer = VideoKingdomConsumer(tmp_path)
+
+    def boom(_value):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(consumer, "_result_receipt", boom)
+    failed = consumer.consume_one_result()
+    assert failed["status"] == "RESULT_RECEIPT_FAILED"
+    assert failed["bridge_id"] == "VK-RESULT-RETRY"
+    assert not (tmp_path / "research" / "ace_result_receipts.v1.jsonl").exists()
+    monkeypatch.setattr(VideoKingdomConsumer, "_result_receipt", VideoKingdomConsumer._result_receipt)
+    retried = VideoKingdomConsumer(tmp_path).consume_one_result()
+    assert retried["status"] == "RESULT_CONSUMED"
+    assert retried["bridge_id"] == "VK-RESULT-RETRY"
 
 

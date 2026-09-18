@@ -2,7 +2,7 @@
 """
 Local Miner v2 - 多源模型调用，不依赖 TRAE
 ================================================
-模型优先级：Ollama(本地) → GitHub Models → Zhipu GLM → OpenRouter
+模型优先级：Ollama(本地) → GitHub Models → Zhipu GLM
 
 公理根基:
   #002 考古不是搬家是炼金
@@ -31,8 +31,6 @@ GITHUB_PAT = os.environ.get("GITHUB_PAT", "")
 GITHUB_BASE = "https://models.inference.ai.azure.com"
 ZHIPU_KEY = os.environ.get("ZHIPU_KEY", "")
 ZHIPU_BASE = "https://open.bigmodel.cn/api/paas/v4"
-OPENROUTER_KEY = os.environ.get("OPENROUTER_KEY", "")
-OPENROUTER_BASE = "https://openrouter.ai/api/v1"
 HF_KEY = os.environ.get("HF_KEY", "")
 HF_BASE = "https://router.huggingface.co/v1"
 APIYI_KEY = os.environ.get("APIYI_KEY", "")
@@ -52,7 +50,6 @@ MODEL_FALLBACK_CHAIN = [
     ("github", "gpt-4o-mini"),
     ("sixfinger", "claude-haiku-4-5"),
     ("zhipu", "glm-4-flash"),
-    ("openrouter", "meta-llama/llama-3.3-70b-instruct:free"),
 ]
 
 
@@ -121,19 +118,6 @@ def call_zhipu(prompt, model="glm-4-flash", max_tokens=500, temperature=0.7):
     except Exception as e: return {"error": f"Error: {e}", "source": "zhipu"}
 
 
-def call_openrouter(prompt, model="meta-llama/llama-3.3-70b-instruct:free", max_tokens=500, temperature=0.7):
-    if not OPENROUTER_KEY: return {"error": "OPENROUTER_KEY not set", "source": "openrouter"}
-    data = {"model": model, "messages": [{"role": "user", "content": prompt}], "max_tokens": max_tokens}
-    headers = {"Authorization": f"Bearer {OPENROUTER_KEY}", "Content-Type": "application/json", "HTTP-Referer": "https://ace.local", "X-Title": "ACE Miner"}
-    req = urllib.request.Request(f"{OPENROUTER_BASE}/chat/completions", data=json.dumps(data).encode(), headers=headers)
-    try:
-        with urllib.request.urlopen(req, timeout=60) as r:
-            result = json.loads(r.read().decode())
-            result["source"] = "openrouter"
-            return result
-    except Exception as e: return {"error": f"Error: {e}", "source": "openrouter"}
-
-
 def call_hf(prompt, model="openai/gpt-oss-120b", max_tokens=500, temperature=0.7):
     """调用 HuggingFace Inference Providers (OpenAI 兼容, router.huggingface.co)
 
@@ -189,7 +173,6 @@ PROVIDERS = {
     "github": call_github_models,
     "sixfinger": call_sixfinger,
     "zhipu": call_zhipu,
-    "openrouter": call_openrouter,
 }
 
 # ============================================================
@@ -291,13 +274,6 @@ MODELS = {
         "model": "claude-haiku-4-5",
         "capabilities": ["summarize", "debate", "reasoning", "chinese"],
         "priority": 6,
-    },
-    # === OpenRouter (最后兜底) ===
-    "openrouter-llama": {
-        "provider": "openrouter",
-        "model": "meta-llama/llama-3.3-70b-instruct:free",
-        "capabilities": ["debate", "long_context", "reasoning", "coding", "summarize"],
-        "priority": 7,
     },
 }
 
@@ -591,7 +567,6 @@ def main():
         print(f"  Ollama ({OLLAMA_BASE}): {'OK' if check_ollama_available() else 'NOT AVAILABLE'}")
         print(f"  GitHub Models: {'OK' if GITHUB_PAT else 'NO PAT'}")
         print(f"  Zhipu: {'OK' if ZHIPU_KEY else 'NO KEY'}")
-        print(f"  OpenRouter: {'OK' if OPENROUTER_KEY else 'NO KEY'}")
 
         print(f"\n=== Capability Routing Test ===")
         for cap in ["fast", "archaeology", "research", "debate"]:

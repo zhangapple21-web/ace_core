@@ -1,6 +1,9 @@
-﻿from pathlib import Path
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
-from core.video_kingdom_dispatch import VideoKingdomDispatch
+import pytest
+
+from core.video_kingdom_dispatch import CLAIM_LEASE_SECONDS, QueueUnreadableError, VideoKingdomDispatch
 import ace_daemon
 
 
@@ -42,5 +45,40 @@ def test_daemon_consumes_prior_card_before_queuing_new_one(monkeypatch, tmp_path
     assert calls.index("consume") < calls.index("dispatch")
     assert result["linkage"]["ace_to_video_kingdom"] == "CARD_QUEUED"
     assert result["linkage"]["next_owner"] == "video_kingdom_shift"
+
+
+def test_corrupt_queue_is_not_overwritten(tmp_path: Path):
+    dispatcher = VideoKingdomDispatch(tmp_path)
+    dispatcher.observe_and_dispatch(trigger="test", patrol={"warnings": [{"issue": "FACE_DRIFT"}]})
+    queue = tmp_path / "research" / "dispatch_queue.v1.json"
+    original = queue.read_text(encoding="utf-8")
+    queue.write_text("{not-json", encoding="utf-8")
+    with pytest.raises(QueueUnreadableError):
+        dispatcher.observe_and_dispatch(trigger="later", patrol={})
+    assert queue.read_text(encoding="utf-8") == "{not-json"
+    isolated = list((tmp_path / "research").glob("dispatch_queue.v1.json.corrupt.*"))
+    assert isolated
+    assert isolated[0].read_text(encoding="utf-8") == "{not-json"
+    assert original.startswith("{")
+
+
+def test_claimed_card_is_reclaimed_after_lease_expires(tmp_path: Path):
+    dispatcher = VideoKingdomDispatch(tmp_path)
+    dispatcher.observe_and_dispatch(trigger="test", patrol={"warnings": [{"issue": "FACE_DRIFT"}]})
+    first = dispatcher.claim_next()
+    assert first is not None
+    assert first["status"] == "CLAIMED"
+    assert dispatcher.claim_next() is None
+    payload = dispatcher._read()
+    card = payload["cards"][0]
+    expired = datetime.now(timezone.utc) - timedelta(seconds=CLAIM_LEASE_SECONDS + 1)
+    card["claimed_at"] = expired.isoformat()
+    card["claim_expires_at"] = expired.isoformat()
+    dispatcher._write(payload, payload["cards"])
+    reclaimed = dispatcher.claim_next()
+    assert reclaimed is not None
+    assert reclaimed["task_id"] == first["task_id"]
+    assert reclaimed["status"] == "CLAIMED"
+    assert reclaimed["reclaimed"] is True
 
 

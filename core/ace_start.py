@@ -59,10 +59,13 @@ def run_runtime(base_dir: Any, config: Dict[str, Any], mode: str, **kwargs: Any)
     """
 
     from ace_daemon import AceDaemon
+    from core.silent_windows import install_daemon_silence
 
     allowed = {"run", "once", "submit", "daemon_once", "daemon_serve"}
     if mode not in allowed:
         raise ValueError(f"unsupported_ace_start_mode:{mode}")
+    if mode in {"run", "once", "daemon_once", "daemon_serve"}:
+        install_daemon_silence()
     daemon = AceDaemon(base_dir, config)
     if mode in {"run", "daemon_serve"}:
         return daemon.run_daemon(

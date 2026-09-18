@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 import json
 import os
 import signal
@@ -1389,6 +1389,180 @@ def test_daemon_daily_learning_adapts_independent_data_health_evidence():
         assert {item["source"] for item in admission["evidence"]} == {"source_a", "source_b"}
 
 
+def _independent_failed_checkup_snapshot(path: str) -> dict:
+    return {
+        "timestamp": "2026-09-16T10:00:00",
+        "overall": "error",
+        "checks": {
+            "health": {
+                "returncode": 2,
+                "stdout": "health output",
+                "stderr": "health error",
+                "error": "health failed",
+            },
+            "status": {
+                "returncode": 3,
+                "stdout": "status output",
+                "stderr": "status error",
+                "error": "status failed",
+            },
+            "log_rotate": {"skipped": True},
+        },
+        "path": path,
+    }
+
+
+def test_daemon_daily_learning_adapts_independent_checkup_failure_evidence():
+    from ace_daemon import AceDaemon
+
+    production_receipt = (
+        ROOT
+        / "06_RUNTIME"
+        / "ace"
+        / "data"
+        / "memory"
+        / "daily_learning"
+        / "daily_results"
+        / "2026-09-15.json"
+    )
+    production_before = production_receipt.read_text(encoding="utf-8")
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        daemon = AceDaemon(Path(temp_dir), {})
+        checkup_path = str(Path(temp_dir) / "ops" / "logs" / "checkup_history.jsonl")
+        snapshot = _independent_failed_checkup_snapshot(checkup_path)
+        daemon.runtime_observer.record(
+            description="Independent checkup probes failed with captured diagnostics.",
+            system_state={
+                "checkup_path": checkup_path,
+                "checkup_snapshot": snapshot,
+            },
+            severity="high",
+            source="checkup_history",
+            category="health",
+            auto_generated=True,
+            dedup_key={"timestamp": snapshot["timestamp"], "overall": snapshot["overall"]},
+        )
+        for sequence in range(60):
+            daemon.runtime_observer.record(
+                description=f"Unrelated runtime observation {sequence}",
+                system_state={"sequence": sequence},
+                severity="low",
+                source="daemon_loop",
+                category="runtime",
+                auto_generated=True,
+            )
+
+        candidates = daemon._daily_learning_candidates()
+
+        assert len(candidates) == 1
+        candidate, evidence = candidates[0]
+        assert candidate.candidate_source == "checkup_failure"
+        assert candidate.metadata["learning"]["required_evidence"]
+        assert {item["source"] for item in evidence} == {"health", "status"}
+        assert {item["metadata"]["independence_group"] for item in evidence} == {
+            "checkup_probe:health",
+            "checkup_probe:status",
+        }
+        assert {item["source_ref"] for item in evidence} == {
+            f"{checkup_path}#health",
+            f"{checkup_path}#status",
+        }
+
+        result = daemon.run_daily_learning("2026-09-16")
+        assert result["outcome"] == "adopt"
+        task = daemon.task_pool.load_task(result["task_id"])
+        admission = task.outputs["admission"]
+        assert admission["source_type"] == "learning"
+        assert admission["source_ref"] == candidate.fingerprint
+        assert admission["learning_contract"] == candidate.metadata["learning"]
+        assert {item["source"] for item in admission["evidence"]} == {"health", "status"}
+        deposited = list(Path(daemon.daily_learning.deposition.knowledge_dir).rglob("EXP-*.json"))
+        assert deposited, "adopted checkup failure learning must deposit an experience receipt"
+        assert production_receipt.read_text(encoding="utf-8") == production_before
+
+
+def test_daemon_rejects_single_probe_or_ok_checkup_as_learning_candidate():
+    from ace_daemon import AceDaemon
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        daemon = AceDaemon(Path(temp_dir), {})
+        checkup_path = str(Path(temp_dir) / "ops" / "logs" / "checkup_history.jsonl")
+
+        daemon.runtime_observer.record(
+            description="Historical checkup failed without a second diagnostic probe.",
+            system_state={
+                "checkup_path": checkup_path,
+                "checkup_snapshot": {
+                    "timestamp": "2026-09-11T18:55:09",
+                    "overall": "error",
+                    "checks": {
+                        "health": {"error": "执行失败"},
+                        "status": {
+                            "concepts": 90,
+                            "memory": 4225,
+                            "knowledge": 556,
+                            "tasks_total": 735,
+                            "disk_free_gb": 65.5,
+                        },
+                    },
+                },
+            },
+            severity="high",
+            source="checkup_history",
+            category="health",
+            auto_generated=True,
+        )
+        assert daemon._daily_learning_candidates() == []
+
+        daemon.runtime_observer.record(
+            description="Current checkup is healthy.",
+            system_state={
+                "checkup_path": checkup_path,
+                "checkup_snapshot": {
+                    "timestamp": "2026-09-15T17:29:48",
+                    "overall": "ok",
+                    "checks": {
+                        "health": {"overall": "ok", "passed": 18, "warnings": 0, "errors": 0},
+                        "status": {"concepts": 90, "memory": 4225},
+                    },
+                },
+            },
+            severity="low",
+            source="checkup_history",
+            category="health",
+            auto_generated=True,
+        )
+        assert daemon._daily_learning_candidates() == []
+
+
+def test_daemon_records_failed_checkup_snapshot_into_existing_observer():
+    from ace_daemon import AceDaemon
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        base_dir = Path(temp_dir)
+        checkup_file = base_dir / "ops" / "logs" / "checkup_history.jsonl"
+        checkup_file.parent.mkdir(parents=True, exist_ok=True)
+        snapshot = _independent_failed_checkup_snapshot(str(checkup_file))
+        snapshot["timestamp"] = datetime.now().isoformat()
+        checkup_file.write_text(json.dumps(snapshot, ensure_ascii=False) + "\n", encoding="utf-8")
+
+        daemon = AceDaemon(base_dir, {})
+        daemon._record_system_observations()
+
+        recorded = [
+            item
+            for item in daemon.runtime_observer.get_recent(limit=200)
+            if item.source == "checkup_history"
+        ]
+        assert recorded
+        assert recorded[0].system_state["checkup_snapshot"]["overall"] == "error"
+        candidates = daemon._daily_learning_candidates()
+        assert len(candidates) == 1
+        _, evidence = candidates[0]
+        assert {item["source"] for item in evidence} == {"health", "status"}
+
+
 def test_daemon_queues_catalogued_open_source_study_without_adopting_or_installing():
     from ace_daemon import AceDaemon
 
@@ -1934,6 +2108,9 @@ if __name__ == "__main__":
     test_backup_covers_complete_task_pool_and_cleanup_preserves_records()
     test_daemon_daily_learning_is_date_idempotent()
     test_daemon_daily_learning_adapts_independent_data_health_evidence()
+    test_daemon_daily_learning_adapts_independent_checkup_failure_evidence()
+    test_daemon_rejects_single_probe_or_ok_checkup_as_learning_candidate()
+    test_daemon_records_failed_checkup_snapshot_into_existing_observer()
     test_only_daemon_scheduled_task_is_unlimited()
     test_scheduled_task_check_mode_parses()
     print("24h runtime mainline startup tests passed")

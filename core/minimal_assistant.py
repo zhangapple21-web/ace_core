@@ -69,12 +69,10 @@ PROVIDER_DEFAULT_MODELS = {
     "ace_proxy": "gpt-5.5",
     "github_models": "gpt-4o",
     "oneapi": "gpt-5.4-mini",
-    "openrouter": "anthropic/claude-3.5-sonnet",
     "glm": "glm-4-flash",
 }
 
 BASE_URL_PROVIDER_HINTS = (
-    ("openrouter.ai", "openrouter"),
     ("models.inference.ai.azure.com", "github_models"),
     ("open.bigmodel.cn", "glm"),
     ("bigmodel.cn", "glm"),
@@ -146,7 +144,7 @@ def resolve_assistant_config(model: str | None = None) -> AssistantConfig:
 
     credential_manager = CredentialManager()
     credential_manager.load()
-    for provider_name in ("ace_proxy", "github_models", "oneapi", "openrouter", "glm"):
+    for provider_name in ("ace_proxy", "github_models", "oneapi", "glm"):
         credential = credential_manager.get(provider_name)
         if credential and credential.is_valid:
             return AssistantConfig(

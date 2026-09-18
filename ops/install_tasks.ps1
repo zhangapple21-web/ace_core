@@ -90,6 +90,7 @@ foreach ($task in $tasks) {
         -WorkingDirectory $task.StartIn
     $executionTimeLimit = [timespan]::Zero
     $settings = New-ScheduledTaskSettingsSet `
+        -Hidden `
         -StartWhenAvailable `
         -DontStopIfGoingOnBatteries `
         -AllowStartIfOnBatteries `

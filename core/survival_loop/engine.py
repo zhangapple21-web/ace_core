@@ -4,7 +4,7 @@ Survival Loop Engine — 单循环执行内核（极简版）
 笨但活得久。
 
 规则：
-  1. 固定顺序：glm → openrouter → nim → apiyi → sambanova → oneapi → github_models → modelscope → huggingface
+  1. 固定顺序：glm → nim → apiyi → sambanova → oneapi → github_models → modelscope → huggingface
   2. 成功即返回，失败直接跳过
   3. 无重试、无路由、无决策、无动态配置
   4. 永远有输出、不崩溃、不循环
@@ -44,7 +44,6 @@ _ONEAPI_MODEL_CATALOG = OneAPIModelCatalog()
 
 PROVIDER_ORDER = [
     "glm",
-    "openrouter",
     "nim",
     "apiyi",
     "sambanova",
@@ -58,7 +57,6 @@ PROVIDER_ORDER = [
 
 DEFAULT_MODEL = {
     "glm": "glm-4-flash",
-    "openrouter": "qwen/qwen3.7-plus",
     "nim": "deepseek-ai/deepseek-v4-flash",
     "apiyi": "gpt-4o",
     "sambanova": "DeepSeek-V3.1",
@@ -74,7 +72,6 @@ DEFAULT_MODEL = {
 
 DEFAULT_BASE_URL = {
     "glm": "https://open.bigmodel.cn/api/paas/v4",
-    "openrouter": "https://openrouter.ai/api/v1",
     "nim": "https://integrate.api.nvidia.com/v1",
     "apiyi": "https://api.apiyi.com",
     "sambanova": "https://api.sambanova.ai/v1",
@@ -153,10 +150,6 @@ class SurvivalLoopEngine:
             "glm": {
                 "key": r"智谱 GLM[\s\S]*?Key:\s*`([^`]+)`",
                 "base": r"智谱 GLM[\s\S]*?Base:\s*`?(https?://[^\s`]+)",
-            },
-            "openrouter": {
-                "key": r"OpenRouter[\s\S]*?Key:\s*`([^`]+)`",
-                "base": r"OpenRouter[\s\S]*?Base:\s*`?(https?://[^\s`]+)",
             },
             "nim": {
                 # NIM 在 SECRET.md 中是表格格式，没有 "Key:" 词
@@ -412,9 +405,6 @@ class SurvivalLoopEngine:
                 "Content-Type": "application/json",
                 "Authorization": f"Bearer {api_key}",
             }
-            if name == "openrouter":
-                headers["HTTP-Referer"] = "https://ace-runtime.local"
-                headers["X-Title"] = "ACE Runtime"
 
             req = urllib.request.Request(chat_url, data=data, headers=headers, method="POST")
 
