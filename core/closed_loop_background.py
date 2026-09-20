@@ -28,7 +28,7 @@ class ClosedLoopBackgroundRunner:
 
     def run_once(self, self_evolution_result: Dict[str, Any], *, dry_run: bool = False) -> Dict[str, Any]:
         proposal = self_evolution_result.get("proposal") if isinstance(self_evolution_result, dict) else None
-        if not isinstance(proposal, dict) or self_evolution_result.get("status") != "OBSERVED":
+        if not isinstance(proposal, dict) or self_evolution_result.get("status") not in {"OBSERVED", "ALREADY_ACTIVE"}:
             return {"status": "NO_ACTION", "reason": "no_new_observed_proposal", "provider_calls": 0}
         fingerprint = str(proposal.get("fingerprint", "")).strip()
         if not fingerprint:

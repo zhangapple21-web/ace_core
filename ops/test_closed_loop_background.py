@@ -63,3 +63,18 @@ def test_invalid_model_plan_is_blocked(tmp_path):
     result = runner.run_once({"status": "OBSERVED", "proposal": {"fingerprint": "bad", "objective": "x"}})
     assert result["status"] == "BLOCKED_NO_VALID_PLAN"
     assert result["invalid_candidates"] == 1
+
+
+def test_active_existing_proposal_is_consumed_once(tmp_path):
+    runner = ClosedLoopBackgroundRunner(ClosedLoopEngine(tmp_path / "ace"), FakePool(), FakeTaskPool())
+    proposal = {"status": "ALREADY_ACTIVE", "proposal": {
+        "fingerprint": "old-active",
+        "proposal_id": "SEP-old",
+        "title": "消费旧提案",
+        "objective": "验证旧提案",
+        "reason": "旧提案仍有证据",
+        "priority": "high",
+        "evidence": [],
+    }}
+    assert runner.run_once(proposal)["status"] == "PLANS_READY_FOR_TASK_POOL_REVIEW"
+    assert runner.run_once(proposal)["status"] == "ALREADY_PLANNED"
