@@ -53,6 +53,7 @@ from core.skill_generator import SkillGenerator
 from core.observation import RuntimeObserver
 from core.observation_to_task import ObservationToTaskConverter
 from core.self_evolution import SelfEvolutionCoordinator
+from core.closed_loop_engine import ClosedLoopEngine
 from core.host_session_observer import observe_host_sessions
 from core.discovery import DiscoveryCandidate, DiscoveryMode
 from core.model_work_discovery import ModelWorkDiscovery
@@ -206,6 +207,9 @@ class AceDaemon:
         self.runtime_observer = None  # RO：持续观察者
         self.obs_to_task_converter = None  # Observation → Task 转换器
         self.self_evolution = None  # 主动发现→融合→提案协调器
+        # 统一的“观察→验证→复盘→晋升/回滚”收口引擎。它不拥有第二套
+        # TaskPool，也不会在没有结构化输入时自行修改生产配置。
+        self.closed_loop_engine = ClosedLoopEngine(base_dir)
         self.discovery_mode = None
         self.daily_learning = None
         self.daily_growth = None
@@ -1132,6 +1136,11 @@ class AceDaemon:
             "export_sync": export_info,
             "task_pool": task_info,
             "knowledge": knowledge_info,
+            "closed_loop_engine": {
+                "contract_version": "ace.closed_loop_engine.v1",
+                "receipt_path": str(self.closed_loop_engine.ledger_path),
+                "state_path": str(self.closed_loop_engine.state_path),
+            },
             "fragment_index": fragment_info,
             "local_archaeologist": local_arch_info,
             "web_scout": web_scout_info,
