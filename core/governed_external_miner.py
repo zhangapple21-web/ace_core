@@ -17,6 +17,7 @@ import hashlib
 import json
 import re
 import urllib.error
+import urllib.parse
 import urllib.request
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
@@ -47,6 +48,7 @@ class GovernedExternalMiner:
         max_readme_chars: int = 12000,
         timeout: int = 20,
         revisit_after_hours: int = 168,
+        discovery_interval_hours: int = 24,
         fetcher: Optional[Callable[[str], Tuple[bytes, str, Dict[str, str]]]] = None,
     ):
         self.base_dir = Path(base_dir)
@@ -57,6 +59,7 @@ class GovernedExternalMiner:
         self.max_readme_chars = int(max_readme_chars)
         self.timeout = int(timeout)
         self.revisit_after_hours = max(1, int(revisit_after_hours))
+        self.discovery_interval_hours = max(1, int(discovery_interval_hours))
         self.fetcher = fetcher or self._http_get
         self.data_dir = self.base_dir / "06_RUNTIME" / "ace" / "data" / "governed_external_miner"
         self.report_dir = self.base_dir / "07_SANDBOX" / "free_research" / "reports"
@@ -222,6 +225,50 @@ class GovernedExternalMiner:
     def _is_due(self, entry: Any) -> bool:
         if not isinstance(entry, dict):
             return True
+
+    def _discover_targets(self, state: Dict[str, Any]) -> Dict[str, Any]:
+        """在候选耗尽时做一次极小范围 GitHub 搜索，不执行仓库内容。"""
+        last = state.get("last_discovery_at")
+        if isinstance(last, str) and last:
+            try:
+                timestamp = datetime.fromisoformat(last.replace("Z", "+00:00"))
+                if timestamp.tzinfo is None:
+                    timestamp = timestamp.replace(tzinfo=timezone.utc)
+                if datetime.now(timezone.utc) - timestamp < timedelta(hours=self.discovery_interval_hours):
+                    return {"status": "COOLDOWN"}
+            except ValueError:
+                pass
+        query = "short-drama video pipeline storyboard character consistency"
+        url = "https://api.github.com/search/repositories?q=" + urllib.parse.quote(query) + "&sort=updated&order=desc&per_page=5"
+        try:
+            payload, _ = self._fetch(url)
+            items = payload.get("items", []) if isinstance(payload, dict) else []
+            known = {str(item.get("repository", "")) for item in self.targets}
+            discovered = state.setdefault("discovered_targets", [])
+            discovered_urls = {str(item.get("repository", "")) for item in discovered if isinstance(item, dict)}
+            added = []
+            for item in items[:5]:
+                if not isinstance(item, dict):
+                    continue
+                repository = str(item.get("html_url", "")).strip()
+                if not repository or repository in known or repository in discovered_urls:
+                    continue
+                target = {
+                    "id": "github-" + str(item.get("full_name", "")).replace("/", "-"),
+                    "title": "外部发现：" + str(item.get("full_name", repository)),
+                    "repository": repository,
+                    "objective": "核验外部短剧流水线在角色/场景连续性、分镜、音频和 QC 上的可复用边界。",
+                    "disposition": "RESEARCH",
+                }
+                self.targets.append(target)
+                discovered.append(target)
+                discovered_urls.add(repository)
+                added.append(repository)
+            state["last_discovery_at"] = _now()
+            return {"status": "COMPLETED", "query": query, "added": added, "source": url}
+        except Exception as error:
+            state["last_discovery_at"] = _now()
+            return {"status": "FAILED", "query": query, "error": f"{type(error).__name__}: {error}"}
         recorded = entry.get("at")
         if not isinstance(recorded, str) or not recorded:
             return True
@@ -245,6 +292,11 @@ class GovernedExternalMiner:
             return result
         state = self._read_state()
         processed = state.setdefault("processed", {})
+        for discovered in state.get("discovered_targets", []):
+            if isinstance(discovered, dict) and discovered.get("repository") not in {
+                str(item.get("repository", "")) for item in self.targets
+            }:
+                self.targets.append(dict(discovered))
         cursor = int(state.get("cursor", 0)) % len(self.targets)
         attempts = 0
         while attempts < len(self.targets):
@@ -253,14 +305,29 @@ class GovernedExternalMiner:
             if repo and (repo not in processed or self._is_due(processed.get(repo))):
                 break
             attempts += 1
+        discovery = {"status": "NOT_NEEDED"}
+        if attempts >= len(self.targets):
+            discovery = self._discover_targets(state)
+            self._write_state(state)
+            if discovery.get("added"):
+                cursor = 0
+                attempts = 0
+                while attempts < len(self.targets):
+                    target = self.targets[(cursor + attempts) % len(self.targets)]
+                    repo = str(target.get("repository", "")).strip()
+                    if repo and (repo not in processed or self._is_due(processed.get(repo))):
+                        break
+                    attempts += 1
         if attempts >= len(self.targets):
             result["status"] = "IDEMPOTENT_NO_NEW_TARGET"
             result["chain"]["web_scout"] = "NO_NEW_TARGET"
+            result["discovery"] = discovery
             self._write_report({"at": _now(), **result})
             return result
 
         target = self.targets[(cursor + attempts) % len(self.targets)]
         result["target"] = {k: target.get(k) for k in ("id", "title", "repository", "disposition")}
+        result["discovery"] = discovery
         try:
             fetched = self._fetch_repo(target)
             result["chain"]["web_scout"] = "FETCHED"

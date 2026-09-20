@@ -48,7 +48,8 @@
       "enabled": true,
       "max_readme_chars": 12000,
       "timeout_seconds": 20,
-      "revisit_after_hours": 168
+      "revisit_after_hours": 168,
+      "discovery_interval_hours": 24
     },
     "provider_usage_reconciliation_enabled": true,
     "free_zone_model_shift": {"enabled": true, "max_tokens": 1024},

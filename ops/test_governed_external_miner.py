@@ -48,6 +48,13 @@ class _Miner:
         }
 
 
+def _discovery_fetcher(url):
+    if "api.github.com/search/repositories" in url:
+        payload = {"items": [{"full_name": "example/new-pipeline", "html_url": "https://github.com/example/new-pipeline"}]}
+        return (json.dumps(payload).encode("utf-8"), "application/json", {})
+    return _fetcher(url)
+
+
 def test_governed_external_miner_fetches_calls_miner_and_queues_once(tmp_path):
     pool = TaskPool(str(tmp_path / "task_pool"))
     miner = GovernedExternalMiner(
@@ -88,3 +95,25 @@ def test_governed_external_miner_fetches_calls_miner_and_queues_once(tmp_path):
     assert len(pool.list_tasks(limit=20)) == 1
     report = json.loads((tmp_path / "07_SANDBOX/free_research/reports/governed_external_mining_latest.json").read_text(encoding="utf-8"))
     assert report["chain"]["web_scout"] == "NO_NEW_TARGET"
+
+
+def test_governed_external_miner_discovers_new_repo_after_catalog_is_exhausted(tmp_path):
+    pool = TaskPool(str(tmp_path / "task_pool"))
+    miner = GovernedExternalMiner(
+        base_dir=tmp_path,
+        task_pool=pool,
+        miner_pool=_Miner(),
+        targets=[{
+            "id": "story-claw",
+            "title": "考古 Story Claw",
+            "repository": "https://github.com/example/story-claw",
+            "objective": "核验阶段化资产和 QC",
+            "disposition": "ADAPT",
+        }],
+        fetcher=_discovery_fetcher,
+    )
+    assert miner.run_once()["status"] == "QUEUED"
+    next_result = miner.run_once()
+    assert next_result["status"] == "QUEUED"
+    assert next_result["target"]["repository"] == "https://github.com/example/new-pipeline"
+    assert len(pool.list_tasks(limit=20)) == 2
