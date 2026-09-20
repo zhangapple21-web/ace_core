@@ -54,6 +54,7 @@ from core.observation import RuntimeObserver
 from core.observation_to_task import ObservationToTaskConverter
 from core.self_evolution import SelfEvolutionCoordinator
 from core.closed_loop_engine import ClosedLoopEngine
+from core.closed_loop_background import ClosedLoopBackgroundRunner
 from core.host_session_observer import observe_host_sessions
 from core.discovery import DiscoveryCandidate, DiscoveryMode
 from core.model_work_discovery import ModelWorkDiscovery
@@ -210,6 +211,8 @@ class AceDaemon:
         # 统一的“观察→验证→复盘→晋升/回滚”收口引擎。它不拥有第二套
         # TaskPool，也不会在没有结构化输入时自行修改生产配置。
         self.closed_loop_engine = ClosedLoopEngine(base_dir)
+        self.closed_loop_background = None
+        self._closed_loop_dry_run = False
         self.discovery_mode = None
         self.daily_learning = None
         self.daily_growth = None
@@ -450,6 +453,11 @@ class AceDaemon:
             self.self_evolution = SelfEvolutionCoordinator(
                 base_dir=self.base_dir,
                 observer=self.runtime_observer,
+                task_pool=self.task_pool,
+            )
+            self.closed_loop_background = ClosedLoopBackgroundRunner(
+                engine=self.closed_loop_engine,
+                miner_pool=self.miner_pool,
                 task_pool=self.task_pool,
             )
             # Discovery and execution must observe the same routing authority.
@@ -1140,6 +1148,8 @@ class AceDaemon:
                 "contract_version": "ace.closed_loop_engine.v1",
                 "receipt_path": str(self.closed_loop_engine.ledger_path),
                 "state_path": str(self.closed_loop_engine.state_path),
+                "background_bridge": "ready" if self.closed_loop_background else "unavailable",
+                "plan_path": str(self.closed_loop_background.plan_path) if self.closed_loop_background else "",
             },
             "fragment_index": fragment_info,
             "local_archaeologist": local_arch_info,
@@ -2255,6 +2265,11 @@ class AceDaemon:
                         "recent_error_count": len(self.state.get("errors", [])),
                     }
                 )
+                if self.closed_loop_background:
+                    result["closed_loop_background"] = self.closed_loop_background.run_once(
+                        result["self_evolution"],
+                        dry_run=self._closed_loop_dry_run,
+                    )
         except Exception as e:
             self._log_error("self_evolution", str(e))
             result["self_evolution"] = {"status": "ERROR", "error": str(e)}
@@ -3425,6 +3440,7 @@ class AceDaemon:
         dry_run: bool = False,
         _preserve_cycle_progress: bool = False,
     ) -> Dict[str, Any]:
+        self._closed_loop_dry_run = dry_run
         boundary = self._check_continue_gate()
         if boundary.get("status") != "CONTINUE":
             return {
