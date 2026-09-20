@@ -12,6 +12,11 @@ from .discovery import DiscoveryCandidate
 
 
 CATALOG: Tuple[Dict[str, str], ...] = (
+    # 视频王国外部矿区：只创建研究任务，不安装、不切换 Provider、不改生产门禁。
+    {"id": "story-claw", "title": "考古 Story Claw 短剧资产与 VLM 复核", "repository": "https://github.com/ZC89757/story-claw", "disposition": "ADAPT", "objective": "核验阶段化角色/场景资产、角色 voice map、首尾帧 VLM 复核和失败重生如何映射到 ACE 的 Identity/State/Scene State/Shot State 与现有 QC；不替换 video_kingdom_entry 或 Agnes。"},
+    {"id": "awesome-seedance", "title": "考古 Awesome Seedance 镜头提示词组织", "repository": "https://github.com/ZeroLu/awesome-seedance", "disposition": "ADAPT", "objective": "提取可验证的镜头动作、节奏和反例提示词结构，映射到现有 shot_rhythm；不接入 Seedance Provider，不把外链素材许可证视为仓库 MIT。"},
+    {"id": "arcreel-workbench", "title": "考古 ArcReel 可恢复生产工作台", "repository": "https://github.com/ArcReel/ArcReel", "disposition": "RESEARCH", "objective": "核验断点恢复、版本回滚、供应商/成本收据和人工可控节点；仅吸收字段与测试思路，AGPL-3.0 源码不进入 ACE 核心。"},
+    {"id": "huobao-drama-boundaries", "title": "考古 Huobao Drama 任务分层边界", "repository": "https://github.com/chatfire-AI/huobao-drama", "disposition": "CONFLICT_CHECK", "objective": "核对其任务分层、资产库和 FFmpeg 合成边界；README 标注 CC BY-NC-SA 4.0，禁止把代码或平台依赖带入商用生产。"},
     {"id": "alphalens-reloaded", "title": "考古 Alphalens 风格因子验真方法", "repository": "https://github.com/stefan-jansen/alphalens-reloaded", "disposition": "ABSORB", "objective": "提取 IC、分层、换手、衰减和样本外报告结构，映射到 ACE 的真实可成交标签；不安装或接入生产。"},
     {"id": "microsoft-qlib", "title": "考古 Qlib 分钟因子研究边界", "repository": "https://github.com/microsoft/qlib", "disposition": "ADAPT", "objective": "核验分钟研究、数据契约与实验追踪能力，提出对 ACE 数据血缘和 A 股微观结构的适配设计；不安装或接入生产。"},
     {"id": "vnpy-alpha", "title": "考古 vn.py Alpha 离线研究工作流", "repository": "https://github.com/vnpy/vnpy/tree/master/vnpy/alpha", "disposition": "ADAPT", "objective": "评估离线特征、实验与回测组织方式；明确不接 Gateway、券商或订单接口。"},
