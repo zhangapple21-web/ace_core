@@ -553,6 +553,7 @@ class AceDaemon:
                 enabled=self.external_learning_enabled and governed_cfg.get("enabled", False),
                 max_readme_chars=int(governed_cfg.get("max_readme_chars", 12000)),
                 timeout=int(governed_cfg.get("timeout_seconds", 20)),
+                revisit_after_hours=int(governed_cfg.get("revisit_after_hours", 168)),
             )
             self.daily_learning = DailyLearningLoop(
                 data_dir=str(self.data_dir / "daily_learning"),

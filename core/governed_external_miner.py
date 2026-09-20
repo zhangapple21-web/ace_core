@@ -18,7 +18,7 @@ import json
 import re
 import urllib.error
 import urllib.request
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 
@@ -46,6 +46,7 @@ class GovernedExternalMiner:
         enabled: bool = True,
         max_readme_chars: int = 12000,
         timeout: int = 20,
+        revisit_after_hours: int = 168,
         fetcher: Optional[Callable[[str], Tuple[bytes, str, Dict[str, str]]]] = None,
     ):
         self.base_dir = Path(base_dir)
@@ -55,6 +56,7 @@ class GovernedExternalMiner:
         self.enabled = bool(enabled)
         self.max_readme_chars = int(max_readme_chars)
         self.timeout = int(timeout)
+        self.revisit_after_hours = max(1, int(revisit_after_hours))
         self.fetcher = fetcher or self._http_get
         self.data_dir = self.base_dir / "06_RUNTIME" / "ace" / "data" / "governed_external_miner"
         self.report_dir = self.base_dir / "07_SANDBOX" / "free_research" / "reports"
@@ -217,6 +219,20 @@ class GovernedExternalMiner:
         temporary.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
         temporary.replace(self.state_path)
 
+    def _is_due(self, entry: Any) -> bool:
+        if not isinstance(entry, dict):
+            return True
+        recorded = entry.get("at")
+        if not isinstance(recorded, str) or not recorded:
+            return True
+        try:
+            timestamp = datetime.fromisoformat(recorded.replace("Z", "+00:00"))
+            if timestamp.tzinfo is None:
+                timestamp = timestamp.replace(tzinfo=timezone.utc)
+            return datetime.now(timezone.utc) - timestamp >= timedelta(hours=self.revisit_after_hours)
+        except ValueError:
+            return True
+
     def run_once(self, max_tasks: int = 1) -> Dict[str, Any]:
         result: Dict[str, Any] = {
             "status": "DISABLED" if not self.enabled else "NO_TARGET",
@@ -234,7 +250,7 @@ class GovernedExternalMiner:
         while attempts < len(self.targets):
             target = self.targets[(cursor + attempts) % len(self.targets)]
             repo = str(target.get("repository", "")).strip()
-            if repo and repo not in processed:
+            if repo and (repo not in processed or self._is_due(processed.get(repo))):
                 break
             attempts += 1
         if attempts >= len(self.targets):
