@@ -96,6 +96,7 @@ from core.runtime_continue_gate import evaluate_daemon_boundary
 from core.workspace_write_lock import WorkspaceWriteLock
 
 from core.experience_deposition import ExperienceDeposition
+from core.learning_return_bridge import LearningReturnBridge
 
 
 # Mine-seed discovery can walk several broad, operator-owned directories.
@@ -199,6 +200,7 @@ class AceDaemon:
         self.event_listener = None
         self.experience_deposition = None
         self.outcome_receipt_recorder = OutcomeReceiptRecorder()
+        self.learning_return_bridge = None
         self.policy_card_store = PolicyCardStore(self.data_dir / "policy_feedback")
         self.task_creator = None
         self.fragment_index = None
@@ -388,6 +390,11 @@ class AceDaemon:
             self.event_listener = None
             knowledge_dir = self.base_dir / "09_KNOWLEDGE"
             self.experience_deposition = ExperienceDeposition(str(knowledge_dir))
+            configured_video_root = self.config.get("runtime", {}).get("video_kingdom_root")
+            self.learning_return_bridge = LearningReturnBridge(
+                self.base_dir,
+                video_root=configured_video_root,
+            )
             fragment_dir = self.base_dir / "02_FRAGMENT_INDEX"
             self.fragment_index = FragmentIndex(str(fragment_dir))
             # Automatic production archaeology stays inside the authorized
@@ -2292,6 +2299,7 @@ class AceDaemon:
             "judged": 0,
             "experiences_deposited": 0,
             "experience_deposition_failures": 0,
+            "learning_returns_materialized": 0,
             "policy_cards_projected": 0,
             "graveyarded": 0,
             "discovery": None,
@@ -2725,6 +2733,14 @@ class AceDaemon:
             )
             if exp:
                 result["experiences_deposited"] += 1
+                bridge = getattr(self, "learning_return_bridge", None)
+                if bridge:
+                    learning_return = bridge.materialize(task, exp)
+                    task.outputs["learning_return"] = learning_return
+                    if getattr(self, "task_pool", None):
+                        self.task_pool.update_task(task)
+                    if learning_return.get("status") == "MATERIALIZED":
+                        result["learning_returns_materialized"] = result.get("learning_returns_materialized", 0) + 1
         except Exception as exc:
             result["experience_deposition_failures"] += 1
             self._log_error("experience_deposition", str(exc), task.task_id)

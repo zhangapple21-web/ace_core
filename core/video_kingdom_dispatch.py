@@ -58,6 +58,56 @@ class VideoKingdomDispatch:
         self.queue.write_text(json.dumps({"contract_version": "ace.video_kingdom.dispatch_queue.v1", "production_integration": False, "cards": cards[-100:]}, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         return {"status": "DISPATCHED", "task_type": task_type, "task_id": card["task_id"], "linkage": linkage, "production_integration": False}
 
+    def dispatch_learning_result(self, capability_card: dict[str, Any]) -> dict[str, Any]:
+        """把已过 Guardian 的能力卡送入视频王国研究队列。
+
+        这是研究结果消费，不是生产提交。卡片内容只包含允许复测的摘要、
+        来源和禁止范围；Video Kingdom 仍需在自己的门禁中完成本地实验。
+        """
+        source_task_id = str(capability_card.get("source_task_id", "")).strip()
+        card_sha = str(capability_card.get("card_sha256", "")).strip()
+        if not source_task_id or not card_sha:
+            return {"status": "INVALID_CAPABILITY_CARD", "production_integration": False}
+        fingerprint = hashlib.sha256(f"learning|{source_task_id}|{card_sha}".encode("utf-8")).hexdigest()[:16]
+        payload = self._read()
+        cards = payload.get("cards", []) if isinstance(payload.get("cards"), list) else []
+        prior = next(
+            (card for card in cards if isinstance(card, dict) and card.get("fingerprint") == fingerprint),
+            None,
+        )
+        if prior is not None:
+            return {"status": "ALREADY_DISPATCHED", "task_id": prior.get("task_id"), "fingerprint": fingerprint, "production_integration": False}
+        card = {
+            "task_id": f"VK-LEARNING-{fingerprint}",
+            "fingerprint": fingerprint,
+            "task_type": "LEARNING_RESULT",
+            "brief": "将已验证的外部矿源经验转成一次离线视频王国复测，不直接改生产默认。",
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "status": "PENDING",
+            "production_integration": False,
+            "provider_calls": 0,
+            "automatic_promotion": False,
+            "learning": {
+                "card_id": capability_card.get("card_id"),
+                "source_task_id": source_task_id,
+                "source_repository": capability_card.get("source_repository"),
+                "card_sha256": card_sha,
+                "capability_state": capability_card.get("capability_state"),
+                "reuse_scope": capability_card.get("reuse_scope", []),
+                "blocked_scope": capability_card.get("blocked_scope", []),
+                "recommended_capabilities": capability_card.get("recommended_capabilities", [])[:12],
+                "next_verification": capability_card.get("next_verification", [])[:12],
+            },
+            "linkage": {
+                "next_owner": "video_kingdom_shift",
+                "production_integration": False,
+                "source_boundary": "ACE_GUARDED_CAPABILITY_CARD",
+            },
+        }
+        cards.append(card)
+        self._write(payload, cards)
+        return {"status": "DISPATCHED", "task_id": card["task_id"], "fingerprint": fingerprint, "production_integration": False}
+
     def _linkage_context(self) -> dict[str, Any]:
         """Bind the handoff to current VK evidence without calling a provider."""
         candidates = {

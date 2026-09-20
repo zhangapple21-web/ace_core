@@ -44,6 +44,7 @@
   "runtime": {
     "miner_pool_assets_path": "C:\\tmp\\private_coze-assets",
     "allow_external_learning": true,
+    "video_kingdom_root": "D:\\视频创作\\ace-video-kingdom",
     "governed_external_mining": {
       "enabled": true,
       "max_readme_chars": 12000,
