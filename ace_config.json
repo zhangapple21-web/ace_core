@@ -44,6 +44,11 @@
   "runtime": {
     "miner_pool_assets_path": "C:\\tmp\\private_coze-assets",
     "allow_external_learning": true,
+    "governed_external_mining": {
+      "enabled": true,
+      "max_readme_chars": 12000,
+      "timeout_seconds": 20
+    },
     "provider_usage_reconciliation_enabled": true,
     "free_zone_model_shift": {"enabled": true, "max_tokens": 1024},
     "external_learning": {

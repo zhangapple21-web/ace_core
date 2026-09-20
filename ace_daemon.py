@@ -72,6 +72,8 @@ from core.free_zone_loop_status import FreeZoneLoopStatus
 from core.free_zone_reflection_relay import FreeZoneReflectionRelay
 from core.daily_learning import DAILY_LEARNING_OBSERVATION_LIMIT, DailyLearningLoop
 from core.open_source_learning import OpenSourceLearningBacklog
+from core.open_source_learning import CATALOG as OPEN_SOURCE_CATALOG
+from core.governed_external_miner import GovernedExternalMiner
 from core.external_learning_discovery import ExternalLearningDiscovery
 from core.autonomous_work_allocation import AutonomousWorkAllocation
 from core.stock_discovery_sources import StockDiscoverySources
@@ -203,6 +205,7 @@ class AceDaemon:
         self.file_scanner = None
         self.mine_seed_scanner = None
         self.web_scout = None
+        self.governed_external_miner = None
         self.local_archaeologist = None
         self.skill_generator = None
         self.runtime_observer = None  # RO：持续观察者
@@ -529,6 +532,28 @@ class AceDaemon:
             )
             governance_dir = self.base_dir / "08_GOVERNANCE"
             self.open_source_learning_backlog = OpenSourceLearningBacklog(self.task_pool)
+            # 新的外部矿源入口是受治理的只读 WebScout，不启用旧旁路 WebScout。
+            # 每个 daemon 周期最多抓取一个未处理仓库，之后仍由同一个
+            # TaskPool → Researcher → Validator → Guardian 生命周期接管。
+            governed_targets = [
+                item for item in OPEN_SOURCE_CATALOG
+                if "video" in (item.get("title", "") + item.get("objective", "")).lower()
+                or item.get("id") in {"story-claw", "awesome-seedance", "arcreel-workbench", "huobao-drama-boundaries"}
+            ]
+            governed_cfg = self.config.get("runtime", {}).get("governed_external_mining", {})
+            if not isinstance(governed_cfg, dict):
+                governed_cfg = {}
+            self.governed_external_miner = GovernedExternalMiner(
+                base_dir=self.base_dir,
+                task_pool=self.task_pool,
+                miner_pool=self.miner_pool,
+                targets=governed_targets,
+                # 生产配置必须显式打开；临时/单测配置即使允许普通外部学习，
+                # 也不能因为构造 daemon 就发起网络抓取。
+                enabled=self.external_learning_enabled and governed_cfg.get("enabled", False),
+                max_readme_chars=int(governed_cfg.get("max_readme_chars", 12000)),
+                timeout=int(governed_cfg.get("timeout_seconds", 20)),
+            )
             self.daily_learning = DailyLearningLoop(
                 data_dir=str(self.data_dir / "daily_learning"),
                 discovery=self.discovery_mode,
@@ -2174,6 +2199,68 @@ class AceDaemon:
                 projected += 1
         return projected
 
+    def _refresh_governed_external_mining_receipts(self) -> int:
+        """把统一生命周期的实际阶段回写到外部矿工收据。
+
+        外部矿工创建任务时只能知道抓取、模型和入队；Researcher、Validator、
+        Guardian 是后续阶段。若不回写，收据会永远显示 PENDING，造成“只写了
+        文档”的假象。这里读取既有审计事件，不推断成功，未发生的阶段仍保持
+        PENDING。
+        """
+        if not self.task_pool:
+            return 0
+        refreshed = 0
+        latest_external = None
+        for task in self.task_pool.list_tasks(limit=10000):
+            outputs = task.outputs if isinstance(task.outputs, dict) else {}
+            external = outputs.get("external_mining")
+            if not isinstance(external, dict):
+                continue
+            actors = {str(item.get("actor", "")) for item in task.audit_log if isinstance(item, dict)}
+            events = {str(item.get("event", "")) for item in task.audit_log if isinstance(item, dict)}
+            lifecycle = external.setdefault("lifecycle", {})
+            lifecycle.update({
+                "researcher": "COMPLETED" if "researched" in events or "researcher" in actors else "PENDING",
+                "validator": "COMPLETED" if "validated" in events or "validator" in actors else "PENDING",
+                "guardian": "COMPLETED" if task.guardian_decision else "PENDING",
+                "archivist": "COMPLETED" if task.status == "archived" or "archivist" in actors else "PENDING",
+                "task_status": task.status,
+                "guardian_decision": task.guardian_decision or "",
+                "outcome_receipt": (outputs.get("outcome_receipt") or {}).get("status", "PENDING"),
+                "production_integration": False,
+                "updated_at": datetime.now().isoformat(),
+            })
+            outputs["external_mining"] = external
+            task.outputs = outputs
+            if self.task_pool.update_task(task):
+                refreshed += 1
+            if latest_external is None or task.updated_at > latest_external.updated_at:
+                latest_external = task
+        if latest_external is not None and self.governed_external_miner:
+            try:
+                report_path = self.governed_external_miner.report_path
+                report = json.loads(report_path.read_text(encoding="utf-8")) if report_path.exists() else {}
+                if report.get("task_id") == latest_external.task_id:
+                    lifecycle = latest_external.outputs.get("external_mining", {}).get("lifecycle", {})
+                    report["status"] = "COMPLETED_CHAIN" if all(
+                        lifecycle.get(stage) == "COMPLETED"
+                        for stage in ("researcher", "validator", "guardian", "archivist")
+                    ) else "QUEUED"
+                    report["chain"] = {
+                        "web_scout": "FETCHED",
+                        "miner_pool": "COMPLETED",
+                        "task_pool": "CREATED",
+                        "researcher": lifecycle.get("researcher", "PENDING"),
+                        "validator": lifecycle.get("validator", "PENDING"),
+                        "guardian": lifecycle.get("guardian", "PENDING"),
+                        "archivist": lifecycle.get("archivist", "PENDING"),
+                    }
+                    report["lifecycle"] = lifecycle
+                    report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+            except (OSError, ValueError, TypeError):
+                pass
+        return refreshed
+
     def _run_task_lifecycle(self) -> Dict[str, Any]:
         if not self._acquire_lifecycle_lock():
             return {"skipped": True, "reason": "lifecycle_locked"}
@@ -2209,6 +2296,7 @@ class AceDaemon:
             "discovery_tasks": 0,
             "model_pipeline": {},
             "daily_learning": None,
+            "governed_external_mining": None,
             "production_policy": {},
         }
         production_policy = self._task_production_policy()
@@ -2225,6 +2313,16 @@ class AceDaemon:
             result["daily_learning"] = self.run_daily_learning()
         except Exception as e:
             self._log_error("daily_learning", str(e))
+
+        # 外部矿源必须先完成只读抓取和 MinerPool 提炼，才能进入普通
+        # TaskPool。这里不走旧 WebScout 的自有写入旁路，避免两套生命周期
+        # 竞争同一条学习链。
+        try:
+            if self.governed_external_miner:
+                result["governed_external_mining"] = self.governed_external_miner.run_once(max_tasks=1)
+        except Exception as e:
+            self._log_error("governed_external_mining", str(e))
+            result["governed_external_mining"] = {"status": "ERROR", "error": str(e)}
 
         try:
             if self.mine_seed_scanner:
@@ -2387,6 +2485,11 @@ class AceDaemon:
                         self._log_error("skill_generation", str(e))
         except Exception as e:
             self._log_error("archivist", str(e))
+
+        try:
+            result["governed_external_mining_receipts_refreshed"] = self._refresh_governed_external_mining_receipts()
+        except Exception as e:
+            self._log_error("governed_external_mining_receipts", str(e))
 
         try:
             result["daily_growth"] = self.daily_growth.build()
