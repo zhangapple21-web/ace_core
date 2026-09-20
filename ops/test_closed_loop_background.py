@@ -2,6 +2,7 @@ import json
 
 from core.closed_loop_background import ClosedLoopBackgroundRunner
 from core.closed_loop_engine import ClosedLoopEngine
+from core.task import TaskPool
 
 
 class FakePool:
@@ -51,6 +52,7 @@ def test_background_runner_uses_pool_and_creates_governed_plan(tmp_path):
     assert result["status"] == "PLANS_READY_FOR_TASK_POOL_REVIEW"
     assert result["provider_calls"] == 1
     assert tasks.created[0]["creator"] == "closed_loop_background"
+    assert tasks.created[0]["admission"]["source_type"] == "system_observation"
     assert runner.run_once(proposal)["status"] == "ALREADY_PLANNED"
 
 
@@ -78,3 +80,21 @@ def test_active_existing_proposal_is_consumed_once(tmp_path):
     }}
     assert runner.run_once(proposal)["status"] == "PLANS_READY_FOR_TASK_POOL_REVIEW"
     assert runner.run_once(proposal)["status"] == "ALREADY_PLANNED"
+
+
+def test_real_task_pool_accepts_background_plan_through_registered_admission(tmp_path):
+    pool = TaskPool(str(tmp_path / "task_pool"))
+    runner = ClosedLoopBackgroundRunner(ClosedLoopEngine(tmp_path / "ace"), FakePool(), pool)
+    result = runner.run_once({"status": "OBSERVED", "proposal": {
+        "fingerprint": "real-task",
+        "proposal_id": "SEP-real",
+        "title": "真实 TaskPool 入口",
+        "objective": "验证 admission",
+        "reason": "测试注册类型",
+        "priority": "medium",
+        "evidence": [],
+    }})
+    assert result["status"] == "PLANS_READY_FOR_TASK_POOL_REVIEW"
+    assert result["task_id"]
+    created = pool.load_task(result["task_id"])
+    assert created.outputs["admission"]["source_type"] == "system_observation"

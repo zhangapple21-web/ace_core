@@ -102,28 +102,36 @@ class ClosedLoopBackgroundRunner:
             "recorded_at": datetime.now().isoformat(),
             "governance": "models_propose_only_task_pool_validates_and_executes",
         }
-        self._append(self.plan_path, record)
         task_id = None
         if candidates and self.task_pool is not None:
-            task = self.task_pool.create_task(
-                title=f"闭环计划审议：{proposal.get('title', proposal.get('objective', '未命名'))[:100]}",
-                hypothesis=str(proposal.get("objective", "")),
-                creator="closed_loop_background",
-                priority=str(proposal.get("priority", "medium")),
-                tags=["closed_loop", "miner_pool_plan", "requires_baseline"],
-                admission={
-                    "source_type": "closed_loop_background",
-                    "source_ref": f"closed_loop_plan:{plan_id}",
-                    "why_now": proposal.get("reason", ""),
-                    "evidence": proposal.get("evidence", [])[:8],
-                    "expected_result": "形成带基线、改动、评估和痛苦复盘的可回放闭环",
-                    "verification_method": "由 TaskPool 的 Researcher/Validator/Guardian 继续验证",
-                    "risk": "模型输出仅为候选规划，未直接修改生产配置",
-                    "estimated_scope": "single governed closed-loop plan",
-                },
-                outputs={"closed_loop_plan": record},
-            )
-            task_id = task.task_id
+            try:
+                task = self.task_pool.create_task(
+                    title=f"闭环计划审议：{proposal.get('title', proposal.get('objective', '未命名'))[:100]}",
+                    hypothesis=str(proposal.get("objective", "")),
+                    creator="closed_loop_background",
+                    priority=str(proposal.get("priority", "medium")),
+                    tags=["closed_loop", "miner_pool_plan", "requires_baseline"],
+                    admission={
+                        # Reuse the registered admission category.  The
+                        # closed-loop identity remains in source_ref/tags;
+                        # inventing a new source type would bypass the gate.
+                        "source_type": "system_observation",
+                        "source_ref": f"closed_loop_plan:{plan_id}",
+                        "why_now": proposal.get("reason", ""),
+                        "evidence": proposal.get("evidence", [])[:8] or [{"source_ref": f"closed_loop_plan:{plan_id}", "detail": "MinerPool candidate plan requires local review"}],
+                        "expected_result": "形成带基线、改动、评估和痛苦复盘的可回放闭环",
+                        "verification_method": "由 TaskPool 的 Researcher/Validator/Guardian 继续验证",
+                        "risk": "模型输出仅为候选规划，未直接修改生产配置",
+                        "estimated_scope": "single governed closed-loop plan",
+                    },
+                    outputs={"closed_loop_plan": record},
+                )
+                task_id = task.task_id
+            except Exception as error:
+                record["status"] = "BLOCKED_TASK_ADMISSION"
+                record["admission_error"] = str(error)
+        record["task_id"] = task_id
+        self._append(self.plan_path, record)
         self.state.update({"last_fingerprint": fingerprint, "last_plan_id": plan_id, "last_task_id": task_id, "updated_at": datetime.now().isoformat()})
         self._save_state()
         return {"status": status, "plan_id": plan_id, "task_id": task_id, "fingerprint": fingerprint, "provider_calls": len(responses), "valid_candidates": len(candidates), "invalid_candidates": invalid}
