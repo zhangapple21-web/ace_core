@@ -2,6 +2,7 @@ import json
 from types import SimpleNamespace
 
 from core.video_learning_bridge_backlog import VideoLearningBridgeBacklog
+from core.evolution_kernel import make_packet
 
 
 class Pool:
@@ -13,18 +14,23 @@ class Pool:
 
 
 def _packet(**changes):
-    packet = {
-        "schema": "ace.evolution_kernel.packet.v1",
-        "packet_id": "EK-123",
-        "scope": "video",
-        "title": "video workflow idea",
-        "source_status": "NEW_OR_CHANGED",
-        "source_content_key": "source:v1",
-        "observation": {"facts": ["receipt exists"], "evidence": ["abc"], "unknowns": ["local fit"], "source_refs": ["https://example.org/readme"]},
-        "decision": {"status": "RESEARCH"},
-        "execution_authorized": False,
-        "production_integration": False,
-    }
+    packet = make_packet(
+        scope="video",
+        candidate={
+            "candidate_id": "video:run:source",
+            "title": "video workflow idea",
+            "source_kind": "video_receipt",
+            "source_status": "NEW_OR_CHANGED",
+            "source_content_key": "source:v1",
+            "source_refs": ["https://example.org/readme"],
+        },
+        observation={
+            "facts": ["receipt exists"],
+            "evidence": ["abc"],
+            "unknowns": ["local fit"],
+            "source_refs": ["https://example.org/readme"],
+        },
+    )
     packet.update(changes)
     return packet
 
@@ -41,8 +47,9 @@ def test_video_packet_becomes_one_governed_candidate(tmp_path):
 
 def test_packet_is_not_consumed_twice_after_task_creation(tmp_path):
     receipts = tmp_path / "packets.jsonl"
-    receipts.write_text(json.dumps(_packet()) + "\n", encoding="utf-8")
-    task = SimpleNamespace(outputs={"discovery": {"fingerprint": "video_learning_bridge:EK-123"}})
+    packet = _packet()
+    receipts.write_text(json.dumps(packet) + "\n", encoding="utf-8")
+    task = SimpleNamespace(outputs={"discovery": {"fingerprint": f"video_learning_bridge:{packet['packet_id']}"}})
     assert VideoLearningBridgeBacklog(Pool([task]), receipts).candidates() == []
 
 

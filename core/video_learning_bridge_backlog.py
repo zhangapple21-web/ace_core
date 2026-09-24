@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from .discovery import DiscoveryCandidate
-from .evolution_kernel import route_learning
+from .evolution_kernel import route_learning, validate_packet
 
 
 class VideoLearningBridgeBacklog:
@@ -35,6 +35,12 @@ class VideoLearningBridgeBacklog:
             except json.JSONDecodeError:
                 continue
             if not isinstance(packet, dict) or packet.get("scope") != "video":
+                continue
+            try:
+                packet = validate_packet(packet, require_research=True)
+            except ValueError:
+                # The shared receipt stream is untrusted input. A malformed
+                # line is quarantined by omission, never converted to work.
                 continue
             if packet.get("execution_authorized") is not False or packet.get("production_integration") is not False:
                 continue
@@ -90,6 +96,9 @@ class VideoLearningBridgeBacklog:
             metadata={
                 "learning": learning,
                 "evolution_packet_id": packet["packet_id"],
+                "evolution_packet_sha256": packet.get("packet_sha256", ""),
+                "source_content_key": packet.get("source_content_key", ""),
+                "source_refs": list(packet.get("source_refs", [])),
                 "governance": {"execution_authorized": False, "production_integration": False},
             },
         )
@@ -102,7 +111,9 @@ class VideoLearningBridgeBacklog:
                 "packet_sha256": packet.get("packet_sha256"),
                 "facts": observation.get("facts", []),
                 "evidence": observation.get("evidence", []),
+                "inferences": observation.get("inferences", []),
                 "unknowns": observation.get("unknowns", []),
+                "experience": observation.get("experience", []),
             }, ensure_ascii=False, sort_keys=True),
             "confidence": 0.5,
             "author": "ACE Evolution Kernel",
@@ -111,8 +122,8 @@ class VideoLearningBridgeBacklog:
                 "source_tier": "primary",
                 "independence_group": f"video_learning_packet:{packet.get('packet_id')}",
                 "lineage_observable": True,
-                "directness": "primary",
-                "cross_validation_source": "local",
+                "directness": "derived",
+                "cross_validation_source": "external",
                 "production_authority": "NONE",
             },
         } for ref in refs if isinstance(ref, str) and ref.strip()]
@@ -128,8 +139,8 @@ class VideoLearningBridgeBacklog:
                     "source_tier": "primary",
                     "independence_group": f"video_learning_packet:{packet.get('packet_id')}",
                     "lineage_observable": True,
-                    "directness": "primary",
-                    "cross_validation_source": "local",
+                    "directness": "derived",
+                    "cross_validation_source": "external",
                     "production_authority": "NONE",
                 },
             }]

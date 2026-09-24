@@ -42,14 +42,21 @@ class LearningReturnBridge:
         self.video_root = Path(video_root).resolve() if video_root else None
 
     def materialize(self, task: Any, experience: Any = None) -> Dict[str, Any]:
-        external = (getattr(task, "outputs", {}) or {}).get("external_mining")
-        if not isinstance(external, dict):
+        outputs = getattr(task, "outputs", {}) or {}
+        external = outputs.get("external_mining")
+        discovery = outputs.get("discovery") if isinstance(outputs.get("discovery"), dict) else {}
+        video_packet = (
+            discovery.get("candidate_source") == "video_learning_bridge"
+            and str(discovery.get("evolution_packet_id") or "").strip()
+            and str(discovery.get("evolution_packet_sha256") or "").strip()
+        )
+        if not isinstance(external, dict) and not video_packet:
             return {"status": "NOT_APPLICABLE", "production_integration": False}
         decision = str(getattr(task, "guardian_decision", "") or "")
         if decision not in {"experience", "constraint", "axiom"}:
             return {"status": "NOT_ELIGIBLE", "guardian_decision": decision, "production_integration": False}
 
-        analysis = ((external.get("miner_result") or {}).get("analysis") or {})
+        analysis = ((external.get("miner_result") or {}).get("analysis") or {}) if isinstance(external, dict) else {}
         allowed = analysis.get("recommended_absorbable_capabilities") or analysis.get("compatibility") or []
         if not isinstance(allowed, list):
             allowed = [allowed]
@@ -62,12 +69,28 @@ class LearningReturnBridge:
                 ref = evidence.get("source_ref") or evidence.get("source")
                 if ref and ref not in evidence_refs:
                     evidence_refs.append(ref)
+        if video_packet:
+            discovery_refs = discovery.get("source_refs", []) if isinstance(discovery.get("source_refs"), list) else []
+            for ref in discovery_refs:
+                if ref and ref not in evidence_refs:
+                    evidence_refs.append(ref)
+            # Keep the model's research as bounded context, never as an
+            # automatic capability claim. A structured miner result is still
+            # preferred when the normal external-mining path supplied one.
+            research_result = outputs.get("model_research_result")
+            if isinstance(research_result, dict) and research_result.get("content"):
+                analysis = {
+                    "research_summary": str(research_result["content"])[:4000],
+                    "next_verification": ["在本地合成样本上完成 baseline/change/test/evaluation/painful_review"],
+                }
         card = {
             "schema_version": "ace.capability-card.v1",
             "card_id": f"CAP-{task.task_id}",
             "source_task_id": task.task_id,
-            "source_repository": external.get("fetched", {}).get("repository", ""),
-            "source_fingerprint": external.get("fetched", {}).get("fingerprint", ""),
+            "source_repository": external.get("fetched", {}).get("repository", "") if isinstance(external, dict) else (discovery.get("source_refs") or [""])[0],
+            "source_fingerprint": external.get("fetched", {}).get("fingerprint", "") if isinstance(external, dict) else discovery.get("source_content_key", ""),
+            "source_packet_id": discovery.get("evolution_packet_id", "") if video_packet else "",
+            "source_packet_sha256": discovery.get("evolution_packet_sha256", "") if video_packet else "",
             "guardian_decision": decision,
             "experience_id": getattr(experience, "experience_id", "") if experience else "",
             "capability_state": "RESEARCH_READY_NOT_PROMOTED",
@@ -75,6 +98,7 @@ class LearningReturnBridge:
             "blocked_scope": ["production_default", "provider_route", "automatic_video_submit"],
             "recommended_capabilities": allowed[:12],
             "next_verification": next_verification[:12],
+            "research_summary": analysis.get("research_summary", "") if isinstance(analysis, dict) else "",
             "evidence_refs": evidence_refs[:12],
             "production_integration": False,
             "created_at": _now(),

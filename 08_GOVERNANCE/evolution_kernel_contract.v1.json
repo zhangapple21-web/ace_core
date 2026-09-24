@@ -30,11 +30,13 @@
   "promotion_gate": {
     "required": [
       "baseline",
+      "changed",
       "change",
       "test",
       "evaluation",
       "comparison",
-      "painful_review"
+      "painful_review",
+      "painful_review.retain"
     ],
     "statuses": [
       "PROMOTE",
@@ -43,7 +45,10 @@
       "REJECTED_MISSING_PAINFUL_REVIEW",
       "BLOCKED_INSUFFICIENT_EVIDENCE"
     ],
-    "execution_authorized_by_kernel": false
+    "execution_authorized_by_kernel": false,
+    "comparison_owner": "core.closed_loop_engine.ClosedLoopEngine",
+    "retain_required": true,
+    "numeric_before_after_required": true
   },
   "cross_branch_contract": {
     "video_kingdom_input": "external_learning_run.v1 或视频生产收据",

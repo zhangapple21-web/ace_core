@@ -98,6 +98,7 @@ from core.workspace_write_lock import WorkspaceWriteLock
 from core.experience_deposition import ExperienceDeposition
 from core.learning_return_bridge import LearningReturnBridge
 from core.video_learning_bridge_backlog import VideoLearningBridgeBacklog
+from core.evolution_kernel import route_learning
 
 
 # Mine-seed discovery can walk several broad, operator-owned directories.
@@ -584,6 +585,7 @@ class AceDaemon:
                     self.open_source_learning_backlog.candidates,
                 ],
                 external_discoverer=(self.external_learning_discovery.discover if self.external_learning_discovery else None),
+                learning_router=route_learning,
             )
             self.lifecycle_lock_file = task_pool_dir / ".lifecycle.lock"
         except Exception as e:

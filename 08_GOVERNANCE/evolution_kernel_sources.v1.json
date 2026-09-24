@@ -26,9 +26,27 @@
     },
     {
       "id": "user-r1-notes",
+      "references": [
+        {
+          "path": "C:\\Users\\Administrator\\.codex\\attachments\\57dddadc-219d-4b82-bc98-9b5c1af0cbd0\\已粘贴的文本.txt",
+          "sha256": "AC0E8355AEF81C0D1F6876B24DCBE927963FCA0BDA18D9C50270537B65B35817",
+          "excerpts": ["三层神经架构", "分层记忆", "词库→模板→AI→路由", "夜间复盘与模板权重"]
+        },
+        {
+          "path": "C:\\Users\\Administrator\\.codex\\attachments\\aa414778-e145-44e9-873c-6216e9a48b7c\\已粘贴的文本.txt",
+          "sha256": "08405E0746C03E61E8677868AE5C35C1227D051F03D03CADDEA0903A8B1A00B8",
+          "excerpts": ["Evolution Kernel", "语义中间层", "失败复盘", "统一功能席位与单一输出"]
+        }
+      ],
+      "mapping_tests": [
+        "core/evolution_kernel.py::normalize_observation",
+        "core/evolution_kernel.py::route_learning",
+        "core/closed_loop_engine.py::ClosedLoopEngine.run_cycle",
+        "core/learning_return_bridge.py::LearningReturnBridge.materialize"
+      ],
       "role": "user_reference",
       "disposition": "NORMALIZE_TO_EVIDENCE",
-      "reason": "分层记忆、语义中间层、词库路由和统一功能席位可继承；旧路径覆盖、越权和未经验证的能力声明不继承。"
+      "reason": "分层记忆、语义中间层、词库路由和统一功能席位可继承；旧路径覆盖、越权和未经验证的能力声明不继承。文件哈希与摘录锚点用于可追溯复盘。"
     }
   ],
   "public_remote_repositories": [

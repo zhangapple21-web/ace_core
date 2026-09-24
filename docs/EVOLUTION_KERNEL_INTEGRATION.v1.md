@@ -25,14 +25,14 @@
   → 语义归一化（事实/证据/推断/未知）
   → 路由（先修本地失败，再研究外部）
   → 既有 TaskPool / DailyLearning 做实验
-  → baseline / change / test / evaluation
+  → baseline / changed / change / test / evaluation
   → painful_review
   → PROMOTE 或 ROLLBACK_REQUIRED
   → LearningReturnBridge 生成受限能力卡
   → 视频王国只消费 RESEARCH_READY_NOT_PROMOTED，复测后再进生产门
 ```
 
-`core/evolution_kernel.py` 只负责归一化、路由、门禁和桥接收据；它不取得执行权。`VideoLearningBridgeBacklog` 只把已规范化的 `RESEARCH` 包适配成既有候选，实际生命周期仍由 `DailyLearningLoop` → `TaskPool` → `Researcher/Validator/Guardian` → `LearningReturnBridge` 完成；没有第二个闭环。
+`core/evolution_kernel.py` 负责归一化、运行时路由、收据哈希校验和桥接门禁；它不取得执行权。指标比较和晋升判定的唯一实现是 `core.closed_loop_engine.ClosedLoopEngine`，Evolution Kernel 只验证其结果并 fail-closed，不接受手写 `measurable_gain`/`regression`。`VideoLearningBridgeBacklog` 只把已规范化且哈希可复验的 `RESEARCH` 包适配成既有候选，实际生命周期仍由 `DailyLearningLoop` → `TaskPool` → `Researcher/Validator/Guardian` → `LearningReturnBridge` 完成；没有第二个闭环。
 
 ## 视频王国的反哺边界
 

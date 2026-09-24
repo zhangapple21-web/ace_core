@@ -47,6 +47,7 @@ class DailyLearningLoop:
         lifecycle_manager,
         internal_candidate_sources: List[Callable[[], List[Tuple[Any, List[Dict[str, Any]]]]]],
         external_discoverer: Optional[Callable[[str, List[str]], List[Tuple[Any, List[Dict[str, Any]]]]]] = None,
+        learning_router: Optional[Callable[[List[Dict[str, Any]]], Dict[str, Any]]] = None,
     ):
         self.data_dir = Path(data_dir)
         self.data_dir.mkdir(parents=True, exist_ok=True)
@@ -60,6 +61,10 @@ class DailyLearningLoop:
         self.lifecycle_manager = lifecycle_manager
         self.internal_candidate_sources = internal_candidate_sources
         self.external_discoverer = external_discoverer
+        # The router is injected from ACE's Evolution Kernel.  Keeping it
+        # optional preserves small legacy fixtures, while the daemon's real
+        # runtime always passes the canonical router.
+        self.learning_router = learning_router
         Path(self.lifecycle_manager.db_path).parent.mkdir(parents=True, exist_ok=True)
         self.archivist = Archivist(task_pool=self.task_pool)
         self.guardian = Guardian(task_pool=self.task_pool)
@@ -297,19 +302,75 @@ class DailyLearningLoop:
         self,
         allow_external: bool = True,
     ) -> Tuple[str, Optional[Tuple[Any, List[Dict[str, Any]]]]]:
+        internal: list[tuple[Any, List[Dict[str, Any]]]] = []
         for source in self.internal_candidate_sources:
-            candidates = source() or []
-            for candidate, evidence_items in candidates:
+            for candidate, evidence_items in (source() or []):
                 if not self._has_adopted_title(candidate.title):
-                    return "internal", (candidate, evidence_items)
+                    internal.append((candidate, evidence_items))
+        selected = self._route_candidate_pairs(internal, mode="internal")
+        if selected is not None:
+            return "internal", selected
         if not allow_external or self.external_discoverer is None:
             return "none", None
         objective = "Find a currently evidence-backed ACE learning objective not satisfied by internal assets."
         candidates = self.external_discoverer(objective, list(self.source_tiers)) or []
-        for candidate, evidence_items in candidates:
-            if not self._has_adopted_title(candidate.title):
-                return "external", (candidate, evidence_items)
+        external = [
+            (candidate, evidence_items)
+            for candidate, evidence_items in candidates
+            if not self._has_adopted_title(candidate.title)
+        ]
+        selected = self._route_candidate_pairs(external, mode="external")
+        if selected is not None:
+            return "external", selected
         return "none", None
+
+    def _route_candidate_pairs(self, pairs, *, mode: str):
+        """Run all daily candidates through the ACE router when available."""
+
+        if not pairs:
+            return None
+        router = getattr(self, "learning_router", None)
+        if not callable(router):
+            return pairs[0]
+        routed_items = []
+        for index, (candidate, evidence_items) in enumerate(pairs):
+            metadata = candidate.metadata if isinstance(getattr(candidate, "metadata", None), dict) else {}
+            candidate_source = str(getattr(candidate, "candidate_source", "") or "")
+            source_kind = metadata.get("evolution_source_kind")
+            if not source_kind:
+                if candidate_source == "video_learning_bridge":
+                    source_kind = "video_receipt"
+                elif mode == "external":
+                    source_kind = "external_primary"
+                elif any(token in candidate_source.lower() for token in ("external", "open_source", "repository", "mine")):
+                    source_kind = "external_secondary"
+                elif any(token in candidate_source.lower() for token in ("failure", "incident", "regression")):
+                    source_kind = "internal_failure"
+                elif any(token in candidate_source.lower() for token in ("experiment", "sandbox")):
+                    source_kind = "local_experiment"
+                else:
+                    source_kind = "internal_metric"
+            evidence_refs = [
+                str(item.get("source_ref") or item.get("source_location") or "")
+                for item in evidence_items
+                if isinstance(item, dict) and (item.get("source_ref") or item.get("source_location"))
+            ]
+            routed_items.append({
+                "candidate_id": getattr(candidate, "fingerprint", "") or str(index),
+                "title": getattr(candidate, "title", ""),
+                "source_kind": source_kind,
+                "observation": {"evidence": evidence_refs},
+                "_index": index,
+            })
+        decision = router(routed_items)
+        selected = decision.get("selected") if isinstance(decision, dict) else None
+        if not isinstance(selected, dict):
+            return None
+        selected_id = selected.get("candidate_id")
+        for item in routed_items:
+            if item.get("candidate_id") == selected_id:
+                return pairs[int(item["_index"])]
+        return pairs[0]
 
     def _external_learning_status(self, mode: str) -> Dict[str, Any]:
         if mode == "internal":

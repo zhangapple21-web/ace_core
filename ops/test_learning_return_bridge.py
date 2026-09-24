@@ -60,3 +60,28 @@ def test_learning_card_replay_replaces_corrupt_or_stale_card(tmp_path):
     second = bridge.materialize(task)
     assert second["card_sha256"] == first["card_sha256"]
     assert json.loads(path.read_text(encoding="utf-8"))["card_sha256"] == first["card_sha256"]
+
+
+def test_video_learning_packet_returns_bounded_card_after_guardian(tmp_path):
+    task = SimpleNamespace(
+        task_id="RQ-VIDEO-001",
+        guardian_decision="experience",
+        evidence=[{"source_ref": "https://github.com/example/video", "source": "video"}],
+        outputs={
+            "discovery": {
+                "candidate_source": "video_learning_bridge",
+                "evolution_packet_id": "EK-abc",
+                "evolution_packet_sha256": "sha",
+                "source_content_key": "example:v1",
+                "source_refs": ["https://github.com/example/video"],
+            },
+            "model_research_result": {"content": "只作为候选研究，尚未证明能改善本地指标。"},
+        },
+    )
+    (tmp_path / "video").mkdir()
+    result = LearningReturnBridge(tmp_path, video_root=tmp_path / "video").materialize(task)
+    assert result["status"] == "MATERIALIZED"
+    card = json.loads((tmp_path / "09_KNOWLEDGE/capability_cards/CAP-RQ-VIDEO-001.json").read_text(encoding="utf-8"))
+    assert card["source_packet_id"] == "EK-abc"
+    assert card["production_integration"] is False
+    assert card["recommended_capabilities"] == []

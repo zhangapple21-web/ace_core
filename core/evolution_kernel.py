@@ -18,7 +18,7 @@ import hashlib
 import json
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Iterable, Mapping
 
 
 SCHEMA = "ace.evolution_kernel.packet.v1"
@@ -139,10 +139,17 @@ def route_learning(candidates: Iterable[dict[str, Any]]) -> dict[str, Any]:
 
 
 def assess_promotion(experiment: dict[str, Any] | None) -> dict[str, Any]:
-    """Apply the non-negotiable baseline/change/test/evaluation gate."""
+    """Validate a canonical closed-loop evaluation before any promotion.
+
+    ``ClosedLoopEngine`` is the sole owner of metric comparison and lifecycle
+    decisions.  This function is only the receipt boundary: it re-runs that
+    canonical comparison from the submitted baseline/changed metrics and
+    rejects callers that try to smuggle in a hand-written ``measurable_gain``
+    or ``regression`` flag.  It never grants execution authority.
+    """
 
     exp = experiment if isinstance(experiment, dict) else {}
-    required = ("baseline", "change", "test", "evaluation", "comparison")
+    required = ("baseline", "changed", "change", "test", "evaluation", "comparison")
     missing = [field for field in required if not exp.get(field)]
     if missing:
         return {"status": "BLOCKED_INSUFFICIENT_EVIDENCE", "missing": missing, "execution_authorized": False}
@@ -153,17 +160,92 @@ def assess_promotion(experiment: dict[str, Any] | None) -> dict[str, Any]:
         test_passed = _as_bool(test)
     if not test_passed:
         return {"status": "ROLLBACK_REQUIRED", "reason": "test_failed", "execution_authorized": False}
-    evaluation = exp.get("evaluation")
-    regressed = _as_bool(exp.get("regression")) or (isinstance(evaluation, dict) and _as_bool(evaluation.get("regression")))
-    if regressed:
-        return {"status": "ROLLBACK_REQUIRED", "reason": "regression_detected", "execution_authorized": False}
+    baseline = exp.get("baseline")
+    changed = exp.get("changed")
+    if not isinstance(baseline, Mapping) or not isinstance(changed, Mapping):
+        return {
+            "status": "BLOCKED_INSUFFICIENT_EVIDENCE",
+            "missing": ["baseline_metrics_and_changed_metrics"],
+            "execution_authorized": False,
+        }
+    try:
+        # Import lazily to keep the kernel usable by receipt-only tools while
+        # making ClosedLoopEngine the one comparison implementation.
+        from .closed_loop_engine import ClosedLoopEngine
+
+        canonical = ClosedLoopEngine.__new__(ClosedLoopEngine).evaluate(
+            baseline,
+            changed,
+            exp.get("directions") if isinstance(exp.get("directions"), Mapping) else None,
+            float(exp.get("tolerance", 0.0) or 0.0),
+        )
+    except (TypeError, ValueError) as error:
+        return {
+            "status": "BLOCKED_INSUFFICIENT_EVIDENCE",
+            "reason": f"canonical_evaluation_error:{error}",
+            "execution_authorized": False,
+        }
+    supplied = exp.get("evaluation")
+    if not isinstance(supplied, Mapping):
+        return {"status": "BLOCKED_INSUFFICIENT_EVIDENCE", "missing": ["evaluation"], "execution_authorized": False}
+    # A caller may add annotations, but cannot contradict the canonical
+    # metric result with a hand-written boolean.
+    if "regression" in supplied and _as_bool(supplied.get("regression")) != bool(canonical.get("regression")):
+        return {"status": "ROLLBACK_REQUIRED", "reason": "evaluation_conflicts_with_canonical_comparison", "execution_authorized": False}
+    if "measurable_gain" in supplied and _as_bool(supplied.get("measurable_gain")) != bool(canonical.get("measurable_gain")):
+        return {"status": "REJECTED_NO_MEASURABLE_GAIN", "reason": "evaluation_conflicts_with_canonical_comparison", "execution_authorized": False}
+    if canonical.get("regression"):
+        return {"status": "ROLLBACK_REQUIRED", "reason": "regression_detected", "evaluation": canonical, "execution_authorized": False}
     painful = exp.get("painful_review")
     if not isinstance(painful, dict) or not all(str(painful.get(key, "")).strip() for key in ("cost", "counterfactual", "recurrence_risk", "reusable_lesson")):
         return {"status": "REJECTED_MISSING_PAINFUL_REVIEW", "execution_authorized": False}
-    measurable_gain = _as_bool(exp.get("measurable_gain")) or (isinstance(evaluation, dict) and _as_bool(evaluation.get("measurable_gain")))
-    if not measurable_gain:
-        return {"status": "REJECTED_NO_MEASURABLE_GAIN", "execution_authorized": False}
-    return {"status": "PROMOTE", "execution_authorized": False, "reason": "evidence_and_painful_review_passed"}
+    if painful.get("retain") is not True:
+        return {"status": "REJECTED_REVIEW_DECLINED", "execution_authorized": False}
+    if not canonical.get("measurable_gain"):
+        return {"status": "REJECTED_NO_MEASURABLE_GAIN", "evaluation": canonical, "execution_authorized": False}
+    return {
+        "status": "PROMOTE",
+        "execution_authorized": False,
+        "reason": "canonical_closed_loop_evaluation_and_painful_review_passed",
+        "evaluation": canonical,
+    }
+
+
+def validate_packet(packet: Mapping[str, Any] | None, *, require_research: bool = False) -> dict[str, Any]:
+    """Validate an Evolution Kernel receipt before runtime consumption.
+
+    Packet IDs and hashes are recomputed from stable semantic content.  A
+    hand-edited, stale, promoted, or execution-authorized packet is rejected
+    rather than silently becoming a learning task.
+    """
+
+    if not isinstance(packet, Mapping) or packet.get("schema") != SCHEMA:
+        raise ValueError("invalid_evolution_packet_schema")
+    item = dict(packet)
+    packet_id = str(item.get("packet_id") or "")
+    packet_sha = str(item.get("packet_sha256") or "")
+    if not packet_id or not packet_sha:
+        raise ValueError("evolution_packet_hash_missing")
+    stable = {key: value for key, value in item.items() if key not in {"packet_id", "packet_sha256", "created_at"}}
+    expected_id = "EK-" + _sha(stable)[:20]
+    if packet_id != expected_id:
+        raise ValueError("evolution_packet_id_mismatch")
+    expected_sha = _sha({key: value for key, value in item.items() if key not in {"packet_sha256", "created_at"}})
+    if packet_sha != expected_sha:
+        raise ValueError("evolution_packet_hash_mismatch")
+    if item.get("execution_authorized") is not False or item.get("production_integration") is not False:
+        raise ValueError("evolution_packet_has_execution_authority")
+    decision = item.get("decision") if isinstance(item.get("decision"), Mapping) else {}
+    if require_research and decision.get("status") != "RESEARCH":
+        raise ValueError("evolution_packet_not_research")
+    if require_research and str(item.get("source_status") or "").upper() != "NEW_OR_CHANGED":
+        raise ValueError("evolution_packet_source_not_new_or_changed")
+    if require_research and not str(item.get("source_content_key") or "").strip():
+        raise ValueError("evolution_packet_source_content_key_missing")
+    observation = item.get("observation")
+    if not isinstance(observation, Mapping) or not isinstance(observation.get("source_refs"), list):
+        raise ValueError("evolution_packet_observation_missing")
+    return item
 
 
 def make_packet(
@@ -240,12 +322,18 @@ def ingest_video_run(path: str | Path) -> list[dict[str, Any]]:
             raise ValueError("video_learning_record_already_promoted")
         source_id = str(record.get("source_id") or f"record-{index}")
         status = str(record.get("status") or "UNKNOWN")
+        source_content_key = str(record.get("source_content_key") or "").strip()
+        # A changed source without a stable content key cannot be made
+        # idempotent and must never poison the shared task wall.
+        if not source_content_key:
+            continue
         observation = {
             "facts": [f"video_learning_receipt_status:{status}"],
-            "evidence": [str(record.get("readme_sha256"))] if record.get("readme_sha256") else [],
-            "unknowns": ["local production benefit not yet proven"],
-            "experience": [],
-            "source_refs": [str(record.get("readme_url"))] if record.get("readme_url") else [str(source_path)],
+            "evidence": [value for value in [str(record.get("readme_sha256") or ""), str(record.get("api_url") or "")] if value],
+            "inferences": _unique_strings(record.get("inferences")),
+            "unknowns": _unique_strings(record.get("unknowns")) or ["local production benefit not yet proven"],
+            "experience": _unique_strings(record.get("experience") or record.get("lessons")),
+            "source_refs": [value for value in [str(record.get("readme_url") or ""), str(record.get("api_url") or "")] if value] or [str(source_path)],
             "tags": ["video_kingdom", "external_learning"],
         }
         candidate = {
@@ -253,12 +341,14 @@ def ingest_video_run(path: str | Path) -> list[dict[str, Any]]:
             "title": f"Video Kingdom external learning: {source_id}",
             "source_kind": "video_receipt",
             "source_ref": str(source_path),
-            "source_content_key": str(record.get("source_content_key") or ""),
+            "source_content_key": source_content_key,
             "source_status": status,
             "source_refs": [str(record.get("api_url"))] if record.get("api_url") else [],
             "observation": observation,
         }
-        packets.append(make_packet(scope="video", candidate=candidate, observation=observation, next_tasks=["用本地虚构样本做隔离 A/B", "补 baseline/change/test/evaluation/painful_review 后再判定"]))
+        packet = make_packet(scope="video", candidate=candidate, observation=observation, next_tasks=["用本地虚构样本做隔离 A/B", "补 baseline/change/test/evaluation/painful_review 后再判定"])
+        validate_packet(packet, require_research=True)
+        packets.append(packet)
     return packets
 
 
@@ -283,6 +373,11 @@ def append_packets(packets: Iterable[dict[str, Any]], out_path: str | Path) -> d
     added = 0
     with target.open("a", encoding="utf-8") as handle:
         for packet in packets:
+            try:
+                validate_packet(packet, require_research=(packet.get("scope") == "video"))
+            except (AttributeError, ValueError):
+                # Never append an unverified packet to the shared stream.
+                continue
             packet_id = str(packet.get("packet_id") or "")
             content_key = str(packet.get("source_content_key") or "")
             if not packet_id or packet_id in existing_ids or (content_key and content_key in existing_content_keys):
@@ -320,6 +415,7 @@ __all__ = [
     "normalize_observation",
     "route_learning",
     "assess_promotion",
+    "validate_packet",
     "make_packet",
     "ingest_video_run",
     "append_packets",
