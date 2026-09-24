@@ -1,0 +1,55 @@
+{
+  "schema": "ace.evolution_kernel.contract.v1",
+  "purpose": "把观察、语义归一化、路由、实验、痛苦复盘、晋升/回滚和分支反哺收敛到一个可审计契约",
+  "stages": [
+    "OBSERVE",
+    "NORMALIZE",
+    "ROUTE",
+    "EXPERIMENT",
+    "EVALUATE",
+    "PAINFUL_REVIEW",
+    "PROMOTE_OR_ROLLBACK",
+    "BRIDGE"
+  ],
+  "evidence_boundary": {
+    "facts": "已由证据支持的观察",
+    "evidence": "可追溯来源、收据、指标或测试",
+    "inferences": "当前推断，不得伪装成事实",
+    "unknowns": "尚未验证的问题",
+    "experience": "经过复盘、可复用的教训"
+  },
+  "route_policy": [
+    "internal_failure",
+    "internal_metric",
+    "video_receipt",
+    "local_experiment",
+    "external_primary",
+    "external_secondary",
+    "user_reference"
+  ],
+  "promotion_gate": {
+    "required": [
+      "baseline",
+      "change",
+      "test",
+      "evaluation",
+      "comparison",
+      "painful_review"
+    ],
+    "statuses": [
+      "PROMOTE",
+      "ROLLBACK_REQUIRED",
+      "REJECTED_NO_MEASURABLE_GAIN",
+      "REJECTED_MISSING_PAINFUL_REVIEW",
+      "BLOCKED_INSUFFICIENT_EVIDENCE"
+    ],
+    "execution_authorized_by_kernel": false
+  },
+  "cross_branch_contract": {
+    "video_kingdom_input": "external_learning_run.v1 或视频生产收据",
+    "ace_output": "RESEARCH 或 RESEARCH_READY_NOT_PROMOTED 能力卡",
+    "production_default_change": false,
+    "provider_route_change": false,
+    "media_submission": false
+  }
+}

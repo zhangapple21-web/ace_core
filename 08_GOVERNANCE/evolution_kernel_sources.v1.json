@@ -1,0 +1,59 @@
+{
+  "schema": "ace.evolution_kernel.sources.v1",
+  "retrieved_at": "2026-09-25",
+  "coverage_policy": "先登记所有可见来源，再按证据决定吸收、适配、仅研究或归档；不因登记而执行代码或改变生产。",
+  "local_sources": [
+    {
+      "id": "ace-core",
+      "path": "C:\\tmp\\ace_core",
+      "role": "canonical_cognitive_runtime",
+      "disposition": "ABSORB_AND_PROTECT",
+      "reason": "既有 DailyLearningLoop、TaskPool、MinerPool、Guardian、能力卡和桥接是唯一治理主线。"
+    },
+    {
+      "id": "video-kingdom",
+      "path": "D:\\视频创作\\ace-video-kingdom",
+      "role": "video_branch",
+      "disposition": "ABSORB_AND_PROTECT",
+      "reason": "唯一视频入口、生产门禁、外部学习收据和真实媒体证据。"
+    },
+    {
+      "id": "trae-video-workspace",
+      "path": "C:\\Users\\Administrator\\.trae",
+      "role": "execution_history",
+      "disposition": "READ_ONLY_ARCHAEOLOGY",
+      "reason": "只抽取可复用失败、实验和收据；不把临时 agent 身份当永久能力。"
+    },
+    {
+      "id": "user-r1-notes",
+      "role": "user_reference",
+      "disposition": "NORMALIZE_TO_EVIDENCE",
+      "reason": "分层记忆、语义中间层、词库路由和统一功能席位可继承；旧路径覆盖、越权和未经验证的能力声明不继承。"
+    }
+  ],
+  "public_remote_repositories": [
+    {"id": "-", "url": "https://github.com/zhangapple21-web/-", "disposition": "ARCHIVE_REFERENCE", "reason": "空名历史仓库，只有在发现可追溯收据时才考古。"},
+    {"id": "ace-video-assets", "url": "https://github.com/zhangapple21-web/ace-video-assets", "disposition": "ASSET_REFERENCE_ONLY", "reason": "公开参考资产仓库；不把素材当生产合同，不上传私密资产。"},
+    {"id": "ace-video-kingdom", "url": "https://github.com/zhangapple21-web/ace-video-kingdom", "disposition": "CANONICAL_VIDEO_BRANCH", "reason": "本地工作区对应远程主仓库。"},
+    {"id": "ace_core", "url": "https://github.com/zhangapple21-web/ace_core", "disposition": "CANONICAL_COGNITIVE_BRANCH", "reason": "本地工作区对应远程主仓库。"},
+    {"id": "aum-protocol", "url": "https://github.com/zhangapple21-web/aum-protocol", "disposition": "PROTOCOL_RESEARCH", "reason": "只抽取协议边界和连续性思想，必须映射到实际收据。"},
+    {"id": "mine-seed", "url": "https://github.com/zhangapple21-web/mine-seed", "disposition": "MINER_RESEARCH", "reason": "作为受治理矿源输入，不能绕过 MinerPool/Guardian。"},
+    {"id": "R1", "url": "https://github.com/zhangapple21-web/R1", "disposition": "HISTORICAL_RESEARCH", "reason": "提取 R1 思维与失败经验，不直接复制旧运行路径。"},
+    {"id": "r1-archaeology", "url": "https://github.com/zhangapple21-web/r1-archaeology", "disposition": "HISTORICAL_RESEARCH", "reason": "作为历史考古源，结果必须带来源和未知项。"},
+    {"id": "r1-open-source-seed", "url": "https://github.com/zhangapple21-web/r1-open-source-seed", "disposition": "RESEARCH_ONLY", "reason": "外部种子不自动进入生产。"},
+    {"id": "R1_continuity_archive", "url": "https://github.com/zhangapple21-web/R1_continuity_archive", "disposition": "ARCHIVE_REFERENCE", "reason": "连续性档案只作为历史证据。"}
+  ],
+  "official_external_references": [
+    {"id": "langgraph", "url": "https://github.com/langchain-ai/langgraph", "license": "MIT", "disposition": "ADAPT_CONCEPTS", "use": "持久化状态、可恢复节点、人机检查点；不引入第二调度器。"},
+    {"id": "pyscenedetect", "url": "https://github.com/Breakthrough/PySceneDetect", "license": "BSD-3-Clause", "disposition": "ADAPT_CONCEPTS", "use": "把镜头边界检测作为影子 QC，不替代创作审计。"},
+    {"id": "comfyui", "url": "https://github.com/Comfy-Org/ComfyUI", "license": "GPL-3.0", "disposition": "RESEARCH_ONLY", "use": "学习工作流 JSON、队列和局部重算；源码不进入商用核心。"},
+    {"id": "remotion", "url": "https://github.com/remotion-dev/remotion", "license": "NOASSERTION", "disposition": "LICENSE_REVIEW", "use": "学习程序化渲染与批处理；许可证确认前不接生产。"}
+  ],
+  "non_negotiable": [
+    "登记不是采用",
+    "外部代码不执行",
+    "研究结果必须经过 baseline/change/test/evaluation/painful_review",
+    "能力卡默认 RESEARCH_READY_NOT_PROMOTED",
+    "不改视频唯一入口、默认 Provider、模型路由或真实媒体任务"
+  ]
+}

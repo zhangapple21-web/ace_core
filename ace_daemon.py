@@ -97,6 +97,7 @@ from core.workspace_write_lock import WorkspaceWriteLock
 
 from core.experience_deposition import ExperienceDeposition
 from core.learning_return_bridge import LearningReturnBridge
+from core.video_learning_bridge_backlog import VideoLearningBridgeBacklog
 
 
 # Mine-seed discovery can walk several broad, operator-owned directories.
@@ -538,6 +539,12 @@ class AceDaemon:
                 str(self.base_dir / "06_RUNTIME" / "ace" / "data")
             )
             governance_dir = self.base_dir / "08_GOVERNANCE"
+            # 视频王国学习收据只通过 ACE Evolution Kernel 的单向桥进入既有
+            # DailyLearningLoop；它不是第二任务池，也没有生产执行权。
+            self.video_learning_bridge = VideoLearningBridgeBacklog(
+                self.task_pool,
+                governance_dir / "video_learning_bridge/packets.jsonl",
+            )
             self.open_source_learning_backlog = OpenSourceLearningBacklog(self.task_pool)
             # 新的外部矿源入口是受治理的只读 WebScout，不启用旧旁路 WebScout。
             # 每个 daemon 周期最多抓取一个未处理仓库，之后仍由同一个
@@ -571,7 +578,11 @@ class AceDaemon:
                 evidence_registry=EvidenceRegistry(str(governance_dir)),
                 knowledge_governor=Governor(str(self.base_dir / "06_RUNTIME" / "ace")),
                 lifecycle_manager=LifecycleManager(str(governance_dir / "daily_learning_lifecycle.jsonl")),
-                internal_candidate_sources=[self._daily_learning_candidates, self.open_source_learning_backlog.candidates],
+                internal_candidate_sources=[
+                    self._daily_learning_candidates,
+                    self.video_learning_bridge.candidates,
+                    self.open_source_learning_backlog.candidates,
+                ],
                 external_discoverer=(self.external_learning_discovery.discover if self.external_learning_discovery else None),
             )
             self.lifecycle_lock_file = task_pool_dir / ".lifecycle.lock"
