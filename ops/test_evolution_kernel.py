@@ -62,6 +62,7 @@ def test_video_receipt_ingestion_is_idempotent(tmp_path):
     }), encoding="utf-8")
     packets = ingest_video_run(run)
     assert packets[0]["scope"] == "video"
+    assert packets[0]["kind"] == "RESEARCH"
     out = tmp_path / "bridge.jsonl"
     assert append_packets(packets, out)["added"] == 1
     assert append_packets(packets, out)["added"] == 0

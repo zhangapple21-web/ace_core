@@ -238,6 +238,11 @@ def validate_packet(packet: Mapping[str, Any] | None, *, require_research: bool 
     decision = item.get("decision") if isinstance(item.get("decision"), Mapping) else {}
     if require_research and decision.get("status") != "RESEARCH":
         raise ValueError("evolution_packet_not_research")
+    # New bridge packets carry an explicit kind for operators and downstream
+    # audits. Historical packets without this field remain readable because
+    # decision.status=RESEARCH already proves their scope.
+    if require_research and item.get("kind", "RESEARCH") != "RESEARCH":
+        raise ValueError("evolution_packet_kind_not_research")
     if require_research and str(item.get("source_status") or "").upper() != "NEW_OR_CHANGED":
         raise ValueError("evolution_packet_source_not_new_or_changed")
     if require_research and not str(item.get("source_content_key") or "").strip():
@@ -270,6 +275,7 @@ def make_packet(
         "candidate_id": str(candidate.get("candidate_id") or candidate.get("title") or "unknown"),
         "title": str(candidate.get("title") or "untitled"),
         "source_kind": str(candidate.get("source_kind") or "unknown"),
+        "kind": "RESEARCH",
         "source_content_key": str(candidate.get("source_content_key") or ""),
         "source_status": str(candidate.get("source_status") or ""),
         "source_refs": _unique_strings(candidate.get("source_refs")) + [ref for ref in normalized["source_refs"] if ref not in _unique_strings(candidate.get("source_refs"))],
