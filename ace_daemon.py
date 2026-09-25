@@ -55,6 +55,7 @@ from core.observation_to_task import ObservationToTaskConverter
 from core.self_evolution import SelfEvolutionCoordinator
 from core.closed_loop_engine import ClosedLoopEngine
 from core.closed_loop_background import ClosedLoopBackgroundRunner
+from core.inquiry_pipeline import InquiryPipeline
 from core.host_session_observer import observe_host_sessions
 from core.discovery import DiscoveryCandidate, DiscoveryMode
 from core.model_work_discovery import ModelWorkDiscovery
@@ -378,6 +379,14 @@ class AceDaemon:
                 memory_index=self.memory_index,
                 llm_router=self.miner_pool,
                 run_id_supplier=lambda: self.run_id,
+            )
+            # 验证不通过时自动向 MinerPool 发起有限轮次的质询；质询只能
+            # 补证据和形成问题包，不能直接批准、改生产配置或绕过 Guardian。
+            self.inquiry_pipeline = InquiryPipeline(
+                validator=self.validator,
+                researcher=self.researcher,
+                llm_engine=self.miner_pool,
+                max_rounds=3,
             )
             self.archivist = Archivist(
                 task_pool=self.task_pool,
@@ -2308,6 +2317,9 @@ class AceDaemon:
             "stale_leases_reclaimed": 0,
             "researched": 0,
             "validated": 0,
+            "inquiries": 0,
+            "inquiry_resolved": 0,
+            "inquiry_unresolved": 0,
             "archived": 0,
             "judged": 0,
             "experiences_deposited": 0,
@@ -2467,8 +2479,30 @@ class AceDaemon:
         try:
             review_tasks = self.task_pool.list_tasks(status="review", limit=3)
             for task in review_tasks:
-                self.validator.validate_task(task)
+                validation_result = self.validator.validate_task(task)
                 result["validated"] += 1
+                # Validator 已经把未通过任务退回 pending；在同一条任务上
+                # 只做一次有界质询，避免模型互相追问形成无限循环。
+                persisted = self.task_pool.load_task(task.task_id) or task
+                if (
+                    not validation_result.get("passed")
+                    and validation_result.get("objections")
+                    and not persisted.outputs.get("terminal_non_convergent")
+                    and getattr(self, "inquiry_pipeline", None) is not None
+                    and result["inquiries"] < 1
+                ):
+                    inquiry_result = self.inquiry_pipeline.run(persisted, validation_result)
+                    persisted.outputs["inquiry_pipeline"] = {
+                        **inquiry_result,
+                        "production_integration": False,
+                        "provider_write_authority": False,
+                    }
+                    self.task_pool.update_task(persisted)
+                    result["inquiries"] += 1
+                    if inquiry_result.get("final_verdict") == "passed":
+                        result["inquiry_resolved"] += 1
+                    else:
+                        result["inquiry_unresolved"] += 1
         except Exception as e:
             self._log_error("validator", str(e))
 
