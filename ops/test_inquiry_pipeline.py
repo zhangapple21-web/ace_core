@@ -44,3 +44,18 @@ def test_rule_mode_can_resolve_after_new_evidence_threshold():
     result = InquiryPipeline(max_rounds=3).run(task, {"passed": False, "objections": ["需要交叉核对"]})
     assert result["final_verdict"] == "passed"
     assert result["inquiry_rounds"] == 2
+
+
+def test_model_claimed_evidence_is_not_promoted_into_task_evidence():
+    task = DummyTask()
+    pipeline = InquiryPipeline(max_rounds=1)
+    pipeline._research_answer = lambda *_args: ("模型回答", ["模型声称的来源，但尚未核验"])
+    pipeline._re_judge = lambda *_args: {
+        "resolved": False,
+        "reason": "仍需独立来源",
+        "remaining_objections": ["需要独立来源"],
+    }
+    result = pipeline.run(task, {"passed": False, "objections": ["需要独立来源"]})
+    assert task.evidence == []
+    assert result["unverified_candidates"] == ["模型声称的来源，但尚未核验"]
+    assert any("待核验模型候选" in note for _, note in task.research_notes)

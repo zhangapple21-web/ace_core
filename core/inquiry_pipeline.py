@@ -81,6 +81,7 @@ class InquiryPipeline:
 
         questions: List[str] = []
         answers: List[str] = []
+        unverified_candidates: List[str] = []
         current_objections = list(objections)
 
         for round_num in range(1, self.max_rounds + 1):
@@ -100,10 +101,20 @@ class InquiryPipeline:
                 researcher="inquiry_pipeline",
             )
 
-            # 如果有新证据，加到 task
+            # 模型若声称有新证据，只登记为待核验候选
             if new_evidence:
                 for ev in new_evidence:
-                    task.add_evidence(ev, source=f"inquiry_R{round_num}")
+                    # 模型声称的证据不是独立来源，绝不能直接进入
+                    # Task.evidence，否则下一轮 Validator 会把模型自述
+                    # 当作现实证据。只保存在待核验区，交给下一次
+                    # Researcher 重新取源；这条管道本身没有事实写权。
+                    candidate = str(ev).strip()
+                    if candidate and candidate not in unverified_candidates:
+                        unverified_candidates.append(candidate[:500])
+                        task.add_research_note(
+                            f"[待核验模型候选R{round_num}] {candidate[:500]}",
+                            researcher="inquiry_pipeline",
+                        )
 
             # 3. Validator 再判
             re_judge = self._re_judge(task, question, answer, current_objections, round_num)
@@ -118,6 +129,7 @@ class InquiryPipeline:
                     "inquiry_rounds": round_num,
                     "questions": questions,
                     "answers": answers,
+                    "unverified_candidates": unverified_candidates,
                     "final_verdict": "passed",
                     "verdict_reason": re_judge["reason"],
                 }
@@ -137,6 +149,7 @@ class InquiryPipeline:
             "inquiry_rounds": self.max_rounds,
             "questions": questions,
             "answers": answers,
+            "unverified_candidates": unverified_candidates,
             "final_verdict": "inconclusive",
             "verdict_reason": f"经{self.max_rounds}轮质询仍未解决，退回重审",
         }
