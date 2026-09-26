@@ -11,6 +11,11 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Tuple
 
+from .mirror_constitution import (
+    build_responsibility_packet,
+    validate_responsibility_packet,
+)
+
 
 WORK_CONTRACT_PROTOCOL = "ACE-WORK-CONTRACT-1.0"
 EVIDENCE_PACKET_PROTOCOL = "ACE-EVIDENCE-PACKET-1.0"
@@ -306,18 +311,44 @@ def ensure_task_protocols(task: Any, *, refresh_evidence: bool = False, force: b
         outputs["release_receipt"] = build_release_receipt(str(getattr(task, "task_id", "")))
     if refresh_evidence or "evidence_packet" not in outputs or outputs.get("evidence_packet", {}).get("origin") == "task_evidence_projection":
         outputs["evidence_packet"] = build_evidence_packet(task)
+    # Responsibility completion is a projection of the same lifecycle, not a
+    # second queue or approval path. Refresh derived fields while preserving
+    # explicit learning/unknown/next-action annotations.
+    existing_responsibility = outputs.get("responsibility_packet")
+    responsibility = build_responsibility_packet(task, scope=scope)
+    if isinstance(existing_responsibility, Mapping):
+        for field in ("learning_return", "unknowns", "next_action"):
+            if field in existing_responsibility:
+                responsibility[field] = existing_responsibility[field]
+        if "purpose" in existing_responsibility and str(existing_responsibility["purpose"]).strip():
+            responsibility["purpose"] = existing_responsibility["purpose"]
+    outputs["responsibility_packet"] = responsibility
     checks = {
         "work_contract": validate_work_contract(outputs.get("work_contract"), getattr(task, "task_id", None)),
         "evidence_packet": validate_evidence_packet(outputs.get("evidence_packet"), getattr(task, "task_id", None)),
         "release_receipt": validate_release_receipt(outputs.get("release_receipt"), getattr(task, "task_id", None)),
+        "responsibility": validate_responsibility_packet(
+            outputs.get("responsibility_packet"),
+            task_id=getattr(task, "task_id", None),
+            strict=False,
+        ),
     }
-    return {"active": True, "scope": scope, "work_contract": outputs["work_contract"], "evidence_packet": outputs["evidence_packet"], "release_receipt": outputs["release_receipt"], "checks": checks}
+    return {
+        "active": True,
+        "scope": scope,
+        "work_contract": outputs["work_contract"],
+        "evidence_packet": outputs["evidence_packet"],
+        "release_receipt": outputs["release_receipt"],
+        "responsibility_packet": outputs["responsibility_packet"],
+        "checks": checks,
+    }
 
 
 def protocol_errors(
     protocols: Mapping[str, Any],
     *,
     require_evidence: bool = False,
+    require_responsibility: bool = False,
 ) -> List[str]:
     errors: List[str] = []
     checks = protocols.get("checks", {}) if isinstance(protocols, Mapping) else {}
@@ -335,4 +366,9 @@ def protocol_errors(
                 errors.append("evidence_packet:incomplete_gaps")
             if not packet.get("independent_groups"):
                 errors.append("evidence_packet:independent_groups_missing")
+    if require_responsibility and isinstance(protocols, Mapping) and protocols.get("active"):
+        packet = protocols.get("responsibility_packet")
+        check = validate_responsibility_packet(packet, strict=True)
+        if not check.get("valid"):
+            errors.extend(f"responsibility:{error}" for error in check.get("errors", []))
     return errors

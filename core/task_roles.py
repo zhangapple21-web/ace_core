@@ -1790,8 +1790,19 @@ class Guardian:
         if protocols.get("active"):
             # Guardian is the final consumer before a long-term promotion;
             # require a source-backed, complete packet at this boundary too.
-            protocol_failures = protocol_errors(protocols, require_evidence=True)
             scope = protocols.get("scope", {})
+            protocol_failures = protocol_errors(
+                protocols,
+                require_evidence=True,
+                # Long-term rules and explicit delivery are the responsibility
+                # boundary; ordinary research remains able to accumulate
+                # evidence without inventing a learning return.
+                require_responsibility=(
+                    decision["verdict"] in {"axiom", "constraint"}
+                    or scope.get("purpose") == "long_term_rule"
+                    or scope.get("delivery_required") is True
+                ),
+            )
             if scope.get("delivery_required"):
                 receipt = task.outputs.get("release_receipt", {}) if isinstance(task.outputs, dict) else {}
                 receipt_check = validate_release_receipt(

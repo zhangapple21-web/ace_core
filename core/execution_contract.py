@@ -11,6 +11,8 @@ from pathlib import Path
 from typing import Optional
 import json
 
+from .mirror_constitution import MIRROR_CONTEXT
+
 
 CONTRACT_VERSION = "ace.execution_contract.v1"
 _WORKSPACE_ROOT = Path(__file__).resolve().parents[1]
@@ -59,6 +61,7 @@ def build_execution_system_prompt(
     sections = [
         f"[ACE_EXECUTION_CONTRACT version={CONTRACT_VERSION}]",
         BASE_CONTRACT.strip(),
+        "[ACE_MIRROR_CONSTITUTION]\n" + MIRROR_CONTEXT.strip(),
         f"当前岗位：{role or 'unspecified'}\n任务类型：{task_type or 'unspecified'}\n任务标识：{task_id or 'unspecified'}",
     ]
     charter = load_charter(charter_path)
@@ -79,6 +82,11 @@ def ensure_execution_contract(
     """在模型池总入口补齐契约；已有契约时保持调用方的完整提示词。"""
     prompt = str(system_prompt or "").strip()
     if CONTRACT_VERSION in prompt:
+        # Legacy callers may already carry the execution-contract marker but
+        # predate the root mirror context. Append it once instead of silently
+        # letting an old contract bypass the new learning/guard boundary.
+        if "ACE-MIRROR-CONSTITUTION-1.0" not in prompt:
+            return prompt + "\n\n根级镜子宪法：\n" + MIRROR_CONTEXT.strip()
         return prompt
     return build_execution_system_prompt(
         role=role,
