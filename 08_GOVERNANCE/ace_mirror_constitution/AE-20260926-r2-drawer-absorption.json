@@ -1,0 +1,48 @@
+{
+  "receipt_type": "ACE_EXTERNAL_REFERENCE_AUDIT",
+  "receipt_id": "AE-20260926-r2-drawer-absorption",
+  "source": {
+    "repository": "https://github.com/zhangapple21-web/mine-seed",
+    "commit": "60b8adbd85dea63c09e35ad48b326a6f18aeefdd",
+    "files": [
+      "00_ROOT/AXIOMS.md",
+      "00_ROOT/AGENTS.md",
+      "00_ROOT/GOVERNANCE.md",
+      "02_MEMORY/assets/architecture/AR-001-four-layer-architecture.md"
+    ],
+    "access": "git ls-remote + shallow read-only checkout",
+    "production_integration": false
+  },
+  "baseline": "R2 规则与当前 ACE 有大量同构内容，但没有统一标注哪些可以继承、哪些只是远程参考，也没有写入当前层级登记表",
+  "absorbed": [
+    "Repository over Memory / Repository over Runtime",
+    "Evidence before Adoption",
+    "Runtime cannot modify Civilization without Admission",
+    "Candidate 与 active 分离，决策保留 evidence 与 rollback.previous_active",
+    "Identity → Civilization → Runtime → Session 与 L0-L6 权威层级正交"
+  ],
+  "rejected_as_authority": [
+    "R2 远程文件不能直接覆盖当前 ACE L0",
+    "远程来源不能直接授予执行、生产、路由或晋升权",
+    "R2 的四层架构不作为第二套宪法优先级"
+  ],
+  "change": [
+    "core/constitution_hierarchy.py 登记带提交锚点的 R2 外部参考",
+    "00_ROOT/ACE_CONSTITUTION_HIERARCHY.v1.md 增加 R2 吸收边界",
+    "ops/test_constitution_hierarchy.py 增加远程参考不可越权回归"
+  ],
+  "evaluation": {
+    "status": "PASS",
+    "focused_test": "20 passed",
+    "command": "py -3 -m pytest -q ops/test_constitution_hierarchy.py ops/test_execution_contract.py ops/test_mirror_constitution.py",
+    "execution_authorized": false,
+    "promotion": "REFERENCE_ONLY"
+  },
+  "painful_review": {
+    "specific_cost": "如果把 R2 远程文件直接抬成当前宪法，会让两个仓库同时拥有根治理权",
+    "counterfactual_if_unblocked": "不同窗口可能按远程 AXIOMS、当前 AGENTS 或历史 PRINCIPLES 做出不同裁决，形成串线和隐式越权",
+    "recurrence_risk": "高；只要外部仓库继续演化，未带提交锚点的泛化引用就会漂移",
+    "reusable_lesson": "外部学习先记录提交/哈希，再登记为参考；吸收语义与提升权威必须分开",
+    "remaining_unknowns": "远程仓库未来提交的语义变化尚未验证；新提交必须重新走本地审计"
+  }
+}

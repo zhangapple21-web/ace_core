@@ -26,6 +26,24 @@ ACE 已经拥有根运行手册、认知宪章、镜子宪法、执行协议、�
 `07_SANDBOX/free_research/constitution/` 是自由区设计种子，二者都不能形成
 第二个生产治理入口；`core/identity_constitution.py` 只做自由区上下文身份验证。
 
+## R2 远程抽屉的吸收边界
+
+已核对公开 `mine-seed` 的提交
+`60b8adbd85dea63c09e35ad48b326a6f18aeefdd`。其中的
+`00_ROOT/AXIOMS.md`、`00_ROOT/AGENTS.md`、`00_ROOT/GOVERNANCE.md` 和
+`02_MEMORY/assets/architecture/AR-001-four-layer-architecture.md` 已登记在
+`constitution_registry()`，但均标为 `EXTERNAL_REFERENCE` / `REFERENCE`：
+
+- 吸收 **Repository over Memory、Evidence before Adoption、Runtime 经过准入才能
+  修改文明、候选与 active 分离、决策带回滚指针**；这些与当前 ACE 规则相容，
+  作为解释和验证依据使用。
+- R2 的 **Identity → Civilization → Runtime → Session** 是职责/数据架构，
+  本文的 **L0 → L6** 是规则权威层级；两者正交，不能把四层架构误当成第二套
+  宪法优先级。
+- 远程 R2 文档不能因为“来自远程仓库”就覆盖本地 L0；只有经过本地独立审计、
+  最小验证和治理收据后，才可转为当前规则。未转正的外部来源永远不能授予
+  执行、生产、路由或晋升权限。
+
 ## 加载顺序
 
 每个窗口、守护进程和正式模型调用都按以下顺序理解上下文：

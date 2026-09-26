@@ -21,6 +21,9 @@ def test_registry_has_one_explicit_root_hierarchy_and_keeps_r1_as_reference():
     assert r1["authority"] == "REFERENCE"
     assert r1["status"] == "HISTORICAL"
     assert r1["can_override_lower"] is False
+    r2 = next(item for item in registry if item["id"] == "r2.root.axioms")
+    assert r2["authority"] == "REFERENCE"
+    assert "60b8adbd85dea63c09e35ad48b326a6f18aeefdd" in r2["source"]
 
 
 def test_higher_layer_wins_but_never_grants_execution_authority():
