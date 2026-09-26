@@ -15,6 +15,7 @@ import uuid
 from typing import Dict, List, Any, Optional
 
 from core.oneapi_model_catalog import OneAPIModelCatalog
+from core.execution_contract import govern_model_messages
 
 from . import BaseProvider
 
@@ -58,6 +59,22 @@ class OpenAICompatibleProvider(BaseProvider):
 
         if not model:
             result["error"] = "model is required"
+            return result
+
+        try:
+            messages = govern_model_messages(
+                messages,
+                task_type=str(kwargs.pop("governance_task_type", "model_call")),
+                task_id=str(kwargs.pop("governance_task_id", "")),
+                role="openai_compatible_provider",
+            )
+        except RuntimeError as error:
+            if str(error).startswith("ACE_CONSTITUTION_HIERARCHY_INVALID:"):
+                result["error"] = "constitution hierarchy invalid; model call blocked"
+                result["governance"] = {"selected_route_state": "CONSTITUTION_HIERARCHY_BLOCKED"}
+                return result
+            result["error"] = "constitution precedence unresolved; model call blocked"
+            result["governance"] = {"selected_route_state": "CONSTITUTION_PRECEDENCE_BLOCKED"}
             return result
 
         try:

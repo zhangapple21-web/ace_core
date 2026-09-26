@@ -43,7 +43,7 @@ from .providers.openai_compatible import (
     ShenwenDs41Provider,
     ShenwenImagesProvider,
 )
-from ..execution_contract import ensure_execution_contract
+from ..execution_contract import ensure_execution_contract, normalize_untrusted_messages
 
 
 PROVIDER_FACTORY = {
@@ -337,11 +337,18 @@ class MinerPool:
         # secret and is safe to persist in the task execution trace.
         task_context = kwargs.pop("task_context", None)
         context_task_id = task_context.get("task_id", "") if isinstance(task_context, dict) else ""
-        system_prompt = ensure_execution_contract(
-            system_prompt,
-            task_type=task_type,
-            task_id=str(context_task_id),
-        )
+        try:
+            system_prompt = ensure_execution_contract(
+                system_prompt,
+                task_type=task_type,
+                task_id=str(context_task_id),
+            )
+        except RuntimeError as error:
+            if str(error).startswith("ACE_CONSTITUTION_HIERARCHY_INVALID:"):
+                result["error"] = "constitution hierarchy invalid; model call blocked"
+                result["routing"] = {"selected_route_state": "CONSTITUTION_HIERARCHY_BLOCKED"}
+                return result
+            raise
         requested_complexity = kwargs.pop("complexity", None)
         route_decision = self._router.resolve_route(
             task_type,
@@ -363,7 +370,7 @@ class MinerPool:
         full_messages = []
         if system_prompt:
             full_messages.append({"role": "system", "content": system_prompt})
-        full_messages.extend(messages)
+        full_messages.extend(normalize_untrusted_messages(messages))
 
         profile = get_task_profile(task_type)
         temperature = kwargs.pop("temperature", profile.get("temperature", 0.7))

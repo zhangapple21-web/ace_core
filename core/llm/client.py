@@ -19,6 +19,7 @@ import requests
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from dataclasses import dataclass, field
+from core.execution_contract import govern_model_messages
 
 
 @dataclass
@@ -180,6 +181,12 @@ class LLMRouter:
 
         自动路由，失败自动切换下一个
         """
+        messages = govern_model_messages(
+            messages,
+            task_type="legacy_llm_router",
+            role="llm_router_execution_node",
+        )
+
         # 根据 tier 确定最小优先级
         if tier == "quick":
             max_priority = 20

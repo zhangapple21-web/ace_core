@@ -99,3 +99,30 @@ Admission → TaskPool → Validator → Guardian → Archivist / Experience 生
 新增或修改宪法级文本前，必须完成 `baseline → change → test → evaluation →
 compare`，并在治理收据中写明痛苦复盘。没有证据时保持 `UNKNOWN`；不能为了
 “统一文件数量”删除历史，也不能因为一次成功就把临时资源晋升为根规则。
+
+## 运行时覆盖范围与未闭环项（2026-09-26）
+
+当前可验证的硬门：
+
+- `core/constitution_hierarchy.py` 在正式模型调用前校验登记表；当前规范条目的
+  源文件缺失、权威层级损坏或必需根条目缺失时，调用必须 fail-closed。
+- `core/execution_contract.py`、`core/miner_pool/miner_pool.py`、
+  `core/miner_pool/providers/openai_compatible.py`、
+  `core/survival_loop/engine.py`、`core/minimal_assistant.py`、
+  `core/local_miner.py` 和 `core/llm/client.py` 的正式任务调用接入根执行契约；
+  调用方夹带的 `system` / `developer` 消息会被降为任务数据。
+- 注册表损坏的测试会断言外部模型请求没有发出。固定内容的连通性探针不承载任务正文，
+  属于诊断流量，不代表任务调用入口。
+
+以下能力**尚未**被证明为系统级硬门，不得宣称已经完成：
+
+1. `resolve_conflict()` 只裁决显式提供的结构化候选；运行时目前执行的是根规则对调用上下文
+   的优先级裁决，不会自动解析并比较所有 Markdown/Skill/插件中的自然语言规则，故全库语义
+   冲突检测仍是 `UNKNOWN` / `REVIEW_REQUIRED`。
+2. `core/mirror_constitution.py` 的 `validate_data_boundary()` 有校验实现，但截至本记录，
+   尚未接入覆盖所有模型外发、记忆写入和交付输出的统一生产拦截点。数据分类与脱敏不能仅凭
+   这份校验函数或模型提示词视为已强制执行。
+3. `build_intent_envelope()` 目前是可用组件，不等于每一种自然语言意图都已通过统一准入入口。
+
+因此，本次运行时接线不等于上述缺口关闭；遇到来源不明、无法分类或规则冲突时，应阻断或
+保留 `UNKNOWN`，而不是静默给出“全覆盖”的结论。

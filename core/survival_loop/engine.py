@@ -37,6 +37,7 @@ from pathlib import Path
 from typing import Dict, List, Any, Optional
 
 from core.oneapi_model_catalog import OneAPIModelCatalog
+from core.execution_contract import ensure_execution_contract, normalize_untrusted_messages
 
 
 _ONEAPI_MODEL_CATALOG = OneAPIModelCatalog()
@@ -291,11 +292,41 @@ class SurvivalLoopEngine:
         tried: List[Dict] = []
         last_error = ""
 
+        task_type = str(kwargs.pop("task_type", "survival_loop"))
+        try:
+            system_prompt = ensure_execution_contract(
+                system_prompt,
+                task_type=task_type,
+                role="survival_loop_execution_node",
+            )
+        except RuntimeError as error:
+            if str(error).startswith("ACE_CONSTITUTION_HIERARCHY_INVALID:"):
+                return {
+                    "success": False,
+                    "content": "",
+                    "model": "",
+                    "provider": "",
+                    "usage": {},
+                    "latency_ms": 0,
+                    "error": "constitution hierarchy invalid; model call blocked",
+                    "tried": [],
+                }
+            return {
+                "success": False,
+                "content": "",
+                "model": "",
+                "provider": "",
+                "usage": {},
+                "latency_ms": 0,
+                "error": "execution contract unavailable",
+                "tried": [],
+            }
+
         try:
             full_messages = []
             if system_prompt:
                 full_messages.append({"role": "system", "content": system_prompt})
-            full_messages.extend(messages)
+            full_messages.extend(normalize_untrusted_messages(messages))
         except Exception:
             full_messages = messages or []
 

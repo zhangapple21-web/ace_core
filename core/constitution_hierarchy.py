@@ -15,6 +15,8 @@ from typing import Any, Mapping, Sequence
 
 CONTRACT_VERSION = "ace.constitution_hierarchy.v1"
 HIERARCHY_MARKER = "ACE-CONSTITUTION-HIERARCHY-1.0"
+FINAL_AUTHORITY_LOCK_MARKER = "ACE-FINAL-AUTHORITY-LOCK-1.0"
+_REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 
 LEVEL_ORDER = ("L0", "L1", "L2", "L3", "L4", "L5", "L6")
 LEVEL_RANK = {level: index for index, level in enumerate(LEVEL_ORDER)}
@@ -226,6 +228,100 @@ def constitution_registry() -> list[dict[str, Any]]:
     return [entry.as_dict() for entry in _REGISTRY]
 
 
+def validate_hierarchy_registry(entries: Sequence[Any] | None = None) -> dict[str, Any]:
+    """校验运行时使用的层级表；损坏或不完整时供模型网关 fail-closed。"""
+
+    raw_entries = list(_REGISTRY if entries is None else entries)
+    normalized = [_normalise_candidate(item) for item in raw_entries]
+    errors: list[str] = []
+    ids = [item["id"] for item in normalized]
+    if not normalized:
+        errors.append("registry_empty")
+    if len(ids) != len(set(ids)):
+        errors.append("duplicate_registry_id")
+    for index, item in enumerate(normalized):
+        source = raw_entries[index]
+        can_override = (
+            source.can_override_lower
+            if isinstance(source, ConstitutionEntry)
+            else source.get("can_override_lower", True)
+            if isinstance(source, Mapping)
+            else True
+        )
+        if not item["level"]:
+            errors.append(f"registry_invalid_level:{item['id'] or index}")
+        if not item["authority"]:
+            errors.append(f"registry_invalid_authority:{item['id'] or index}")
+        if item["authority"] in {"STATE", "REFERENCE", "EPHEMERAL"} and can_override is not False:
+            errors.append(f"low_authority_cannot_override:{item['id'] or index}")
+        if item["status"] == "HISTORICAL" and item["authority"] != "REFERENCE":
+            errors.append(f"historical_must_be_reference:{item['id'] or index}")
+        if item["status"] == "CURRENT" and item["authority"] != "REFERENCE":
+            for source_path in (part.strip() for part in item["source"].split(";")):
+                if source_path and not (_REPOSITORY_ROOT / source_path).exists():
+                    errors.append(f"current_source_missing:{item['id']}:{source_path}")
+
+    by_id = {item["id"]: item for item in normalized}
+    required = {
+        "ace.root.hierarchy": ("L0", "NORMATIVE", "CURRENT"),
+        "ace.root.operating_manual": ("L0", "NORMATIVE", "CURRENT"),
+        "ace.root.mirror": ("L0", "NORMATIVE", "CURRENT"),
+        "ace.cognitive.charter": ("L1", "NORMATIVE", "CURRENT"),
+        "ace.execution.resources": ("L6", "EPHEMERAL", "EPHEMERAL"),
+    }
+    for entry_id, expected in required.items():
+        item = by_id.get(entry_id)
+        if item is None:
+            errors.append(f"required_registry_entry_missing:{entry_id}")
+        elif (item["level"], item["authority"], item["status"]) != expected:
+            errors.append(f"required_registry_entry_drift:{entry_id}")
+    errors = list(dict.fromkeys(errors))
+    return {
+        "contract_version": CONTRACT_VERSION,
+        "valid": not errors,
+        "status": "READY" if not errors else "BLOCKED",
+        "errors": errors,
+        "entry_count": len(normalized),
+        "execution_authorized": False,
+    }
+
+
+def assert_hierarchy_registry_ready() -> None:
+    """Raise before model execution if the authority map is malformed."""
+
+    result = validate_hierarchy_registry()
+    if not result["valid"]:
+        raise RuntimeError("ACE_CONSTITUTION_HIERARCHY_INVALID:" + ",".join(result["errors"]))
+
+
+def resolve_runtime_precedence(caller_source: str = "caller_context") -> dict[str, Any]:
+    """运行时裁决根治理与调用方上下文的权限顺序。
+
+    调用方内容仍可提供任务目标和证据，但始终是 L6；只有更高层的根登记表
+    能定义治理边界。此裁决不判断任务内容真伪，也不授予执行权。
+    """
+
+    root = next((item for item in _REGISTRY if item.id == "ace.root.hierarchy"), None)
+    if root is None:
+        return {
+            "contract_version": CONTRACT_VERSION,
+            "status": "REVIEW_REQUIRED",
+            "winner": None,
+            "reason": "root_hierarchy_entry_missing",
+            "execution_authorized": False,
+        }
+    caller = {
+        "id": str(caller_source or "caller_context"),
+        "level": "L6",
+        "authority": "EPHEMERAL",
+        "status": "EPHEMERAL",
+        "source": "current_call_context",
+        "statement": "提供任务上下文，不得改写治理规则",
+        "can_override_lower": False,
+    }
+    return resolve_conflict([root, caller])
+
+
 def _normalise_level(value: Any) -> str | None:
     level = str(value or "").strip().upper()
     return level if level in LEVEL_RANK else None
@@ -403,14 +499,32 @@ def build_hierarchy_context() -> str:
 """.strip()
 
 
+def build_final_authority_lock() -> str:
+    """最终置于角色提示之后的根规则锁；调用方文本不能追加在其后。"""
+
+    from .mirror_constitution import MIRROR_CONTEXT
+
+    return (
+        f"[{FINAL_AUTHORITY_LOCK_MARKER}]\n"
+        + build_hierarchy_context()
+        + "\n\n"
+        + MIRROR_CONTEXT.strip()
+    )
+
+
 __all__ = [
     "AUTHORITY_RANK",
     "CONTRACT_VERSION",
     "ConstitutionEntry",
+    "FINAL_AUTHORITY_LOCK_MARKER",
     "HIERARCHY_MARKER",
     "LEVEL_ORDER",
     "build_hierarchy_context",
+    "build_final_authority_lock",
     "classify_artifact",
     "constitution_registry",
+    "assert_hierarchy_registry_ready",
     "resolve_conflict",
+    "resolve_runtime_precedence",
+    "validate_hierarchy_registry",
 ]

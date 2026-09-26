@@ -216,8 +216,28 @@ def call_assistant(user_text: str, model: str | None = None) -> dict[str, Any]:
 
     config = resolve_assistant_config(model=model)
     provider = OpenAICompatibleProvider(api_key=config.api_key, base_url=config.base_url, provider_name=config.provider)
+    from core.execution_contract import ensure_execution_contract, normalize_untrusted_messages
+
+    raw_messages = build_messages(user_text)
+    caller_system = "\n\n".join(
+        str(message.get("content", ""))
+        for message in raw_messages
+        if isinstance(message, dict) and str(message.get("role", "")).lower() == "system"
+    )
+    task_messages = normalize_untrusted_messages(
+        [
+            message
+            for message in raw_messages
+            if not (isinstance(message, dict) and str(message.get("role", "")).lower() == "system")
+        ]
+    )
+    system_prompt = ensure_execution_contract(
+        caller_system,
+        task_type="assistant_response",
+        role="ace_assistant_execution_node",
+    )
     result = provider.chat(
-        messages=build_messages(user_text),
+        messages=[{"role": "system", "content": system_prompt}, *task_messages],
         model=config.model,
         temperature=config.temperature,
         max_tokens=config.max_tokens,
