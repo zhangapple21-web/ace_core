@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Optional
 import json
 
+from .constitution_hierarchy import HIERARCHY_MARKER, build_hierarchy_context
 from .mirror_constitution import MIRROR_CONTEXT
 
 
@@ -61,6 +62,7 @@ def build_execution_system_prompt(
     sections = [
         f"[ACE_EXECUTION_CONTRACT version={CONTRACT_VERSION}]",
         BASE_CONTRACT.strip(),
+        "[ACE_CONSTITUTION_HIERARCHY]\n" + build_hierarchy_context(),
         "[ACE_MIRROR_CONSTITUTION]\n" + MIRROR_CONTEXT.strip(),
         f"当前岗位：{role or 'unspecified'}\n任务类型：{task_type or 'unspecified'}\n任务标识：{task_id or 'unspecified'}",
     ]
@@ -86,7 +88,9 @@ def ensure_execution_contract(
         # predate the root mirror context. Append it once instead of silently
         # letting an old contract bypass the new learning/guard boundary.
         if "ACE-MIRROR-CONSTITUTION-1.0" not in prompt:
-            return prompt + "\n\n根级镜子宪法：\n" + MIRROR_CONTEXT.strip()
+            prompt += "\n\n根级镜子宪法：\n" + MIRROR_CONTEXT.strip()
+        if HIERARCHY_MARKER not in prompt:
+            prompt += "\n\n根级宪法层级：\n" + build_hierarchy_context()
         return prompt
     return build_execution_system_prompt(
         role=role,

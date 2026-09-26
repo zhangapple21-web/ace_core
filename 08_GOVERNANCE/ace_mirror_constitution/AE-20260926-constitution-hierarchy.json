@@ -1,0 +1,57 @@
+{
+  "receipt_type": "ACE_GOVERNANCE_EVALUATION",
+  "receipt_id": "AE-20260926-constitution-hierarchy",
+  "contract_version": "ace.constitution_hierarchy.v1",
+  "change": {
+    "title": "把多本宪法收敛为可执行的 L0-L6 层级与冲突裁决",
+    "baseline": {
+      "fact": "根级文档、认知协议、运行时实现、历史原则、状态和任务输入已经存在，但没有统一登记表、跨窗口加载顺序或同级冲突的 fail-closed 裁决器",
+      "evidence": [
+        "00_ROOT/COGNITIVE_CHARTER.md",
+        "00_ROOT/PRINCIPLES.md",
+        "00_ROOT/ROOT_STATE.md",
+        "docs/ACE_COGNITIVE_EXECUTION_PROTOCOL.v1.md",
+        "core/governance/constitution.py"
+      ]
+    },
+    "implementation": [
+      "00_ROOT/ACE_CONSTITUTION_HIERARCHY.v1.md",
+      "core/constitution_hierarchy.py",
+      "AGENTS.md",
+      "core/execution_contract.py",
+      "ops/test_constitution_hierarchy.py"
+    ]
+  },
+  "test": {
+    "focused": "20 passed",
+    "full_ops": "881 passed in 524.79s",
+    "commands": [
+      "py -3 -m pytest -q ops/test_constitution_hierarchy.py ops/test_execution_contract.py ops/test_mirror_constitution.py",
+      "py -3 -m pytest -q ops"
+    ]
+  },
+  "evaluation": {
+    "status": "PASS",
+    "measurable_gain": [
+      "正式执行契约现在自动携带同一份 L0-L6 层级和冲突语义",
+      "同层同权矛盾候选返回 NEEDS_REVIEW，不再静默猜测",
+      "历史 R1 原则、旧未接线宪法实现和自由区种子被明确隔离为参考来源",
+      "任务/窗口/模型/Provider 被固定为 L6 叶片，不能获得治理权"
+    ],
+    "regressions": [],
+    "promotion": "PROMOTE_TO_CURRENT_GOVERNANCE_BASELINE"
+  },
+  "painful_review": {
+    "specific_cost": "多窗口各自读取规则时可能产生不同解释，导致低层任务或模型输出遮蔽根边界",
+    "impact_scope": "所有正式模型调用、窗口启动、历史协议解释和治理候选冲突",
+    "counterfactual_if_unblocked": "R1 历史原则或临时任务可以被误当作当前授权，形成第二个治理入口并造成跨窗口串线",
+    "recurrence_risk": "中高；只写文档而不接执行契约时会随新窗口和新 Provider 再次出现",
+    "reusable_lesson": "宪法层级必须同时有登记表、加载顺序、运行时注入和 fail-closed 测试，单独增加理念文档不算修复",
+    "remaining_unknowns": "尚未证明外部历史仓库的每一份协议都已被语义去重；未知来源按 L6/REVIEW_REQUIRED 处理，不授予权限"
+  },
+  "authority": {
+    "execution_authorized": false,
+    "production_integration": false,
+    "governance_baseline": true
+  }
+}

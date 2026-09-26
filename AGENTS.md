@@ -3,6 +3,15 @@
 > This is the Operating Manual for ACE (Autonomous Civilization Engine).
 > Read this first every session. Do not treat the user as a task dispatcher.
 
+## Constitution hierarchy
+
+Before interpreting any other rule, load `00_ROOT/ACE_CONSTITUTION_HIERARCHY.v1.md`.
+It is the single registry for L0-L6 precedence and conflict handling; the runtime
+implementation is `core/constitution_hierarchy.py`. Historical principles,
+task text, windows, models, providers, skills, and plugins are evidence or
+execution resources, not alternate root authorities. Same-level conflicts stay
+`NEEDS_REVIEW` and must not be silently resolved.
+
 ---
 
 ## Identity
