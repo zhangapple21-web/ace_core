@@ -19,6 +19,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Mapping, Optional
 
+from .prediction_error_contract import (
+    append_prediction_receipt,
+    build_prediction_receipt,
+)
+
 
 CONTRACT_VERSION = "ace.closed_loop_engine.v1"
 DECISIONS = {
@@ -29,6 +34,8 @@ DECISIONS = {
     "ROLLBACK_REQUIRED",
     "BLOCKED_MISSING_BASELINE",
     "BLOCKED_MISSING_EVALUATION",
+    "BLOCKED_PREDICTION_MISMATCH",
+    "BLOCKED_PREDICTION_UNKNOWN",
 }
 PAINFUL_REVIEW_FIELDS = (
     "cost",
@@ -73,6 +80,7 @@ class CycleReceipt:
     painful_review: Dict[str, Any]
     decision: str
     next_observation: Dict[str, Any]
+    prediction_error: Dict[str, Any] = field(default_factory=dict)
     receipt_hash: str = ""
 
     def to_dict(self) -> Dict[str, Any]:
@@ -101,6 +109,7 @@ class ClosedLoopEngine:
         self.ledger_path = self.knowledge_dir / "cycle_receipts.jsonl"
         self.failure_path = self.knowledge_dir / "failure_replay.jsonl"
         self.growth_path = self.knowledge_dir / "capability_growth.jsonl"
+        self.prediction_path = self.knowledge_dir / "prediction_error_receipts.jsonl"
         self.state_path = self.runtime_dir / "state.json"
 
     def decompose(
@@ -234,10 +243,38 @@ class ClosedLoopEngine:
         directions: Optional[Mapping[str, str]] = None,
         change: Optional[Mapping[str, Any]] = None,
         tolerance: float = 0.0,
+        prediction: Optional[Mapping[str, Any]] = None,
     ) -> Dict[str, Any]:
         nodes = self.decompose(observation, objective, work_items)
         evaluation = self.evaluate(baseline, changed, directions, tolerance)
         decision = self.decide(evaluation, painful_review)
+        prediction_error: Dict[str, Any] = {}
+        if prediction is not None:
+            if not isinstance(prediction, Mapping):
+                raise ValueError("prediction_must_be_mapping")
+            prediction_error = build_prediction_receipt(
+                subject=str(prediction.get("subject") or objective),
+                expected_state=prediction.get("expected_state") if isinstance(prediction.get("expected_state"), Mapping) else {},
+                success_observables=prediction.get("success_observables") or [],
+                actual_observation=prediction.get("actual_observation") if isinstance(prediction.get("actual_observation"), Mapping) else None,
+                resource_budget=prediction.get("resource_budget") if isinstance(prediction.get("resource_budget"), Mapping) else None,
+                observation_refs=prediction.get("observation_refs"),
+                experience_ref=str(prediction.get("experience_ref") or ""),
+                decision_hint=str(prediction.get("decision_hint") or "") or None,
+                prediction_id=str(prediction.get("prediction_id") or ""),
+            )
+            append_prediction_receipt(prediction_error, self.prediction_path)
+            # A metric improvement cannot outrank a failed or unverified
+            # reality observation.  This is the bridge from prediction error
+            # into the existing promotion gate, without inventing a second
+            # promotion system.
+            prediction_decision = prediction_error["decision"]
+            if prediction_decision == "ROLLBACK":
+                decision = "ROLLBACK_REQUIRED"
+            elif prediction_decision == "UNKNOWN" and decision == "PROMOTED_TO_CAPABILITY_GROWTH":
+                decision = "BLOCKED_PREDICTION_UNKNOWN"
+            elif prediction_decision == "RETRY" and decision == "PROMOTED_TO_CAPABILITY_GROWTH":
+                decision = "BLOCKED_PREDICTION_MISMATCH"
         created_at = _now()
         cycle_id = f"CLC-{datetime.now().strftime('%Y%m%d%H%M%S')}-{_hash({'objective': objective, 'observation': observation})}"
         next_observation = self._next_observation(cycle_id, objective, decision, evaluation, painful_review)
@@ -254,14 +291,15 @@ class ClosedLoopEngine:
             painful_review=dict(painful_review),
             decision=decision,
             next_observation=next_observation,
+            prediction_error=prediction_error,
         )
         payload = receipt.to_dict()
         self._append(self.ledger_path, payload)
         if decision == "PROMOTED_TO_CAPABILITY_GROWTH":
             self._append(self.growth_path, {"cycle_id": cycle_id, "objective": objective, "decision": decision, "evaluation": evaluation, "lesson": painful_review.get("reusable_lesson"), "recorded_at": created_at})
         else:
-            self._append(self.failure_path, {"cycle_id": cycle_id, "objective": objective, "decision": decision, "evaluation": evaluation, "painful_review": dict(painful_review), "recorded_at": created_at})
-        self._write_state({"last_cycle_id": cycle_id, "last_decision": decision, "next_observation": next_observation, "updated_at": created_at})
+            self._append(self.failure_path, {"cycle_id": cycle_id, "objective": objective, "decision": decision, "evaluation": evaluation, "painful_review": dict(painful_review), "prediction_error": prediction_error, "recorded_at": created_at})
+        self._write_state({"last_cycle_id": cycle_id, "last_decision": decision, "next_observation": next_observation, "prediction_id": prediction_error.get("prediction_id", ""), "updated_at": created_at})
         return payload
 
     @staticmethod
@@ -270,6 +308,10 @@ class ClosedLoopEngine:
             action = "在下一个相似场景复测，确认能力没有回归"
         elif decision == "ROLLBACK_REQUIRED":
             action = "执行回滚并复现失败，禁止把本次改动当作经验"
+        elif decision == "BLOCKED_PREDICTION_MISMATCH":
+            action = "保留偏差收据，修复动作或参数后重试，不得晋升本次改动"
+        elif decision == "BLOCKED_PREDICTION_UNKNOWN":
+            action = "补采真实观测；在观测到结果前保持 UNKNOWN，不得晋升"
         else:
             action = "保留为失败/未知样本，等待新证据，不重复盲改"
         return {

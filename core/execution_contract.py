@@ -35,6 +35,7 @@ thinking_grants_execution 永不成立。模型调用属于思考/判断，不�
 4. 不自行改变 TaskPool 准入、生产权限、身份、连续性锚点、路由策略或安全边界。
 5. 输出必须能被下一阶段验证：指出证据、反证、未知、建议的最小验证和停止条件。
 6. 只能提交研究结果和收据；是否采纳、归档、晋升、回滚由 ACE 的既有 Validator/Guardian 流程决定。
+7. 对任何会改变外部状态的行动，尽量同时声明 expected_state、success_observables、resource_budget；行动完成后必须回填 actual_observation 和 mismatch。缺少真实观测时保持 UNKNOWN，不得把调用成功或文字完整当作现实成功。
 
 期望输出结构（可以是 JSON 或清晰的分段文本）：
 - facts：直接事实

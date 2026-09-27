@@ -84,3 +84,42 @@ def test_missing_retain_flag_cannot_promote(tmp_path):
     incomplete.pop("retain")
     receipt = engine.run_cycle({"source": "test"}, "没有保留结论", {"quality": 1}, {"quality": 2}, incomplete)
     assert receipt["decision"] == "REJECTED_MISSING_PAINFUL_REVIEW"
+
+
+def test_prediction_mismatch_blocks_metric_promotion_and_writes_receipt(tmp_path):
+    engine = ClosedLoopEngine(tmp_path / "ace")
+    receipt = engine.run_cycle(
+        {"source": "test", "failure": "表演平淡"},
+        "修复镜头表演",
+        {"quality": 0.5},
+        {"quality": 0.8},
+        review(),
+        prediction={
+            "expected_state": {"performance": {"action": "raise_hand"}},
+            "success_observables": [{"name": "action", "path": "performance.action"}],
+            "observation_refs": ["test://shot/001/readback"],
+            "actual_observation": {"performance": {"action": "none"}},
+        },
+    )
+    assert receipt["decision"] == "BLOCKED_PREDICTION_MISMATCH"
+    assert receipt["prediction_error"]["decision"] == "RETRY"
+    assert (tmp_path / "ace" / "09_KNOWLEDGE" / "closed_loop" / "prediction_error_receipts.jsonl").exists()
+    assert not (tmp_path / "ace" / "09_KNOWLEDGE" / "closed_loop" / "capability_growth.jsonl").exists()
+
+
+def test_prediction_unknown_blocks_metric_promotion(tmp_path):
+    engine = ClosedLoopEngine(tmp_path / "ace")
+    receipt = engine.run_cycle(
+        {"source": "test"},
+        "验证真实结果",
+        {"quality": 0.5},
+        {"quality": 0.8},
+        review(),
+        prediction={
+            "expected_state": {"result": "visible"},
+            "success_observables": [{"name": "result", "path": "result"}],
+            "observation_refs": ["test://shot/002/readback"],
+            "actual_observation": {},
+        },
+    )
+    assert receipt["decision"] == "BLOCKED_PREDICTION_UNKNOWN"
