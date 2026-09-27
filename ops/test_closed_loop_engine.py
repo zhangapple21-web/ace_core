@@ -1,4 +1,21 @@
 from core.closed_loop_engine import ClosedLoopEngine
+import hashlib
+import json
+
+
+def observation_ref(tmp_path, actual, name):
+    envelope = {
+        "actual_observation": actual,
+        "observation_sha256": hashlib.sha256(json.dumps(actual, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest(),
+    }
+    path = tmp_path / name
+    path.write_text(json.dumps(envelope, ensure_ascii=False, sort_keys=True), encoding="utf-8")
+    return [{
+        "ref": str(path),
+        "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+        "verification_method": "test_runner",
+        "producer_role": "test_runner",
+    }]
 
 
 def review(**overrides):
@@ -88,6 +105,7 @@ def test_missing_retain_flag_cannot_promote(tmp_path):
 
 def test_prediction_mismatch_blocks_metric_promotion_and_writes_receipt(tmp_path):
     engine = ClosedLoopEngine(tmp_path / "ace")
+    actual = {"performance": {"action": "none"}}
     receipt = engine.run_cycle(
         {"source": "test", "failure": "表演平淡"},
         "修复镜头表演",
@@ -97,8 +115,8 @@ def test_prediction_mismatch_blocks_metric_promotion_and_writes_receipt(tmp_path
         prediction={
             "expected_state": {"performance": {"action": "raise_hand"}},
             "success_observables": [{"name": "action", "path": "performance.action"}],
-            "observation_refs": ["test://shot/001/readback"],
-            "actual_observation": {"performance": {"action": "none"}},
+            "observation_refs": observation_ref(tmp_path, actual, "shot-001-readback.json"),
+            "actual_observation": actual,
         },
     )
     assert receipt["decision"] == "BLOCKED_PREDICTION_MISMATCH"
@@ -109,6 +127,7 @@ def test_prediction_mismatch_blocks_metric_promotion_and_writes_receipt(tmp_path
 
 def test_prediction_unknown_blocks_metric_promotion(tmp_path):
     engine = ClosedLoopEngine(tmp_path / "ace")
+    actual = {}
     receipt = engine.run_cycle(
         {"source": "test"},
         "验证真实结果",
@@ -118,8 +137,8 @@ def test_prediction_unknown_blocks_metric_promotion(tmp_path):
         prediction={
             "expected_state": {"result": "visible"},
             "success_observables": [{"name": "result", "path": "result"}],
-            "observation_refs": ["test://shot/002/readback"],
-            "actual_observation": {},
+            "observation_refs": observation_ref(tmp_path, actual, "shot-002-readback.json"),
+            "actual_observation": actual,
         },
     )
     assert receipt["decision"] == "BLOCKED_PREDICTION_UNKNOWN"

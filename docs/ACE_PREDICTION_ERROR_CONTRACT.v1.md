@@ -40,7 +40,12 @@ prediction = {
         {"name": "hand_action", "path": "performance.hand_action"},
         {"name": "listener_reaction", "path": "performance.listener_reaction", "severity": "critical"},
     ],
-    "observation_refs": ["video_receipt://shot-001/readback"],
+    "observation_refs": [{
+        "ref": "D:/video-receipts/shot-001-readback.json",
+        "sha256": "<file sha256>",
+        "verification_method": "media_probe",
+        "producer_role": "independent_qc"
+    }],
     "actual_observation": {
         "performance": {"hand_action": "raise_hand", "listener_reaction": "none"}
     },
@@ -55,8 +60,14 @@ prediction = {
 - 标记 `severity=critical` 或 `rollback_required=true` 的偏差 → `ROLLBACK`；
 - 缺真实观测或预期值 → `UNKNOWN`。
 
-`observation_refs` 是真实回读、测试产物或审核收据的可追踪引用。没有它，
-即使传入的字段碰巧匹配，也只能是 `UNKNOWN`，不能让指标闭环晋升。
+`observation_refs` 不是一个随手填写的 URL，而是可回读的本地 JSON envelope：
+文件必须存在、SHA-256 必须匹配，内容必须携带
+`actual_observation` 和 `observation_sha256`。`verification_method` 只能使用
+`deterministic_readback`、`independent_qc`、`media_probe`、`test_runner` 或
+`provider_receipt`；`model`/`llm`/`agent` 自报永远不能成为 VERIFIED。
+
+没有可回读文件、文件被改动、观测摘要不匹配、或模型自报时，即使传入字段碰巧
+匹配，也只能是 `UNKNOWN`，不能让指标闭环晋升。
 
 当 `ClosedLoopEngine` 收到 `prediction` 时，`RETRY`/`UNKNOWN` 会阻断能力晋升，
 `ROLLBACK` 会转成既有的 `ROLLBACK_REQUIRED`。因此一次指标改善不能掩盖现实

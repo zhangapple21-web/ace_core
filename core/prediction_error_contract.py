@@ -24,6 +24,21 @@ CONTRACT_VERSION = "ace.prediction_error.v1"
 SCHEMA = CONTRACT_VERSION
 DECISIONS = {"KEEP", "RETRY", "ROLLBACK", "UNKNOWN"}
 OBSERVATION_STATUSES = {"MATCHED", "MISMATCHED", "UNKNOWN"}
+OBSERVATION_VERIFICATION_STATUSES = {"VERIFIED", "UNVERIFIED", "CONFLICT"}
+VERIFIER_METHODS = {
+    "deterministic_readback",
+    "independent_qc",
+    "media_probe",
+    "test_runner",
+    "provider_receipt",
+}
+FORBIDDEN_PRODUCER_ROLES = {
+    "model",
+    "llm",
+    "agent",
+    "model_output",
+    "model_assertion",
+}
 _MISSING = object()
 
 
@@ -61,18 +76,123 @@ def _display(value: Any) -> Any:
     return "<MISSING>" if value is _MISSING else value
 
 
-def _refs(value: Iterable[Any] | str | None) -> list[str]:
+def _evidence_specs(value: Iterable[Any] | str | None) -> list[dict[str, Any]]:
+    """把证据引用标准化；纯字符串引用明确标为不可验证。"""
+
     if value is None:
         return []
     raw = [value] if isinstance(value, str) else value
     if not isinstance(raw, (list, tuple, set)):
         return []
-    result: list[str] = []
+    specs: list[dict[str, Any]] = []
     for item in raw:
-        text = str(item or "").strip()
-        if text and text not in result:
-            result.append(text)
-    return result
+        if isinstance(item, Mapping):
+            spec = dict(item)
+            ref = str(spec.get("path") or spec.get("ref") or "").strip()
+            if ref:
+                spec["ref"] = ref
+            specs.append(spec)
+        else:
+            ref = str(item or "").strip()
+            if ref:
+                specs.append({"ref": ref, "verification_status": "UNVERIFIED"})
+    return specs
+
+
+def _file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def verify_observation_evidence(
+    refs: Iterable[Any] | str | None,
+    supplied_actual: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    """验证观测引用是否能在本地被独立回读。
+
+    仅有一个 ``observation_refs`` 字符串不是证据。可验证引用必须指向
+    仍然存在的 JSON envelope，且提供文件 SHA-256、允许的独立 verifier
+    方法，以及与 envelope 中 ``actual_observation`` 完全一致的摘要。
+    模型/Agent 自己声明的输出永远不会成为 VERIFIED。
+    """
+
+    specs = _evidence_specs(refs)
+    if not specs:
+        return {"status": "UNVERIFIED", "reason": "observation_reference_missing", "refs": []}
+    errors: list[str] = []
+    observations: list[dict[str, Any]] = []
+    verified_refs: list[dict[str, Any]] = []
+    for index, spec in enumerate(specs, start=1):
+        ref = str(spec.get("ref") or "").strip()
+        if not ref:
+            errors.append(f"ref_missing:{index}")
+            continue
+        method = str(spec.get("verification_method") or "").strip().lower()
+        producer = str(spec.get("producer_role") or "").strip().lower()
+        if producer in FORBIDDEN_PRODUCER_ROLES or method not in VERIFIER_METHODS:
+            errors.append(f"untrusted_verifier:{index}")
+            continue
+        if "://" in ref and not ref.lower().startswith("file://"):
+            errors.append(f"non_local_evidence:{index}")
+            continue
+        path_text = ref[7:] if ref.lower().startswith("file://") else ref
+        path = Path(path_text).expanduser()
+        try:
+            path = path.resolve()
+        except OSError:
+            errors.append(f"evidence_path_unresolvable:{index}")
+            continue
+        if not path.is_file():
+            errors.append(f"evidence_file_missing:{index}")
+            continue
+        expected_file_hash = str(spec.get("sha256") or "").strip().lower()
+        if not expected_file_hash:
+            errors.append(f"evidence_file_hash_missing:{index}")
+            continue
+        actual_file_hash = _file_sha256(path)
+        if actual_file_hash != expected_file_hash:
+            errors.append(f"evidence_file_hash_mismatch:{index}")
+            continue
+        try:
+            envelope = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError):
+            errors.append(f"evidence_json_unreadable:{index}")
+            continue
+        if not isinstance(envelope, Mapping) or not isinstance(envelope.get("actual_observation"), Mapping):
+            errors.append(f"evidence_envelope_invalid:{index}")
+            continue
+        observed = dict(envelope["actual_observation"])
+        observed_hash = str(envelope.get("observation_sha256") or "").strip().lower()
+        if not observed_hash or observed_hash != _sha(observed):
+            errors.append(f"evidence_observation_hash_invalid:{index}")
+            continue
+        if isinstance(supplied_actual, Mapping) and dict(supplied_actual) != observed:
+            errors.append(f"actual_observation_conflict:{index}")
+            continue
+        observations.append(observed)
+        verified_refs.append({
+            "ref": str(path),
+            "sha256": actual_file_hash,
+            "verification_method": method,
+            "producer_role": producer,
+            "observation_sha256": observed_hash,
+        })
+    if errors:
+        return {"status": "CONFLICT" if any("conflict" in item for item in errors) else "UNVERIFIED", "errors": errors, "refs": verified_refs}
+    if not observations:
+        return {"status": "UNVERIFIED", "reason": "no_verifiable_observation", "refs": []}
+    first = observations[0]
+    if any(item != first for item in observations[1:]):
+        return {"status": "CONFLICT", "reason": "independent_observations_disagree", "refs": verified_refs}
+    return {
+        "status": "VERIFIED",
+        "refs": verified_refs,
+        "actual_observation": first,
+        "observation_sha256": _sha(first),
+    }
 
 
 def _observable_specs(value: Iterable[Mapping[str, Any]] | Mapping[str, Any] | None) -> list[dict[str, Any]]:
@@ -225,15 +345,21 @@ def build_prediction_receipt(
     specs = _observable_specs(success_observables)
     if not specs:
         raise ValueError("success_observables_required")
-    actual = actual_observation if isinstance(actual_observation, Mapping) else {}
-    comparison = compare_prediction(expected_state, actual_observation, specs)
-    decision = _derive_decision(comparison, specs, decision_hint)
-    refs = _refs(observation_refs)
+    supplied_actual = dict(actual_observation) if isinstance(actual_observation, Mapping) else None
+    observation_verification = verify_observation_evidence(observation_refs, supplied_actual)
+    if observation_verification.get("status") == "VERIFIED":
+        actual = dict(observation_verification["actual_observation"])
+    else:
+        actual = supplied_actual or {}
     # A payload supplied by a caller is not automatically a reality observation.
-    # Without a traceable readback/receipt reference, keep the epistemic status
-    # UNKNOWN even when the values happen to match.
-    if not refs:
+    # Only a locally re-readable, hash-bound envelope from an allowed verifier
+    # can close the epistemic gap.  A model-generated JSON and a bare URL remain
+    # UNKNOWN even when all fields happen to match.
+    comparison = compare_prediction(expected_state, actual, specs)
+    decision = _derive_decision(comparison, specs, decision_hint)
+    if observation_verification.get("status") != "VERIFIED":
         decision = "UNKNOWN"
+    refs = observation_verification.get("refs", [])
     semantic = {
         "subject": subject,
         "expected_state": dict(expected_state),
@@ -257,7 +383,8 @@ def build_prediction_receipt(
         "success_observables": specs,
         "resource_budget": dict(resource_budget or {}),
         "observation_refs": refs,
-        "observation_verified": bool(refs),
+        "observation_verification": observation_verification,
+        "observation_verified": observation_verification.get("status") == "VERIFIED",
         "actual_observation": dict(actual),
         "comparison": comparison,
         "mismatch": comparison["status"] == "MISMATCHED",
@@ -288,10 +415,16 @@ def validate_prediction_receipt(receipt: Mapping[str, Any] | None) -> dict[str, 
     specs = item.get("success_observables")
     comparison = compare_prediction(expected, actual, specs)
     derived = _derive_decision(comparison, _observable_specs(specs), decision)
-    if not _refs(item.get("observation_refs")):
+    verification = verify_observation_evidence(item.get("observation_refs"), actual)
+    if verification.get("status") != "VERIFIED":
         derived = "UNKNOWN"
+    elif dict(actual or {}) != dict(verification.get("actual_observation") or {}):
+        raise ValueError("prediction_receipt_observation_conflict")
     if derived != decision:
         raise ValueError("prediction_receipt_decision_mismatch")
+    supplied_verification = item.get("observation_verification")
+    if supplied_verification != verification:
+        raise ValueError("prediction_receipt_verification_mismatch")
     supplied_comparison = item.get("comparison")
     if supplied_comparison != comparison:
         raise ValueError("prediction_receipt_comparison_mismatch")
@@ -331,9 +464,11 @@ __all__ = [
     "CONTRACT_VERSION",
     "DECISIONS",
     "OBSERVATION_STATUSES",
+    "OBSERVATION_VERIFICATION_STATUSES",
     "SCHEMA",
     "append_prediction_receipt",
     "build_prediction_receipt",
     "compare_prediction",
     "validate_prediction_receipt",
+    "verify_observation_evidence",
 ]
