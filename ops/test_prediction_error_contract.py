@@ -151,7 +151,7 @@ def test_append_is_idempotent(tmp_path):
     assert append_prediction_receipt(receipt, out)["added"] == 0
     lines = out.read_text(encoding="utf-8").splitlines()
     assert len(lines) == 1
-    assert json.loads(lines[0])["schema"] == "ace.prediction_error.v1"
+    assert json.loads(lines[0])["schema"] == "ace.prediction_error.v1.1"
 
 
 def test_compare_prediction_does_not_treat_false_as_missing():

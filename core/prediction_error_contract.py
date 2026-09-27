@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping
 
 
-CONTRACT_VERSION = "ace.prediction_error.v1"
+CONTRACT_VERSION = "ace.prediction_error.v1.1"
 SCHEMA = CONTRACT_VERSION
 DECISIONS = {"KEEP", "RETRY", "ROLLBACK", "UNKNOWN"}
 OBSERVATION_STATUSES = {"MATCHED", "MISMATCHED", "UNKNOWN"}
