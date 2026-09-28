@@ -32,6 +32,7 @@ from __future__ import annotations
 import hashlib
 import json
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from .execution_discipline import (
@@ -88,6 +89,127 @@ _PORT_FORBIDDEN = [
     "不要把模型输出、报告或本胶囊自身当成已验证事实。",
     "不要执行胶囊 boundary 之外或 external_side_effects 未授权的动作。",
 ]
+
+# The capsule is written for a worker that has a shell and nothing else, so its
+# return protocol must name the port that worker can actually run.  This window
+# built ``ops/worker_capsule_cli.py`` for exactly that reason; a capsule that
+# only says ``TaskPool.renew_lease(...)`` hands the worker a brief it cannot
+# execute and pushes it back into writing Python (capability 3/4/11 of
+# ACE-QWEN-FIELD-01).  Repo root is static, so filling it in keeps the capsule
+# hash clock-free and therefore reproducible.
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+_PORT_MODULE = "ops.worker_capsule_cli"
+_PORT_PY = "py -3.11"
+
+# One-line meaning per submit key.  The *list* of keys stays
+# ``ALLOWED_SUBMIT_KEYS`` (the ruler ``submit_task_capsule_result`` actually
+# checks against); these entries only describe it, and a key that gains no
+# description is caught by a fixture rather than silently going undocumented.
+_SUBMIT_KEY_HINTS: Dict[str, str] = {
+    "summary": "一句话结论；只交 summary 也算交回（全空会被拒）",
+    "facts": "字符串列表：本次得到的事实，落进 evidence_ledger 的 result 桶",
+    "evidence": "列表，每项 {content, source} 或字符串；没有 source 的一律拒收",
+    "unknowns": "字符串列表：不清楚的就原样交回，不要自己补事实",
+    "objections": "字符串列表：对本次假设/做法的反对意见",
+    "next_verification": "字符串：下一步该怎么复算这件事",
+    "stop_condition": "字符串：什么条件下这条任务该停",
+    "checkpoint_name": "字符串：本次交回的检查点名（省略则 worker_submission）",
+    "transition": "review / blocked / pending / 空串（默认 review），其余值拒",
+    "reason": "字符串：本次交回或转换的一句话理由",
+}
+_NO_DESCRIPTION = "(no description recorded)"
+
+
+def pool_face(task_pool: Any) -> str:
+    """The directory this render is reading, for copy-paste-ready port commands."""
+
+    return str(getattr(task_pool, "pool_dir", "") or "<pool目录>")
+
+
+def port_prefix(task_pool: Any) -> str:
+    return f'cd "{_REPO_ROOT}" && {_PORT_PY} -m {_PORT_MODULE} --pool "{pool_face(task_pool)}"'
+
+
+def _return_protocol_lines(task_pool: Any, task_id: str, claim_id: str, fencing_token: int, owner: str) -> List[str]:
+    """The shell-shaped way back, one self-contained pasteable command per action.
+
+    Two hard-won shapes, both measured rather than designed:
+
+    * ``<占位>`` is input redirection in Windows cmd and ``a|b`` is a pipe, so a
+      line carrying either exits 1 with no JSON at all -- which is worse than
+      silent because the worker cannot tell a broken instruction from a refused
+      one.  Holes are 【...】, enumerations use ``/``.
+    * Prose on the same line as a command is part of the paste.  The first
+      version of this face appended「（只读，……）」to the ``recover`` line and the
+      literal-paste fixture fed argparse ``claim/token 一起还给你）`` as arguments.
+      So each command sits alone on its own indented line, and each carries the
+      whole prefix: a worker never has to assemble two lines into one command.
+
+    Credentials come from the stored record, so the only things left to fill in
+    are the file the worker wrote and the hash on its own render receipt.
+    """
+
+    actor = owner or "【你的worker名】"
+    prefix = port_prefix(task_pool)
+    creds = f"--task-id {task_id} --claim {claim_id} --token {int(fencing_token)}"
+
+    def command(label: str, tail: str) -> List[str]:
+        return [f"- {label}:", f"    {prefix} {tail}"]
+
+    return [
+        *command("找下一件活", "list-pending"),
+        *command("还没做完，续租", f"renew {creds} --owner {actor} --lease 300"),
+        *command(
+            "做完了，交回（把两个【】换成你写的文件路径和本次回执里的 capsule_hash）",
+            f"submit {creds} --actor {actor} --payload-file 【结果.json 的路径】 --capsule-hash 【capsule_hash】",
+        ),
+        *command(
+            "做不动，别硬撑（--type 只能四选一，写错会被端口拒）",
+            f"fail {creds} --actor {actor} --reason 【一句话原因】 --type 【retryable/permanent/manual_gate/external_condition】",
+        ),
+        *command("忘了凭证（只读，把你仍持有的任务连 claim/token 一起还给你）", f"recover --owner {actor}"),
+        *command("租约过期（只重开自己这一件，不扫全池）", f"reclaim --task-id {task_id} --actor {actor}"),
+        "- 注意: claim/token 只随 start 与 renew 的回执更新，换了凭证本胶囊即作废；交回后用「找下一件活」那条接着跑。",
+    ]
+
+
+def _submit_payload_lines() -> List[str]:
+    """The accepted result shape, rendered from the key list the port enforces."""
+
+    return [f"- {key}: {_SUBMIT_KEY_HINTS.get(key, _NO_DESCRIPTION)}" for key in sorted(ALLOWED_SUBMIT_KEYS)]
+
+
+def _continuation(task_pool: Any, actor: str) -> Dict[str, Any]:
+    """Capability 11: tell a stateless worker what to do *after* it handed back.
+
+    A worker that finishes and then waits has, from ACE's point of view, died --
+    the loop only continues if the hand-back receipt itself points at the next
+    claimable work.  This is a read-only look at the same TaskPool; it ranks
+    nothing and claims nothing, because priority stays the pool's job.  A failed
+    read is reported as ``None`` rather than raised: the worker's write already
+    landed and must not be made to look undone by the courtesy of a hint.
+    """
+
+    prefix = port_prefix(task_pool)
+    listing: Dict[str, Any] = {"pending_now": None, "next_ids": [], "read_error": None}
+    try:
+        rows = list(task_pool.list_tasks(status="pending", limit=20) or [])
+        listing["pending_now"] = len(rows)
+        listing["next_ids"] = [str(getattr(row, "task_id", "")) for row in rows[:3] if getattr(row, "task_id", "")]
+    except Exception as error:  # pragma: no cover - defensive, the pool owns this read
+        listing["read_error"] = f"{type(error).__name__}: {_one_line(error)}"
+
+    listing["next_commands"] = [
+        f"{prefix} list-pending",
+        f"{prefix} start --task-id 【从 list-pending 里挑的 id】 --owner {actor}",
+        f"{prefix} render --task-id 【同一个 id】 --claim 【那次 start 的 claim_id】 --token 【它的 fencing_token】",
+    ]
+    listing["hint"] = (
+        "凭证只随 start 的回执来：上一件任务的 claim/token 在新任务上无效。"
+        "pending_now=0 就向治理窗报告无活可领，不要自建任务面、也不要重复建已在池里的同类任务"
+        "（create_task 撞查重时会静默返回同键的旧件，见队列卡 F05）。"
+    )
+    return listing
 
 
 def _now() -> datetime:
@@ -309,8 +431,9 @@ def recover_worker_leases(
                 "fencing_token": int(getattr(task, "fencing_token", 0) or 0),
                 "lease_seconds_remaining": round(seconds_remaining, 3) if seconds_remaining is not None else None,
                 "next_command": (
-                    f"python -m ops.worker_capsule_cli render --task-id {getattr(task, 'task_id', '')} "
-                    f"--claim {stored_claim} --token {int(getattr(task, 'fencing_token', 0) or 0)}"
+                    port_prefix(task_pool)
+                    + f" render --task-id {getattr(task, 'task_id', '')} "
+                    + f"--claim {stored_claim} --token {int(getattr(task, 'fencing_token', 0) or 0)}"
                 ),
             }
         )
@@ -320,7 +443,10 @@ def recover_worker_leases(
     else:
         hint = "no live lease held by this owner; run list-pending and start a task"
         if expired:
-            hint = "the lease is expired, not lost: reclaim your own task with 'reclaim --task-id <id> --owner <name>', then start again"
+            hint = (
+                "the lease is expired, not lost: reclaim your own task with "
+                "'reclaim --task-id 【任务id】 --actor 【你的worker名】', then start that task again"
+            )
         elif unleased:
             hint = "active records held by this owner carry no claim_id; run recover_incomplete_transitions then start again"
         elif candidates:
@@ -428,7 +554,7 @@ def reclaim_own_expired_lease(
         "previous_claim_id": stored_claim,
         "previous_fencing_token": previous_token,
         "stored_status": moved.status,
-        "next_command": f"python -m ops.worker_capsule_cli start --task-id {task_id} --owner {actor}",
+        "next_command": port_prefix(task_pool) + f" start --task-id {task_id} --owner {actor}",
         "runtime_mutation": True,
     }
 
@@ -597,26 +723,54 @@ def render_task_capsule(
     if pointers:
         lines.append("- tail: " + _one_line(json.dumps(pointers, ensure_ascii=False, sort_keys=True), 400))
 
+    # Everything below this line is port face, not project content: it is what
+    # tells the worker how to hand the task back alive.  A fat envelope must
+    # therefore cost the worker some known-facts, never the way out — so the
+    # budget is applied to the head only and this tail is reserved.  The tail is
+    # itself ordered commands-first, because a starved budget keeps its front.
+    protocol_start = len(lines)
+
+    lines.append("== RETURN PROTOCOL (shell 端口，照抄即可，不必写 Python) ==")
+    lines.extend(
+        _return_protocol_lines(
+            task_pool,
+            task_id,
+            str(authority["claim_id"]),
+            int(authority["fencing_token"]),
+            str(getattr(task, "lease_owner", "") or ""),
+        )
+    )
+
+    lines.append("== RESULT PAYLOAD (submit 的 --payload-file 只准这些键) ==")
+    lines.extend(_submit_payload_lines())
+
+    # Last inside the reserved block on purpose: when even the budget cannot hold
+    # the port face the tail is kept from its front, so the commands survive and
+    # this prose is what goes.  These four lines also live in the task record.
     lines.append("== FORBIDDEN ==")
     forbidden = list(ng_lines) + [f"- {row}" for row in _PORT_FORBIDDEN]
     lines.extend(forbidden)
 
-    lines.append("== RETURN PROTOCOL ==")
-    lines.append("- keep working: TaskPool.renew_lease(task_id, owner, claim_id, lease_seconds)")
-    lines.append("- hand back: core.worker_capsule.submit_task_capsule_result(...)")
-    lines.append("- cannot finish: TaskPool.fail_task(task_id, reason, actor, failure_type) with one of "
-                 "retryable/permanent/manual_gate/external_condition")
-    lines.append("- died mid-task: do nothing; reclaim_stale_leases returns the task to pending for the next worker")
     lines.append("== STOP ==")
     for condition in list(stop.get("conditions") or []):
         lines.append(f"- {_one_line(condition)}")
 
-    body = "\n".join(lines)
     total_lines = len(lines)
+    head_lines, tail_lines = lines[:protocol_start], lines[protocol_start:]
+    tail_text = "\n".join(tail_lines)
+    suffix = "\n[TRUNCATED_BY_BUDGET — 原文超出胶囊预算，未截断的信息仍完整保存在 task 记录里]"
+    body = "\n".join(lines)
     if len(body) > char_budget:
-        suffix = "\n[TRUNCATED_BY_BUDGET — 原文超出胶囊预算，未截断的信息仍完整保存在 task 记录里]"
-        keep = max(0, char_budget - len(suffix))
-        body = body[:keep] + suffix
+        if len(tail_text) + len(suffix) + 1 <= char_budget:
+            keep = char_budget - len(suffix) - len(tail_text) - 1
+            body = "\n".join(head_lines)[:keep] + suffix + "\n" + tail_text
+        else:
+            # The budget cannot carry both faces, so the way back wins: a capsule
+            # without a return protocol cannot be handed back at all, whereas one
+            # that lost some known-facts still can.  Reported, never silent.
+            marker = suffix.strip()
+            body = marker + "\n" + tail_text[: max(0, char_budget - len(marker) - 1)]
+            omitted["port_face_pressure"] = omitted.get("port_face_pressure", 0) + 1
         omitted["body"] = omitted.get("body", 0) + 1
 
     capsule_hash = _digest({"capsule_version": CAPSULE_VERSION, "task_id": task_id, "text": body})
@@ -628,7 +782,12 @@ def render_task_capsule(
         "capsule_hash": capsule_hash,
         "char_count": len(body),
         "char_budget": char_budget,
-        "line_count": total_lines,
+        # The minimum budget that still carries the whole port face; below it the
+        # caller is choosing to drop the way back, so say so instead of letting
+        # them discover it from a garbled capsule.
+        "protocol_floor_chars": len(tail_text) + len(suffix) + 1,
+        "line_count": body.count("\n") + 1,
+        "line_count_total": total_lines,
         "omitted": omitted,
         "next_stage": stage,
         "lease_seconds_remaining": round(seconds_remaining, 3) if seconds_remaining is not None else None,
@@ -809,5 +968,6 @@ def submit_task_capsule_result(
         "capsule_hash": str(seen_capsule_hash) if isinstance(seen_capsule_hash, str) and seen_capsule_hash else None,
         "transition": transition or None,
         "stored_status": getattr(moved, "status", None) if moved is not None else "active",
+        "continuation": _continuation(task_pool, actor),
         "runtime_mutation": True,
     }

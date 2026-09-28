@@ -24,13 +24,18 @@ credentials back.  ``reclaim`` then re-opens ONE task whose own lease has alread
 died -- deliberately not ``TaskPool.reclaim_stale_leases``, which sweeps the whole
 pool and is a scheduler's authority, not a worker's.
 
-    py -3.11 -m ops.worker_capsule_cli --pool <dir> list-pending
-    py -3.11 -m ops.worker_capsule_cli --pool <dir> start --task-id RQ-... --owner w1
-    py -3.11 -m ops.worker_capsule_cli --pool <dir> render --task-id RQ-... --claim <id> --token 1
-    py -3.11 -m ops.worker_capsule_cli --pool <dir> submit --task-id RQ-... --claim <id> \
-        --token 1 --actor w1 --payload-file p.json
-    py -3.11 -m ops.worker_capsule_cli --pool <dir> recover --owner w1
-    py -3.11 -m ops.worker_capsule_cli --pool <dir> reclaim --task-id RQ-... --actor w1
+One command per line, written so a worker can paste it into Windows cmd: the
+interpreter is ``py -3.11`` (there is no ``python`` on this runtime), a backslash
+is not a cmd line continuation, and ``<...>`` would be read as redirection -- so
+holes the caller must fill are shown as 【...】, never as angle brackets.
+
+    py -3.11 -m ops.worker_capsule_cli --pool 【池目录】 list-pending
+    py -3.11 -m ops.worker_capsule_cli --pool 【池目录】 start --task-id RQ-... --owner w1
+    py -3.11 -m ops.worker_capsule_cli --pool 【池目录】 render --task-id RQ-... --claim 【id】 --token 1
+    py -3.11 -m ops.worker_capsule_cli --pool 【池目录】 submit --task-id RQ-... --claim 【id】 --token 1 --actor w1 --payload-file p.json
+    py -3.11 -m ops.worker_capsule_cli --pool 【池目录】 fail --task-id RQ-... --claim 【id】 --token 1 --actor w1 --reason 机制上不可行 --type permanent
+    py -3.11 -m ops.worker_capsule_cli --pool 【池目录】 recover --owner w1
+    py -3.11 -m ops.worker_capsule_cli --pool 【池目录】 reclaim --task-id RQ-... --actor w1
 """
 
 from __future__ import annotations
@@ -50,6 +55,7 @@ from core.ace_start import ace_start  # noqa: E402
 from core.task import TaskPool  # noqa: E402
 from core.worker_capsule import (  # noqa: E402
     check_capsule_authority,
+    port_prefix,
     reclaim_own_expired_lease,
     recover_worker_leases,
     render_task_capsule,
@@ -190,7 +196,19 @@ def main(argv=None) -> int:
             }
             for task in pool.list_tasks(status="pending", limit=20)
         ]
-        return _emit({"status": "LISTED", "count": len(rows), "pending": rows})
+        return _emit(
+            {
+                "status": "LISTED",
+                "count": len(rows),
+                "pending": rows,
+                "next_step": (
+                    port_prefix(pool)
+                    + " start --task-id 【从上面挑一个 task_id】 --owner 【你的 worker 名】"
+                    if rows
+                    else "池里没有可领任务：向结构治理窗报告无活可领，不要自建任务面，也不要重建已在池里的同类任务"
+                ),
+            }
+        )
 
     if args.command == "recover":
         pool = _pool(args)
@@ -202,7 +220,17 @@ def main(argv=None) -> int:
 
     if args.command == "start":
         pool = _pool(args)
-        return _emit(ace_start(pool, args.task_id, args.owner, lease_seconds=args.lease))
+        receipt = ace_start(pool, args.task_id, args.owner, lease_seconds=args.lease)
+        # A weak worker that has just been handed credentials still has to guess
+        # how to spend them.  The receipt says the one next line instead, so the
+        # claim -> render chain never depends on the worker remembering a format.
+        if receipt.get("status") == "STARTED" and receipt.get("claim_id") and receipt.get("fencing_token") is not None:
+            receipt = dict(
+                receipt,
+                next_step=port_prefix(pool)
+                + f" render --task-id {args.task_id} --claim {receipt['claim_id']} --token {receipt['fencing_token']}",
+            )
+        return _emit(receipt)
 
     if args.command == "render":
         pool = _pool(args)

@@ -337,3 +337,96 @@ def test_worker_death_drill_keeps_the_task_and_the_brief_restarts_with_history(t
     assert "half_done_before_death" in names and "worker_submission" in names
     assert len(stored.evidence) == 2
     assert stored.outputs["execution_discipline"]["protocol"] == PROTOCOL_VERSION
+
+
+def test_capsule_return_protocol_is_the_shell_port_not_the_python_api(tmp_path):
+    """The brief must be executable by a worker that only has a shell.
+
+    The first version of the return protocol named ``TaskPool.renew_lease`` and
+    ``submit_task_capsule_result`` -- Python call shapes.  The cold-restart
+    dogfood (evidence worker_capsule_cold_restart_20260928.jsonl) showed a
+    shell-only worker has no way to follow that, so the capsule now speaks the
+    same face the CLI accepts, with the worker's live credentials filled in.
+    """
+
+    pool, task_id, started = _started_pool(tmp_path)
+    capsule = render_task_capsule(
+        pool, task_id, claim_id=started["claim_id"], fencing_token=started["fencing_token"]
+    )
+    text = capsule["capsule_text"]
+
+    assert "TaskPool.renew_lease" not in text
+    assert "core.worker_capsule.submit_task_capsule_result" not in text
+    assert "ops.worker_capsule_cli" in text and str(pool.pool_dir) in text
+    for verb in ("renew", "submit", "fail", "recover", "reclaim"):
+        assert f"{verb} --" in text, verb
+    assert "list-pending" in text  # no credentials needed: it is how the next task is found
+    # filled from the stored record, so the worker pastes instead of assembling
+    assert f"--task-id {task_id}" in text
+    assert f"--claim {started['claim_id']}" in text
+    assert f"--token {started['fencing_token']}" in text
+    assert "--owner weak-worker-1" in text
+    # the same four types the shell port whitelists, not a second vocabulary
+    for failure_type in ("retryable", "permanent", "manual_gate", "external_condition"):
+        assert failure_type in text, failure_type
+    assert "四选一" in text
+
+
+def test_capsule_shows_every_submit_key_the_port_will_accept(tmp_path):
+    """Capability 5/6: the accepted result shape is in the brief, not in a refusal.
+
+    The dogfood worker guessed a ``sudo`` key and only learned the allowed keys
+    from the refusal (cold restart seq 8).  Listing them from
+    ``ALLOWED_SUBMIT_KEYS`` -- the very set ``submit_task_capsule_result`` checks
+    against -- means one ruler and no learn-it-the-hard-way round trip.
+    """
+
+    from core.worker_capsule import ALLOWED_SUBMIT_KEYS
+
+    pool, task_id, started = _started_pool(tmp_path)
+    text = render_task_capsule(
+        pool, task_id, claim_id=started["claim_id"], fencing_token=started["fencing_token"]
+    )["capsule_text"]
+
+    for key in ALLOWED_SUBMIT_KEYS:
+        assert f"- {key}: " in text, key
+    assert "(no description recorded)" not in text
+
+
+def test_budget_pressure_costs_content_never_the_way_back(tmp_path):
+    """A fat envelope must not leave the worker with no way to hand the task back.
+
+    Truncation used to cut the tail of the body, and the tail was the port face.
+    The protocol block is now reserved; when even the budget cannot hold it, that
+    is reported as ``port_face_pressure`` plus ``protocol_floor_chars`` rather
+    than surfacing as a capsule the worker cannot act on.
+    """
+
+    pool, task_id, started = _started_pool(tmp_path)
+    task = pool.load_task(task_id)
+    task.outputs["execution_discipline"]["clarification"]["known_facts"] = [
+        f"known fact {index} " + ("x" * 300) for index in range(40)
+    ]
+    assert pool.update_task(task)
+
+    credentials = {"claim_id": started["claim_id"], "fencing_token": started["fencing_token"]}
+    floor = render_task_capsule(pool, task_id, **credentials)["protocol_floor_chars"]
+
+    roomy = render_task_capsule(pool, task_id, char_budget=floor + 400, **credentials)
+    assert roomy["char_count"] <= floor + 400
+    assert "TRUNCATED_BY_BUDGET" in roomy["capsule_text"]
+    assert "known fact 0" not in roomy["capsule_text"]
+    assert "== RETURN PROTOCOL" in roomy["capsule_text"]
+    assert "== RESULT PAYLOAD" in roomy["capsule_text"]
+    assert "list-pending" in roomy["capsule_text"]  # the continuation line survived too
+    assert "port_face_pressure" not in roomy["omitted"]
+
+    starved = render_task_capsule(pool, task_id, char_budget=max(400, floor - 300), **credentials)
+    assert starved["char_count"] <= max(400, floor - 300)
+    assert starved["omitted"]["port_face_pressure"] == 1
+    assert starved["protocol_floor_chars"] > starved["char_budget"]
+    # commands-first inside the reserved block: even starved, the worker gets the
+    # lines it can actually run and loses the prose instead
+    starved_commands = [line for line in starved["capsule_text"].splitlines() if line.startswith("    ")]
+    assert any("--task-id" in line and "--claim" in line for line in starved_commands), starved_commands
+    assert "list-pending" in starved["capsule_text"]

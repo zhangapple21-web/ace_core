@@ -1,0 +1,65 @@
+{
+  "probe": "ace.worker_capsule.production_readonly.v1",
+  "at": "2026-09-28T19:15:15.986192",
+  "pool_stats": {
+    "total": 790,
+    "by_status": {
+      "pending": 0,
+      "active": 0,
+      "blocked": 4,
+      "review": 0,
+      "approved": 0,
+      "archived": 629,
+      "rejected": 0,
+      "graveyard": 157
+    },
+    "by_priority": {
+      "high": 281,
+      "medium": 495,
+      "low": 14
+    },
+    "executable": 0,
+    "in_flight": 0,
+    "blocked": 4,
+    "historical": 786
+  },
+  "samples": [
+    {
+      "task_id": "RQ-20260912-002",
+      "status": "blocked",
+      "reason": "capsule_task_not_active:blocked",
+      "runtime_mutation": false
+    },
+    {
+      "task_id": "RQ-20260915-005",
+      "status": "blocked",
+      "reason": "capsule_task_not_active:blocked",
+      "runtime_mutation": false
+    },
+    {
+      "task_id": "RQ-20260915-006",
+      "status": "blocked",
+      "reason": "capsule_task_not_active:blocked",
+      "runtime_mutation": false
+    },
+    {
+      "task_id": "RQ-20260823-004",
+      "status": "archived",
+      "reason": "capsule_task_not_active:archived",
+      "runtime_mutation": false
+    },
+    {
+      "task_id": "RQ-20260823-005",
+      "status": "archived",
+      "reason": "capsule_task_not_active:archived",
+      "runtime_mutation": false
+    },
+    {
+      "task_id": "RQ-20260823-006",
+      "status": "archived",
+      "reason": "capsule_task_not_active:archived",
+      "runtime_mutation": false
+    }
+  ],
+  "verdict": "PASS"
+}

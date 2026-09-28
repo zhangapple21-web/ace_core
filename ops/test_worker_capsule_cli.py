@@ -716,3 +716,189 @@ def test_drill_refuses_to_run_the_ghost_step_while_the_lease_is_still_live(tmp_p
     done = json.loads(late.stdout.strip())
     assert done["status"] == "PASS" and done["final"]["status"] == "review"
     assert (tmp_path / "receipt.json").exists()
+
+
+def _run_literal(command_line):
+    """Run a command string exactly as the receipt handed it over (cmd.exe on Windows).
+
+    The point is to test the *text*, not a re-assembled argv: if the capsule or a
+    receipt ever emits a line a shell cannot execute, this is where it shows up.
+    """
+
+    import shutil
+
+    if shutil.which("py") is None:  # pragma: no cover - host without the py launcher
+        return None
+    return subprocess.run(
+        command_line,
+        shell=True,
+        # Started from outside the repo on purpose: the pasted line has to carry
+        # its own cd, or the capsule's prefix is decoration.
+        cwd=str(Path(os.environ.get("TEMP", ".")).resolve()),
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=180,
+        env=CHILD_ENV,
+    )
+
+
+def test_cli_start_receipt_hands_over_one_command_the_worker_can_paste(tmp_path):
+    """Capability 2/11: after claiming, the next line comes from the receipt.
+
+    A shell-only worker that must invent the render command itself is a worker
+    that will get the quoting wrong; ``next_step`` is therefore the fully formed
+    command, and this fixture runs it literally rather than parsing it.
+    """
+
+    pool_dir = tmp_path / "pool"
+    task = _seed_task(pool_dir)
+    started = _one_json_line(_run(pool_dir, "start", "--task-id", task.task_id, "--owner", "paste-w1", "--lease", "300")[0])
+    assert started["status"] == "STARTED" and "next_step" in started
+
+    assert f"--task-id {task.task_id}" in started["next_step"]
+    assert f"--claim {started['claim_id']}" in started["next_step"]
+
+    ran = _run_literal(started["next_step"])
+    if ran is None:
+        return
+    assert ran.returncode == 0, (ran.stdout[-300:], ran.stderr[-500:])
+    row = _one_json_line(ran)
+    assert row["status"] == "CAPSULE_READY" and row["task_id"] == task.task_id
+    # the pasted capsule really is the shell-port brief, not a Python recipe
+    assert "ops.worker_capsule_cli" in row["capsule_text"] and "TaskPool.renew_lease" not in row["capsule_text"]
+
+
+def test_cli_submit_receipt_points_at_the_next_task_without_claiming_it(tmp_path):
+    """Capability 11: handing back must also say where the next job is.
+
+    A worker that finishes and then waits has died, from ACE's point of view.
+    The continuation is read off the same TaskPool and must not sweep leases,
+    re-queue anything, or hand out credentials for a task it did not claim.
+    """
+
+    pool_dir = tmp_path / "pool"
+    first = _seed_task(pool_dir, title="交回后要接着找的第一件", ref="continuation-first")
+    second = _seed_task(pool_dir, title="交回后仍留在池里的第二件", ref="continuation-second")
+
+    pending_before = _one_json_line(_run(pool_dir, "list-pending")[0])
+    assert {row["task_id"] for row in pending_before["pending"]} == {first.task_id, second.task_id}
+
+    started = _one_json_line(_run(pool_dir, "start", "--task-id", first.task_id, "--owner", "loop-w1", "--lease", "300")[0])
+
+    payload_path = tmp_path / "payload.json"
+    payload_path.write_text(json.dumps({"summary": "第一件做完", "facts": ["可复算"], "transition": ""}), encoding="utf-8")
+    submitted = _one_json_line(
+        _run(
+            pool_dir,
+            "submit",
+            "--task-id",
+            first.task_id,
+            "--claim",
+            started["claim_id"],
+            "--token",
+            str(started["fencing_token"]),
+            "--actor",
+            "loop-w1",
+            "--payload-file",
+            str(payload_path),
+        )[0]
+    )
+    assert submitted["status"] == "SUBMITTED", submitted
+
+    continuation = submitted["continuation"]
+    assert first.task_id not in continuation["next_ids"], continuation
+    assert second.task_id in continuation["next_ids"], continuation
+    # `first` is active now, so the pending face lost exactly that one row
+    assert continuation["pending_now"] == pending_before["count"] - 1 == 1, continuation
+    assert continuation["next_commands"][0].startswith("cd ") and "list-pending" in continuation["next_commands"][0]
+
+    pending_after = _one_json_line(_run(pool_dir, "list-pending")[0])
+    assert {row["task_id"] for row in pending_after["pending"]} == {second.task_id}
+    assert "read_error" not in continuation or continuation["read_error"] is None
+
+    sys.path.insert(0, str(REPO_ROOT))
+    from core.task import TaskPool
+
+    stored = TaskPool(str(pool_dir)).load_task(first.task_id)
+    # an empty transition keeps it active under the same claim: the courtesy read
+    # in the receipt must not have swept or re-issued anybody's lease
+    assert stored is not None and stored.status == "active" and stored.claim_id == started["claim_id"]
+
+    ran = _run_literal(continuation["next_commands"][0])
+    if ran is None:
+        return
+    assert ran.returncode == 0, (ran.stdout[-300:], ran.stderr[-500:])
+    assert _one_json_line(ran)["status"] == "LISTED"
+
+
+def test_capsule_port_lines_survive_a_windows_cmd_paste(tmp_path):
+    """Every command in the port face is pasted literally here, and must run.
+
+    Two failures this fixture exists for, both found by running the real shell
+    rather than by reading the text: ``<占位>`` is cmd input redirection (the first
+    continuation dogfood exited 1 with no JSON, indistinguishable from a refusal),
+    and prose sharing a line with a command gets pasted along with it -- the
+    ``recover`` line once carried「（只读，……）」and argparse received
+    「claim/token 一起还给你）」.  So: no shell metacharacters, holes are 【...】, and
+    each command sits alone on its own indented line already carrying the prefix.
+    """
+
+    pool_dir = tmp_path / "pool"
+    task = _seed_task(pool_dir)
+    started = _one_json_line(
+        _run(pool_dir, "start", "--task-id", task.task_id, "--owner", "paste-safe-w1", "--lease", "60")[0]
+    )
+    rendered = _one_json_line(
+        _run(
+            pool_dir,
+            "render",
+            "--task-id",
+            task.task_id,
+            "--claim",
+            started["claim_id"],
+            "--token",
+            str(started["fencing_token"]),
+        )[0]
+    )
+    text = rendered["capsule_text"]
+    assert "== STOP ==" in text, "the port face must be inside the default budget, not past the cut"
+
+    # cut at the next section header, whatever the port face's internal order is
+    section = text.split("== RETURN PROTOCOL", 1)[1].split("\n== ", 1)[0]
+    for noise in ("<", ">", "|", "`", "%"):
+        assert noise not in section, noise
+    assert "【" in section, "unfilled holes must be visible as 【...】"
+
+    commands = [line.strip() for line in section.splitlines() if line.startswith("    ") and line.strip()]
+    assert len(commands) == 6, commands
+    holes = [line for line in commands if "【" in line]
+    assert len(holes) == 2, holes  # submit and fail: only a file path and one choice are left to the worker
+    # a command the worker can paste is a command that carries its own cd and pool
+    assert all(line.startswith("cd ") and "--pool " in line for line in commands), commands
+
+    ran = _run_literal(commands[0])  # 找下一件活 -- read-only, needs nothing filled in
+    if ran is None:  # pragma: no cover - host without the py launcher
+        return
+    assert ran.returncode == 0, (ran.stdout[-300:], ran.stderr[-500:])
+    assert _one_json_line(ran)["status"] == "LISTED"
+
+    renewed = _run_literal(commands[1])  # 续租, credentials filled from the record
+    assert renewed.returncode == 0, (renewed.stdout[-300:], renewed.stderr[-500:])
+    row = _one_json_line(renewed)
+    assert row["status"] == "RENEWED" and row["claim_id"] == started["claim_id"]
+
+    found = _run_literal(commands[4])  # 忘了凭证
+    assert found.returncode == 0, (found.stdout[-300:], found.stderr[-500:])
+    leases = _one_json_line(found)
+    assert leases["status"] == "LEASES_FOUND" and leases["leases"][0]["task_id"] == task.task_id
+    assert leases["leases"][0]["next_command"].startswith("cd ") and "【" not in leases["leases"][0]["next_command"]
+
+    # reclaim is fully filled too, and the lease is still live: the pasted line has
+    # to reach the port and come back refused, instead of dying inside the shell
+    stale = _run_literal(commands[5])
+    assert stale.returncode == 3, (stale.stdout[-300:], stale.stderr[-500:])
+    refused = _one_json_line(stale)
+    assert refused["status"] == "REFUSED" and refused["reason"] == "capsule_lease_still_live"
+    assert refused["runtime_mutation"] is False
