@@ -32,6 +32,11 @@ from core.worker_capsule import render_task_capsule, submit_task_capsule_result 
 
 LEASE_SECONDS = 4  # short on purpose: the gap between phases must outlive it
 
+try:  # pragma: no cover - depends on the host stdio
+    sys.stdout.reconfigure(encoding="utf-8")
+except (AttributeError, ValueError):
+    pass
+
 # Scratch pool lives outside the repository so a drill can never look like
 # production task state; only the receipt is written back into the evidence dir.
 SCRATCH_DEFAULT = Path(os.environ.get("TEMP", "C:/tmp")) / "ace_worker_capsule_drill"
@@ -55,7 +60,43 @@ def _log(row: dict) -> None:
     print(json.dumps(row, ensure_ascii=False), flush=True)
 
 
+def _reset_scratch_pool(pool_dir: Path) -> int:
+    """Purge a stale scratch pool so a finished drill can never poison the next run.
+
+    A second ``first`` run used to reuse the task id of an already-reviewed run and
+    overwrite its record, quietly destroying the previous evidence.  The purge is only
+    allowed inside the drill-owned scratch directory under TEMP, so a mistyped
+    ``--pool-dir`` that points at the production pool cannot delete anything.
+    """
+
+    temp_root = Path(os.environ.get("TEMP", "C:/tmp")).resolve()
+    resolved = pool_dir.resolve()
+    if temp_root not in resolved.parents or resolved.name != "pool":
+        raise SystemExit(
+            json.dumps(
+                {
+                    "phase": "first",
+                    "status": "REFUSED",
+                    "reason": "pool_dir_is_not_the_scratch_pool",
+                    "pool_dir": str(resolved),
+                    "scratch_root": str(temp_root),
+                    "recovery_hint": "drop --pool-dir, or point it at a directory under %TEMP% named pool",
+                },
+                ensure_ascii=False,
+            )
+        )
+    removed = 0
+    if resolved.exists():
+        for path in sorted(resolved.rglob("*.json")):
+            if path.is_file():
+                removed += 1
+                path.unlink()
+    return removed
+
+
 def do_first(pool_dir: Path, state_path: Path) -> int:
+    pool_dir.mkdir(parents=True, exist_ok=True)
+    removed = _reset_scratch_pool(pool_dir)
     pool = TaskPool(str(pool_dir))
     pool.recover_incomplete_transitions()
     task = pool.create_task(
@@ -116,12 +157,32 @@ def do_first(pool_dir: Path, state_path: Path) -> int:
         ),
         encoding="utf-8",
     )
-    _log({"phase": "first", "status": "HALF_DONE", "detail": partial, "capsule_hash": capsule["capsule_hash"]})
+    _log(
+        {
+            "phase": "first",
+            "status": "HALF_DONE",
+            "scratch_reset_removed_files": removed,
+            "detail": partial,
+            "capsule_hash": capsule["capsule_hash"],
+        }
+    )
     # Hard exit: no cleanup, no lease release, no transition.
     os._exit(0)
 
 
 def do_resume(pool_dir: Path, state_path: Path, receipt_path: Path) -> int:
+    if not state_path.exists():
+        _log(
+            {
+                "phase": "resume",
+                "status": "NOT_RESUMABLE",
+                "reason": "state_file_missing",
+                "state_path": str(state_path),
+                "recovery_hint": "run the 'first' phase before 'resume'",
+                "runtime_mutation": False,
+            }
+        )
+        return 2
     state = json.loads(state_path.read_text(encoding="utf-8"))
     pool = TaskPool(str(pool_dir))
     task_id = state["task_id"]
@@ -150,6 +211,26 @@ def do_resume(pool_dir: Path, state_path: Path, receipt_path: Path) -> int:
 
     reclaimed = pool.reclaim_stale_leases()
     started = ace_start(pool, task_id, "worker-process-B", lease_seconds=60)
+    if started.get("status") != "STARTED":
+        # The task is no longer claimable (a finished run, or the lease has not been
+        # reclaimed yet).  Report one readable row instead of a KeyError stack trace:
+        # a weak worker must be able to tell "nothing to resume" from "the gate broke".
+        _log(
+            {
+                "phase": "resume",
+                "status": "NOT_RESUMABLE",
+                "task_id": task_id,
+                "reason": started.get("reason"),
+                "current_status": (limbo.status if limbo is not None else "task_not_found"),
+                "ghost_write_blocked": zombie_blocked,
+                "ghost_left_no_trace": ghost_left_no_trace,
+                "expired_render": expired_refusal.get("reason"),
+                "reclaimed_task_ids": [task.task_id for task in reclaimed],
+                "recovery_hint": "wait for the lease to expire and let a reclaim pass run, or re-run 'first'",
+                "runtime_mutation": False,
+            }
+        )
+        return 2
     capsule = render_task_capsule(
         pool,
         task_id,
@@ -234,6 +315,15 @@ def do_resume(pool_dir: Path, state_path: Path, receipt_path: Path) -> int:
             "must enter as source_type=evidence; widening admission was not done here (worker-side "
             "change to 准入 is forbidden by the execution contract)"
         ),
+        "fuel_gap": (
+            "the production pool has pending=0, so the capsule has no real work to carry; the drill "
+            "therefore proves the mechanism on a scratch pool and only proves the gate read-only in production"
+        ),
+        "receipt_path_defect_found": (
+            "probe and resume originally shared one --receipt default, so re-running probe overwrote the "
+            "committed drill PASS receipt with probe data (found at 2026-09-28T17:23 by reading the file "
+            "back).  Each phase now owns its own evidence file."
+        ),
     }
     verdict = (
         zombie_blocked
@@ -285,12 +375,22 @@ def do_probe(receipt_path: Path) -> int:
 
 
 def main(argv=None) -> int:
+    evidence_dir = REPO_ROOT / "08_GOVERNANCE" / "evidence"
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("phase", choices=("first", "resume", "probe"))
     parser.add_argument("--pool-dir", default=str(SCRATCH_DEFAULT / "pool"))
     parser.add_argument("--state", default=str(SCRATCH_DEFAULT / "state.json"))
-    parser.add_argument("--receipt", default=str(REPO_ROOT / "08_GOVERNANCE" / "evidence" / "worker_capsule_death_drill_20260928.json"))
+    # One default output path per phase: probe used to write into the drill
+    # receipt and silently overwrote a committed PASS with its own payload.
+    parser.add_argument("--receipt", default=None)
     args = parser.parse_args(argv)
+    if args.receipt is None:
+        default_name = (
+            "worker_capsule_production_probe_20260928.json"
+            if args.phase == "probe"
+            else "worker_capsule_death_drill_20260928.json"
+        )
+        args.receipt = str(evidence_dir / default_name)
     pool_dir = Path(args.pool_dir)
     pool_dir.mkdir(parents=True, exist_ok=True)
     if args.phase == "first":
