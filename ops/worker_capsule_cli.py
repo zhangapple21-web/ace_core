@@ -16,11 +16,18 @@ worker pointing elsewhere would silently create a second TaskPool), and ``fail``
 must use one of the four existing failure types with live claim credentials
 (``TaskPool.fail_task`` validates neither).
 
+``recover`` closes the hole those gates cannot: a weak worker that wakes with an
+empty context has lost its ``claim_id`` and ``fencing_token``, so every
+credential-carrying verb refuses it and it is locked out of a task it still owns
+until the lease expires.  One read-only command names the task and hands the
+credentials back.
+
     py -3.11 -m ops.worker_capsule_cli --pool <dir> list-pending
     py -3.11 -m ops.worker_capsule_cli --pool <dir> start --task-id RQ-... --owner w1
     py -3.11 -m ops.worker_capsule_cli --pool <dir> render --task-id RQ-... --claim <id> --token 1
     py -3.11 -m ops.worker_capsule_cli --pool <dir> submit --task-id RQ-... --claim <id> \
         --token 1 --actor w1 --payload-file p.json
+    py -3.11 -m ops.worker_capsule_cli --pool <dir> recover --owner w1
 """
 
 from __future__ import annotations
@@ -38,7 +45,12 @@ if str(REPO_ROOT) not in sys.path:
 
 from core.ace_start import ace_start  # noqa: E402
 from core.task import TaskPool  # noqa: E402
-from core.worker_capsule import check_capsule_authority, render_task_capsule, submit_task_capsule_result  # noqa: E402
+from core.worker_capsule import (  # noqa: E402
+    check_capsule_authority,
+    recover_worker_leases,
+    render_task_capsule,
+    submit_task_capsule_result,
+)
 
 EXIT_OK = 0
 EXIT_REFUSED = 3
@@ -98,7 +110,7 @@ except (AttributeError, ValueError):
 def _emit(payload: Dict[str, Any]) -> int:
     print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
     status = str(payload.get("status", ""))
-    if status in {"CAPSULE_READY", "SUBMITTED", "STARTED", "RENEWED", "FAILED_RECORDED", "LISTED"}:
+    if status in {"CAPSULE_READY", "SUBMITTED", "STARTED", "RENEWED", "FAILED_RECORDED", "LISTED", "LEASES_FOUND", "NO_LIVE_LEASE"}:
         return EXIT_OK
     if status in {"REFUSED", "REJECTED"}:
         return EXIT_REFUSED
@@ -119,6 +131,13 @@ def main(argv=None) -> int:
     sub = parser.add_subparsers(dest="command", required=True)
 
     sub.add_parser("list-pending", help="read-only: claimable tasks, least fields needed to pick one")
+
+    recovered = sub.add_parser(
+        "recover",
+        help="read-only: after a cold restart, which task do I still own (returns its claim + token)",
+    )
+    recovered.add_argument("--owner", required=True)
+    recovered.add_argument("--task-id", dest="task_id", help="optional: narrow the search to one task id")
 
     for name in ("start", "render", "renew", "submit", "fail"):
         command = sub.add_parser(name)
@@ -161,6 +180,10 @@ def main(argv=None) -> int:
             for task in pool.list_tasks(status="pending", limit=20)
         ]
         return _emit({"status": "LISTED", "count": len(rows), "pending": rows})
+
+    if args.command == "recover":
+        pool = _pool(args)
+        return _emit(recover_worker_leases(pool, owner=args.owner, task_id=args.task_id))
 
     if args.command == "start":
         pool = _pool(args)

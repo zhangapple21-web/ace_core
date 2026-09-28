@@ -28,7 +28,7 @@ if str(REPO_ROOT) not in sys.path:
 
 from core.ace_start import ace_start  # noqa: E402
 from core.task import TaskPool  # noqa: E402
-from core.worker_capsule import render_task_capsule, submit_task_capsule_result  # noqa: E402
+from core.worker_capsule import check_capsule_authority, render_task_capsule, submit_task_capsule_result  # noqa: E402
 
 LEASE_SECONDS = 4  # short on purpose: the gap between phases must outlive it
 
@@ -186,6 +186,36 @@ def do_resume(pool_dir: Path, state_path: Path, receipt_path: Path) -> int:
     state = json.loads(state_path.read_text(encoding="utf-8"))
     pool = TaskPool(str(pool_dir))
     task_id = state["task_id"]
+
+    # Pre-flight with the same ruler the write port uses.  Running the ghost step
+    # while process A's lease is still live is not a death drill at all: those
+    # credentials are genuinely valid, the ghost write succeeds, the task moves to
+    # review, and the recovery scenario is silently consumed by a legitimate write.
+    # Observed 18:14:26 the same second as 'first' (audit row
+    # ``active -> review / worker-process-A-ghost / capsule_submit:worker_submission``).
+    still_live = check_capsule_authority(
+        pool,
+        task_id,
+        claim_id=state["a_claim_id"],
+        fencing_token=state["a_fencing_token"],
+    )
+    if still_live.get("status") == "AUTHORIZED":
+        _log(
+            {
+                "phase": "resume",
+                "status": "NOT_RESUMABLE",
+                "reason": "lease_still_live_ghost_would_be_legal",
+                "task_id": task_id,
+                "lease_seconds_remaining": still_live.get("lease_seconds_remaining"),
+                "lease_seconds_drill_expects": LEASE_SECONDS,
+                "recovery_hint": (
+                    "run 'resume' at least %d seconds after 'first' (or add --pool-dir of a fresh scratch "
+                    "pool and re-run 'first'); nothing was written by this attempt" % LEASE_SECONDS
+                ),
+                "runtime_mutation": False,
+            }
+        )
+        return 2
 
     zombie = submit_task_capsule_result(
         pool,

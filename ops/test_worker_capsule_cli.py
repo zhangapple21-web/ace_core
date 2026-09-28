@@ -504,3 +504,137 @@ def test_drill_scratch_reset_refuses_any_pool_it_does_not_own(tmp_path):
     assert refused is not None, "purge was allowed outside the drill scratch dir"
     assert "pool_dir_is_not_the_scratch_pool" in refused
     assert victim.exists() and json.loads(victim.read_text(encoding="utf-8")) == {"task_id": "must-survive"}
+
+
+def test_recover_hands_the_credentials_back_to_a_worker_that_lost_its_context(tmp_path):
+    """The cold-restart path, each step in its own process: start -> forget -> recover -> render.
+
+    Ability 8 (recover after interruption) is worthless if it only works for a
+    worker that still remembers its claim id -- the thing a context loss deletes
+    first.
+    """
+
+    pool_dir = tmp_path / "pool"
+    task = _seed_task(pool_dir)
+    started = _one_json_line(_run(pool_dir, "start", "--task-id", task.task_id, "--owner", "shell-cold", "--lease", "300")[0])
+    assert started["status"] == "STARTED"
+
+    # A worker with an empty context cannot re-enter through a credential port.
+    blind = _one_json_line(_run(pool_dir, "render", "--task-id", task.task_id, "--claim", "", "--token", "0")[0])
+    assert blind["status"] == "REFUSED"
+
+    found = _run(pool_dir, "recover", "--owner", "shell-cold")[0]
+    leases = _one_json_line(found)
+    assert found.returncode == 0, leases
+    assert leases["status"] == "LEASES_FOUND" and leases["count"] == 1
+    row = leases["leases"][0]
+    assert row["task_id"] == task.task_id
+    assert row["claim_id"] == started["claim_id"] and row["fencing_token"] == started["fencing_token"]
+    assert row["lease_seconds_remaining"] and row["lease_seconds_remaining"] > 0
+    assert leases["runtime_mutation"] is False
+    assert task.task_id in row["next_command"] and row["claim_id"] in row["next_command"]
+
+    # The recovered credentials must actually open the capsule in a fresh process.
+    rendered = _one_json_line(
+        _run(pool_dir, "render", "--task-id", task.task_id, "--claim", row["claim_id"], "--token", str(row["fencing_token"]))[0]
+    )
+    assert rendered["status"] == "CAPSULE_READY", rendered
+    assert "[ACE_TASK_CAPSULE" in rendered["capsule_text"]
+
+
+def test_recover_never_leases_a_task_to_someone_else_and_never_to_a_dead_owner(tmp_path):
+    pool_dir = tmp_path / "pool"
+    task = _seed_task(pool_dir)
+    started = _one_json_line(_run(pool_dir, "start", "--task-id", task.task_id, "--owner", "shell-holder", "--lease", "1")[0])
+    live_claim = started["claim_id"]
+
+    # Another owner asks: the answer is empty and leaks no credential.
+    stranger = _run(pool_dir, "recover", "--owner", "shell-thief")[0]
+    stranger_row = _one_json_line(stranger)
+    assert stranger.returncode == 0
+    assert stranger_row["status"] == "NO_LIVE_LEASE" and stranger_row["count"] == 0
+    assert live_claim not in stranger.stdout, "recover echoed another worker's claim id"
+
+    # Right owner, expired lease: the task is named, the credential is not.
+    time.sleep(1.5)
+    expired = _one_json_line(_run(pool_dir, "recover", "--owner", "shell-holder")[0])
+    assert expired["status"] == "NO_LIVE_LEASE"
+    assert [row["task_id"] for row in expired["expired_claims"]] == [task.task_id]
+    assert expired["expired_claims"][0]["lease_state"] == "expired"
+    assert "claim_id" not in expired["expired_claims"][0], "an expired lease was handed back as if it were live"
+    assert "reclaim_stale_leases" in expired["hint"]
+
+    sys.path.insert(0, str(REPO_ROOT))
+    from core.task import TaskPool
+
+    stored = TaskPool(str(pool_dir)).load_task(task.task_id)
+    assert stored.status == "active" and stored.claim_id == live_claim and stored.retry_count == 0
+
+
+def test_recover_leaves_the_pool_byte_identical(tmp_path):
+    pool_dir = tmp_path / "pool"
+    task = _seed_task(pool_dir)
+    _one_json_line(_run(pool_dir, "start", "--task-id", task.task_id, "--owner", "shell-readonly")[0])
+
+    before = {str(p): p.read_bytes() for p in pool_dir.rglob("*.json")}
+    assert before, "the scratch pool holds no json files to compare against"
+    receipt = _one_json_line(_run(pool_dir, "recover", "--owner", "shell-readonly")[0])
+    assert receipt["count"] == 1
+    after = {str(p): p.read_bytes() for p in pool_dir.rglob("*.json")}
+    assert after == before, "recover mutated the pool while claiming to be read-only"
+
+
+def test_drill_refuses_to_run_the_ghost_step_while_the_lease_is_still_live(tmp_path):
+    """'resume' seconds after 'first' must stop and write nothing, not ghost-write legally.
+
+    Found by running the drill back-to-back: with a live lease the ghost holds
+    genuinely valid credentials, its submit succeeded, and the task moved to
+    review -- the death scenario was consumed by a legitimate write and the run
+    could never report the gate it exists to test.
+    """
+
+    pool_dir = tmp_path / "pool"
+    state_path = tmp_path / "state.json"
+    first = _run_drill("first", "--pool-dir", str(pool_dir), "--state", str(state_path))
+    assert first.returncode == 0, (first.stdout[-300:], first.stderr[-400:])
+
+    early = _run_drill(
+        "resume",
+        "--pool-dir",
+        str(pool_dir),
+        "--state",
+        str(state_path),
+        "--receipt",
+        str(tmp_path / "receipt.json"),
+    )
+    assert early.returncode == 2, (early.stdout[-400:], early.stderr[-400:])
+    row = json.loads(early.stdout.strip())
+    assert row["status"] == "NOT_RESUMABLE"
+    assert row["reason"] == "lease_still_live_ghost_would_be_legal"
+    assert row["runtime_mutation"] is False
+    assert row["lease_seconds_remaining"] and row["lease_seconds_remaining"] > 0
+    assert not (tmp_path / "receipt.json").exists()
+
+    sys.path.insert(0, str(REPO_ROOT))
+    from core.task import TaskPool
+
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    held = TaskPool(str(pool_dir)).load_task(state["task_id"])
+    assert held.status == "active" and held.claim_id == state["a_claim_id"]
+    assert len(held.evidence) == 1, "the ghost write landed while the real lease was still live"
+
+    # The same scratch pool then still completes once the lease has actually died.
+    time.sleep(state.get("lease_seconds", 4) + 2)
+    late = _run_drill(
+        "resume",
+        "--pool-dir",
+        str(pool_dir),
+        "--state",
+        str(state_path),
+        "--receipt",
+        str(tmp_path / "receipt.json"),
+    )
+    assert late.returncode == 0, (late.stdout[-500:], late.stderr[-500:])
+    done = json.loads(late.stdout.strip())
+    assert done["status"] == "PASS" and done["final"]["status"] == "review"
+    assert (tmp_path / "receipt.json").exists()

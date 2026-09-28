@@ -248,6 +248,96 @@ def check_capsule_authority(
     }
 
 
+def recover_worker_leases(
+    task_pool: Any,
+    *,
+    owner: str,
+    task_id: Optional[str] = None,
+    now: Optional[datetime] = None,
+    limit: int = 20,
+) -> Dict[str, Any]:
+    """Answer the one question a stateless worker cannot answer after a cold restart.
+
+    A weak worker's whole context can vanish mid-lease: its shell history, the
+    ``claim_id`` and the ``fencing_token`` go with it.  Every other port needs
+    those credentials, so ``start`` refuses (``taskpool_claim_rejected``) and the
+    worker is locked out of a task it still owns until the lease expires and a
+    scheduler pass reclaims it.  This is the read-only door back in.
+
+    Trust model, stated plainly: ``TaskPool.claim_task`` identifies a worker by a
+    self-declared ``owner`` name, so re-attestation by the same name is no weaker
+    than the original claim.  It is also no *stronger* -- anything that can name
+    itself ``owner`` can read that owner's live claim.  Callers that need real
+    isolation must pass an owner name that is not guessable.
+
+    Live leases for ``owner`` are returned with their credentials; expired ones
+    are listed **without** credentials, because handing a dead lease to whoever
+    asks would turn this door into the zombie write the drill already proves is
+    blocked.  No pool write happens on any path (``runtime_mutation`` is False).
+    """
+
+    if not isinstance(owner, str) or not owner.strip():
+        return _refusal("capsule_owner_missing", task_id or "", "pass the same --owner string you used with start")
+    owner = owner.strip()
+
+    candidates = [t for t in task_pool.list_tasks(status="active", limit=limit) if str(getattr(t, "lease_owner", "") or "") == owner]
+    if task_id is not None and str(task_id).strip():
+        candidates = [t for t in candidates if str(getattr(t, "task_id", "")) == str(task_id).strip()]
+
+    rows, expired, unleased = [], [], []
+    for task in candidates:
+        stored_claim = str(getattr(task, "claim_id", "") or "")
+        lease, seconds_remaining = _lease_state(task, now)
+        if not stored_claim:
+            unleased.append(str(getattr(task, "task_id", "")))
+            continue
+        if lease != "leased":
+            expired.append(
+                {
+                    "task_id": str(getattr(task, "task_id", "")),
+                    "lease_state": lease,
+                    "lease_expires_at": _one_line(getattr(task, "lease_expires_at", ""), 40),
+                    "fencing_token": int(getattr(task, "fencing_token", 0) or 0),
+                }
+            )
+            continue
+        rows.append(
+            {
+                "task_id": str(getattr(task, "task_id", "")),
+                "title": _one_line(getattr(task, "title", ""), 120),
+                "claim_id": stored_claim,
+                "fencing_token": int(getattr(task, "fencing_token", 0) or 0),
+                "lease_seconds_remaining": round(seconds_remaining, 3) if seconds_remaining is not None else None,
+                "next_command": (
+                    f"python -m ops.worker_capsule_cli render --task-id {getattr(task, 'task_id', '')} "
+                    f"--claim {stored_claim} --token {int(getattr(task, 'fencing_token', 0) or 0)}"
+                ),
+            }
+        )
+
+    if rows:
+        hint = "re-render with the next_command above -- do NOT call start again, it will refuse a live lease"
+    else:
+        hint = "no live lease held by this owner; run list-pending and start a task"
+        if expired:
+            hint = "the lease is expired, not lost: run TaskPool.reclaim_stale_leases, then start again"
+        elif unleased:
+            hint = "active records held by this owner carry no claim_id; run recover_incomplete_transitions then start again"
+        elif candidates:
+            hint = "this owner holds matching records only outside the active bucket"
+
+    return {
+        "status": "LEASES_FOUND" if rows else "NO_LIVE_LEASE",
+        "owner": owner,
+        "count": len(rows),
+        "leases": rows,
+        "expired_claims": expired,
+        "unleased_active_records": unleased,
+        "hint": hint,
+        "runtime_mutation": False,
+    }
+
+
 def render_task_capsule(
     task_pool: Any,
     task_id: str,
