@@ -15,6 +15,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import sys
@@ -28,7 +29,12 @@ if str(REPO_ROOT) not in sys.path:
 
 from core.ace_start import ace_start  # noqa: E402
 from core.task import TaskPool  # noqa: E402
-from core.worker_capsule import check_capsule_authority, render_task_capsule, submit_task_capsule_result  # noqa: E402
+from core.worker_capsule import (  # noqa: E402
+    check_capsule_authority,
+    describe_task_for_worker,
+    render_task_capsule,
+    submit_task_capsule_result,
+)
 
 LEASE_SECONDS = 4  # short on purpose: the gap between phases must outlive it
 
@@ -372,6 +378,16 @@ def do_resume(pool_dir: Path, state_path: Path, receipt_path: Path) -> int:
     return 0 if verdict else 1
 
 
+def _pool_fingerprint(pool_dir: Path) -> str:
+    """Digest every stored record, so 'read-only' can be disproved by bytes."""
+
+    digest = hashlib.sha256()
+    for path in sorted(pool_dir.rglob("*.json")):
+        digest.update(str(path.relative_to(pool_dir)).encode("utf-8"))
+        digest.update(path.read_bytes())
+    return digest.hexdigest()
+
+
 def do_probe(receipt_path: Path) -> int:
     """Read-only check of the same gate against the production task pool."""
 
@@ -387,21 +403,55 @@ def do_probe(receipt_path: Path) -> int:
                 }
             )
     stats = pool.get_stats()
+
+    # ``show`` takes any task id and needs no authority, so the production pool is
+    # exactly where to prove it reads without writing and withholds the credentials
+    # it never asked for.
+    pool_dir = REPO_ROOT / "task_pool"
+    before = _pool_fingerprint(pool_dir)
+    sample = str(rows[0]["task_id"]) if rows else ""
+    seen = describe_task_for_worker(pool, sample) if sample else {"status": "NO_SAMPLE"}
+    stored = pool.load_task(sample) if sample else None
+    # the lease's shape and expiry are deliberately readable (a worker must know
+    # whether it still owns the task); the claim secret and the token are not.
+    secrets = [str(getattr(stored, "claim_id", "") or "")]
+    shown_blob = json.dumps(seen, ensure_ascii=False)
+    leaked = [value for value in secrets if value and value in shown_blob]
     receipt = {
-        "probe": "ace.worker_capsule.production_readonly.v1",
+        "probe": "ace.worker_capsule.production_readonly.v2",
         "at": datetime.now().isoformat(),
         "pool_stats": stats,
+        "readonly_show": {
+            "task_id": sample,
+            "status": seen.get("status"),
+            "stored_status": seen.get("stored_status"),
+            "pool_record_count": len(list(pool_dir.rglob("*.json"))),
+            "pool_bytes_unchanged": before == _pool_fingerprint(pool_dir),
+            "pool_fingerprint_before": before,
+            "credential_or_lease_leaked": bool(leaked),
+        },
         "samples": [
             {"task_id": row["task_id"], "status": row["status"], "reason": row["render"]["reason"],
              "runtime_mutation": row["render"]["runtime_mutation"]}
             for row in rows
         ],
     }
-    receipt["verdict"] = "PASS" if rows and all(row["render"]["status"] == "REFUSED" for row in rows) else "NO_SAMPLES"
+    gate = receipt["readonly_show"]
+    receipt["verdict"] = (
+        "PASS"
+        if rows
+        and all(row["render"]["status"] == "REFUSED" for row in rows)
+        and gate["status"] == "TASK_SEEN"
+        and gate["pool_bytes_unchanged"]
+        and not gate["credential_or_lease_leaked"]
+        else "NO_SAMPLES"
+        if not rows
+        else "FAIL"
+    )
     receipt_path.parent.mkdir(parents=True, exist_ok=True)
     receipt_path.write_text(json.dumps(receipt, ensure_ascii=False, indent=2), encoding="utf-8")
     _log({"phase": "probe", "status": receipt["verdict"], "samples": len(rows), "receipt": str(receipt_path)})
-    return 0
+    return 0 if receipt["verdict"] == "PASS" else 1
 
 
 def main(argv=None) -> int:

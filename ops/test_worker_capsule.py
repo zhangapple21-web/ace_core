@@ -171,6 +171,21 @@ def test_known_facts_are_not_double_counted_for_the_worker(tmp_path):
     assert len(rows) == len(set(rows)), rows
 
 
+def test_admitted_evidence_renders_as_a_claim_with_its_source_not_as_json(tmp_path):
+    pool, task_id, started = _started_pool(tmp_path)
+
+    capsule = render_task_capsule(
+        pool, task_id, claim_id=started["claim_id"], fencing_token=started["fencing_token"]
+    )
+    section = capsule["capsule_text"].split("== KNOWN FACTS (already admitted) ==", 1)[1].split("==", 1)[0]
+
+    # A ``{content, source}`` row dumped with json.dumps reads as payload noise, and the
+    # cold handoff showed a worker parsing it instead of going to re-check it.  The line
+    # must be the claim, with the pointer still visible as a pointer.
+    assert '{"content"' not in section, section
+    assert "- lease machinery exists  (依据: probe)" in section, section
+
+
 def test_submit_lands_evidence_on_the_task_and_moves_to_review(tmp_path):
     pool, task_id, started = _started_pool(tmp_path)
     capsule = render_task_capsule(

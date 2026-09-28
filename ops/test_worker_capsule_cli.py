@@ -833,6 +833,68 @@ def test_cli_submit_receipt_points_at_the_next_task_without_claiming_it(tmp_path
     assert _one_json_line(ran)["status"] == "LISTED"
 
 
+def test_cli_show_reads_back_one_task_after_it_leaves_the_listing(tmp_path):
+    """Capability 8 + the VERIFICATION clause, for a worker that cannot write Python.
+
+    The cold handoff produced a task in ``review`` whose own verification method
+    said 读回任务记录 -- and no command anywhere that could do it, because a
+    handed-back task has left the bucket ``list-pending`` walks.  The worker's
+    only alternative was to believe its own submit receipt, which is exactly the
+    self-attestation ACE refuses.  ``show`` is read-only, needs no claim, prints
+    no credentials, and mutates nothing.
+    """
+
+    pool_dir = tmp_path / "pool"
+    task = _seed_task(pool_dir, title="读回口", ref="show-after-handback")
+    started = _one_json_line(_run(pool_dir, "start", "--task-id", task.task_id, "--owner", "w-show", "--lease", "300")[0])
+    receipt = tmp_path / "done.json"
+    receipt.write_text(
+        json.dumps(
+            {
+                "summary": "只交一句话",
+                "facts": ["读回口可用"],
+                "evidence": [{"content": "本测试的 tmp 池里这条任务已是 review", "source": "ops/test_worker_capsule_cli.py"}],
+            }
+        ),
+        encoding="utf-8",
+    )
+    _run(
+        pool_dir,
+        "submit",
+        "--task-id",
+        task.task_id,
+        "--claim",
+        started["claim_id"],
+        "--token",
+        str(started["fencing_token"]),
+        "--actor",
+        "w-show",
+        "--payload-file",
+        str(receipt),
+    )
+
+    # the listing really is blind to it now, which is what made the gap real
+    listed = _one_json_line(_run(pool_dir, "list-pending")[0])
+    assert task.task_id not in [row["task_id"] for row in listed["pending"]], listed
+
+    result, _ = _run(pool_dir, "show", "--task-id", task.task_id)
+    assert result.returncode == 0, (result.stdout[-300:], result.stderr[-500:])
+    row = _one_json_line(result)
+    assert row["status"] == "TASK_SEEN" and row["stored_status"] == "review"
+    assert row["result_summary"] == "只交一句话"
+    assert row["ledger_counts"]["result"] >= 2, row
+    assert row["evidence_rows"][-1]["source"], "truth without a source is not evidence"
+    assert started["claim_id"] not in result.stdout
+    assert row["lease"]["state"] == "absent" and row["lease"]["owner"] == ""
+
+    missing, _ = _run(pool_dir, "show", "--task-id", "NO-SUCH-TASK")
+    assert missing.returncode == 3, missing.stdout
+    refused = _one_json_line(missing)
+    assert refused["status"] == "REFUSED" and refused["reason"] == "task_not_found"
+    assert refused["runtime_mutation"] is False
+    assert "--pool" in refused["recovery_hint"] and "【" not in refused["recovery_hint"]
+
+
 def test_capsule_port_lines_survive_a_windows_cmd_paste(tmp_path):
     """Every command in the port face is pasted literally here, and must run.
 
@@ -872,7 +934,7 @@ def test_capsule_port_lines_survive_a_windows_cmd_paste(tmp_path):
     assert "【" in section, "unfilled holes must be visible as 【...】"
 
     commands = [line.strip() for line in section.splitlines() if line.startswith("    ") and line.strip()]
-    assert len(commands) == 6, commands
+    assert len(commands) == 8, commands
     holes = [line for line in commands if "【" in line]
     assert len(holes) == 2, holes  # submit and fail: only a file path and one choice are left to the worker
     # a command the worker can paste is a command that carries its own cd and pool
@@ -889,15 +951,31 @@ def test_capsule_port_lines_survive_a_windows_cmd_paste(tmp_path):
     row = _one_json_line(renewed)
     assert row["status"] == "RENEWED" and row["claim_id"] == started["claim_id"]
 
-    found = _run_literal(commands[4])  # 忘了凭证
+    # 要 capsule_hash: the cold handoff proved the hole in the face -- it told the
+    # worker to paste "本次回执里的 capsule_hash" while handing it no receipt, so the
+    # worker submitted an empty string and had to guess that 空串 meant "omit".
+    hashed = _run_literal(commands[2])
+    assert hashed.returncode == 0, (hashed.stdout[-300:], hashed.stderr[-500:])
+    ready = _one_json_line(hashed)
+    assert ready["status"] == "CAPSULE_READY" and len(ready["capsule_hash"]) == 64
+
+    found = _run_literal(commands[6])  # 忘了凭证
     assert found.returncode == 0, (found.stdout[-300:], found.stderr[-500:])
     leases = _one_json_line(found)
     assert leases["status"] == "LEASES_FOUND" and leases["leases"][0]["task_id"] == task.task_id
     assert leases["leases"][0]["next_command"].startswith("cd ") and "【" not in leases["leases"][0]["next_command"]
 
+    # 交回后自检: fully filled, needs no credentials, and must not hand any back
+    seen = _run_literal(commands[5])
+    assert seen.returncode == 0, (seen.stdout[-300:], seen.stderr[-500:])
+    record = _one_json_line(seen)
+    assert record["status"] == "TASK_SEEN" and record["stored_status"] == "active"
+    assert record["checkpoints_tail"][-1]["name"] == "lifecycle_start"
+    assert started["claim_id"] not in seen.stdout, "show is a read, not a credential dispenser"
+
     # reclaim is fully filled too, and the lease is still live: the pasted line has
     # to reach the port and come back refused, instead of dying inside the shell
-    stale = _run_literal(commands[5])
+    stale = _run_literal(commands[7])
     assert stale.returncode == 3, (stale.stdout[-300:], stale.stderr[-500:])
     refused = _one_json_line(stale)
     assert refused["status"] == "REFUSED" and refused["reason"] == "capsule_lease_still_live"

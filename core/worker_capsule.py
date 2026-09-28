@@ -160,12 +160,20 @@ def _return_protocol_lines(task_pool: Any, task_id: str, claim_id: str, fencing_
         *command("找下一件活", "list-pending"),
         *command("还没做完，续租", f"renew {creds} --owner {actor} --lease 300"),
         *command(
-            "做完了，交回（把两个【】换成你写的文件路径和本次回执里的 capsule_hash）",
+            "要 capsule_hash（交回时填这个；本胶囊正文里没有它，因为它是对正文算出来的，重跑一次得到同一个值）",
+            f"render {creds}",
+        ),
+        *command(
+            "做完了，交回（把两个【】换成你写的文件路径和上一条回执里的 capsule_hash）",
             f"submit {creds} --actor {actor} --payload-file 【结果.json 的路径】 --capsule-hash 【capsule_hash】",
         ),
         *command(
             "做不动，别硬撑（--type 只能四选一，写错会被端口拒）",
             f"fail {creds} --actor {actor} --reason 【一句话原因】 --type 【retryable/permanent/manual_gate/external_condition】",
+        ),
+        *command(
+            "交回后自检（只读，看这条任务现在真的落在哪个状态；转 review 后 list-pending 就看不见它了）",
+            f"show --task-id {task_id}",
         ),
         *command("忘了凭证（只读，把你仍持有的任务连 claim/token 一起还给你）", f"recover --owner {actor}"),
         *command("租约过期（只重开自己这一件，不扫全池）", f"reclaim --task-id {task_id} --actor {actor}"),
@@ -212,6 +220,98 @@ def _continuation(task_pool: Any, actor: str) -> Dict[str, Any]:
     return listing
 
 
+def describe_task_for_worker(task_pool: Any, task_id: str) -> Dict[str, Any]:
+    """Read back what the pool actually holds for one task, credentials withheld.
+
+    ``VERIFICATION.method`` tells a worker to 读回任务记录, and the cold handoff
+    proved that sentence was not executable: once a submit moves the task to
+    ``review`` it disappears from ``list-pending``, so a shell-only worker holds
+    nothing but the receipt it just received -- self-attestation, the one thing
+    ACE refuses to treat as a fact.  This is the missing read side.
+
+    It is deliberately the *stored* state, not the worker's claim about it: the
+    evidence rows, the ledger buckets and the checkpoint tail come off the record
+    so a disagreement between "what I submitted" and "what is on disk" is
+    visible.  ``claim_id`` and ``fencing_token`` are not returned, because this
+    verb needs no authority and printing them would turn a convenience read into
+    a credential leak.
+    """
+
+    task_id = str(task_id or "").strip()
+    if not task_id:
+        return _refusal("capsule_task_id_missing", "", "pass --task-id")
+    task = task_pool.load_task(task_id)
+    if task is None:
+        return _refusal(
+            "task_not_found",
+            task_id,
+            port_prefix(task_pool) + " list-pending",
+            pool=pool_face(task_pool),
+            meaning="这个 id 在本池的任何状态桶里都不存在：不是你领到的那件",
+        )
+
+    envelope = _envelope_of(task)
+    ledger = envelope.get("evidence_ledger") or {}
+    checkpoints = envelope.get("checkpoints") or []
+    tail = checkpoints[-_MAX_CHECKPOINTS_SHOWN:] if isinstance(checkpoints, list) else []
+    evidence_rows = [row for row in (getattr(task, "evidence", None) or []) if isinstance(row, dict)]
+    lease_state, seconds_remaining = _lease_state(task)
+    owned = str(getattr(task, "lease_owner", "") or "")
+
+    return {
+        "status": "TASK_SEEN",
+        "task_id": str(getattr(task, "task_id", "")),
+        "pool": pool_face(task_pool),
+        "stored_status": str(getattr(task, "status", "")),
+        "title": _one_line(getattr(task, "title", ""), 160),
+        "retry_count": int(getattr(task, "retry_count", 0) or 0),
+        "lease": {
+            "state": lease_state,
+            "owner": owned,
+            "expires_at": _one_line(getattr(task, "lease_expires_at", ""), 40),
+            "seconds_remaining": round(seconds_remaining, 3) if seconds_remaining is not None else None,
+            "note": "claim_id/fencing_token 不在这里返回：本命令只读，不需要凭证",
+        },
+        "result_summary": _one_line(getattr(task, "result", "") or "", 400),
+        "evidence_rows": [
+            {
+                "content": _one_line(row.get("content", ""), 200),
+                "source": _one_line(row.get("source", ""), 120),
+                "added_at": _one_line(row.get("added_at", ""), 40),
+            }
+            for row in evidence_rows[-_MAX_CHECKPOINTS_SHOWN:]
+        ],
+        "evidence_total": len(evidence_rows),
+        "ledger_counts": {
+            kind: len(list((ledger.get(kind) or []) if isinstance(ledger, dict) else []))
+            for kind in ("source", "runtime", "result", "review", "unknown")
+        },
+        "checkpoints_tail": [
+            {
+                "name": _one_line(row.get("name", ""), 60),
+                "status": _one_line(row.get("status", ""), 40),
+                "actor": _one_line(row.get("actor", ""), 60),
+                "at": _one_line(row.get("at", row.get("recorded_at", "")), 40),
+                # which brief the hand-back proved itself against, or null when the
+                # worker submitted without ever rendering -- the difference between
+                # "carried by the capsule" and "guessed its way in" is exactly what a
+                # reviewer has to be able to see from the record alone.
+                "capsule_hash": _one_line(row.get("capsule_hash", "") or "", 64) or None,
+                "evidence_count": row.get("evidence_count"),
+            }
+            for row in tail
+            if isinstance(row, dict)
+        ],
+        "checkpoints_omitted": max(0, (len(checkpoints) if isinstance(checkpoints, list) else 0) - len(tail)),
+        "next_step": (
+            "这条任务还在你名下：跑 renew 续租，或按胶囊 RETURN PROTOCOL 交回"
+            if str(getattr(task, "status", "")) == "active" and owned
+            else "已离开 active：本轮交回已落盘，用 list-pending 找下一件活"
+        ),
+        "runtime_mutation": False,
+    }
+
+
 def _now() -> datetime:
     return datetime.now()
 
@@ -226,10 +326,35 @@ def _one_line(value: Any, limit: int = _MAX_LINE_CHARS) -> str:
     return text
 
 
+def _fact_line(item: Any) -> str:
+    """Render one admitted item as a sentence that carries where it came from.
+
+    ``admission.evidence`` rows are ``{content, source}`` dicts, and the first
+    version of the capsule printed them with ``json.dumps``: a worker read a
+    ``- {"content": "...", "source": "field-scan"}`` line as payload-shaped
+    noise instead of a claim it could go and re-check.  The source is the whole
+    point of an admitted fact, so it stays visible as a pointer rather than a
+    JSON key.
+    """
+
+    if isinstance(item, dict):
+        content = _one_line(item.get("content") or item.get("fact") or item.get("summary") or "")
+        source = _one_line(item.get("source") or item.get("from") or "")
+        if content and source:
+            return f"{content}  (依据: {source})"
+        if content:
+            return content
+        leftover = _one_line(item)
+        if leftover and leftover not in ("{}", "null"):
+            return leftover
+        return ""
+    return _one_line(item)
+
+
 def _section_lines(items: List[Any]) -> Tuple[List[str], int]:
     lines: List[str] = []
     for item in items:
-        rendered = _one_line(item)
+        rendered = _fact_line(item)
         if rendered:
             lines.append(f"- {rendered}")
     omitted = max(0, len(lines) - _MAX_LINES_PER_SECTION)
@@ -664,7 +789,7 @@ def render_task_capsule(
     deduped_known: List[Any] = []
     seen_known: set[str] = set()
     for item in known:
-        key = _one_line(item)
+        key = _fact_line(item)
         if key and key not in seen_known:
             seen_known.add(key)
             deduped_known.append(item)
@@ -685,6 +810,7 @@ def render_task_capsule(
 
     lines.append("== VERIFICATION ==")
     lines.append(f"- method: {_one_line(verification.get('method'))}")
+    lines.append("- read_back: 用 RETURN PROTOCOL 里「交回后自检」那条命令，能看到这条任务真的落在哪个状态")
     lines.append(f"- reviewer: {_one_line(verification.get('reviewer'))}")
     lines.append(f"- independent_reviewer: {_one_line(verification.get('independent_reviewer'))}")
     lines.append(f"- required: {bool(verification.get('required'))}")

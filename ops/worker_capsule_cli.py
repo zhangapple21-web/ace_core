@@ -36,6 +36,12 @@ holes the caller must fill are shown as 【...】, never as angle brackets.
     py -3.11 -m ops.worker_capsule_cli --pool 【池目录】 fail --task-id RQ-... --claim 【id】 --token 1 --actor w1 --reason 机制上不可行 --type permanent
     py -3.11 -m ops.worker_capsule_cli --pool 【池目录】 recover --owner w1
     py -3.11 -m ops.worker_capsule_cli --pool 【池目录】 reclaim --task-id RQ-... --actor w1
+    py -3.11 -m ops.worker_capsule_cli --pool 【池目录】 show --task-id RQ-...
+
+``show`` is the read half of verification: after a hand-back the task has left
+the bucket ``list-pending`` walks, so a worker would otherwise be judging its own
+work by its own receipt.  It prints the stored record -- status,
+evidence rows, ledger buckets, checkpoint tail -- and never the claim or token.
 """
 
 from __future__ import annotations
@@ -55,6 +61,7 @@ from core.ace_start import ace_start  # noqa: E402
 from core.task import TaskPool  # noqa: E402
 from core.worker_capsule import (  # noqa: E402
     check_capsule_authority,
+    describe_task_for_worker,
     port_prefix,
     reclaim_own_expired_lease,
     recover_worker_leases,
@@ -120,7 +127,7 @@ except (AttributeError, ValueError):
 def _emit(payload: Dict[str, Any]) -> int:
     print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
     status = str(payload.get("status", ""))
-    if status in {"CAPSULE_READY", "SUBMITTED", "STARTED", "RENEWED", "FAILED_RECORDED", "LISTED", "LEASES_FOUND", "NO_LIVE_LEASE", "LEASE_RECLAIMED"}:
+    if status in {"CAPSULE_READY", "SUBMITTED", "STARTED", "RENEWED", "FAILED_RECORDED", "LISTED", "LEASES_FOUND", "NO_LIVE_LEASE", "LEASE_RECLAIMED", "TASK_SEEN"}:
         return EXIT_OK
     if status in {"REFUSED", "REJECTED"}:
         return EXIT_REFUSED
@@ -141,6 +148,12 @@ def main(argv=None) -> int:
     sub = parser.add_subparsers(dest="command", required=True)
 
     sub.add_parser("list-pending", help="read-only: claimable tasks, least fields needed to pick one")
+
+    shown = sub.add_parser(
+        "show",
+        help="read-only: what the pool actually stores for ONE task (no credentials printed)",
+    )
+    shown.add_argument("--task-id", required=True)
 
     recovered = sub.add_parser(
         "recover",
@@ -209,6 +222,9 @@ def main(argv=None) -> int:
                 ),
             }
         )
+
+    if args.command == "show":
+        return _emit(describe_task_for_worker(_pool(args), args.task_id))
 
     if args.command == "recover":
         pool = _pool(args)
