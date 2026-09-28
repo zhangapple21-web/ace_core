@@ -2,11 +2,12 @@
 
 ## Positioning
 
-ACE borrows Hindsight's multi-path retrieval, evidence-backed observation,
-and read-only knowledge projection ideas without adding a second memory source
-of truth. `core/hindsight_memory_adapter.py` is a local, read-only, zero-
-dependency adapter. Default ACE retrieval is unchanged; the adapter is
-explicitly opt-in.
+ACE borrows Hindsight's multi-path retrieval as an implementation strategy, not
+as a memory store. `core/hindsight_memory_adapter.py` is local, read-only, and
+zero-dependency. Its canonical host is `MemoryKernel.query()`; the direct
+`MemoryIndex` adapter entry was removed because it duplicated the route. The
+daemon's current default remains the legacy `MemoryIndex` until the replacement
+gate in `ACE_MEMORY_KERNEL.v1.md` passes.
 
 ## Landed capabilities
 
@@ -31,11 +32,9 @@ the data-classification boundary.
 
 ## Acceptance gate
 
-This adapter can become a default retrieval path only after a real fixture or
-shadow benchmark demonstrates measurable improvement, no regression, zero
-boundary leakage, and a complete painful review. The current synthetic PASS is
-only a candidate evidence receipt and is deliberately not promoted. Run
-`ops/record_hindsight_memory_promotion_gate.py` to record the decision. The
-current synthetic comparison deliberately keeps the adapter opt-in because its
-recall improves while its naive in-process latency is higher; the closed-loop
-receipt therefore records `ROLLBACK_REQUIRED` for default promotion.
+The current synthetic PASS is candidate evidence only: its baseline recall is
+zero, adapter precision@3 is 1/3, and measured in-process latency is higher.
+The `ROLLBACK_REQUIRED` receipt means "do not promote this candidate to the
+default path"; no production rollback is needed because it was never integrated.
+Do not use this synthetic result as a replacement decision. Any later promotion
+must satisfy the single replacement gate in `ACE_MEMORY_KERNEL.v1.md`.

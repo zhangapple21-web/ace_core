@@ -21,8 +21,10 @@ import re
 import tempfile
 import threading
 import uuid
+from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from itertools import islice
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Optional, Sequence
 
@@ -36,6 +38,7 @@ from .mirror_constitution import (
 
 CONTRACT_VERSION = "ace.memory_kernel.v1"
 EVENT_VERSION = "ace.memory_kernel.event.v1"
+MAX_IMPORT_BATCH_RECORDS = 50
 
 MEMORY_TYPES = {
     "WORKING",
@@ -58,7 +61,18 @@ EPISTEMIC_STATUSES = {
 }
 LIFECYCLE_STATES = {"ACTIVE", "COLD", "ARCHIVED", "SUPERSEDED"}
 POLARITIES = {"SUPPORTED", "CONTRADICTED", "UNKNOWN"}
-_KNOWN_EVENT_TYPES = {"CAPTURED", "SUPPORT_ADDED", "VERIFIED", "PROMOTED", "STATUS_CHANGED", "SUPERSEDED", "ARCHIVED"}
+_KNOWN_EVENT_TYPES = {
+    "CAPTURED",
+    "SUPPORT_ADDED",
+    "VERIFIED",
+    "PROMOTED",
+    "STATUS_CHANGED",
+    "SUPERSEDED",
+    "ARCHIVED",
+    "IMPORT_BATCH_STARTED",
+    "IMPORT_BATCH_COMPLETED",
+    "IMPORT_BATCH_REJECTED",
+}
 
 _REF_RE = re.compile(r"^[^\x00\r\n]{1,4096}$")
 
@@ -498,12 +512,69 @@ class MemoryKernel:
             self._append_event("CAPTURED", {"memory_id": record["id"], "record": record})
             return dict(self._records[record["id"]])
 
-    def import_records(self, records: Iterable[Mapping[str, Any]], *, source_prefix: str = "import") -> dict[str, Any]:
-        """把旧索引作为候选导入；不把旧字段默认为已验证事实。"""
+    def import_records(
+        self,
+        records: Iterable[Mapping[str, Any]],
+        *,
+        selected_by: str,
+        source_prefix: str = "import",
+    ) -> dict[str, Any]:
+        """显式、限量地迁移候选，并在同一哈希链中记录批次收据。
+
+        ``selected_by`` 是调用方声明的选择责任标识；当前系统没有独立身份
+        认证，因此收据不会把这个字段伪称为已认证的真人身份。
+        """
+
+        actor = str(selected_by or "").strip()
+        if not actor or len(actor) > 120 or contains_credential_like_content(actor):
+            raise ValueError("memory_import_selected_by_invalid")
+        prefix = _normalise_text(source_prefix or "import", limit=160)
+        batch_id = "MB-" + uuid.uuid4().hex.upper()
+        batch = list(islice(iter(records), MAX_IMPORT_BATCH_RECORDS + 1))
+        selected_hashes = []
+        for index, raw in enumerate(batch):
+            try:
+                fingerprint_input = dict(raw) if isinstance(raw, Mapping) else {"index": index, "type": type(raw).__name__}
+                selected_hashes.append(_sha(fingerprint_input))
+            except (TypeError, ValueError):
+                selected_hashes.append(_sha({"index": index, "type": type(raw).__name__, "serialization_error": True}))
+        batch_fingerprint = _sha({"source_prefix": prefix, "record_hashes": selected_hashes})
+
+        if len(batch) > MAX_IMPORT_BATCH_RECORDS:
+            rejected_event = self._append_event(
+                "IMPORT_BATCH_REJECTED",
+                {
+                    "batch_id": batch_id,
+                    "selected_by": actor,
+                    "source_prefix": prefix,
+                    "reason": "record_limit_exceeded",
+                    "limit": MAX_IMPORT_BATCH_RECORDS,
+                    "observed_count_at_least": len(batch),
+                    "sampled_record_hashes": selected_hashes,
+                    "batch_fingerprint": batch_fingerprint,
+                    "records_written": 0,
+                },
+            )
+            raise ValueError(
+                f"memory_import_batch_limit_exceeded:{MAX_IMPORT_BATCH_RECORDS}:{batch_id}:{rejected_event['event_hash']}"
+            )
+
+        started_event = self._append_event(
+            "IMPORT_BATCH_STARTED",
+            {
+                "batch_id": batch_id,
+                "selected_by": actor,
+                "source_prefix": prefix,
+                "selected_count": len(batch),
+                "selected_record_hashes": selected_hashes,
+                "batch_fingerprint": batch_fingerprint,
+                "selection_identity_authenticated": False,
+            },
+        )
 
         imported: list[str] = []
         rejected: list[dict[str, Any]] = []
-        for raw in records:
+        for raw in batch:
             if not isinstance(raw, Mapping):
                 rejected.append({"reason": "record_not_mapping"})
                 continue
@@ -519,7 +590,7 @@ class MemoryKernel:
                     }.get(str(raw.get("type") or "").lower(), "UNKNOWN"),
                     claim_key=str(raw.get("related_event_id") or raw.get("title") or raw.get("id") or "imported"),
                     data_class=str(raw.get("data_class") or "PRIVATE").upper(),
-                    source_refs=[str(raw.get("source_path") or f"{source_prefix}:{raw.get('id', 'unknown')}")],
+                    source_refs=[str(raw.get("source_path") or f"{prefix}:{raw.get('id', 'unknown')}")],
                     evidence_refs=[str(raw.get("source_path"))] if raw.get("source_path") else [],
                     tags=raw.get("tags") or [],
                     metadata={"imported_from": dict(raw)},
@@ -527,14 +598,84 @@ class MemoryKernel:
                 imported.append(record["id"])
             except (TypeError, ValueError) as exc:
                 rejected.append({"id": raw.get("id"), "reason": str(exc)})
+
+        completed_event = self._append_event(
+            "IMPORT_BATCH_COMPLETED",
+            {
+                "batch_id": batch_id,
+                "started_event_hash": started_event["event_hash"],
+                "selected_count": len(batch),
+                "imported_count": len(imported),
+                "rejected_count": len(rejected),
+                "imported_memory_ids": imported,
+                "rejection_reasons": dict(Counter(str(item.get("reason") or "unknown") for item in rejected)),
+                "result": "PASS" if not rejected else "PARTIAL",
+                "promotion_status": "CANDIDATE_ONLY",
+                "execution_authorized": False,
+                "production_integration": False,
+            },
+        )
+        batch_receipt = {
+            "batch_id": batch_id,
+            "status": "COMPLETED",
+            "selected_by": actor,
+            "selection_identity_authenticated": False,
+            "source_prefix": prefix,
+            "selected_count": len(batch),
+            "selected_record_hashes": selected_hashes,
+            "batch_fingerprint": batch_fingerprint,
+            "imported_count": len(imported),
+            "rejected_count": len(rejected),
+            "result": "PASS" if not rejected else "PARTIAL",
+            "started_at": started_event["occurred_at"],
+            "completed_at": completed_event["occurred_at"],
+            "started_event_hash": started_event["event_hash"],
+            "completed_event_hash": completed_event["event_hash"],
+        }
         return {
             "contract_version": CONTRACT_VERSION,
             "imported": imported,
             "rejected": rejected,
+            "batch_receipt": batch_receipt,
             "promotion_status": "CANDIDATE_ONLY",
             "execution_authorized": False,
             "production_integration": False,
         }
+
+    def list_import_batches(self) -> list[dict[str, Any]]:
+        """从可校验的事件链重建批次状态；无完成事件的批次显示为 INCOMPLETE。"""
+
+        batches: dict[str, dict[str, Any]] = {}
+        for event in self._events:
+            event_type = str(event.get("event_type") or "")
+            payload = event.get("payload") or {}
+            batch_id = str(payload.get("batch_id") or "")
+            if not batch_id:
+                continue
+            if event_type == "IMPORT_BATCH_STARTED":
+                batches[batch_id] = {
+                    **dict(payload),
+                    "status": "INCOMPLETE",
+                    "started_event_hash": event.get("event_hash"),
+                    "started_at": event.get("occurred_at"),
+                }
+            elif event_type == "IMPORT_BATCH_COMPLETED" and batch_id in batches:
+                batches[batch_id].update(
+                    {
+                        **dict(payload),
+                        "status": "COMPLETED",
+                        "completed_event_hash": event.get("event_hash"),
+                        "completed_at": event.get("occurred_at"),
+                    }
+                )
+            elif event_type == "IMPORT_BATCH_REJECTED":
+                batches[batch_id] = {
+                    **dict(payload),
+                    "status": "REJECTED",
+                    "completed_event_hash": event.get("event_hash"),
+                    "completed_at": event.get("occurred_at"),
+                }
+        return list(batches.values())
 
     # ------------------------------------------------------------------
     # Explicit verification, promotion and lifecycle changes

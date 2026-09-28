@@ -174,12 +174,6 @@ class HindsightStyleRetriever:
             record["id"] = str(memory_id or _sha(record)[:16])
             self.entries.append(record)
 
-    @classmethod
-    def from_memory_index(cls, memory_index: Any, **kwargs: Any) -> "HindsightStyleRetriever":
-        """Build from a MemoryIndex snapshot without mutating that index."""
-
-        return cls(list(getattr(memory_index, "_index", []) or []), **kwargs)
-
     def _strategy_scores(
         self,
         query: str,

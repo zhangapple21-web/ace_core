@@ -4,7 +4,6 @@ from core.hindsight_memory_adapter import (
     project_knowledge_page,
     run_synthetic_ab_benchmark,
 )
-from core.memory_index import MemoryIndex
 
 
 def _entries():
@@ -137,26 +136,3 @@ def test_secret_like_content_is_rejected_before_retrieval():
     retriever = HindsightStyleRetriever(records)
     assert retriever.entries == []
     assert retriever.rejected_entries[0]["reason"] == ["credential_like_content_detected"]
-
-
-def test_memory_index_exposes_adapter_only_as_explicit_opt_in(tmp_path):
-    class FakeIdentity:
-        name = "ACE"
-
-        def continuity_mark(self):
-            return "continuity"
-
-    class FakeLexicon:
-        def classify(self, _text):
-            return []
-
-    index = MemoryIndex(tmp_path / "memory", FakeIdentity(), FakeLexicon())
-    index.add(
-        title="shot",
-        content="演员抬头并完成手部动作",
-        data_class="STRUCTURE",
-    )
-    result = index.search_hindsight_style("抬头 手部")
-    assert result["results"][0]["memory_id"] == index._index[0]["id"]
-    assert result["source_of_truth"] == "ACE_MEMORY_RECORDS"
-    assert result["execution_authorized"] is False

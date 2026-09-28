@@ -244,15 +244,25 @@ def test_import_is_candidate_only(tmp_path):
                 "data_class": "PRIVATE",
                 "source_path": "legacy://memory/1",
             }
-        ]
+        ],
+        selected_by="test:import-is-candidate-only",
     )
     assert len(result["imported"]) == 1
+    receipt = result["batch_receipt"]
+    assert receipt["batch_id"].startswith("MB-")
+    assert receipt["selected_by"] == "test:import-is-candidate-only"
+    assert receipt["selection_identity_authenticated"] is False
+    assert receipt["selected_count"] == 1
+    assert receipt["imported_count"] == 1
+    assert receipt["result"] == "PASS"
+    assert receipt["selected_record_hashes"]
+    assert kernel.list_import_batches()[0]["status"] == "COMPLETED"
     state = kernel.project_current_state()
     assert state["candidates"][0]["epistemic_status"] == "CANDIDATE"
     assert state["candidates"][0]["metadata"]["imported_from"]["id"] == "legacy-1"
 
 
-def test_legacy_memory_index_has_explicit_governed_migration_entry(tmp_path):
+def test_search_governed_does_not_implicitly_migrate_legacy_index(tmp_path):
     class FakeIdentity:
         name = "ACE"
 
@@ -279,6 +289,97 @@ def test_legacy_memory_index_has_explicit_governed_migration_entry(tmp_path):
     assert result["retrieval_mode"] == "GOVERNED_MULTI_STRATEGY_READ_ONLY"
     assert result["source_of_truth"] == "ACE_MEMORY_KERNEL_EVENT_LEDGER"
     assert result["promotion"] is False
+    assert result["candidate_count"] == 0
+
+
+def test_selected_legacy_slice_migrates_only_when_explicitly_requested(tmp_path):
+    class FakeIdentity:
+        name = "ACE"
+
+        def continuity_mark(self):
+            return "continuity"
+
+    class FakeLexicon:
+        def classify(self, _text):
+            return []
+
+    index = MemoryIndex(tmp_path / "legacy", FakeIdentity(), FakeLexicon())
+    index.add(
+        title="视频动作",
+        content="表演必须继承上一镜尾帧",
+        memory_type="note",
+        data_class="STRUCTURE",
+        source_path="receipt://legacy/1",
+    )
+    kernel = MemoryKernel(tmp_path / "kernel", bank="ace")
+    migration = kernel.import_records(
+        index._index,
+        source_prefix="memory_index",
+        selected_by="test:selected-slice",
+    )
+    assert len(migration["imported"]) == 1
+    result = index.search_governed(
+        "尾帧",
+        kernel_dir=tmp_path / "kernel",
+        scope="ace",
+    )
+    assert result["candidate_count"] == 1
+    assert result["promotion"] is False
+
+
+def test_legacy_import_rejects_oversized_batch_before_writing(tmp_path):
+    kernel = _kernel(tmp_path)
+    records = [
+        {
+            "id": f"legacy-{index}",
+            "title": f"旧记忆 {index}",
+            "summary": f"旧系统内容 {index}",
+            "type": "project",
+            "data_class": "PRIVATE",
+            "source_path": f"legacy://memory/{index}",
+        }
+        for index in range(51)
+    ]
+    with pytest.raises(ValueError, match="memory_import_batch_limit_exceeded:50"):
+        kernel.import_records(records, selected_by="test:oversized-batch")
+    assert kernel.project_current_state()["candidates"] == []
+    batches = kernel.list_import_batches()
+    assert len(batches) == 1
+    assert batches[0]["status"] == "REJECTED"
+    assert batches[0]["records_written"] == 0
+    assert batches[0]["selected_by"] == "test:oversized-batch"
+
+
+def test_interrupted_import_is_visible_as_incomplete_batch(tmp_path):
+    kernel = _kernel(tmp_path)
+    original_capture = kernel.capture
+    calls = 0
+
+    def fail_during_import(**kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise RuntimeError("injected import interruption")
+        return original_capture(**kwargs)
+
+    kernel.capture = fail_during_import
+    records = [
+        {
+            "id": f"legacy-{index}",
+            "title": f"旧记忆 {index}",
+            "summary": f"旧系统内容 {index}",
+            "type": "project",
+            "data_class": "PRIVATE",
+            "source_path": f"legacy://memory/{index}",
+        }
+        for index in range(3)
+    ]
+    with pytest.raises(RuntimeError, match="injected import interruption"):
+        kernel.import_records(records, selected_by="test:interrupted-import")
+    batches = kernel.list_import_batches()
+    assert len(batches) == 1
+    assert batches[0]["status"] == "INCOMPLETE"
+    assert batches[0]["selected_count"] == 3
 
 
 def test_validity_window_and_retention_are_explicit(tmp_path):

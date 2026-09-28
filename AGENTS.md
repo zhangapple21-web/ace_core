@@ -192,19 +192,25 @@ Three completed discovery windows with zero Candidates require an `INVESTIGATE_D
 - **Model Registry** — 3 providers: Ollama → GitHub Models → Zhipu GLM
 - **Local Miner** — Unified `call_model()` with auto-fallback, no TRAE dependency
 - **Experience Sediment** — Write findings to `02_MEMORY/experience/`
-- **Memory Kernel v1** — `core/memory_kernel.py` is the governed memory
-  convergence layer for evidence, time windows, conflicts, UNKNOWN, retention,
-  recovery and multi-strategy read-only recall. Existing `MemoryIndex.search()`
-  and the legacy Markdown memory remain compatible; migration is explicit via
-  `MemoryIndex.search_governed()` / `MemoryKernel.import_records()`. Nothing is
-  promoted merely because it was recalled; verification and the existing
-  Validator/Guardian/closed-loop gates remain authoritative.
+- **Memory path truth (2026-09-28)** — `MemoryIndex` is still the active daemon/worker
+  runtime read/write path. `MemoryKernel` is a staged replacement candidate, not
+  yet a production consumer or current source of truth. `HindsightStyleRetriever`
+  is a read-only ranking strategy under `MemoryKernel.query()`, not another store;
+  no standalone Hindsight search route is exposed on `MemoryIndex`.
+  Caller unification is NOT MET: daemon, role, scanner/parser/clusterer,
+  archaeologist, CLI and raw self-healing paths still use the legacy API or file;
+  see the caller inventory and one-time cutover gate in
+  `docs/ACE_MEMORY_KERNEL.v1.md`. `search_governed()` is a candidate query, not
+  the production facade. Legacy migration is a separate explicit
+  `MemoryKernel.import_records()` call, capped at 50 records with a hash-chained
+  batch receipt. Recall never promotes by itself; Validator/Guardian/closed-loop
+  gates remain authoritative.
 - **Memory convergence gate** — Do not add another memory index, parallel
   memory protocol, background memory daemon, or alternate promotion path.
-  Improve the kernel or retire/supersede an existing path first. Hindsight is
-  an adapter, not a second source of truth; legacy memory is migration input,
-  not a production owner. New fields require a real consumer, a focused test,
-  and a removal/supersession path before they are admitted.
+  Keep bounded coexistence until the kernel's replacement gate passes; do not
+  call legacy `MemoryIndex` retired while production still uses it. Hindsight is
+  retrieval strategy only. New fields require a real consumer, focused test,
+  and removal/supersession path before admission.
 - **RoundTable (historical, not wired)** — The duplicate protocol implementation has no production consumer. Validator, Guardian, and Archivist remain separate wired lifecycle roles; do not infer a running council from file presence.
 - **Governor** — Invariant enforcement, security constraints
 - **Runtime recovery (production)** — SelfHealing, lifecycle-lock recovery, atomic state writes, and periodic backup are wired. The legacy `recovery_protocol.py` copies are retained historical implementations, not the production owner.
