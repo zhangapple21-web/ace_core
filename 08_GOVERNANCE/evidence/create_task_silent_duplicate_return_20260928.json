@@ -1,8 +1,8 @@
 {
   "artifact": "create_task_silent_duplicate_return_repro",
-  "measured_at": "2026-09-28T18:31:21+08:00",
+  "measured_at": "2026-09-28T18:34:33+08:00",
   "ruler": "in-process TaskPool under %TEMP% only: 3 create_task calls, identical (source_type, source_ref), different titles; read back file list, returned task ids, audit_log and ledger",
-  "scratch_pool": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\ace_dup_return_1xdfit27\\pool",
+  "scratch_pool": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\ace_dup_return_hgtkqlc4\\pool",
   "titles_requested": [
     "第一件：扫描出来的真任务",
     "第二件：完全不同的一句话",
@@ -24,8 +24,8 @@
   "audit_rows": [],
   "audit_rows_mentioning_duplicate": 0,
   "ledger_rows_mentioning_duplicate": 0,
-  "stored_admission_source_ref": "shared-ref-1790591481858564800",
-  "dedup_key_source": "core/task.py:586-588 (duplicate = duplicate_task(existing, admission); if duplicate: return duplicate) with core/task_admission.py:74-84 matching (source_type, source_ref) over tasks whose status is not archived/graveyard/rejected",
+  "stored_admission_source_ref": "shared-ref-1790591673765863500",
+  "dedup_key_source": "core/task.py:586-588 (duplicate = duplicate_task(existing, admission); if duplicate: return duplicate) with core/task_admission.py:91-100 matching (source_type, source_ref) over tasks whose status is not archived/graveyard/rejected",
   "production_context_census": {
     "tasks_read": 788,
     "with_admission": 621,
