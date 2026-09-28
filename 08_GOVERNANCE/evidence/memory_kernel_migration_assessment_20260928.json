@@ -1,0 +1,28 @@
+{
+  "contract_version": "ace.memory_kernel.migration_assessment.v1",
+  "status": "STAGED_MIGRATION_REQUIRED",
+  "source": "06_RUNTIME\\ace\\data\\memory\\memory_index.json",
+  "entry_count": 6922,
+  "type_counts": {
+    "daily_summary": 343,
+    "file_scan": 289,
+    "json_structure": 2,
+    "task_archive": 624,
+    "cycle_summary": 5664
+  },
+  "data_class_counts": {
+    "PRIVATE": 6922
+  },
+  "source_path_count": 291,
+  "source_coverage": 0.042039872869112975,
+  "latest_created_at": "2026-09-28T15:11:03.944798",
+  "reasons": [
+    "legacy_index_large",
+    "source_coverage_below_50_percent",
+    "all_records_private"
+  ],
+  "action": "只迁移有来源和明确用途的受治理切片；不把日常摘要批量当作事实导入",
+  "execution_authorized": false,
+  "production_integration": false,
+  "promotion": false
+}

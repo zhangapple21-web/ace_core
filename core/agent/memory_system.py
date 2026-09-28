@@ -1,6 +1,11 @@
 """
 ACE Memory System — 双层记忆骨架
 
+兼容状态：LEGACY_MIGRATION_ONLY。
+新生产记忆应通过 ``core.memory_kernel.MemoryKernel`` 收口；本模块保留用于
+读取/迁移早期 Markdown 记忆，不是第二个生产真相源，也不应绕过来源、证据、
+数据分级和 Guardian/闭环晋升门。
+
 从 Claude Code memdir.ts 考古提取的核心骨架。
 
 核心设计：
@@ -12,6 +17,8 @@ ACE Memory System — 双层记忆骨架
 这不是复制 Claude Code。
 是用 ACE 的方式重写这套骨架。
 """
+
+LEGACY_MIGRATION_ONLY = True
 
 from dataclasses import dataclass, field
 from datetime import datetime

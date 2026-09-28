@@ -1,0 +1,205 @@
+{
+  "contract_version": "ace.hindsight_memory_promotion_gate.v1",
+  "benchmark_receipt": {
+    "contract_version": "ace.hindsight_memory_adapter.v1",
+    "benchmark": "synthetic_hindsight_style_ab",
+    "status": "PASS",
+    "baseline_hit_rate": 0.0,
+    "adapter_hit_rate": 1.0,
+    "baseline_mrr": 0.0,
+    "adapter_mrr": 1.0,
+    "baseline_precision_at_3": 0.0,
+    "adapter_precision_at_3": 0.3333333333333333,
+    "baseline_median_latency_ms": 0.007,
+    "adapter_median_latency_ms": 0.2053,
+    "adapter_warm_median_latency_ms": 0.2649,
+    "boundary_rejections": 1,
+    "boundary_leaks": 0,
+    "external_model_calls": 0,
+    "network_calls": 0,
+    "estimated_llm_cost_usd": 0.0,
+    "temporal_expected_top1": true,
+    "dedup_input_evidence": 2,
+    "dedup_unique_evidence": 2,
+    "case_results": [
+      {
+        "query": "抬头 手部",
+        "expected": [
+          "m-video"
+        ],
+        "baseline": [],
+        "adapter": [
+          "m-video",
+          "m-routing"
+        ]
+      },
+      {
+        "query": "远程上班 安全",
+        "expected": [
+          "m-routing"
+        ],
+        "baseline": [],
+        "adapter": [
+          "m-routing"
+        ]
+      },
+      {
+        "query": "2026-09-20 连续性",
+        "expected": [
+          "m-video"
+        ],
+        "baseline": [],
+        "adapter": [
+          "m-video",
+          "m-routing",
+          "m-old"
+        ]
+      }
+    ],
+    "consolidation": {
+      "contract_version": "ace.hindsight_memory_adapter.v1",
+      "observations": [
+        {
+          "observation_id": "OBS-ddeb902628c32965",
+          "observation_key": "video.action_continuity",
+          "status": "CANDIDATE_OBSERVATION",
+          "support_count": 2,
+          "source_record_ids": [
+            "obs-1",
+            "obs-2"
+          ],
+          "evidence": [
+            {
+              "evidence_sha256": "a413294a38b6f9141ab9f90fce2bcc1ccdf532af0a62c468adfa414ca64f6e79",
+              "source_ref_sha256": "d9426c8932c5cf37b8c68f303ed1afffe7e36e9f8f67d5008e1bbe564e76f90b",
+              "has_source_ref": true
+            },
+            {
+              "evidence_sha256": "41289e6bbb402cc57ddb03444e4988a4245e3cad92b664ccd5fe0560071262ce",
+              "source_ref_sha256": "29abc532f14796e30a715dc2f5996be93a4103ce999c6db1593936d5c2d27826",
+              "has_source_ref": true
+            }
+          ],
+          "data_class": "STRUCTURE",
+          "execution_authorized": false,
+          "production_integration": false
+        }
+      ],
+      "rejected": [],
+      "promotion_status": "CANDIDATE_ONLY",
+      "execution_authorized": false,
+      "production_integration": false
+    },
+    "execution_authorized": false,
+    "production_integration": false,
+    "promotion_decision": "NOT_AUTOMATICALLY_PROMOTED"
+  },
+  "closed_loop_receipt": {
+    "cycle_id": "CLC-20260928143028-4c77ca14e7a72838",
+    "contract_version": "ace.closed_loop_engine.v1",
+    "created_at": "2026-09-28T14:30:28",
+    "observation": {
+      "source": "synthetic_hindsight_style_ab",
+      "status": "PASS",
+      "production_integration": false
+    },
+    "objective": "评估 Hindsight 风格适配器是否可以成为 ACE 默认记忆检索路径",
+    "decomposition": [
+      {
+        "node_id": "N01",
+        "objective": "为“评估 Hindsight 风格适配器是否可以成为 ACE 默认记忆检索路径”复现并记录当前基线",
+        "acceptance": "baseline 已带来源且可重跑",
+        "depends_on": [],
+        "risk": "low",
+        "status": "PLANNED"
+      },
+      {
+        "node_id": "N02",
+        "objective": "对“评估 Hindsight 风格适配器是否可以成为 ACE 默认记忆检索路径”实施一个可回滚的最小改动",
+        "acceptance": "change 有明确 diff、范围和回滚点",
+        "depends_on": [
+          "N01"
+        ],
+        "risk": "medium",
+        "status": "PLANNED"
+      },
+      {
+        "node_id": "N03",
+        "objective": "比较改动前后结果并完成痛苦复盘",
+        "acceptance": "evaluation、painful_review 和决策齐全",
+        "depends_on": [
+          "N02"
+        ],
+        "risk": "low",
+        "status": "PLANNED"
+      }
+    ],
+    "baseline": {
+      "recall": 0.0,
+      "mrr": 0.0,
+      "precision_at_3": 0.0,
+      "latency_ms": 0.007
+    },
+    "change": {
+      "adapter": "core.hindsight_memory_adapter.HindsightStyleRetriever",
+      "mode": "opt_in_read_only",
+      "external_model_calls": 0,
+      "network_calls": 0
+    },
+    "evaluation": {
+      "status": "REGRESSION",
+      "measurable_gain": true,
+      "regression": true,
+      "metrics": {
+        "latency_ms": {
+          "before": 0.007,
+          "after": 0.2053,
+          "direction": "lower",
+          "delta": 0.1983,
+          "status": "REGRESSED"
+        },
+        "mrr": {
+          "before": 0.0,
+          "after": 1.0,
+          "direction": "higher",
+          "delta": 1.0,
+          "status": "IMPROVED"
+        },
+        "precision_at_3": {
+          "before": 0.0,
+          "after": 0.3333333333333333,
+          "direction": "higher",
+          "delta": 0.3333333333333333,
+          "status": "IMPROVED"
+        },
+        "recall": {
+          "before": 0.0,
+          "after": 1.0,
+          "direction": "higher",
+          "delta": 1.0,
+          "status": "IMPROVED"
+        }
+      }
+    },
+    "painful_review": {
+      "cost": "默认检索会增加计算时间；适配器本身没有网络或模型费用",
+      "counterfactual": "若不保留适配器，ACE 对概念、时间和同义问题的召回仍可能漏检",
+      "recurrence_risk": "中；若直接默认启用，低延迟场景可能回归",
+      "reusable_lesson": "召回改善必须和延迟、边界泄漏、重复抑制一起评估；只读候选层优先",
+      "retain": true
+    },
+    "decision": "ROLLBACK_REQUIRED",
+    "next_observation": {
+      "source_cycle": "CLC-20260928143028-4c77ca14e7a72838",
+      "subject": "评估 Hindsight 风格适配器是否可以成为 ACE 默认记忆检索路径",
+      "trigger": "ROLLBACK_REQUIRED",
+      "action": "执行回滚并复现失败，禁止把本次改动当作经验",
+      "evaluation_status": "REGRESSION",
+      "lesson": "召回改善必须和延迟、边界泄漏、重复抑制一起评估；只读候选层优先"
+    },
+    "prediction_error": {},
+    "receipt_hash": "c77e37074618f937"
+  },
+  "default_path_changed": false,
+  "production_integration": false
+}

@@ -1,0 +1,23 @@
+{
+  "contract_version": "ace.memory_kernel.v1",
+  "status": "PASS",
+  "record_ids": [
+    "MEM-4A1CEDE38D5EFF9762B3",
+    "MEM-FC881A81499E5FD3359A"
+  ],
+  "query_result_count": 1,
+  "unknown_count": 1,
+  "accepted_capability_count": 1,
+  "integrity": {
+    "valid": true,
+    "errors": [],
+    "events": 4,
+    "records": 2,
+    "last_event_hash": "503a616b4df996dcaf987eb878009923ff2494984f856bea0b1d00a27b07b7e8",
+    "snapshot": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\ace-memory-kernel-yrf7ff4b\\kernel\\snapshot.json",
+    "event_ledger": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\ace-memory-kernel-yrf7ff4b\\kernel\\events.jsonl"
+  },
+  "execution_authorized": false,
+  "production_integration": false,
+  "promotion": false
+}

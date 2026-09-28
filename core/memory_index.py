@@ -18,6 +18,7 @@ from typing import Dict, List, Optional, Any
 
 from .identity import Identity
 from .lexicon import Lexicon
+from .mirror_constitution import DATA_CLASSES, validate_data_boundary
 
 
 class MemoryIndex:
@@ -39,6 +40,10 @@ class MemoryIndex:
                 with open(self.index_file, "r", encoding="utf-8") as f:
                     data = json.load(f)
                 self._index = data.get("entries", [])
+                for entry in self._index:
+                    if isinstance(entry, dict):
+                        classification = str(entry.get("data_class") or "PRIVATE").strip().upper()
+                        entry["data_class"] = classification if classification in DATA_CLASSES else "PRIVATE"
             except Exception:
                 self._index = []
 
@@ -63,12 +68,16 @@ class MemoryIndex:
         source_path: Optional[str] = None,
         tags: Optional[List[str]] = None,
         related_event_id: Optional[str] = None,
+        data_class: str = "PRIVATE",
     ) -> str:
         """
         添加一条记忆到索引。
         自动用lexicon进行分类和概念关联。
         """
         import uuid
+        boundary = validate_data_boundary({"data_class": data_class}, target="INTERNAL")
+        if not boundary["valid"]:
+            raise ValueError("memory_data_boundary_invalid:" + ",".join(boundary["errors"]))
         mem_id = str(uuid.uuid4())[:8]
 
         related_concepts = []
@@ -88,6 +97,7 @@ class MemoryIndex:
             "source": source,
             "source_path": source_path,
             "related_event_id": related_event_id,
+            "data_class": boundary["data_class"],
             "tags": tags or [],
             "related_concepts": related_concepts,
             "summary": content[:200] + "..." if len(content) > 200 else content,
@@ -144,6 +154,64 @@ class MemoryIndex:
     def get_by_concept(self, concept_name: str, limit: int = 20) -> List[Dict[str, Any]]:
         """按相关概念查找记忆"""
         return self.search(concept=concept_name, limit=limit)
+
+    def search_hindsight_style(
+        self,
+        query: str,
+        *,
+        limit: int = 20,
+        after: Optional[str] = None,
+        before: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Run the opt-in, read-only Hindsight-style adapter on this snapshot.
+
+        The default search path remains unchanged. The adapter cannot write
+        memory, authorize execution, or promote a capability.
+        """
+        from .hindsight_memory_adapter import HindsightStyleRetriever
+
+        return HindsightStyleRetriever.from_memory_index(self).retrieve(
+            query,
+            limit=limit,
+            after=after,
+            before=before,
+        )
+
+    def search_governed(
+        self,
+        query: str,
+        *,
+        kernel_dir: Path,
+        bank: str = "ace",
+        scope: Optional[str] = None,
+        data_classes: Optional[List[str]] = None,
+        statuses: Optional[List[str]] = None,
+        after: Optional[str] = None,
+        before: Optional[str] = None,
+        as_of: Optional[str] = None,
+        limit: int = 20,
+    ) -> Dict[str, Any]:
+        """显式把旧索引投影到 MemoryKernel 后检索。
+
+        这是迁移/回放入口，不改变 ``search`` 的默认行为，也不把旧索引
+        自动晋升为事实。首次调用会以 ``CANDIDATE``/``UNKNOWN`` 形式写入
+        内核事件账本，之后由既有 Validator/Guardian/闭环晋升门决定是否
+        接纳。这样旧窗口可以渐进迁移，而不会出现第二个隐式真相源。
+        """
+        from .memory_kernel import MemoryKernel
+
+        kernel = MemoryKernel(kernel_dir, bank=bank)
+        kernel.import_records(self._index, source_prefix="memory_index")
+        return kernel.query(
+            query,
+            scope=scope,
+            data_classes=data_classes,
+            statuses=statuses,
+            after=after,
+            before=before,
+            as_of=as_of,
+            limit=limit,
+        )
 
     def get_recent(self, limit: int = 20) -> List[Dict[str, Any]]:
         """获取最近的记忆"""

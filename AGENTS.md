@@ -192,6 +192,19 @@ Three completed discovery windows with zero Candidates require an `INVESTIGATE_D
 - **Model Registry** — 3 providers: Ollama → GitHub Models → Zhipu GLM
 - **Local Miner** — Unified `call_model()` with auto-fallback, no TRAE dependency
 - **Experience Sediment** — Write findings to `02_MEMORY/experience/`
+- **Memory Kernel v1** — `core/memory_kernel.py` is the governed memory
+  convergence layer for evidence, time windows, conflicts, UNKNOWN, retention,
+  recovery and multi-strategy read-only recall. Existing `MemoryIndex.search()`
+  and the legacy Markdown memory remain compatible; migration is explicit via
+  `MemoryIndex.search_governed()` / `MemoryKernel.import_records()`. Nothing is
+  promoted merely because it was recalled; verification and the existing
+  Validator/Guardian/closed-loop gates remain authoritative.
+- **Memory convergence gate** — Do not add another memory index, parallel
+  memory protocol, background memory daemon, or alternate promotion path.
+  Improve the kernel or retire/supersede an existing path first. Hindsight is
+  an adapter, not a second source of truth; legacy memory is migration input,
+  not a production owner. New fields require a real consumer, a focused test,
+  and a removal/supersession path before they are admitted.
 - **RoundTable (historical, not wired)** — The duplicate protocol implementation has no production consumer. Validator, Guardian, and Archivist remain separate wired lifecycle roles; do not infer a running council from file presence.
 - **Governor** — Invariant enforcement, security constraints
 - **Runtime recovery (production)** — SelfHealing, lifecycle-lock recovery, atomic state writes, and periodic backup are wired. The legacy `recovery_protocol.py` copies are retained historical implementations, not the production owner.
