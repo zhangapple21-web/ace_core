@@ -168,23 +168,26 @@ def _next_stage(envelope: Dict[str, Any]) -> Tuple[str, str]:
     return "stop", _STAGE_HINTS["stop"]
 
 
-def render_task_capsule(
+def check_capsule_authority(
     task_pool: Any,
     task_id: str,
     *,
     claim_id: str,
     fencing_token: int,
-    char_budget: int = CAPSULE_CHAR_BUDGET,
     now: Optional[datetime] = None,
 ) -> Dict[str, Any]:
-    """Render the bounded brief for the worker currently holding ``task_id``.
+    """The one ruler that answers "may this caller touch this task right now".
 
-    Read-only against the TaskPool.  Refuses (without mutating anything) when
-    the task is missing, not actively leased, when the supplied claim
-    credentials do not match the stored record, when the lease has expired, or
-    when the persisted envelope is absent/damaged — a missing envelope is
-    reported, never silently rebuilt, so a broken record cannot masquerade as
-    a healthy assignment.
+    Returns ``{"status": "AUTHORIZED", "task": task, "lease_seconds_remaining": n}``
+    or a refusal.  Render uses it, and so must every *write* port that the pool
+    itself does not fence (e.g. ``TaskPool.fail_task``: it takes a task id and
+    moves it regardless of who holds the lease).  Keeping the rule here means one
+    rule has one enforcement point instead of a read gate and an ad-hoc write
+    check that drift apart.
+
+    It deliberately stops short of the envelope check: a task with a damaged
+    envelope must not be rendered as a healthy brief, but its holder must still
+    be able to record an honest failure against it.
     """
 
     if not isinstance(task_id, str) or not task_id.strip():
@@ -230,6 +233,51 @@ def render_task_capsule(
         )
     if lease == "absent":
         return _refusal("capsule_lease_absent", task_id, "TaskPool.recover_incomplete_transitions then ace_start again")
+
+    return {
+        "status": "AUTHORIZED",
+        "task_id": task_id,
+        # ``task`` is the live record, not wire data: an AUTHORIZED dict must never
+        # be serialised as-is.  Only the refusal shape is emitted by callers.
+        "task": task,
+        "capsule_version": CAPSULE_VERSION,
+        "runtime_mutation": False,
+        "lease_seconds_remaining": seconds_remaining,
+        "claim_id": stored_claim,
+        "fencing_token": int(getattr(task, "fencing_token", 0) or 0),
+    }
+
+
+def render_task_capsule(
+    task_pool: Any,
+    task_id: str,
+    *,
+    claim_id: str,
+    fencing_token: int,
+    char_budget: int = CAPSULE_CHAR_BUDGET,
+    now: Optional[datetime] = None,
+) -> Dict[str, Any]:
+    """Render the bounded brief for the worker currently holding ``task_id``.
+
+    Read-only against the TaskPool.  Refuses (without mutating anything) when
+    the task is missing, not actively leased, when the supplied claim
+    credentials do not match the stored record, when the lease has expired, or
+    when the persisted envelope is absent/damaged — a missing envelope is
+    reported, never silently rebuilt, so a broken record cannot masquerade as
+    a healthy assignment.
+    """
+
+    authority = check_capsule_authority(
+        task_pool,
+        task_id,
+        claim_id=claim_id,
+        fencing_token=fencing_token,
+        now=now,
+    )
+    if authority.get("status") != "AUTHORIZED":
+        return authority
+    task = authority["task"]
+    seconds_remaining = authority.get("lease_seconds_remaining")
 
     envelope = _envelope_of(task)
     if not envelope:
@@ -400,8 +448,8 @@ def render_task_capsule(
         "next_stage": stage,
         "lease_seconds_remaining": round(seconds_remaining, 3) if seconds_remaining is not None else None,
         "lease_expires_at": _one_line(getattr(task, "lease_expires_at", ""), 40),
-        "claim_id": stored_claim,
-        "fencing_token": int(getattr(task, "fencing_token", 0) or 0),
+        "claim_id": authority["claim_id"],
+        "fencing_token": authority["fencing_token"],
         "runtime_mutation": False,
     }
 

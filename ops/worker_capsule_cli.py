@@ -10,6 +10,12 @@ It owns no state and no loop: it opens the pool named by ``--pool`` for one
 command and exits.  ``--payload-file`` exists because quoting a JSON object
 through a shell is the first thing a weak worker gets wrong.
 
+Two gates live here because no other layer has them: ``--pool`` must name this
+runtime's production pool or a scratch pool under the machine temp root (a
+worker pointing elsewhere would silently create a second TaskPool), and ``fail``
+must use one of the four existing failure types with live claim credentials
+(``TaskPool.fail_task`` validates neither).
+
     py -3.11 -m ops.worker_capsule_cli --pool <dir> list-pending
     py -3.11 -m ops.worker_capsule_cli --pool <dir> start --task-id RQ-... --owner w1
     py -3.11 -m ops.worker_capsule_cli --pool <dir> render --task-id RQ-... --claim <id> --token 1
@@ -21,6 +27,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Any, Dict
@@ -31,11 +38,54 @@ if str(REPO_ROOT) not in sys.path:
 
 from core.ace_start import ace_start  # noqa: E402
 from core.task import TaskPool  # noqa: E402
-from core.worker_capsule import render_task_capsule, submit_task_capsule_result  # noqa: E402
+from core.worker_capsule import check_capsule_authority, render_task_capsule, submit_task_capsule_result  # noqa: E402
 
 EXIT_OK = 0
 EXIT_REFUSED = 3
 EXIT_USAGE = 4
+
+# ``TaskPool.fail_task`` (core/task.py:860) has no vocabulary check: any string
+# falls through to the *retryable* branch.  Measured on a scratch pool at
+# 2026-09-28T17:42:38 -- declared "permnnent", "typos_are_silent" and "" all
+# stored status=pending with a retry_after set, and the bogus word still went
+# into the evidence ledger as ``failure:permnnent``.  A weak worker is exactly
+# the writer that typos a type, so this port refuses before it saves.  Widening
+# the pool's own gate is A's call, not a worker's (queue card F01/F03).
+FAILURE_TYPES = ("retryable", "permanent", "manual_gate", "external_condition")
+
+# The only two pool faces a shell worker may point this port at: the production
+# pool of this runtime, and a scratch pool under the machine's temp root.  Any
+# other directory would silently *become* a second TaskPool on first write --
+# which this task forbids (「创建第二个 TaskPool」).
+PRODUCTION_POOL_FACE = REPO_ROOT / "task_pool"
+
+
+def _scratch_roots():
+    return {Path(value).resolve() for value in (os.environ.get("TEMP"), os.environ.get("TMP"), os.environ.get("TMPDIR")) if value}
+
+
+def _pool_face_refusal(pool_arg: str) -> Dict[str, Any] | None:
+    """One enforcement point for which pool face this port may touch."""
+
+    resolved = Path(pool_arg).expanduser().resolve()
+    if resolved == PRODUCTION_POOL_FACE.resolve():
+        return None
+    if any(root in resolved.parents for root in _scratch_roots()):
+        return None
+    return {
+        "status": "REFUSED",
+        "reason": "capsule_pool_face_unknown",
+        "pool_dir": str(resolved),
+        "allowed_faces": {
+            "production": str(PRODUCTION_POOL_FACE),
+            "scratch": "any directory under " + ", ".join(sorted(str(root) for root in _scratch_roots())) + " (or %TEMP%)",
+        },
+        "recovery_hint": (
+            "本端口只准打开这一个 TaskPool：生产池用上面 production 那一行；演练/测试请把 --pool 指到 %TEMP% 下的目录。"
+            "换到别处 = 新建第二套 TaskPool，属硬禁止；要动别的池请由结构治理窗裁定后改实现，不要在命令行绕。"
+        ),
+        "runtime_mutation": False,
+    }
 
 # Capsule text is Chinese; a worker whose shell is on the ANSI codepage would
 # otherwise receive mojibake and act on a garbled brief.
@@ -93,6 +143,10 @@ def main(argv=None) -> int:
             command.add_argument("--type", default="retryable", dest="failure_type")
 
     args = parser.parse_args(argv)
+
+    face_refusal = _pool_face_refusal(args.pool)
+    if face_refusal is not None:
+        return _emit(face_refusal)
 
     if args.command == "list-pending":
         pool = _pool(args)
@@ -210,6 +264,27 @@ def main(argv=None) -> int:
 
     # fail
     pool = _pool(args)
+    if args.failure_type not in FAILURE_TYPES:
+        return _emit(
+            {
+                "status": "REFUSED",
+                "reason": f"capsule_failure_type_unknown:{args.failure_type!r}",
+                "task_id": args.task_id,
+                "allowed_failure_types": list(FAILURE_TYPES),
+                "recovery_hint": (
+                    "选一个既有类型：retryable=会重试 / permanent=进 graveyard / "
+                    "manual_gate 或 external_condition=进 blocked。"
+                    "未知类型若放行会被池当成 retryable 重新排队，等于把「这条做不动了」写成「等会儿再来」"
+                ),
+                "runtime_mutation": False,
+            }
+        )
+    # ``fail_task`` is a write port the pool does not fence: an old claim could
+    # move a task another worker is holding.  Run the same authority ruler the
+    # read side uses before saving, so one rule keeps one enforcement point.
+    gate = check_capsule_authority(pool, args.task_id, **_credentials(args))
+    if gate.get("status") != "AUTHORIZED":
+        return _emit({**gate, "runtime_mutation": False})
     task = pool.load_task(args.task_id)
     if task is None:
         return _emit({"status": "REFUSED", "reason": "task_not_found", "task_id": args.task_id, "runtime_mutation": False})

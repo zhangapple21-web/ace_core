@@ -1,16 +1,16 @@
 {
   "drill": "ace.worker_capsule.death_drill.v1",
-  "at": "2026-09-28T17:24:25.677542",
+  "at": "2026-09-28T17:52:43.475956",
   "pool_dir": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\ace_worker_capsule_drill\\pool",
   "task_id": "RQ-20260928-001",
   "process_a": {
-    "pid": 25712,
-    "claim_id": "4113b0a9efef4ea1bfe7567055719ce0",
-    "capsule_hash": "384a7081683b86593de17faf9af3bfb464c9f6b8c2a69e5620f7ff2050de5484",
+    "pid": 16492,
+    "claim_id": "9a877495a335475cbbf5dbb39a060d78",
+    "capsule_hash": "aa49bffefeb5ed576ba75b8d29e7e1b7a1fcd002442d53b4017d1e674c5922fa",
     "hard_exit": true,
     "submit_status": "SUBMITTED"
   },
-  "gap_seconds_observed": 6.22,
+  "gap_seconds_observed": 6.21,
   "ghost_write": {
     "status": "REFUSED",
     "reason": "capsule_lease_expired",
@@ -19,7 +19,7 @@
     "recovery_hint": "renew_lease before continuing, or let reclaim_stale_leases return the task to pending | nothing was written",
     "capsule_text": null,
     "runtime_mutation": false,
-    "lease_expires_at": "2026-09-28T17:24:23.435081"
+    "lease_expires_at": "2026-09-28T17:52:41.246567"
   },
   "ghost_write_blocked": true,
   "ghost_left_no_trace": true,
@@ -28,11 +28,11 @@
     "RQ-20260928-001"
   ],
   "process_b": {
-    "pid": 21208,
-    "claim_id": "4aec1c25ceed4b788767047f25a6a18e",
+    "pid": 18008,
+    "claim_id": "2f941b1b9460485bbd6b6e7a8db804aa",
     "fencing_token": 2,
     "capsule_status": "CAPSULE_READY",
-    "capsule_hash": "9386f2bff1458e58b9c5f6501f184cac09ed394578874476876c5b2019b32fda",
+    "capsule_hash": "17b402481477b10bfa297d1e4898662d8c921215506c7ee18c97ed3d494c24c2",
     "capsule_carries_prior_checkpoint": true,
     "prior_actor_visible": true,
     "submit_status": "SUBMITTED"

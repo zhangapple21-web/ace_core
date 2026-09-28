@@ -9,6 +9,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -256,6 +257,154 @@ def test_cli_fail_command_classifies_and_releases_the_lease(tmp_path):
     requeued = _one_json_line(_run(pool_dir, "start", "--task-id", task.task_id, "--owner", "shell-w2")[0])
     assert requeued["status"] == "REJECTED"
     assert requeued["reason"] == "taskpool_claim_rejected"
+
+
+def test_cli_refuses_a_made_up_failure_type_instead_of_retrying_it(tmp_path):
+    """``fail_task`` has no vocabulary check, so this port must have one.
+
+    Measured on a scratch pool at 2026-09-28T17:42:38: failure_type="permnnent",
+    "typos_are_silent" and "" all stored the task back to *pending* with a retry
+    delay, while the bogus word still went into the ledger as ``failure:permnnent``.
+    A worker that means "this cannot be done" must not be able to write "do it
+    again later" by typing one letter wrong.
+    """
+
+    pool_dir = tmp_path / "pool"
+    task = _seed_task(pool_dir)
+    started = _one_json_line(_run(pool_dir, "start", "--task-id", task.task_id, "--owner", "shell-w1")[0])
+
+    for bogus in ("permnnent", "RETRYABLE", ""):
+        refused = _run(
+            pool_dir,
+            "fail",
+            "--task-id",
+            task.task_id,
+            "--claim",
+            started["claim_id"],
+            "--token",
+            str(started["fencing_token"]),
+            "--actor",
+            "shell-w1",
+            "--reason",
+            "外部依赖未就绪",
+            "--type",
+            bogus,
+        )[0]
+        assert refused.returncode == 3, (bogus, refused.stdout, refused.stderr[-300:])
+        row = _one_json_line(refused)
+        assert row["status"] == "REFUSED" and row["reason"].startswith("capsule_failure_type_unknown")
+        assert row["allowed_failure_types"] == ["retryable", "permanent", "manual_gate", "external_condition"]
+        assert row["runtime_mutation"] is False
+
+    # Still active, still leased, retry_count untouched -- the refusal wrote nothing.
+    alive = _one_json_line(
+        _run(
+            pool_dir,
+            "render",
+            "--task-id",
+            task.task_id,
+            "--claim",
+            started["claim_id"],
+            "--token",
+            str(started["fencing_token"]),
+        )[0]
+    )
+    assert alive["status"] == "CAPSULE_READY"
+    sys.path.insert(0, str(REPO_ROOT))
+    from core.task import TaskPool
+
+    stored = TaskPool(str(pool_dir)).load_task(task.task_id)
+    assert stored.status == "active" and stored.retry_count == 0 and stored.retry_after in ("", None)
+
+    # The real types still work, including the one that must not re-queue.
+    permanent = _run(
+        pool_dir,
+        "fail",
+        "--task-id",
+        task.task_id,
+        "--claim",
+        started["claim_id"],
+        "--token",
+        str(started["fencing_token"]),
+        "--actor",
+        "shell-w1",
+        "--reason",
+        "机制上不可行",
+        "--type",
+        "permanent",
+    )[0]
+    row = _one_json_line(permanent)
+    assert permanent.returncode == 0, row
+    assert row["stored_status"] == "graveyard"
+
+
+def test_cli_fail_refuses_a_stale_claim_that_the_pool_would_have_honoured(tmp_path):
+    """The pool's ``fail_task`` takes a task id and no claim, so it is unfenced.
+
+    Without this gate a zombie worker (its claim superseded by a reclaim) can
+    still move a task its successor is holding.
+    """
+
+    pool_dir = tmp_path / "pool"
+    task = _seed_task(pool_dir)
+    first = _one_json_line(_run(pool_dir, "start", "--task-id", task.task_id, "--owner", "zombie", "--lease", "1")[0])
+
+    time.sleep(1.5)
+    sys.path.insert(0, str(REPO_ROOT))
+    from core.task import TaskPool
+
+    pool = TaskPool(str(pool_dir))
+    assert [item.task_id for item in pool.reclaim_stale_leases()] == [task.task_id]
+    second = _one_json_line(_run(pool_dir, "start", "--task-id", task.task_id, "--owner", "live", "--lease", "300")[0])
+    assert second["status"] == "STARTED" and second["fencing_token"] == first["fencing_token"] + 1
+
+    zombie = _run(
+        pool_dir,
+        "fail",
+        "--task-id",
+        task.task_id,
+        "--claim",
+        first["claim_id"],
+        "--token",
+        str(first["fencing_token"]),
+        "--actor",
+        "zombie",
+        "--reason",
+        "僵尸想改写现任的结果",
+        "--type",
+        "retryable",
+    )[0]
+    assert zombie.returncode == 3, zombie.stdout
+    row = _one_json_line(zombie)
+    assert row["status"] == "REFUSED"
+    assert row["reason"] in {"capsule_claim_mismatch", "capsule_fencing_token_stale"}
+    assert row["runtime_mutation"] is False
+
+    still = TaskPool(str(pool_dir)).load_task(task.task_id)
+    assert still.status == "active" and still.claim_id == second["claim_id"] and still.retry_count == 0
+
+
+def test_cli_refuses_to_open_a_pool_that_is_not_this_runtime_s_face(tmp_path):
+    """``--pool`` may name the production pool or a temp scratch pool, nothing else.
+
+    Any other directory would quietly become a second TaskPool on the first
+    write, which is exactly what this task forbids.
+    """
+
+    elsewhere = REPO_ROOT / "not_a_pool_face"
+    refused = _run(elsewhere, "list-pending")[0]
+    assert refused.returncode == 3, refused.stdout
+    row = _one_json_line(refused)
+    assert row["status"] == "REFUSED" and row["reason"] == "capsule_pool_face_unknown"
+    assert row["allowed_faces"]["production"].endswith("task_pool")
+    assert not elsewhere.exists(), "the refusal must not create the pool directory"
+
+    # The two allowed faces still work: production read-only, scratch read-write.
+    production = _run(REPO_ROOT / "task_pool", "list-pending")[0]
+    assert production.returncode == 0, production.stdout
+    assert _one_json_line(production)["status"] == "LISTED"
+    assert _one_json_line(_run(tmp_path / "pool", "list-pending")[0])["status"] == "LISTED"
+
 
 
 def _run_drill(*argv):

@@ -1,6 +1,6 @@
 {
   "probe": "ace.worker_capsule.production_readonly.v1",
-  "at": "2026-09-28T17:24:26.277647",
+  "at": "2026-09-28T17:52:44.421964",
   "pool_stats": {
     "total": 788,
     "by_status": {
