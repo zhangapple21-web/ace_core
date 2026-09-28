@@ -1,0 +1,44 @@
+{
+  "artifact": "create_task_silent_duplicate_return_repro",
+  "measured_at": "2026-09-28T18:31:21+08:00",
+  "ruler": "in-process TaskPool under %TEMP% only: 3 create_task calls, identical (source_type, source_ref), different titles; read back file list, returned task ids, audit_log and ledger",
+  "scratch_pool": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\ace_dup_return_1xdfit27\\pool",
+  "titles_requested": [
+    "第一件：扫描出来的真任务",
+    "第二件：完全不同的一句话",
+    "第三件：又一个独立假设"
+  ],
+  "titles_returned": [
+    "第一件：扫描出来的真任务",
+    "第一件：扫描出来的真任务",
+    "第一件：扫描出来的真任务"
+  ],
+  "distinct_task_ids_returned": [
+    "RQ-20260928-001"
+  ],
+  "pool_json_files": [
+    "RQ-20260928-001.json"
+  ],
+  "all_three_calls_returned_the_same_record": true,
+  "every_requested_title_survived": false,
+  "audit_rows": [],
+  "audit_rows_mentioning_duplicate": 0,
+  "ledger_rows_mentioning_duplicate": 0,
+  "stored_admission_source_ref": "shared-ref-1790591481858564800",
+  "dedup_key_source": "core/task.py:586-588 (duplicate = duplicate_task(existing, admission); if duplicate: return duplicate) with core/task_admission.py:74-84 matching (source_type, source_ref) over tasks whose status is not archived/graveyard/rejected",
+  "production_context_census": {
+    "tasks_read": 788,
+    "with_admission": 621,
+    "distinct_source_pairs": 591,
+    "keys_shared_by_more_than_one_task": 2,
+    "statuses_of_every_shared_key": {
+      "archived": 32
+    },
+    "live_tasks_sharing_a_key": 0,
+    "reading": "存量没有受损件：32 件同键件全部 archived，即查重豁免面；今天非归档件里同键数为 0。所以这不是已经发生的污染，而是一条可走通的静默路径。",
+    "ruler": "py -3.11 over task_pool/{pending,active,blocked,review,approved,archived,rejected,graveyard}/RQ-*.json, key = (outputs.admission.source_type, outputs.admission.source_ref)"
+  },
+  "verdict": "REPRODUCED",
+  "runtime_mutation": false,
+  "runtime_mutation_note": "no production object touched; the only writes are in the %TEMP% scratch pool this probe owns"
+}

@@ -45,18 +45,23 @@ def _run(pool_dir, *argv, payload=None):
     return result, command
 
 
-def _seed_task(pool_dir, title="CLI 承载演练"):
+def _seed_task(pool_dir, title="CLI 承载演练", ref=None):
     sys.path.insert(0, str(REPO_ROOT))
     from core.task import TaskPool
 
     pool = TaskPool(str(pool_dir))
+    admission = dict(ADMISSION)
+    # Admission dedup is real: two cards with the same admission return the SAME
+    # task (found while seeding three tasks for the reclaim arms), so multi-task
+    # tests must vary source_ref.
+    admission["source_ref"] = ref or f"{title}-{len(title)}-{time.time_ns()}"
     return pool.create_task(
         title,
         hypothesis="shell worker 可以完成任务",
         creator="cli",
         complexity="complex",
         tags=["research"],
-        admission=dict(ADMISSION),
+        admission=admission,
     )
 
 
@@ -562,7 +567,7 @@ def test_recover_never_leases_a_task_to_someone_else_and_never_to_a_dead_owner(t
     assert [row["task_id"] for row in expired["expired_claims"]] == [task.task_id]
     assert expired["expired_claims"][0]["lease_state"] == "expired"
     assert "claim_id" not in expired["expired_claims"][0], "an expired lease was handed back as if it were live"
-    assert "reclaim_stale_leases" in expired["hint"]
+    assert "reclaim" in expired["hint"]
 
     sys.path.insert(0, str(REPO_ROOT))
     from core.task import TaskPool
@@ -582,6 +587,79 @@ def test_recover_leaves_the_pool_byte_identical(tmp_path):
     assert receipt["count"] == 1
     after = {str(p): p.read_bytes() for p in pool_dir.rglob("*.json")}
     assert after == before, "recover mutated the pool while claiming to be read-only"
+
+
+def test_reclaim_refuses_a_live_lease_and_a_foreign_one_but_reopens_its_own(tmp_path):
+    """One task moves, and only its own owner may move it after the lease dies.
+
+    This is the difference between a worker port and a scheduler: the pool's
+    ``reclaim_stale_leases`` sweeps every expired lease in the runtime, which is not
+    a right to hand a task worker.
+    """
+
+    pool_dir = tmp_path / "pool"
+    live_task = _seed_task(pool_dir, title="仍在租期内")
+    mine = _seed_task(pool_dir, title="我的过期租约")
+    theirs = _seed_task(pool_dir, title="别人过期的租约")
+
+    sys.path.insert(0, str(REPO_ROOT))
+    from core.task import TaskPool
+
+    live_start = _one_json_line(_run(pool_dir, "start", "--task-id", live_task.task_id, "--owner", "shell-mine", "--lease", "300")[0])
+    live = _run(pool_dir, "reclaim", "--task-id", live_task.task_id, "--actor", "shell-mine")[0]
+    assert live.returncode == 3, live.stdout
+    row = _one_json_line(live)
+    assert row["reason"] == "capsule_lease_still_live" and row["runtime_mutation"] is False
+    held = TaskPool(str(pool_dir)).load_task(live_task.task_id)
+    assert held.status == "active" and held.claim_id == live_start["claim_id"]
+
+    # A foreign worker cannot touch it either, and is not told the holder's credential.
+    thief = _run(pool_dir, "reclaim", "--task-id", live_task.task_id, "--actor", "shell-other")[0]
+    assert thief.returncode == 3
+    assert _one_json_line(thief)["reason"] == "capsule_not_lease_owner"
+    assert live_start["claim_id"] not in thief.stdout
+
+    # Now let two leases die: only the caller's own task may be re-opened.
+    first = _one_json_line(_run(pool_dir, "start", "--task-id", mine.task_id, "--owner", "shell-mine", "--lease", "1")[0])
+    other = _one_json_line(_run(pool_dir, "start", "--task-id", theirs.task_id, "--owner", "shell-theirs", "--lease", "1")[0])
+    time.sleep(1.5)
+
+    done = _run(pool_dir, "reclaim", "--task-id", mine.task_id, "--actor", "shell-mine")[0]
+    assert done.returncode == 0, done.stdout
+    result = _one_json_line(done)
+    assert result["status"] == "LEASE_RECLAIMED" and result["stored_status"] == "pending"
+    assert result["runtime_mutation"] is True
+    assert result["previous_fencing_token"] == first["fencing_token"]
+
+    untouched = TaskPool(str(pool_dir)).load_task(theirs.task_id)
+    assert untouched.status == "active" and untouched.claim_id == other["claim_id"], (
+        "a single-task reclaim swept another worker's expired lease"
+    )
+
+    # The task is claimable again, with a strictly higher fencing token.
+    again = _one_json_line(_run(pool_dir, "start", "--task-id", mine.task_id, "--owner", "shell-mine", "--lease", "60")[0])
+    assert again["status"] == "STARTED" and again["fencing_token"] == first["fencing_token"] + 1
+    rendered = _one_json_line(
+        _run(pool_dir, "render", "--task-id", mine.task_id, "--claim", again["claim_id"], "--token", str(again["fencing_token"]))[0]
+    )
+    assert rendered["status"] == "CAPSULE_READY"
+
+
+def test_reclaim_points_the_worker_at_recover_and_recover_points_back_at_reclaim(tmp_path):
+    """The two verbs must form a closed loop with no Python required in the middle."""
+
+    pool_dir = tmp_path / "pool"
+    task = _seed_task(pool_dir)
+    _one_json_line(_run(pool_dir, "start", "--task-id", task.task_id, "--owner", "shell-loop", "--lease", "1")[0])
+    time.sleep(1.5)
+
+    found = _one_json_line(_run(pool_dir, "recover", "--owner", "shell-loop")[0])
+    assert found["status"] == "NO_LIVE_LEASE"
+    assert "reclaim" in found["hint"] and task.task_id in [row["task_id"] for row in found["expired_claims"]]
+
+    reclaimed = _one_json_line(_run(pool_dir, "reclaim", "--task-id", task.task_id, "--actor", "shell-loop")[0])
+    assert reclaimed["status"] == "LEASE_RECLAIMED"
+    assert "start" in reclaimed["next_command"] and task.task_id in reclaimed["next_command"]
 
 
 def test_drill_refuses_to_run_the_ghost_step_while_the_lease_is_still_live(tmp_path):

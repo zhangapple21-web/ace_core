@@ -320,7 +320,7 @@ def recover_worker_leases(
     else:
         hint = "no live lease held by this owner; run list-pending and start a task"
         if expired:
-            hint = "the lease is expired, not lost: run TaskPool.reclaim_stale_leases, then start again"
+            hint = "the lease is expired, not lost: reclaim your own task with 'reclaim --task-id <id> --owner <name>', then start again"
         elif unleased:
             hint = "active records held by this owner carry no claim_id; run recover_incomplete_transitions then start again"
         elif candidates:
@@ -335,6 +335,101 @@ def recover_worker_leases(
         "unleased_active_records": unleased,
         "hint": hint,
         "runtime_mutation": False,
+    }
+
+
+def reclaim_own_expired_lease(
+    task_pool: Any,
+    task_id: str,
+    *,
+    actor: str,
+    now: Optional[datetime] = None,
+) -> Dict[str, Any]:
+    """Close the limbo window for ONE task: its owner returns after the lease died.
+
+    Between lease expiry and the next scheduler-side ``reclaim_stale_leases`` pass
+    the record is neither writable by its dead owner nor claimable by anyone else.
+    The drill documents that window; nothing on the shell port could shorten it, so
+    a weak worker's own recovery hint told it to "run TaskPool.reclaim_stale_leases"
+    -- Python it cannot execute.
+
+    This is deliberately NOT that call.  ``reclaim_stale_leases`` sweeps every
+    expired lease in the pool, which is a scheduler's authority, not a worker's.
+    Here exactly one task moves, and only if the caller is the recorded
+    ``lease_owner`` of that task and that lease is no longer live; the move goes
+    through ``TaskPool.move_task`` with the caller's own stored claim, so the pool's
+    transition table and lease clearing stay the single source of the rule.
+
+    Writes the pool (``runtime_mutation`` True) only on the accepted path.
+    """
+
+    if not isinstance(task_id, str) or not task_id.strip():
+        return _refusal("capsule_task_id_missing", task_id or "", "reclaim needs the task id shown by recover")
+    task_id = task_id.strip()
+    if not isinstance(actor, str) or not actor.strip():
+        return _refusal("capsule_actor_missing", task_id, "reclaim needs the same --owner name the lease was taken under")
+    actor = actor.strip()
+
+    task = task_pool.load_task(task_id)
+    if task is None:
+        return _refusal("task_not_found", task_id, "the task record is not in any pool bucket")
+
+    status = str(getattr(task, "status", ""))
+    if status != "active":
+        return _refusal(f"capsule_task_not_active:{status}", task_id, "only an active (leased) record can be reclaimed")
+
+    stored_claim = str(getattr(task, "claim_id", "") or "")
+    if not stored_claim:
+        return _refusal(
+            "capsule_unleased_active_record",
+            task_id,
+            "an active record with no claim is the scheduler's orphan case, not a worker's own lease",
+        )
+    if str(getattr(task, "lease_owner", "") or "") != actor:
+        # Never echo the holder's claim id: this port must not become a way to
+        # take over someone else's task.
+        return _refusal(
+            "capsule_not_lease_owner",
+            task_id,
+            f"this lease belongs to another owner; use recover --owner {actor} to find your own",
+        )
+
+    lease, seconds_remaining = _lease_state(task, now)
+    if lease == "leased":
+        return _refusal(
+            "capsule_lease_still_live",
+            task_id,
+            "your lease is still live: keep working, or renew instead of reclaiming",
+            lease_seconds_remaining=round(seconds_remaining, 3) if seconds_remaining is not None else None,
+            lease_expires_at=_one_line(getattr(task, "lease_expires_at", ""), 40),
+        )
+
+    previous_token = int(getattr(task, "fencing_token", 0) or 0)
+    moved = task_pool.move_task(
+        task_id,
+        "pending",
+        actor=actor,
+        reason=f"capsule_self_reclaim:{stored_claim}",
+        claim_id=stored_claim,
+    )
+    if moved is None:
+        return _refusal(
+            "capsule_reclaim_refused_by_pool",
+            task_id,
+            "the pool rejected the move (transition table or claim raced); re-read the record",
+            lease_state=lease,
+        )
+
+    return {
+        "status": "LEASE_RECLAIMED",
+        "task_id": task_id,
+        "actor": actor,
+        "lease_state_at_reclaim": lease,
+        "previous_claim_id": stored_claim,
+        "previous_fencing_token": previous_token,
+        "stored_status": moved.status,
+        "next_command": f"python -m ops.worker_capsule_cli start --task-id {task_id} --owner {actor}",
+        "runtime_mutation": True,
     }
 
 

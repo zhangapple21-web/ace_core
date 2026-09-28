@@ -20,7 +20,9 @@ must use one of the four existing failure types with live claim credentials
 empty context has lost its ``claim_id`` and ``fencing_token``, so every
 credential-carrying verb refuses it and it is locked out of a task it still owns
 until the lease expires.  One read-only command names the task and hands the
-credentials back.
+credentials back.  ``reclaim`` then re-opens ONE task whose own lease has already
+died -- deliberately not ``TaskPool.reclaim_stale_leases``, which sweeps the whole
+pool and is a scheduler's authority, not a worker's.
 
     py -3.11 -m ops.worker_capsule_cli --pool <dir> list-pending
     py -3.11 -m ops.worker_capsule_cli --pool <dir> start --task-id RQ-... --owner w1
@@ -28,6 +30,7 @@ credentials back.
     py -3.11 -m ops.worker_capsule_cli --pool <dir> submit --task-id RQ-... --claim <id> \
         --token 1 --actor w1 --payload-file p.json
     py -3.11 -m ops.worker_capsule_cli --pool <dir> recover --owner w1
+    py -3.11 -m ops.worker_capsule_cli --pool <dir> reclaim --task-id RQ-... --actor w1
 """
 
 from __future__ import annotations
@@ -47,6 +50,7 @@ from core.ace_start import ace_start  # noqa: E402
 from core.task import TaskPool  # noqa: E402
 from core.worker_capsule import (  # noqa: E402
     check_capsule_authority,
+    reclaim_own_expired_lease,
     recover_worker_leases,
     render_task_capsule,
     submit_task_capsule_result,
@@ -110,7 +114,7 @@ except (AttributeError, ValueError):
 def _emit(payload: Dict[str, Any]) -> int:
     print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
     status = str(payload.get("status", ""))
-    if status in {"CAPSULE_READY", "SUBMITTED", "STARTED", "RENEWED", "FAILED_RECORDED", "LISTED", "LEASES_FOUND", "NO_LIVE_LEASE"}:
+    if status in {"CAPSULE_READY", "SUBMITTED", "STARTED", "RENEWED", "FAILED_RECORDED", "LISTED", "LEASES_FOUND", "NO_LIVE_LEASE", "LEASE_RECLAIMED"}:
         return EXIT_OK
     if status in {"REFUSED", "REJECTED"}:
         return EXIT_REFUSED
@@ -138,6 +142,13 @@ def main(argv=None) -> int:
     )
     recovered.add_argument("--owner", required=True)
     recovered.add_argument("--task-id", dest="task_id", help="optional: narrow the search to one task id")
+
+    reclaimed = sub.add_parser(
+        "reclaim",
+        help="re-open ONE task whose own lease has expired (not a pool-wide sweep)",
+    )
+    reclaimed.add_argument("--task-id", required=True)
+    reclaimed.add_argument("--actor", required=True)
 
     for name in ("start", "render", "renew", "submit", "fail"):
         command = sub.add_parser(name)
@@ -184,6 +195,10 @@ def main(argv=None) -> int:
     if args.command == "recover":
         pool = _pool(args)
         return _emit(recover_worker_leases(pool, owner=args.owner, task_id=args.task_id))
+
+    if args.command == "reclaim":
+        pool = _pool(args)
+        return _emit(reclaim_own_expired_lease(pool, args.task_id, actor=args.actor))
 
     if args.command == "start":
         pool = _pool(args)
