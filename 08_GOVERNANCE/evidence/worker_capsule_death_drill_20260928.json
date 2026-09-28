@@ -1,0 +1,59 @@
+{
+  "drill": "ace.worker_capsule.death_drill.v1",
+  "at": "2026-09-28T17:03:54.070608",
+  "pool_dir": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\ace_worker_capsule_drill\\pool",
+  "task_id": "RQ-20260928-001",
+  "process_a": {
+    "pid": 24188,
+    "claim_id": "c8a1577a8eee49dfb041a24ccfa40a50",
+    "capsule_hash": "f45e21e571be337d3a9ccdb5b2bf015e59a14397394cb3d2ebd149598641275f",
+    "hard_exit": true,
+    "submit_status": "SUBMITTED"
+  },
+  "gap_seconds_observed": 7.35,
+  "ghost_write": {
+    "status": "REFUSED",
+    "reason": "capsule_lease_expired",
+    "task_id": "RQ-20260928-001",
+    "capsule_version": "ace.worker_capsule.v1",
+    "recovery_hint": "renew_lease before continuing, or let reclaim_stale_leases return the task to pending | nothing was written",
+    "capsule_text": null,
+    "runtime_mutation": false,
+    "lease_expires_at": "2026-09-28T17:03:50.693135"
+  },
+  "ghost_write_blocked": true,
+  "ghost_left_no_trace": true,
+  "expired_render": "capsule_lease_expired",
+  "reclaimed_task_ids": [
+    "RQ-20260928-001"
+  ],
+  "process_b": {
+    "pid": 22924,
+    "claim_id": "bb5eacc166274b40879addb3333efe5c",
+    "fencing_token": 2,
+    "capsule_status": "CAPSULE_READY",
+    "capsule_hash": "c8af440749388a68fc3e60f4d4154a61ea12b2fe9a8cf0b5873633088bd15153",
+    "capsule_carries_prior_checkpoint": true,
+    "prior_actor_visible": true,
+    "submit_status": "SUBMITTED"
+  },
+  "final": {
+    "status": "review",
+    "claim_id_cleared": true,
+    "evidence_count": 2,
+    "checkpoints": [
+      "lifecycle_start",
+      "half_done_process_A",
+      "lifecycle_start",
+      "lifecycle_start",
+      "worker_submission",
+      "lifecycle_start"
+    ],
+    "unknowns_kept": true
+  },
+  "observations": {
+    "limbo_window": "between lease expiry and the next reclaim_stale_leases pass the task is neither writable by its dead owner nor claimable; recovery is pull-based, so a scheduler pass must run for it to close",
+    "admission_gap": "core/task_admission.SOURCE_TYPES has no user-directive type, so an operator-issued task must enter as source_type=evidence; widening admission was not done here (worker-side change to 准入 is forbidden by the execution contract)"
+  },
+  "verdict": "PASS"
+}
