@@ -108,7 +108,7 @@ _PORT_PY = "py -3.11"
 _SUBMIT_KEY_HINTS: Dict[str, str] = {
     "summary": "一句话结论；只交 summary 也算交回（全空会被拒）",
     "facts": "字符串列表：本次得到的事实，落进 evidence_ledger 的 result 桶",
-    "evidence": "列表，每项 {content, source} 或字符串；没有 source 的一律拒收",
+    "evidence": "列表，每项 {content, source}（缺 source 的物件会被拒）；写成裸字符串也收，但 source 会被记成 worker-stated = 自评，不是可复算的指针",
     "unknowns": "字符串列表：不清楚的就原样交回，不要自己补事实",
     "objections": "字符串列表：对本次假设/做法的反对意见",
     "next_verification": "字符串：下一步该怎么复算这件事",
@@ -1087,6 +1087,10 @@ def submit_task_capsule_result(
         "claim_id": claim_id,
         "fencing_token": fencing_token,
         "evidence_count": len(evidence_rows),
+        # How many rows arrived as bare strings and were stamped ``worker-stated``:
+        # self-attestation, not a pointer.  A reviewer must be able to see that
+        # count on the receipt, and the capsule must not promise it was refused.
+        "self_stated_evidence": sum(1 for row in evidence_rows if row["source"] == "worker-stated"),
         "facts_count": len(facts),
         "unknowns_count": len(unknowns),
         "objections_count": len(objections),

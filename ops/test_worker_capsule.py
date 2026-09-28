@@ -235,6 +235,50 @@ def test_submit_lands_evidence_on_the_task_and_moves_to_review(tmp_path):
     assert checkpoint["evidence_count"] == 2
 
 
+def test_self_stated_evidence_is_counted_and_the_capsule_says_so(tmp_path):
+    """The capsule must not promise a refusal the port does not perform.
+
+    ``RESULT PAYLOAD`` used to read「没有 source 的一律拒收」, while ``_normalise_evidence``
+    accepts a bare string and stamps it ``worker-stated``.  A worker that believed the
+    capsule would think it had left a re-checkable pointer when it had left an opinion --
+    the same divergence in the opposite direction as the missing ``capsule_hash``, and the
+    one place where model output can enter Truth looking like a source.
+    """
+
+    pool, task_id, started = _started_pool(tmp_path)
+    credentials = dict(claim_id=started["claim_id"], fencing_token=started["fencing_token"], actor="weak-worker-1")
+
+    capsule = render_task_capsule(
+        pool, task_id, claim_id=started["claim_id"], fencing_token=started["fencing_token"]
+    )
+    section = capsule["capsule_text"].split("== RESULT PAYLOAD", 1)[1]
+    assert "没有 source 的一律拒收" not in section, section
+    assert "worker-stated" in section, "the payload face must name the coercion it performs"
+
+    receipt = submit_task_capsule_result(
+        pool,
+        task_id,
+        payload={
+            "summary": "两种形状同时交回",
+            "evidence": [
+                {"content": "core/task.py:698 fencing_token += 1", "source": "read-only grep"},
+                "这句没有指针",
+            ],
+        },
+        **credentials,
+    )
+    assert receipt["status"] == "SUBMITTED", receipt
+    assert receipt["evidence_count"] == 2
+    assert receipt["self_stated_evidence"] == 1, receipt
+
+    stored = pool.load_task(task_id)
+    assert [row["source"] for row in stored.evidence][-1] == "worker-stated"
+    assert any(
+        entry.startswith("worker-stated::")
+        for entry in ((stored.outputs.get("execution_discipline") or {}).get("evidence_ledger") or {}).get("result", [])
+    ), "the ledger must keep the coercion visible, not launder it"
+
+
 def test_submit_refuses_bad_payloads_without_side_effects(tmp_path):
     pool, task_id, started = _started_pool(tmp_path)
     before = _file_bytes(pool, task_id)
