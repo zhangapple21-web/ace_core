@@ -24,10 +24,14 @@ credentials back.  ``reclaim`` then re-opens ONE task whose own lease has alread
 died -- deliberately not ``TaskPool.reclaim_stale_leases``, which sweeps the whole
 pool and is a scheduler's authority, not a worker's.
 
-One command per line, written so a worker can paste it into Windows cmd: the
-interpreter is ``py -3.11`` (there is no ``python`` on this runtime), a backslash
-is not a cmd line continuation, and ``<...>`` would be read as redirection -- so
-holes the caller must fill are shown as 【...】, never as angle brackets.
+One command per line, written so a worker can paste it into Windows cmd; a backslash
+is not a cmd line continuation and ``<...>`` would be read as redirection, so holes
+the caller must fill are shown as 【...】, never as angle brackets.  Which interpreter
+this face names is machine state, and it is ruled in one place only: the queue
+PROTOCOL's C-12 clause 10 (② names the single declaration point, ⑤-⑥ state that only
+the Windows shape is promised today and that POSIX is closed by a real run, not by a
+sentence).  This file points at that clause and does not restate it -- a second copy
+of the same claim would be a second source of truth.
 
     py -3.11 -m ops.worker_capsule_cli --pool 【池目录】 list-pending
     py -3.11 -m ops.worker_capsule_cli --pool 【池目录】 start --task-id RQ-... --owner w1

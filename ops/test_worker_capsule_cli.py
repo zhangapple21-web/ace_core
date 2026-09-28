@@ -744,6 +744,44 @@ def _run_literal(command_line):
     )
 
 
+def test_the_face_points_at_c12_instead_of_repeating_it(tmp_path):
+    """C-12 第 10 款 ⑥: one source of truth for the interpreter ruling.
+
+    A ruled that the worker-facing faces must *reference* the clause rather than
+    restate it: the second copy of "this runtime's interpreter is X" is the second
+    source of truth, and it is the copy that goes stale when the ruling changes.
+    The declaration point itself (one named constant in ``core.worker_capsule``)
+    stays legal by ② -- this fixture only polices the prose.
+    """
+
+    import ops.worker_capsule_cli as cli
+
+    core_face = (Path(__file__).resolve().parents[1] / "core" / "worker_capsule.py").read_text(encoding="utf-8")
+    faces = (cli.__doc__ or "", core_face)
+    for face in faces:
+        assert "C-12" in face, face[:200]
+        for restatement in ("商店存根", "no ``python``", "there is no python", "本机解释器"):
+            assert restatement not in face, restatement
+
+    pool_dir = tmp_path / "pool"
+    task = _seed_task(pool_dir, title="面孔指向判据", ref="c12-pointer")
+    started = _one_json_line(_run(pool_dir, "start", "--task-id", task.task_id, "--owner", "w-c12")[0])
+    rendered = _one_json_line(
+        _run(
+            pool_dir,
+            "render",
+            "--task-id",
+            task.task_id,
+            "--claim",
+            started["claim_id"],
+            "--token",
+            str(started["fencing_token"]),
+        )[0]
+    )
+    header = rendered["capsule_text"].split("== RETURN PROTOCOL", 1)[1].split("==", 1)[0]
+    assert "C-12" in header, header
+
+
 def test_cli_start_receipt_hands_over_one_command_the_worker_can_paste(tmp_path):
     """Capability 2/11: after claiming, the next line comes from the receipt.
 

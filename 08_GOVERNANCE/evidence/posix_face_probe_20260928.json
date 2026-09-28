@@ -1,0 +1,77 @@
+{
+  "probe": "ace.qwen_field_01.posix_face_probe.v1",
+  "at": "2026-09-28T20:36:31+08:00",
+  "shell_used": "C:\\Program Files\\Git\\bin\\bash.exe",
+  "shell_is_posix_os": false,
+  "honesty_note": "这一跑测的是 POSIX **shell 语法**（bash -c），不是 POSIX 操作系统：本机没有 Linux，`py.exe` 是 Windows 启动器，MSYS 只是从 PATH 继承到它。C-12 第 10 款 ⑤ 那一格只能由这次跑**部分**关闭，剩下的一半（真·非 Windows 执行域）本机跑不出来，必须登记为未闭而不是宣布已闭。",
+  "task_id": "RQ-20260928-001",
+  "pool_dir": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\ace_qwen_field_01\\posix_probe_pool_19804",
+  "face_command_count": 8,
+  "commands_needing_holes": [
+    "做完了，交回",
+    "做不动，别硬撑"
+  ],
+  "commands_run_under_posix_shell": [
+    {
+      "label": "找下一件活:",
+      "returncode": 0,
+      "json_status": "LISTED",
+      "stderr_head": ""
+    },
+    {
+      "label": "还没做完，续租:",
+      "returncode": 0,
+      "json_status": "RENEWED",
+      "stderr_head": ""
+    },
+    {
+      "label": "要 capsule_hash",
+      "returncode": 0,
+      "json_status": "CAPSULE_READY",
+      "stderr_head": ""
+    },
+    {
+      "label": "交回后自检",
+      "returncode": 0,
+      "json_status": "TASK_SEEN",
+      "stderr_head": ""
+    },
+    {
+      "label": "忘了凭证",
+      "returncode": 0,
+      "json_status": "LEASES_FOUND",
+      "stderr_head": ""
+    },
+    {
+      "label": "租约过期",
+      "returncode": 3,
+      "json_status": "REFUSED",
+      "stderr_head": ""
+    }
+  ],
+  "interpreter_tokens_under_posix_shell": [
+    {
+      "token": "py",
+      "resolved_to": "/c/Windows/py"
+    },
+    {
+      "token": "python",
+      "resolved_to": "/c/Users/Administrator/AppData/Local/Microsoft/WindowsApps/python"
+    },
+    {
+      "token": "python3",
+      "resolved_to": "/c/Users/Administrator/AppData/Local/Microsoft/WindowsApps/python3"
+    },
+    {
+      "token": "cmd",
+      "resolved_to": "/c/Windows/System32/cmd"
+    }
+  ],
+  "counts": {
+    "ran_and_returned_json": 6,
+    "ran_but_no_json": 0,
+    "total_runnable": 6
+  },
+  "receipt_sha256_of_capsule": "42c5548381191b5ad548e68bfd2414c182329e89806cf7f7e76eeb2ecc2e3bac",
+  "verdict": "POSIX_SHELL_GRAMMAR_SURVIVES_ON_WINDOWS_BASH"
+}

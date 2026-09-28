@@ -856,7 +856,10 @@ def render_task_capsule(
     # itself ordered commands-first, because a starved budget keeps its front.
     protocol_start = len(lines)
 
-    lines.append("== RETURN PROTOCOL (shell 端口，照抄即可，不必写 Python) ==")
+    lines.append(
+        "== RETURN PROTOCOL (shell 端口，照抄即可，不必写 Python；"
+        "命令形状与解释器口径见队列 PROTOCOL 的 C-12 第 10 款，本胶囊只指向不复述) =="
+    )
     lines.extend(
         _return_protocol_lines(
             task_pool,
