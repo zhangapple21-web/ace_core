@@ -15,15 +15,15 @@
 |---|---|---|---|---|
 | 任务胶囊、回程端口、恢复和只读回看 | **主线可用** | `core/worker_capsule.py`、`ops/worker_capsule_cli.py` | `PYTHONIOENCODING=utf-8 py -3.11 -m pytest ops/test_worker_capsule.py ops/test_worker_capsule_cli.py -q` | 目前是显式 CLI/演练入口；F01/F02/F08 等接入与异质执行环境问题仍未全部关闭，不能宣称 daemon 已默认使用它 |
 | 跨进程死亡恢复演练 | **主线可用** | `ops/worker_capsule_death_drill.py` | `PYTHONIOENCODING=utf-8 py -3.11 -m ops.worker_capsule_death_drill first` | 演练和生产只读探针已留证；它证明恢复面，不等于所有 worker 都已迁移 |
-| 证据准入与重复候选判定 | **主线已有** | `core/evidence_admission.py`、`core/evidence_admission_compat.py`、`core/task_admission.py`、`core/beneficiary_check.py` | `PYTHONIOENCODING=utf-8 py -3.11 -m pytest ops/test_evidence_admission.py ops/test_evidence_admission_compat.py ops/test_beneficiary_check.py -q` | 只按现有调用者和测试使用；不要把 registry 中的独立 `ACE-CAP-evidence-admission` 包当作另一套生产实现 |
-| 因子回放与 walk-forward 校验 | **主线已有** | `core/factor_replay.py` | `PYTHONIOENCODING=utf-8 py -3.11 -m pytest ops/test_research_adapters_and_replay.py -q` | registry 中的 `ace_factor_replay` 是抽取/兼容证明材料，尚未成为主线第二套入口 |
+| 证据准入与重复候选判定 | **主线可用** | `core/evidence_admission.py`、`core/evidence_admission_compat.py`、`core/task_admission.py`、`core/beneficiary_check.py` | `py -3.11 -m pytest ops/test_evidence_admission.py ops/test_evidence_admission_compat.py ops/test_beneficiary_check.py -q` | 已把 registry 的显式 validator arm、阈值对象和 fail-closed 语义并入原文件；旧 `evaluate_candidate()` 入口保持兼容 |
+| 因子回放与 walk-forward 校验 | **主线可用** | `core/factor_replay.py` | `py -3.11 -m pytest ops/test_research_adapters_and_replay.py -q` | 已把 registry 的可声明时间格式、拒绝原因和自定义字段键并入原文件；仍然是 research-only，不产生生产建议 |
 
 ## 有价值但暂不切换的能力
 
 | 能力 | 状态 | 现在的唯一正本 | 为什么不直接启用 |
 |---|---|---|---|
 | Memory Kernel / Hindsight 风格检索 | **候选未切换** | `core/memory_index.py` 仍是 daemon/worker 的实际读写面；`core/memory_kernel.py`、`core/memory_gateway.py` 是迁移候选 | 主线 AGENTS 已明确 caller unification 未达成；切换前必须完成一次性迁移闸、回滚闸和自然 daemon 验证，不能因为文件存在就称为生产记忆 |
-| `ace_capability_registry` 的抽取包、登记尺和大量窗口审计件 | **证据/候选** | `C:\轻量项目\ace_capability_registry` | 这些东西提高可追溯性，但没有自动获得 ACE 生产调用权；只有明确验收、复制引用和主线复算完成后，才可进入本表的“主线已有” |
+| `ace_capability_registry` 的登记尺和大量窗口审计件 | **证据/候选** | `C:\轻量项目\ace_capability_registry` | 可复用的行为已经合并到主线原有文件；registry 的独立 `capabilities/` 包不再复制，避免形成第二套入口 |
 
 ## 明确不纳入主线的内容
 

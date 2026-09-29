@@ -64,6 +64,38 @@ class ResearchAdaptersAndReplayTests(unittest.TestCase):
         self.assertFalse(result["production_eligible"])
         self.assertEqual(result["status"], "COMPLETE")
 
+    def test_replay_exposes_rejection_reasons_and_parses_declared_time_format(self):
+        rows = [
+            {"feature_time": "2026-9-1", "outcome_time": "2026-09-02", "x": 1, "forward_return": 0.1},
+            {"feature_time": "bad", "outcome_time": "2026-09-02", "x": 2, "forward_return": 0.2},
+            {"feature_time": "2026-09-03", "outcome_time": "2026-09-02", "x": 3, "forward_return": 0.3},
+        ]
+        result = replay_factor(
+            rows,
+            lambda row: row["x"],
+            time_format="%Y-%m-%d",
+        )
+        self.assertEqual(result["accepted"], 1)
+        self.assertEqual(result["rejection_reasons"]["time_unparseable"], 1)
+        self.assertEqual(result["rejection_reasons"]["feature_not_before_outcome"], 1)
+
+    def test_walk_forward_passes_custom_field_contract_to_each_window(self):
+        rows = [
+            {"seen": f"2026-09-{i + 1:02d}", "due": f"2026-10-{i + 1:02d}", "value": i, "result": 0.01}
+            for i in range(8)
+        ]
+        result = walk_forward_validate(
+            rows,
+            lambda row: row["value"],
+            train_size=2,
+            test_size=2,
+            feature_time_key="seen",
+            outcome_time_key="due",
+            outcome_key="result",
+        )
+        self.assertEqual(result["status"], "COMPLETE")
+        self.assertEqual(result["oos_windows"], 3)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -106,3 +106,38 @@ def test_empty_evidence_sets_are_not_duplicates_of_each_other():
     assert result.duplicate_task_ids == ()
 
 
+def test_uninstalled_validator_fails_closed_and_explicit_cold_arm_is_distinct():
+    from core.evidence_admission import ARM_COLD_ENVIRONMENT, ARM_UNINSTALLED, evaluate
+
+    candidate = {"admission": admission(), "evidence": evidence()}
+    uninstalled = evaluate(candidate, admission_validator=None, validator_arm=ARM_UNINSTALLED)
+    cold = evaluate(candidate, admission_validator=None, validator_arm=ARM_COLD_ENVIRONMENT)
+
+    assert uninstalled.decision == "defer"
+    assert uninstalled.reason == "admission_unvalidated:uninstalled"
+    assert uninstalled.admission_valid is False
+    assert cold.decision == "admit"
+    assert cold.admission_valid is False
+    assert cold.to_dict()["validator_arm"] == ARM_COLD_ENVIRONMENT
+
+
+def test_injected_validator_failure_is_preserved_and_unknown_arm_rejected():
+    from core.evidence_admission import EvidenceAdmissionError, evaluate
+
+    candidate = {"admission": admission(), "evidence": evidence()}
+
+    def fail_validator(_value):
+        raise RuntimeError("validator_down")
+
+    result = evaluate(candidate, admission_validator=fail_validator)
+    assert result.decision == "defer"
+    assert result.admission_error == "validator_down"
+    assert result.admission_valid is False
+    try:
+        evaluate(candidate, validator_arm="guessed")
+    except EvidenceAdmissionError as exc:
+        assert "unknown_validator_arm" in str(exc)
+    else:
+        raise AssertionError("unknown validator arm must be rejected")
+
+
