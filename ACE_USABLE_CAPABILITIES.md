@@ -13,8 +13,8 @@
 
 | 能力 | 状态 | 主线入口 | 复算命令 | 当前边界 |
 |---|---|---|---|---|
-| 任务胶囊、回程端口、恢复和只读回看 | **主线可用** | `core/worker_capsule.py`、`ops/worker_capsule_cli.py` | `PYTHONIOENCODING=utf-8 py -3.11 -m pytest ops/test_worker_capsule.py ops/test_worker_capsule_cli.py -q` | 目前是显式 CLI/演练入口；F01/F02/F08 等接入与异质执行环境问题仍未全部关闭，不能宣称 daemon 已默认使用它 |
-| 跨进程死亡恢复演练 | **主线可用** | `ops/worker_capsule_death_drill.py` | `PYTHONIOENCODING=utf-8 py -3.11 -m ops.worker_capsule_death_drill first` | 演练和生产只读探针已留证；它证明恢复面，不等于所有 worker 都已迁移 |
+| 任务胶囊、回程端口、恢复和只读回看 | **主线可用** | `core/worker_capsule.py`、`ops/worker_capsule_cli.py` | `py -3.11 -m pytest ops/test_worker_capsule.py ops/test_worker_capsule_cli.py -q` | 目前是显式 CLI/演练入口；F01/F02/F08 等接入与异质执行环境问题仍未全部关闭，不能宣称 daemon 已默认使用它 |
+| 跨进程死亡恢复演练 | **主线可用** | `ops/worker_capsule_death_drill.py` | `py -3.11 -m ops.worker_capsule_death_drill first` | 演练和生产只读探针已留证；它证明恢复面，不等于所有 worker 都已迁移 |
 | 证据准入与重复候选判定 | **主线可用** | `core/evidence_admission.py`、`core/evidence_admission_compat.py`、`core/task_admission.py`、`core/beneficiary_check.py` | `py -3.11 -m pytest ops/test_evidence_admission.py ops/test_evidence_admission_compat.py ops/test_beneficiary_check.py -q` | 已把 registry 的显式 validator arm、阈值对象和 fail-closed 语义并入原文件；旧 `evaluate_candidate()` 入口保持兼容 |
 | 因子回放与 walk-forward 校验 | **主线可用** | `core/factor_replay.py` | `py -3.11 -m pytest ops/test_research_adapters_and_replay.py -q` | 已把 registry 的可声明时间格式、拒绝原因和自定义字段键并入原文件；仍然是 research-only，不产生生产建议 |
 
