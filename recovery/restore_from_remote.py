@@ -16,6 +16,9 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from portable_paths import layout, resolve  # noqa: E402
+
 
 CORE_URL = "https://github.com/zhangapple21-web/ace_core.git"
 CORE_REF = "core/daemon-lifecycle-resilience-20260912"
@@ -82,9 +85,11 @@ def main() -> int:
         "remote_only": True,
         "forbidden_revival_dependencies": ["3000", "3002", "legacy scheduler", "legacy heartbeat"],
         "steps": [],
+        "portable_path_policy": "所有恢复目标由 portable_paths.ROOTS 解析；workspace-root 可位于任意盘符。",
+        "portable_roots": {key: str(value) for key, value in layout(root).items()},
     }
     try:
-        core = root / "ace_core"
+        core = resolve(root, "restore_core")
         receipt["steps"].append({"name": "clone_core", **clone(CORE_URL, CORE_REF, core)})
         if receipt["steps"][-1]["status"] != "PASS":
             raise RuntimeError("核心仓库 clone 失败")
@@ -95,7 +100,7 @@ def main() -> int:
         if receipt["steps"][-1]["status"] != "PASS":
             raise RuntimeError("核心 bootstrap 失败")
         if args.with_video:
-            video = root / "ace-video-kingdom"
+            video = resolve(root, "restore_video")
             receipt["steps"].append({"name": "clone_video", **clone(VIDEO_URL, VIDEO_REF, video)})
             if receipt["steps"][-1]["status"] != "PASS":
                 raise RuntimeError("视频仓库 clone 失败")
@@ -112,7 +117,7 @@ def main() -> int:
                     raise RuntimeError("视频 dry-run 失败")
         if args.with_optional:
             for name, url, ref in OPTIONAL_REPOS:
-                destination = root / "optional" / name
+                destination = resolve(root, "restore_optional", name)
                 step = {"name": f"clone_{name}", **clone(url, ref, destination)}
                 receipt["steps"].append(step)
                 if step["status"] != "PASS":

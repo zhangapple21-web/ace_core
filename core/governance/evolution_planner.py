@@ -191,7 +191,8 @@ class EvolutionPlanner:
     def _analyze_files_added(self) -> List[str]:
         """分析今天新增的文件"""
         files = []
-        core_path = Path("c:/Users/USER/Downloads/Telegram Desktop/ace_runtime/core")
+        # 以当前 checkout 的 core 为准，不依赖旧电脑的绝对路径。
+        core_path = Path(__file__).resolve().parents[1]
 
         if core_path.exists():
             for path in core_path.rglob("*.py"):
