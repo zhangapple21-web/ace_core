@@ -1,0 +1,81 @@
+{
+  "automatic_delivery": false,
+  "automatic_promotion": false,
+  "automatic_task_creation": false,
+  "contextual_state": {
+    "learning_needs": [
+      {
+        "fact_id": "FACT-INDEPENDENT-CONFIRMATION",
+        "reason": "A future observable fact could falsify the named active hypothesis.",
+        "required_by_hypotheses": [
+          "HYP-EVIDENCE-INSUFFICIENT"
+        ],
+        "status": "MISSING"
+      },
+      {
+        "fact_id": "FACT-INDEPENDENT-COUNTEREVIDENCE",
+        "reason": "A future observable fact could falsify the named active hypothesis.",
+        "required_by_hypotheses": [
+          "HYP-CANDIDATE-TRANSFER"
+        ],
+        "status": "MISSING"
+      }
+    ],
+    "packet_hash": "c36a23191b2b2fdafbd55cbb40844ce3682f63d97018448d1e112af5950b18a6",
+    "packet_id": "CSP-B290B7398FD6AAD7A08F063F",
+    "scope": "FREE_ZONE_RESEARCH_ONLY"
+  },
+  "contract_version": "ace.free_research_sandbox.v1",
+  "created_at": "2026-09-22T10:31:58.790444+00:00",
+  "distillation_hash": "c89ae8d5c1b1fd373db6382daf6a44831e99cba5334e23acc4d0329bc9c81147",
+  "evidence_hash": "406d5e03d7f63232dc44d4789e3267928e6ce63b5f18c88cdc073ce3a1f71913",
+  "experiment_id": "EXP-20260922103158517416-FREEZONE-F96E343BAED1",
+  "mode": "DISTILLATION_ONLY",
+  "outcome": "INCONCLUSIVE",
+  "pattern": "When A research-only attestation envelope can make absence, expiry, invalidity, and unverifiability explicit without changing Admission or claiming hardware-backed data provenance., investigate via Compare public attestation claim schemas with a fixture-only envelope containing verifier identity, measurement, nonce, expiry, signature status, and bound payload hash; classify all absent hardware as UNVERIFIED..",
+  "production_integration": false,
+  "realm_state": {
+    "authority": "SANDBOX_ONLY",
+    "contract_version": "ace.free_zone_realm.v1",
+    "outbound_rule": "REOBSERVE",
+    "production_integration": false,
+    "realm": "SHADOW",
+    "retention": "SEED"
+  },
+  "reason": "inconclusive_result_requires_new_observation",
+  "semantic_seed": {
+    "ace_symptom": "ACE can record hashes and evidence lineage, but no hardware-attestation verifier or payload-bound proof exists.",
+    "automatic_model_call": false,
+    "automatic_promotion": false,
+    "consumption_mode": "sandbox_report_only",
+    "contract_version": "ace.semantic_seed.v1",
+    "counterexample_question": "Can a valid environment attestation be replayed for a different L2 snapshot, stale file, or media staging payload when the payload hash and nonce are not cryptographically bound?",
+    "external_evidence_refs": [
+      "https://learn.microsoft.com/en-us/azure/confidential-computing/attestation-solutions"
+    ],
+    "extracted_mechanism": "Remote attestation is evidence about a measured execution environment; any use for data lineage must bind a verifier result to the exact payload hash and freshness challenge.",
+    "independent_evidence_status": "NOT_ASSESSED",
+    "lineage": [
+      "public_document",
+      "user_authorized_input",
+      "free_zone_only",
+      "hardware_not_present"
+    ],
+    "local_evidence_refs": [
+      "core/evidence_admission.py",
+      "core/historical_integrity.py"
+    ],
+    "next_verification": "Compare public attestation claim schemas with a fixture-only envelope containing verifier identity, measurement, nonce, expiry, signature status, and bound payload hash; classify all absent hardware as UNVERIFIED.",
+    "production_integration": false,
+    "seed_hash": "6ad8fa30225c44d4af7718aa4416f34aac5accc906f0da3fba508a413d439b8c",
+    "source_evidence_weight": "UNASSESSED",
+    "source_kind": "public_document_plus_user_authorized_research_input",
+    "source_ref": "https://learn.microsoft.com/en-us/azure/confidential-computing/attestation-solutions",
+    "source_snapshot_hash": "3ec19fcd8adfc486c778f8a1a520dfa301ed14c57751c906e88e34b6b88ac5fc",
+    "status": "PENDING",
+    "taskpool_authority": false,
+    "transfer_hypothesis": "A research-only attestation envelope can make absence, expiry, invalidity, and unverifiability explicit without changing Admission or claiming hardware-backed data provenance."
+  },
+  "source_record_hash": "0d8dd7e129d605a33dfef45f5452362fc2c51218f0eebac9711623b9f1719ac4",
+  "status": "OPEN_QUESTION"
+}

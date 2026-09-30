@@ -1,0 +1,52 @@
+{
+  "automatic_delivery": false,
+  "automatic_promotion": false,
+  "automatic_task_creation": false,
+  "contextual_state": {
+    "learning_needs": [
+      {
+        "fact_id": "FACT-INDEPENDENT-CONFIRMATION",
+        "reason": "A future observable fact could falsify the named active hypothesis.",
+        "required_by_hypotheses": [
+          "HYP-EVIDENCE-INSUFFICIENT"
+        ],
+        "status": "MISSING"
+      },
+      {
+        "fact_id": "FACT-INDEPENDENT-COUNTEREVIDENCE",
+        "reason": "A future observable fact could falsify the named active hypothesis.",
+        "required_by_hypotheses": [
+          "HYP-CANDIDATE-TRANSFER"
+        ],
+        "status": "MISSING"
+      }
+    ],
+    "packet_hash": "a0974ca1e7508b482fcbe7470e979721aa3d05d6e73bee85057abcc5311245da",
+    "packet_id": "CSP-E3DA1C050D27BB771C1FE583",
+    "scope": "FREE_ZONE_RESEARCH_ONLY"
+  },
+  "contract_version": "ace.free_research_sandbox.v1",
+  "created_at": "2026-09-19T10:32:27.135370+00:00",
+  "distillation_hash": "e4727b6317fd2dc7b5779a08c2c1f66ee8844546d3e5af8ff0c925b27a908bf4",
+  "evidence_hash": "1d3778439133f538b307625d1ea4fc920ee0a92876511c098eae3d4f25378c68",
+  "experiment_id": "EXP-20260919103227085478-FREEZONE-C7878F0A66B1",
+  "mode": "DISTILLATION_ONLY",
+  "origin": {
+    "exchange_id": "EXCHANGE-9A6ADE0264CBC10764A4836B",
+    "receipt_sha256": "54617a3e6aad2a43f7e5c6d58f2fb35f1a52a6a5015fd2ca1d417b48b1a4643b"
+  },
+  "outcome": "INCONCLUSIVE",
+  "pattern": "When Which bounded counterexample explains the unserviced claimable backlog without changing lifecycle authority?, investigate via Recheck the bound hourly report and daemon state hashes; verify zero TaskPool, routing, model, or production mutation by this relay..",
+  "production_integration": false,
+  "realm_state": {
+    "authority": "SANDBOX_ONLY",
+    "contract_version": "ace.free_zone_realm.v1",
+    "outbound_rule": "REOBSERVE",
+    "production_integration": false,
+    "realm": "SHADOW",
+    "retention": "SEED"
+  },
+  "reason": "inconclusive_result_requires_new_observation",
+  "source_record_hash": "e73302d159f3e7f88c52aca67b4e97c57ca64838e02f899aeb3f9c6b16b2585f",
+  "status": "OPEN_QUESTION"
+}

@@ -1,0 +1,48 @@
+{
+  "automatic_delivery": false,
+  "automatic_promotion": false,
+  "automatic_task_creation": false,
+  "contextual_state": {
+    "learning_needs": [
+      {
+        "fact_id": "FACT-INDEPENDENT-CONFIRMATION",
+        "reason": "A future observable fact could falsify the named active hypothesis.",
+        "required_by_hypotheses": [
+          "HYP-EVIDENCE-INSUFFICIENT"
+        ],
+        "status": "MISSING"
+      },
+      {
+        "fact_id": "FACT-INDEPENDENT-COUNTEREVIDENCE",
+        "reason": "A future observable fact could falsify the named active hypothesis.",
+        "required_by_hypotheses": [
+          "HYP-CANDIDATE-TRANSFER"
+        ],
+        "status": "MISSING"
+      }
+    ],
+    "packet_hash": "215a77e10d6401ae5744a495a7f62b9dfea7a9423afb50b3030b5de148a747e5",
+    "packet_id": "CSP-9351F6A6A2F1BC1A4D482966",
+    "scope": "FREE_ZONE_RESEARCH_ONLY"
+  },
+  "contract_version": "ace.free_research_sandbox.v1",
+  "created_at": "2026-09-20T10:32:58.760143+00:00",
+  "distillation_hash": "420d7e3e21df7a043bdcdfd6dd972685599dee6d5a1a3ff7f79bc6aad9402fa1",
+  "evidence_hash": "d22acf17f47125c84d85e996332c377a301f7771947283a5ef1969d2fe588f56",
+  "experiment_id": "EXP-20260920103258539299-FREEZONE-D7B0CA0A25F4",
+  "mode": "DISTILLATION_ONLY",
+  "outcome": "PASS",
+  "pattern": "When What bounded free-zone probe can repair or explicitly delimit the missing dimensions of EXP-MODEL-898A05764556A021: boundary_intact, dissent_blueprint?, investigate via Preserve the original artifact, address only the named missing dimensions, and record a separate result without changing production state..",
+  "production_integration": false,
+  "realm_state": {
+    "authority": "GOVERNED",
+    "contract_version": "ace.free_zone_realm.v1",
+    "outbound_rule": "EXISTING_ADMISSION",
+    "production_integration": false,
+    "realm": "SHADOW",
+    "retention": "SEED"
+  },
+  "reason": "clean_pass_available_for_later_review",
+  "source_record_hash": "d048778218c26b86627e74a20bf27a7e6a5df4ad6a037a15dc05467a0d1191c6",
+  "status": "PROPOSAL_ONLY"
+}

@@ -6,22 +6,22 @@
       "source_file": "C:\\Users\\USER\\Downloads\\Telegram Desktop\\coze-assets\\02_miner_config\\miner_env.sh",
       "total_keys": 16,
       "keys": [
-        "nvapi-drrkxZz5IGkOvp...",
-        "nvapi-bubQ5nIDQvqTsP...",
-        "nvapi-3HwgwImMQ6wbt2...",
-        "nvapi-woi2ZDoKkNNrYQ...",
-        "nvapi-au6ln_q5CYcprS...",
-        "nvapi-5Z6dcJWJd0UlmH...",
-        "nvapi-cr3-2DWlX28lTH...",
-        "nvapi-zjTkG4mURLBjeW...",
-        "nvapi-f7-TzZIxXfB3K1...",
-        "nvapi-EjbQqapmNeBshQ...",
-        "nvapi-X9YYWNSwe-7oFK...",
-        "nvapi-zu3aYWzNipdPck...",
-        "nvapi-7YLZVmIrnAgchn...",
-        "nvapi-U1DvIxZ9zNDjXc...",
-        "nvapi--lqsFXbEj14BlB...",
-        "nvapi-h2dBCK9lHynchd..."
+        "[REDACTED]",
+        "[REDACTED]",
+        "[REDACTED]",
+        "[REDACTED]",
+        "[REDACTED]",
+        "[REDACTED]",
+        "[REDACTED]",
+        "[REDACTED]",
+        "[REDACTED]",
+        "[REDACTED]",
+        "[REDACTED]",
+        "[REDACTED]",
+        "[REDACTED]",
+        "[REDACTED]",
+        "[REDACTED]",
+        "[REDACTED]"
       ],
       "key_lengths": [
         70,
@@ -51,22 +51,22 @@
       "base_url": "https://integrate.api.nvidia.com/v1",
       "total_keys": 16,
       "keys": [
-        "nvapi-drrkxZz5IGkOvp...",
-        "nvapi-bubQ5nIDQvqTsP...",
-        "nvapi-3HwgwImMQ6wbt2...",
-        "nvapi-woi2ZDoKkNNrYQ...",
-        "nvapi-au6ln_q5CYcprS...",
-        "nvapi-5Z6dcJWJd0UlmH...",
-        "nvapi-cr3-2DWlX28lTH...",
-        "nvapi-zjTkG4mURLBjeW...",
-        "nvapi-f7-TzZIxXfB3K1...",
-        "nvapi-EjbQqapmNeBshQ...",
-        "nvapi-X9YYWNSwe-7oFK...",
-        "nvapi-zu3aYWzNipdPck...",
-        "nvapi-7YLZVmIrnAgchn...",
-        "nvapi-U1DvIxZ9zNDjXc...",
-        "nvapi--lqsFXbEj14BlB...",
-        "nvapi-h2dBCK9lHynchd..."
+        "[REDACTED]",
+        "[REDACTED]",
+        "[REDACTED]",
+        "[REDACTED]",
+        "[REDACTED]",
+        "[REDACTED]",
+        "[REDACTED]",
+        "[REDACTED]",
+        "[REDACTED]",
+        "[REDACTED]",
+        "[REDACTED]",
+        "[REDACTED]",
+        "[REDACTED]",
+        "[REDACTED]",
+        "[REDACTED]",
+        "[REDACTED]"
       ],
       "key_lengths": [
         70,
@@ -106,7 +106,7 @@
       "method": "POST",
       "headers": {
         "Content-Type": "application/json",
-        "Authorization": "Bearer nvapi-drrkxZz5I..."
+        "Authorization": "[REDACTED]"
       },
       "body": {
         "model": "deepseek-ai/deepseek-v4-flash",
@@ -118,7 +118,7 @@
         ],
         "max_tokens": 10
       },
-      "key_used_prefix": "nvapi-drrkxZz5I...",
+      "key_used_prefix": "[REDACTED]",
       "key_used_length": 70
     }
   },
@@ -130,25 +130,25 @@
       "results": [
         {
           "key_index": 1,
-          "key_prefix": "nvapi-drrkxZz5IGkOvp...",
+          "key_prefix": "[REDACTED]",
           "status": "exception",
           "error": "The read operation timed out"
         },
         {
           "key_index": 2,
-          "key_prefix": "nvapi-bubQ5nIDQvqTsP...",
+          "key_prefix": "[REDACTED]",
           "status": "exception",
           "error": "The read operation timed out"
         },
         {
           "key_index": 3,
-          "key_prefix": "nvapi-3HwgwImMQ6wbt2...",
+          "key_prefix": "[REDACTED]",
           "status": "success",
           "latency_ms": 11236
         },
         {
           "key_index": 4,
-          "key_prefix": "nvapi-woi2ZDoKkNNrYQ...",
+          "key_prefix": "[REDACTED]",
           "status": "exception",
           "error": "The read operation timed out"
         }
@@ -192,4 +192,4 @@
       "message": "The read operation timed out"
     }
   }
-]
+]\n

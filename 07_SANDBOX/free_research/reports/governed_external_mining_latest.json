@@ -1,0 +1,17 @@
+{
+  "at": "2026-09-30T03:15:51.497502+00:00",
+  "status": "IDEMPOTENT_NO_NEW_TARGET",
+  "chain": {
+    "web_scout": "NO_NEW_TARGET",
+    "miner_pool": "NOT_RUN",
+    "task_pool": "NOT_RUN",
+    "researcher": "PENDING",
+    "validator": "PENDING",
+    "guardian": "PENDING"
+  },
+  "tasks_created": 0,
+  "reports": [],
+  "discovery": {
+    "status": "COOLDOWN"
+  }
+}

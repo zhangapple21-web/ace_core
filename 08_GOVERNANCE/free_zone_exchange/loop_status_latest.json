@@ -1,24 +1,24 @@
 {
   "contract_version": "ace.free_zone_loop_status.v1",
   "counts": {
-    "consumed": 0,
-    "distilled": 0,
-    "reflected": 0,
+    "consumed": 1,
+    "distilled": 1,
+    "reflected": 1,
     "released": 1
   },
   "exchanges": [
     {
-      "consumed_count": 0,
-      "distilled_count": 0,
+      "consumed_count": 1,
+      "distilled_count": 1,
       "exchange_id": "EXCHANGE-9A6ADE0264CBC10764A4836B",
       "receipt_sha256": "54617a3e6aad2a43f7e5c6d58f2fb35f1a52a6a5015fd2ca1d417b48b1a4643b",
-      "reflected_count": 0,
-      "state": "RELEASED"
+      "reflected_count": 1,
+      "state": "REFLECTED"
     }
   ],
   "production_integration": false,
   "runtime_signal": {
-    "checked_at": "2026-09-18T11:12:32.473038+00:00",
+    "checked_at": "2026-09-30T03:16:20.657858+00:00",
     "eligibility": "NO_ELIGIBLE_REALITY_GAP",
     "eligibility_reason": "no_unserviced_claimable_work",
     "pending_observed": 0,

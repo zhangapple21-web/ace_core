@@ -1,0 +1,48 @@
+{
+  "automatic_delivery": false,
+  "automatic_promotion": false,
+  "automatic_task_creation": false,
+  "contextual_state": {
+    "learning_needs": [
+      {
+        "fact_id": "FACT-INDEPENDENT-CONFIRMATION",
+        "reason": "A future observable fact could falsify the named active hypothesis.",
+        "required_by_hypotheses": [
+          "HYP-EVIDENCE-INSUFFICIENT"
+        ],
+        "status": "MISSING"
+      },
+      {
+        "fact_id": "FACT-INDEPENDENT-COUNTEREVIDENCE",
+        "reason": "A future observable fact could falsify the named active hypothesis.",
+        "required_by_hypotheses": [
+          "HYP-CANDIDATE-TRANSFER"
+        ],
+        "status": "MISSING"
+      }
+    ],
+    "packet_hash": "e48ce038270911ea37a7a8c974af0539bd328d41d89f74bb645b5d1c7f25cf03",
+    "packet_id": "CSP-4BF6A4783FFCA71CD3FF0B7C",
+    "scope": "FREE_ZONE_RESEARCH_ONLY"
+  },
+  "contract_version": "ace.free_research_sandbox.v1",
+  "created_at": "2026-09-26T10:30:33.287012+00:00",
+  "distillation_hash": "633ac9952e704bdb3692489113ad8f07b53ca22fb46d85201bf5df6c4913f5b4",
+  "evidence_hash": "6d075d9e87f3b957ca5afc58f75cd8882385bf6f7f2ea942e94a8b2a2e915b40",
+  "experiment_id": "EXP-20260926103033212973-FREEZONE-227250443041",
+  "mode": "DISTILLATION_ONLY",
+  "outcome": "PASS",
+  "pattern": "When The open question EXP-20260925103227904522-FREEZONE-3B01EE294ED7 can be turned into a distinct next observation without overwriting its original result., investigate via Preserve the parent distillation, formulate an explicit re-observation question, and record the new experiment separately..",
+  "production_integration": false,
+  "realm_state": {
+    "authority": "GOVERNED",
+    "contract_version": "ace.free_zone_realm.v1",
+    "outbound_rule": "EXISTING_ADMISSION",
+    "production_integration": false,
+    "realm": "SHADOW",
+    "retention": "SEED"
+  },
+  "reason": "clean_pass_available_for_later_review",
+  "source_record_hash": "4855ed0960e555f18296100a0f4c13e255c2bb6aa7478827e164e61cb9e90ad8",
+  "status": "PROPOSAL_ONLY"
+}
