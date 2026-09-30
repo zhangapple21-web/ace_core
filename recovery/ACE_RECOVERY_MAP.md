@@ -27,7 +27,7 @@
 ## 3. 当前验证基线
 
 - `ace_core` canonical branch：`core/daemon-lifecycle-resilience-20260912`
-- `ace_core` 当前远程 HEAD：`14f48ff4631ee6431c5127aece4f46acb3edb60d`
+- `ace_core` 文档生成时远程 HEAD：`bffec587884f4844a6b8d1fd21afd2c1866084de`（恢复入口始终以 `git ls-remote` 和实际 clone 为准）
 - `ace_core` 行为验证基线：`2ce7f9068441c0d341d8ed26cec1ea77d72cdbf8`
 - `ace-video-kingdom/main`：`27da48891ac778e88689fd1e33cdc058472f9b90`
 - 最新独立演练目录：`D:\\tmp\\ace_dr_final_20260930_r3`（历史收据）；最终入口演练以 `ACE_REMOTE_RESTORE_RECEIPT.json` 为准。
