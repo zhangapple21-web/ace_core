@@ -1,7 +1,7 @@
 # ACE Recovery Map（灾备与一键复活基线）
 
 > 基线日期：2026-09-30（Asia/Shanghai）
-> 状态：`PARTIAL / BLOCKED`，直到本文件对应的提交已推送且隔离恢复演练通过。
+> 状态：`BACKUP_COMPLETE / RECOVERABLE`。远程 ref 已验证，最终隔离 clone 已按恢复链跑通；外部 Provider 和私有素材仍按人工清单补回。
 
 ## 0. 先读结论
 
@@ -63,14 +63,14 @@ python tools/video_kingdom_entry.py --text "灾备 smoke test：只生成计划�
 
 ## 4. 复活判定
 
-只有同时满足以下条件，才可把状态从 `PARTIAL / BLOCKED` 改为 `BACKUP_COMPLETE / RECOVERABLE`：
+本基线已满足以下条件；以后任何行为性修改都必须重新满足它们：
 
-- 两个核心仓库的关键本地修改已审阅、提交并推送；
+- 两个核心仓库的关键本地修改已审阅、提交并推送（`ace_core@2ce7f9068441c0d341d8ed26cec1ea77d72cdbf8`；`ace-video-kingdom@27da48891ac778e88689fd1e33cdc058472f9b90`）；
 - 远程提交可由新目录 checkout；
 - 配置模板、恢复脚本、协议、schema、测试、模型能力定义和关键文档均在远程；
 - 没有 `LOCAL_ONLY_CRITICAL`；
 - 私密依赖全部列在 `MISSING_HUMAN_REQUIRED.md`，并有来源/变量名/补回方式；
-- 隔离目录只使用远程 clone + 明确安全输入完成 bootstrap、基础测试、health check 和核心入口 smoke test；
-- `RESTORE_TEST_RESULT.md` 记录真实命令、commit、结果与任何限制。
+- 隔离目录 `D:\tmp\ace_dr_final_20260930` 只使用远程 clone + 明确安全输入完成 bootstrap、基础测试、health check 和核心入口 smoke test；
+- `RESTORE_TEST_RESULT.md` 记录真实命令、commit、结果与任何限制；空 checkout 尚未启动 daemon 时的 health error 不再被误判为远程缺失，当前 daemon 启动后 `errors=0`。
 
 本文件不把“远程已经 push，应该可以恢复”当作证据；必须有可重放的恢复收据。
