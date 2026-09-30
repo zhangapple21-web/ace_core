@@ -1,0 +1,31 @@
+# Recovery validation test-set lock only, not the full ACE system.
+# Source: clean_venv Python 3.11.9, include-system-site-packages=false.
+# Generated from: clean_venv/Scripts/python.exe -m pip freeze
+# Scope: recorded 103 safe tests (3 blocked), 153 isolated bootstrap tests,
+# 18 recovery unittests and 36 provider-free video tests; not host E2E.
+# Includes frozen direct and transitive packages; no local cache artifacts.
+# pip check passed in the source venv; fresh reinstall is NOT VERIFIED.
+# Registry tools needing PyYAML, daemon and real providers are outside scope.
+# Bootstrap is unchanged and does not automatically install this file.
+baostock==0.9.4
+certifi==2026.7.22
+cffi==2.1.1
+charset-normalizer==3.5.2
+click==8.5.0
+colorama==0.4.6
+cryptography==50.0.1
+idna==3.20
+iniconfig==2.3.0
+numpy==2.4.6
+packaging==26.3
+pandas==3.0.6
+pluggy==1.6.0
+pycparser==3.0
+Pygments==2.21.0
+pytdx==1.72
+pytest==9.1.1
+python-dateutil==2.9.0.post0
+requests==2.34.2
+six==1.17.0
+tzdata==2026.4
+urllib3==2.8.0

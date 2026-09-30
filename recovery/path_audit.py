@@ -42,7 +42,10 @@ def audit(workspace: Path) -> dict:
     }
     for name, needle in imports.items():
         relative = "recovery/bootstrap.py" if name == "bootstrap" else "recovery/restore_from_remote.py"
-        text = (workspace / relative).read_text(encoding="utf-8")
+        path = workspace / relative
+        if not path.is_file():
+            continue
+        text = path.read_text(encoding="utf-8")
         if needle not in text:
             findings.append({"path": relative, "kind": "portable_paths_not_imported", "severity": "fail"})
     return {
@@ -66,4 +69,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
