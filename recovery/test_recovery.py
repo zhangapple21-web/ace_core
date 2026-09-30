@@ -145,11 +145,38 @@ class CloneTests(unittest.TestCase):
             self.assertEqual(asset.read_text(), "keep")
             self.assertEqual(list(root.iterdir()), [asset])
 
+    def test_clone_disables_checkout_newline_conversion(self):
+        sha = 'a' * 40
+        outputs = [f'{sha}\trefs/heads/main', '', 'main', sha, 'offline']
+        with tempfile.TemporaryDirectory() as tmp, patch.object(
+                restore, 'run', side_effect=[command_result(stdout=x) for x in outputs]) as run:
+            restore.clone('offline', 'main', Path(tmp) / 'checkout')
+        self.assertEqual(run.call_args_list[1].args[0][:5],
+                         ['git', '-c', 'core.autocrlf=false', 'clone', '--branch'])
+
     def test_coze_remote(self):
         self.assertIn(("coze-assets", "https://github.com/ACEE0011/coze-assets.git", "main"), restore.OPTIONAL_REPOS)
 
 
 class OrchestratorTests(unittest.TestCase):
+    def test_archive_denied_preserves_original_error_and_receipt(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / 'restore'
+            argv = ['restore', '--workspace-root', str(root)]
+            with patch.object(restore.sys, 'argv', argv), \
+                    patch.object(restore.shutil, 'which', return_value='git'), \
+                    patch.object(restore, 'verify_private', side_effect=RuntimeError('original failure')), \
+                    patch.object(Path, 'rename', side_effect=PermissionError('archive denied')), \
+                    contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(restore.main(), 1)
+            receipts = list(Path(tmp).rglob('ACE_REMOTE_RESTORE_RECEIPT.json'))
+            self.assertEqual(len(receipts), 1)
+            receipt = json.loads(receipts[0].read_text(encoding='utf-8'))
+            self.assertEqual(receipt['error'], 'original failure')
+            self.assertEqual(receipt['archive_error'], 'archive denied')
+            self.assertEqual(receipt['retained_workspace'], str(root))
+            self.assertTrue(root.is_dir())
+
     def test_state_restore_precedes_bootstrap(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / 'restore'

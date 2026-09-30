@@ -108,7 +108,7 @@ def clone(url: str, ref: str, destination: Path, *, result: dict | None = None) 
         remote = checked_run(["git", "ls-remote", "--heads", url, ref])
         result["remote_head"] = parse_remote_head(remote["stdout"], ref)
         destination.parent.mkdir(parents=True, exist_ok=True)
-        cloned = checked_run(["git", "clone", "--branch", ref, "--single-branch", url, str(destination)])
+        cloned = checked_run(["git", "-c", "core.autocrlf=false", "clone", "--branch", ref, "--single-branch", url, str(destination)])
         result.update(cloned)
         result["status"] = "FAIL"
         result["checked_out_branch"] = checked_run(["git", "branch", "--show-current"], destination)["stdout"].strip()
@@ -231,7 +231,13 @@ def main() -> int:
         # 保留本次失败产物在旁目录，不删除 checkout，也不阻塞同一目标重试。
         failed_root = Path(tempfile.mkdtemp(prefix=f"{root.name}_failed_", dir=root.parent))
         receipt_path = failed_root / "ACE_REMOTE_RESTORE_RECEIPT.json"
-        root.rename(failed_root / "workspace")
+        receipt["retained_workspace"] = str(root)
+        receipt_path.write_text(json.dumps(receipt, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        try:
+            root.rename(failed_root / "workspace")
+            receipt["retained_workspace"] = str(failed_root / "workspace")
+        except OSError as exc:
+            receipt["archive_error"] = str(exc)
         receipt_path.write_text(json.dumps(receipt, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(receipt, ensure_ascii=False, indent=2))
     print(f"receipt: {receipt_path}")
