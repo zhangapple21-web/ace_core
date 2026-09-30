@@ -20,7 +20,7 @@
    - Python：`python recovery/restore_from_remote.py --workspace-root D:\\ACE_RESTORE --with-video`
 3. 入口只从 GitHub clone `ace_core` canonical branch；拒绝覆盖非空目标；运行 `recovery/bootstrap.py`。
 4. `bootstrap` 生成本机 `ace_config.local.json`、可重建目录、compileall、核心离线测试和 `ace.py status`；不读取旧电脑、不下载密钥、不启动 Provider。
-5. 如需视频能力，入口再 clone `ace-video-kingdom/main`，运行视频测试与 Provider-free dry-run。
+5. 如需视频能力，入口再 clone `ace-video-kingdom/main`，运行视频测试与 Provider-free dry-run；加 `--with-optional` 可同时恢复 capability registry、skill vault、knowledge forge、salvage、structure steward、公开视频资产和 R1 continuity archive。
 6. 按 `MISSING_HUMAN_REQUIRED.md` 从安全来源补回凭据、模型权重和获授权媒体；未补回时只能使用离线能力，不得宣称外部 Provider 已恢复。
 7. 运维授权后再启动当前 `ace.py daemon --serve ...` 并运行 `ops/health_check.py --json`；空 checkout 未启动 daemon 时的 heartbeat error 是预期门槛，不是缺失源码。
 

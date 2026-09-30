@@ -1,6 +1,7 @@
 param(
   [Parameter(Mandatory=$true)][string]$WorkspaceRoot,
   [switch]$WithVideo,
+  [switch]$WithOptional,
   [switch]$SkipTests
 )
 
@@ -17,6 +18,7 @@ if ($py) {
 }
 $args = @((Join-Path $PSScriptRoot 'restore_from_remote.py'), '--workspace-root', $WorkspaceRoot)
 if ($WithVideo) { $args += '--with-video' }
+if ($WithOptional) { $args += '--with-optional' }
 if ($SkipTests) { $args += '--skip-tests' }
 & $launcher @prefix @args
 exit $LASTEXITCODE

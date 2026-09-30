@@ -21,6 +21,15 @@ CORE_URL = "https://github.com/zhangapple21-web/ace_core.git"
 CORE_REF = "core/daemon-lifecycle-resilience-20260912"
 VIDEO_URL = "https://github.com/zhangapple21-web/ace-video-kingdom.git"
 VIDEO_REF = "main"
+OPTIONAL_REPOS = [
+    ("ace-capability-registry", "https://github.com/zhangapple21-web/ace-capability-registry.git", "main"),
+    ("ace-skill-vault", "https://github.com/zhangapple21-web/ace-skill-vault.git", "main"),
+    ("ace-knowledge-forge", "https://github.com/zhangapple21-web/ace-knowledge-forge.git", "master"),
+    ("ace-salvage", "https://github.com/zhangapple21-web/ace-salvage.git", "main"),
+    ("ace-structure-steward", "https://github.com/zhangapple21-web/ace-structure-steward.git", "main"),
+    ("ace-video-assets", "https://github.com/zhangapple21-web/ace-video-assets.git", "main"),
+    ("R1_continuity_archive", "https://github.com/zhangapple21-web/R1_continuity_archive.git", "main"),
+]
 
 
 def run(cmd: list[str], cwd: Path | None = None) -> dict:
@@ -56,6 +65,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="ACE remote-only restore orchestrator")
     parser.add_argument("--workspace-root", type=Path, required=True, help="空的恢复目录")
     parser.add_argument("--with-video", action="store_true", help="同时恢复 ace-video-kingdom 并运行离线视频验证")
+    parser.add_argument("--with-optional", action="store_true", help="同时 clone 能力、Skill、知识和公开资产仓库")
     parser.add_argument("--skip-tests", action="store_true", help="只做 clone/bootstrap，不运行测试")
     args = parser.parse_args()
     root = args.workspace_root.expanduser().resolve()
@@ -100,6 +110,13 @@ def main() -> int:
                 receipt["steps"].append({"name": "video_dry_run", **run(cmd, video)})
                 if receipt["steps"][-1]["status"] != "PASS":
                     raise RuntimeError("视频 dry-run 失败")
+        if args.with_optional:
+            for name, url, ref in OPTIONAL_REPOS:
+                destination = root / "optional" / name
+                step = {"name": f"clone_{name}", **clone(url, ref, destination)}
+                receipt["steps"].append(step)
+                if step["status"] != "PASS":
+                    raise RuntimeError(f"可选仓库 clone 失败: {name}")
         receipt["status"] = "PASS"
     except (OSError, RuntimeError) as exc:
         receipt["status"] = "FAIL"

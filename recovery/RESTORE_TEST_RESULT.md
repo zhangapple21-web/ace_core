@@ -5,7 +5,7 @@
 
 ## 最终独立演练（仅从远程真源）
 
-演练编排器先从 GitHub clone `ace_core` canonical branch，再由该远程 checkout 执行 `recovery/restore_from_remote.py --workspace-root D:\\tmp\\ace_dr_final_final --with-video`。编排器拒绝覆盖非空目录，不读取当前工作区、不下载凭据、不启动 Provider 或废弃端口。
+演练编排器先从 GitHub clone `ace_core` canonical branch，再由该远程 checkout 执行 `recovery/restore_from_remote.py --workspace-root D:\\tmp\\ace_dr_final_final --with-video --with-optional`。编排器拒绝覆盖非空目录，不读取当前工作区、不下载凭据、不启动 Provider 或废弃端口。
 
 最终收据：`D:\\tmp\\ace_dr_final_final\\ACE_REMOTE_RESTORE_RECEIPT.json`
 
