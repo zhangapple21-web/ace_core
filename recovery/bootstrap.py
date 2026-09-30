@@ -80,7 +80,13 @@ def main() -> int:
             "ops/test_cognitive_think_gate.py", "ops/test_task.py", "ops/test_workspace_write_lock.py",
         ]
         existing = [path for path in candidates if (workspace / path).is_file()]
-        if existing and shutil.which("pytest"):
+        pytest_available = subprocess.run(
+            [sys.executable, "-m", "pytest", "--version"],
+            cwd=workspace,
+            text=True,
+            capture_output=True,
+        ).returncode == 0
+        if existing and pytest_available:
             checks.append({"name": "pytest", **run([sys.executable, "-m", "pytest", "-q", *existing], workspace)})
         else:
             checks.append({"name": "pytest", "status": "SKIP", "detail": "没有 pytest 或候选测试文件"})

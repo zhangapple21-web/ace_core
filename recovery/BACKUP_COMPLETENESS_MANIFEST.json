@@ -1,8 +1,8 @@
 {
   "schema_version": "ace.backup_completeness_manifest.v1",
-  "generated_at": "2026-09-30T10:00:00+08:00",
+  "generated_at": "2026-09-30T11:05:00+08:00",
   "status": "PARTIAL_BLOCKED",
-  "decision": "not yet BACKUP_COMPLETE/RECOVERABLE",
+  "decision": "remote canonical commits and isolated clone exist; health gate remains blocked on a cold checkout without an active daemon",
   "scope": "ACE core runtime + ACE video capability domain + optional recovery assets",
   "forbidden_revival_dependencies": ["3000", "3002", "legacy scheduler", "legacy heartbeat"],
   "repositories": [
@@ -12,6 +12,7 @@
       "canonical_ref": "core/daemon-lifecycle-resilience-20260912",
       "head_before_recovery_commit": "92fc44f",
       "working_tree_before_recovery_commit": "DIRTY",
+      "last_known_good_commit": "213910155c9574cc75fb0459213785c85d44abfd",
       "tracked_changes": "present",
       "untracked_critical_candidates": [
         "core/memory_gateway.py",
@@ -29,7 +30,7 @@
         "runtime": {"classification": "REBUILDABLE", "bytes": 981458},
         "agent_team": {"classification": "OPTIONAL_RESEARCH_STATE", "bytes": 4282368}
       },
-      "remote_verification": "PENDING_COMMIT_AND_PUSH"
+      "remote_verification": "VERIFIED: refs/heads/core/daemon-lifecycle-resilience-20260912 = 213910155c9574cc75fb0459213785c85d44abfd"
     },
     {
       "name": "ace-video-kingdom",
@@ -55,15 +56,16 @@
         "sites/tinghe-archive/public/assets/",
         "runtime/"
       ],
-      "remote_verification": "PENDING_SELECTIVE_STAGE_COMMIT_AND_PUSH"
+      "last_known_good_commit": "6d9b9ab8b6745bcc728f0693463b6de1e9bfe234",
+      "remote_verification": "VERIFIED: refs/heads/main = 6d9b9ab8b6745bcc728f0693463b6de1e9bfe234"
     }
   ],
   "asset_classes": [
-    {"class": "source_code", "required": true, "remote_form": "Git commit", "status": "PENDING"},
-    {"class": "protocols_and_governance", "required": true, "remote_form": "Markdown/JSON in repositories", "status": "PENDING"},
-    {"class": "schema_and_migrations", "required": true, "remote_form": "Versioned schema + migration scripts", "status": "PENDING_AUDIT"},
-    {"class": "tests_and_regression", "required": true, "remote_form": "Versioned tests + command receipts", "status": "PENDING"},
-    {"class": "bootstrap_and_restore", "required": true, "remote_form": "recovery/bootstrap.ps1 + map", "status": "CREATED_LOCAL_PENDING_PUSH"},
+    {"class": "source_code", "required": true, "remote_form": "Git commit", "status": "REMOTE_CANONICAL"},
+    {"class": "protocols_and_governance", "required": true, "remote_form": "Markdown/JSON in repositories", "status": "REMOTE_CANONICAL"},
+    {"class": "schema_and_migrations", "required": true, "remote_form": "Versioned schema + migration scripts", "status": "REMOTE_TEMPLATE_AND_CODE"},
+    {"class": "tests_and_regression", "required": true, "remote_form": "Versioned tests + command receipts", "status": "ISOLATED_TESTS_PASS"},
+    {"class": "bootstrap_and_restore", "required": true, "remote_form": "recovery/bootstrap.ps1 + map", "status": "REMOTE_CANONICAL"},
     {"class": "runtime_state", "required": false, "remote_form": "rebuild or sanitized snapshot", "status": "REBUILDABLE"},
     {"class": "secrets", "required": true, "remote_form": "private secret manager / private repo", "status": "SECRET_REQUIRED"},
     {"class": "media_and_model_weights", "required": false_for_core, "remote_form": "licensed object storage or re-download", "status": "HUMAN_REQUIRED"}
@@ -72,7 +74,7 @@
     "all core changes reviewed and pushed",
     "remote checkout succeeds in empty directory",
     "bootstrap succeeds without current-machine-only files",
-    "offline core tests and health check pass",
+    "offline core tests and health check pass (currently blocked: cold checkout has no active daemon heartbeat)",
     "TaskPool/lease/fencing smoke passes",
     "no LOCAL_ONLY_CRITICAL asset",
     "restore receipt records exact commits and limitations"
