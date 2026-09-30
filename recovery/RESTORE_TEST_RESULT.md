@@ -5,13 +5,13 @@
 
 ## 最终独立演练（仅从远程真源）
 
-演练编排器先从 GitHub clone `ace_core` canonical branch，再由该远程 checkout 执行 `recovery/restore_from_remote.py --workspace-root D:\\tmp\\ace_dr_final_final --with-video --with-optional`。编排器拒绝覆盖非空目录，不读取当前工作区、不下载凭据、不启动 Provider 或废弃端口。
+演练编排器先从 GitHub clone `ace_core` canonical branch，再由该远程 checkout 执行 `recovery/restore_from_remote.py --workspace-root D:\\tmp\\ace_dr_final_final4 --with-video --with-optional`。编排器拒绝覆盖非空目录，不读取当前工作区、不下载凭据、不启动 Provider 或废弃端口。
 
-最终收据：`D:\\tmp\\ace_dr_final_final\\ACE_REMOTE_RESTORE_RECEIPT.json`
+最终收据：`D:\\tmp\\ace_dr_final_final4\\ACE_REMOTE_RESTORE_RECEIPT.json`
 
 | 验证项 | 结果 |
 |---|---|
-| `ace_core` clone | PASS；远程分支 checkout，最终演练 HEAD 由收据记录 |
+| `ace_core` clone | PASS；远程分支 checkout，核心演练 HEAD：`85f7575fe1c8b78f58e85623535ce1bd9e0db3ae`；视频 HEAD：`27da48891ac778e88689fd1e33cdc058472f9b90` |
 | `bootstrap.py` | PASS；compileall PASS；bootstrap pytest `34 passed`；`ace.py status` PASS |
 | TaskPool/Worker/lease/fencing 专项 | PASS；`60 passed` |
 | Worker Capsule 跨进程 death drill | PASS；`first=HALF_DONE`，等待 lease 过期后 `resume=PASS`，旧 fencing 清除，最终 `review` |

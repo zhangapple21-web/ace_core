@@ -37,6 +37,6 @@
   ],
   "local_only_critical": [],
   "pass_conditions": ["remote canonical refs verified", "restore entry is versioned", "fresh empty workspace recovery receipt is PASS", "offline tests and daemon health gate verified", "video dry-run does not submit Provider", "no secret or obsolete port is required"],
-  "restore_evidence": {"receipt":"D:\\tmp\\ace_dr_final_final\\ACE_REMOTE_RESTORE_RECEIPT.json","bootstrap":"34 passed","core_specialized":"60 passed","video":"36 passed","daemon_health":"errors=0 after current AceDaemon startup","death_drill":"HALF_DONE then PASS"},
+  "restore_evidence": {"receipt":"D:\\tmp\\ace_dr_final_final4\\ACE_REMOTE_RESTORE_RECEIPT.json","bootstrap":"34 passed","core_specialized":"60 passed","video":"36 passed","daemon_health":"errors=0 after current AceDaemon startup","death_drill":"HALF_DONE then PASS"},
   "evidence_pointer": "recovery/RESTORE_TEST_RESULT.md"
 }
