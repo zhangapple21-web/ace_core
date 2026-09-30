@@ -1,7 +1,15 @@
 # Restore Test Result
 
 基线日期：2026-09-30
-状态：`BACKUP_COMPLETE / RECOVERABLE`（核心离线链和视频 Provider-free 链；外部服务/私有资产仍按人工清单）。
+状态：`BACKUP_COMPLETE / RECOVERABLE`（核心离线链、视频 Provider-free 链和非 C/D 盘符路径演练；外部服务/私有资产仍按人工清单）。
+
+
+## 便携路径复核（提交 `17b90ebb717ee2e84b1dcf7a8f5c065a9c6d573d`）
+
+- `portable_paths.ROOTS` 单一解析层：PASS。
+- 关键执行链绝对路径审计：PASS；`recovery/path_audit.py` 无 findings。
+- 非 C/D 盘符模拟（`Y:` subst 隔离根）：PASS；仅从远程 clone、bootstrap、核心测试、视频 clone/test/dry-run 均通过。
+- 核心专项回归：PASS；`63 passed`。
 
 ## 最终独立演练（仅从远程真源）
 
@@ -11,7 +19,7 @@
 
 | 验证项 | 结果 |
 |---|---|
-| `ace_core` clone | PASS；远程分支 checkout，核心演练 HEAD：`85f7575fe1c8b78f58e85623535ce1bd9e0db3ae`；视频 HEAD：`27da48891ac778e88689fd1e33cdc058472f9b90` |
+| `ace_core` clone | PASS；远程分支 checkout，便携路径演练核心 HEAD：`17b90ebb717ee2e84b1dcf7a8f5c065a9c6d573d`；视频 HEAD：`27da48891ac778e88689fd1e33cdc058472f9b90` |
 | `bootstrap.py` | PASS；compileall PASS；bootstrap pytest `34 passed`；`ace.py status` PASS |
 | TaskPool/Worker/lease/fencing 专项 | PASS；`60 passed` |
 | Worker Capsule 跨进程 death drill | PASS；`first=HALF_DONE`，等待 lease 过期后 `resume=PASS`，旧 fencing 清除，最终 `review` |
