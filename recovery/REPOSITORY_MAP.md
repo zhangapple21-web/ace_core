@@ -4,7 +4,7 @@
 
 | Repository | Purpose | Canonical branch / ref | Remote | Last known good commit（当前已验证） | Current state | Recovery entry |
 |---|---|---|---|---|---|---|
-| `ace_core` | ACE 当前认知运行时；AceDaemon、TaskPool、Worker/lease/fencing、Researcher/Validator/Guardian/Archivist、MemoryGateway/MemoryIndex、协议、schema、测试、恢复 | `core/daemon-lifecycle-resilience-20260912`（当前工作分支；不得误用 `main`） | `https://github.com/zhangapple21-web/ace_core.git` | `2ce7f9068441c0d341d8ed26cec1ea77d72cdbf8`（已提交并远程验证） | 关键源码、协议、测试、恢复和治理证据已推送；运行态/考古产物明确分类 | `recovery/bootstrap.ps1` |
+| `ace_core` | ACE 当前认知运行时；AceDaemon、TaskPool、Worker/lease/fencing、Researcher/Validator/Guardian/Archivist、MemoryGateway/MemoryIndex、协议、schema、测试、恢复 | `core/daemon-lifecycle-resilience-20260912`（当前工作分支；不得误用 `main`） | `https://github.com/zhangapple21-web/ace_core.git` | 当前远程 HEAD `423ece3e40b945c3e41b9a981242407856e91b3d`；行为验证基线 `2ce7f9068441c0d341d8ed26cec1ea77d72cdbf8` | 关键源码、协议、测试、恢复和治理证据已推送；运行态/考古产物明确分类 | `recovery/bootstrap.ps1` |
 | `ace-video-kingdom` | ACE 视频能力域；生产控制面、门禁、角色/场景/镜头合同、模型路由、测试、视频规则 | `main` | `https://github.com/zhangapple21-web/ace-video-kingdom.git` | `27da48891ac778e88689fd1e33cdc058472f9b90`（已提交并远程验证） | 行为性资产已选择性提交并推送；私有项目内容、媒体、缓存、生成站点与 2.79 GiB 日志明确为非核心/人工恢复 | `recovery/ACE_VIDEO_RECOVERY_POINTER.md` |
 | `ace-video-assets` | 已发布的公开视频参考资产（可选） | `main` | `https://github.com/zhangapple21-web/ace-video-assets.git` | `59d81bf` | clean；不阻塞核心复活 | 单独 clone；按视频项目合同选择性恢复 |
 | `R1_continuity_archive` | 历史/考古知识（可选） | `main` | `https://github.com/zhangapple21-web/R1_continuity_archive.git` | `3b45edb` | clean；不阻塞核心复活 | 单独 clone；只作为知识资产 |

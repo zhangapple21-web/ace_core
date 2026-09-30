@@ -17,6 +17,7 @@
       "canonical_ref": "core/daemon-lifecycle-resilience-20260912",
       "head_before_recovery_commit": "92fc44f",
       "working_tree_before_recovery_commit": "DIRTY",
+      "current_remote_head": "423ece3e40b945c3e41b9a981242407856e91b3d",
       "last_known_good_commit": "2ce7f9068441c0d341d8ed26cec1ea77d72cdbf8",
       "tracked_changes": "reviewed_and_pushed",
       "untracked_critical_candidates": [],
@@ -47,7 +48,7 @@
           "bytes": 4282368
         }
       },
-      "remote_verification": "VERIFIED: refs/heads/core/daemon-lifecycle-resilience-20260912 = 2ce7f9068441c0d341d8ed26cec1ea77d72cdbf8"
+      "remote_verification": "VERIFIED: refs/heads/core/daemon-lifecycle-resilience-20260912 = 423ece3e40b945c3e41b9a981242407856e91b3d; behavior baseline = 2ce7f9068441c0d341d8ed26cec1ea77d72cdbf8"
     },
     {
       "name": "ace-video-kingdom",
@@ -139,7 +140,8 @@
   ],
   "restore_evidence": {
     "fresh_clone": "D:\\tmp\\ace_dr_final_20260930",
-    "ace_core_head": "2ce7f9068441c0d341d8ed26cec1ea77d72cdbf8",
+    "ace_core_head": "423ece3e40b945c3e41b9a981242407856e91b3d",
+    "ace_core_behavior_baseline": "2ce7f9068441c0d341d8ed26cec1ea77d72cdbf8",
     "video_head": "27da48891ac778e88689fd1e33cdc058472f9b90",
     "bootstrap_pytest": "34 passed",
     "core_specialized_tests": "71 passed",

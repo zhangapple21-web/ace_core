@@ -65,7 +65,7 @@ python tools/video_kingdom_entry.py --text "灾备 smoke test：只生成计划�
 
 本基线已满足以下条件；以后任何行为性修改都必须重新满足它们：
 
-- 两个核心仓库的关键本地修改已审阅、提交并推送（`ace_core@2ce7f9068441c0d341d8ed26cec1ea77d72cdbf8`；`ace-video-kingdom@27da48891ac778e88689fd1e33cdc058472f9b90`）；
+- 两个核心仓库的关键本地修改已审阅、提交并推送。`ace_core` 当前远程 HEAD 是 `423ece3e40b945c3e41b9a981242407856e91b3d`（灾备文档/收据提交）；其已验证行为基线是 `2ce7f9068441c0d341d8ed26cec1ea77d72cdbf8`。`ace-video-kingdom` 当前远程 HEAD 与已验证基线均为 `27da48891ac778e88689fd1e33cdc058472f9b90`；
 - 远程提交可由新目录 checkout；
 - 配置模板、恢复脚本、协议、schema、测试、模型能力定义和关键文档均在远程；
 - 没有 `LOCAL_ONLY_CRITICAL`；
