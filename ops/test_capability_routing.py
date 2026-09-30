@@ -214,6 +214,7 @@ def test_miner_pool_routes_complex_work_and_recovers_to_terra(tmp_path, monkeypa
         [{"role": "user", "content": "bounded complex task"}],
         max_retries=3,
         complexity="complex",
+        data_boundary={"data_class": "PUBLIC"},
     )
 
     assert result["success"] is True

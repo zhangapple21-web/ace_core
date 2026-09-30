@@ -23,6 +23,7 @@ import re
 from pathlib import Path
 from datetime import datetime
 from typing import Dict, List, Any, Optional
+from .mirror_constitution import DATA_CLASSES, validate_data_boundary
 
 
 class Experience:
@@ -41,6 +42,7 @@ class Experience:
         related_concepts: List[str],
         tags: Optional[List[str]] = None,
         created_at: Optional[str] = None,
+        data_class: str = "PRIVATE",
     ):
         self.experience_id = experience_id
         self.source_task_id = source_task_id
@@ -50,6 +52,8 @@ class Experience:
         self.constraints_updated = constraints_updated
         self.related_concepts = related_concepts
         self.tags = tags or []
+        classification = str(data_class or "PRIVATE").strip().upper()
+        self.data_class = classification if classification in DATA_CLASSES else "PRIVATE"
         self.created_at = created_at or datetime.now().isoformat()
         self.reference_count = 0
         self.last_used_at = self.created_at
@@ -64,6 +68,7 @@ class Experience:
             "constraints_updated": self.constraints_updated,
             "related_concepts": self.related_concepts,
             "tags": self.tags,
+            "data_class": self.data_class,
             "created_at": self.created_at,
             "reference_count": self.reference_count,
             "last_used_at": self.last_used_at,
@@ -228,7 +233,12 @@ class ExperienceDeposition:
             constraints_updated=constraints_updated or [],
             related_concepts=related_concepts or [],
             tags=task.tags + [experience_type],
+            data_class=getattr(task, "data_class", "PRIVATE"),
         )
+
+        boundary = validate_data_boundary({"data_class": exp.data_class}, target="INTERNAL")
+        if not boundary["valid"]:
+            raise ValueError("experience_data_boundary_invalid:" + ",".join(boundary["errors"]))
 
         subdir = self.EXPERIENCE_DIRS.get(experience_type, "observation")
         exp_path = self.knowledge_dir / subdir / f"{exp_id}.json"

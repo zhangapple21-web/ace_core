@@ -235,32 +235,33 @@ class SelfHealing:
         return {"issues": issues}
 
     def _check_memory_integrity(self, base_dir: Path) -> Dict[str, Any]:
-        """检查记忆索引完整性。"""
+        """检查当前运行时记忆索引；损坏的私有记忆不可自动重建为空。"""
         issues = []
-        memory_dir = base_dir / "02_MEMORY"
-
-        if not memory_dir.exists():
+        index_file = self.data_dir / "memory_index.json"
+        if not index_file.exists():
             return {"issues": issues}
 
-        index_file = memory_dir / "memory_index.json"
-        if index_file.exists():
-            try:
-                with open(index_file, "r", encoding="utf-8") as f:
-                    idx = json.load(f)
-                if not isinstance(idx, dict):
-                    issues.append({
-                        "type": "memory_index_corruption",
-                        "severity": "medium",
-                        "description": "记忆索引格式错误",
-                        "fixable": True,
-                    })
-            except json.JSONDecodeError:
-                issues.append({
-                    "type": "memory_index_corruption",
-                    "severity": "medium",
-                    "description": "记忆索引损坏",
-                    "fixable": True,
-                })
+        try:
+            with index_file.open("r", encoding="utf-8") as stream:
+                payload = json.load(stream)
+            valid = (
+                isinstance(payload, dict)
+                and isinstance(payload.get("entries"), list)
+                and all(isinstance(entry, dict) for entry in payload["entries"])
+            )
+        except (OSError, UnicodeError, json.JSONDecodeError):
+            valid = False
+
+        if not valid:
+            issues.append({
+                "type": "memory_index_corruption",
+                "severity": "critical",
+                "description": (
+                    "当前运行时记忆索引无法验证；拒绝重建空索引，需从已校验快照恢复"
+                ),
+                "fixable": False,
+                "recovery_required": True,
+            })
 
         return {"issues": issues}
 
@@ -438,26 +439,11 @@ class SelfHealing:
         }
 
     def _fix_memory_index_corruption(self, issue: Dict[str, Any], base_dir: Path) -> Dict[str, Any]:
-        """修复记忆索引损坏（备份后重建空索引）。"""
-        memory_dir = base_dir / "02_MEMORY"
-        index_file = memory_dir / "memory_index.json"
-
-        if index_file.exists():
-            backup = index_file.with_suffix(".bak." + datetime.now().strftime("%Y%m%d%H%M%S"))
-            shutil.copy2(index_file, backup)
-
-        with open(index_file, "w", encoding="utf-8") as f:
-            json.dump({
-                "items": [],
-                "concept_index": {},
-                "stats": {"total": 0},
-                "created_at": datetime.now().isoformat(),
-            }, f, ensure_ascii=False, indent=2)
-
         return {
-            "success": True,
-            "action": "rebuild_memory_index",
-            "details": {"backup": str(index_file.with_suffix(".bak.*"))},
+            "success": False,
+            "action": "refuse_unverified_memory_rebuild",
+            "error": "memory_index_recovery_requires_verified_snapshot",
+            "details": {"recovery_required": True},
         }
 
     def get_healing_history(self, limit: int = 50) -> List[Dict[str, Any]]:

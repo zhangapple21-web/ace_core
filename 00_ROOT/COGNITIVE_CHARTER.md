@@ -193,3 +193,9 @@ STRUCTURE
 - FACT：带编号章节的《R1/R2 系统认知基座》原文未在本地工作树、公开远程仓、Codex/Trae 会话落盘中定位到；本文件是当前活载体，不是对那份未找到原文的替换声明。
 - ACE 已有任务、经验、连续性和成长账本，但“认知收敛”尚未完全自动化；每日成长记录仍需以验证证据为准。
 - 本文件的存在不代表所有自动化都已满足上述要求；缺口必须继续以 `UNKNOWN` 或明确阻塞记录。
+
+## 思考权（ace.cognitive_think.v1）
+
+ACE 的认知中枢拥有充分、动态、可恢复的思考权；思考用于形成判断，不自动获得执行权；改变未来行为的判断必须沉淀为事实、证据、推断、未知与经验；思考必须能够收敛，而不是无限循环。
+
+默认闸门：`core/cognitive_think_gate.py`，运行时落盘 `runtime/cognitive_think_runtime_state.json`。思考形成判断，不自动获得执行权；`thinking_grants_execution` 永不成立。改变未来行为必须沉淀 facts、evidence、inference、unknowns、experience。思考必须收敛；无新证据超过动态预算则 `LOOP_BLOCKED`。生产叶子（Agnes/Provider/窗口）无思考权，只能走既有授权执行。能力晋升仍是 baseline → change → test → evaluation → compare → promote/rollback；思考不能 promote。

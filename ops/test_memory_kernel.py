@@ -243,6 +243,7 @@ def test_import_is_candidate_only(tmp_path):
                 "type": "project",
                 "data_class": "PRIVATE",
                 "source_path": "legacy://memory/1",
+                "created_at": "2026-08-20T10:00:00+00:00",
             }
         ],
         selected_by="test:import-is-candidate-only",
@@ -260,6 +261,48 @@ def test_import_is_candidate_only(tmp_path):
     state = kernel.project_current_state()
     assert state["candidates"][0]["epistemic_status"] == "CANDIDATE"
     assert state["candidates"][0]["metadata"]["imported_from"]["id"] == "legacy-1"
+    assert (
+        state["candidates"][0]["metadata"]["imported_from"]["created_at"]
+        == "2026-08-20T10:00:00+00:00"
+    )
+    query = kernel.query("旧系统内容")
+    assert query["results"]
+    assert query["results"][0]["source_ref"] == "legacy://memory/1"
+
+
+def test_import_preserves_original_time_and_source_for_candidate_retrieval(tmp_path):
+    kernel = _kernel(tmp_path)
+    result = kernel.import_records(
+        [
+            {
+                "id": "legacy-old",
+                "title": "checkpoint note",
+                "summary": "checkpoint note",
+                "type": "note",
+                "data_class": "PRIVATE",
+                "source_path": "legacy://old",
+                "created_at": "2026-08-20T10:00:00+00:00",
+            },
+            {
+                "id": "legacy-new",
+                "title": "checkpoint note",
+                "summary": "checkpoint note",
+                "type": "note",
+                "data_class": "PRIVATE",
+                "source_path": "legacy://new",
+                "created_at": "2026-09-20T10:00:00+00:00",
+            },
+        ],
+        selected_by="test:source-time-preservation",
+    )
+
+    query = kernel.query("2026-08-20 checkpoint note", data_classes=["PRIVATE"])
+    results = {item["memory_id"]: item for item in query["results"]}
+    old_id, new_id = result["imported"]
+
+    assert results[old_id]["source_ref"] == "legacy://old"
+    assert results[new_id]["source_ref"] == "legacy://new"
+    assert results[old_id]["signals"]["temporal"] > results[new_id]["signals"]["temporal"]
 
 
 def test_search_governed_does_not_implicitly_migrate_legacy_index(tmp_path):

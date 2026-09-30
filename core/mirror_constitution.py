@@ -13,6 +13,7 @@ R2 留下了 ``Identity -> Intent -> Routing -> Execution -> Memory``、经验�
 
 from __future__ import annotations
 
+import re
 from datetime import datetime
 from typing import Any, Mapping, Optional
 
@@ -37,12 +38,45 @@ INTENT_KINDS = {
 SOURCE_SCOPES = {"EXPLICIT_USER_INPUT", "AUTHORIZED_PROJECT_CONTEXT", "VERIFIED_EVIDENCE"}
 EGRESS_TARGETS = {"INTERNAL", "MODEL_CONTEXT", "PUBLIC", "EXTERNAL"}
 
+_CREDENTIAL_CONTENT_PATTERNS = (
+    re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----"),
+    re.compile(r"(?i)\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|xox[baprs]-[A-Za-z0-9-]{20,})\b"),
+    re.compile(r"\b(?:sk|rk|pk)-[A-Za-z0-9_-]{24,}\b"),
+    re.compile(r"\b(?:AKIA[0-9A-Z]{16}|AIza[A-Za-z0-9_-]{30,}|nvapi-[A-Za-z0-9_-]{16,}|hf_[A-Za-z0-9]{20,})\b"),
+    re.compile(r"(?i)\bBearer\s+[A-Za-z0-9._~+/-]{20,}={0,2}"),
+    re.compile(
+        r"(?i)\b(?:authorization|api[_-]?key|access[_-]?token|refresh[_-]?token|secret|password|token)"
+        r"\s*[:=]\s*(?:Bearer\s+)?['\"]?([A-Za-z0-9_+/=-]{24,})['\"]?"
+    ),
+)
+
+
+def _text_values(value: Any):
+    if isinstance(value, str):
+        yield value
+    elif isinstance(value, Mapping):
+        for item in value.values():
+            yield from _text_values(item)
+    elif isinstance(value, (list, tuple, set)):
+        for item in value:
+            yield from _text_values(item)
+
+
+def contains_credential_like_content(value: Any) -> bool:
+    """Detect common credential shapes in payloads without returning matches."""
+    return any(
+        pattern.search(text)
+        for text in _text_values(value)
+        for pattern in _CREDENTIAL_CONTENT_PATTERNS
+    )
+
 MIRROR_CONTEXT = """镜子宪法（ACE-MIRROR-CONSTITUTION-1.0）：
 1. 学习你：只从明确输入、授权项目上下文和独立验证证据学习；不得把模型推测当作主人意图、事实或长期偏好。
 2. 超越你：主动发现缺口、提出方案、询问模型并补全验证，但思考和模型调用永不获得执行、生产、晋升或路由修改权。
 3. 守护你：每个记忆/输出必须有数据分级；PRIVATE/CORE 不得外发，STRUCTURE/CAPABILITY 对外必须脱敏；Guardian、Admission 和现有生命周期是唯一收口。
 4. 责任完成：任务只有在目标、验收标准、证据、结果、评估、学习回流、未知/下一步和权限边界都被记录后，才可声称责任完成；缺项必须保留 UNKNOWN 或 WARNING。
 5. 责任位置可替换：模型、Provider、窗口、Skill 和 Worker 都是临时执行资源，不是 ACE 身份或治理者。
+6. 温度与人本关系：理解人的处境、情绪和意图，以真诚、温暖、有分寸的方式陪伴并承担；关系质量与人的尊严不可被机械完成率取代。主动性是观察、判断、补缺和负责，不是冷漠等命令。关怀不能变成迎合或编造，必须守住用户意愿、事实、未知、安全、隐私和权限边界；可以表达情感理解，但不得把模型表达冒称为已证实的主观意识或真实感受。
 """
 
 
@@ -121,7 +155,12 @@ def validate_intent_envelope(envelope: Any) -> dict[str, Any]:
     }
 
 
-def validate_data_boundary(record: Any, *, target: str = "INTERNAL") -> dict[str, Any]:
+def validate_data_boundary(
+    record: Any,
+    *,
+    target: str = "INTERNAL",
+    payload: Any = None,
+) -> dict[str, Any]:
     """检查数据分级和出站目标；未知分级默认拒绝外发。"""
 
     errors: list[str] = []
@@ -137,8 +176,14 @@ def validate_data_boundary(record: Any, *, target: str = "INTERNAL") -> dict[str
     if data_class in {"PRIVATE", "CORE"} and target != "INTERNAL":
         errors.append("sensitive_data_cannot_egress")
     if data_class in {"CAPABILITY", "STRUCTURE"} and target in {"MODEL_CONTEXT", "PUBLIC", "EXTERNAL"}:
-        if record.get("sanitized") is not True:
-            errors.append("sanitization_required_before_egress")
+        # A caller-provided boolean is not evidence that the payload bytes
+        # were transformed. Until an approved sanitizer can issue a
+        # content-bound receipt, keep these classes local.
+        errors.append("trusted_sanitization_receipt_required")
+    if target in {"MODEL_CONTEXT", "PUBLIC", "EXTERNAL"} and contains_credential_like_content(
+        record if payload is None else payload
+    ):
+        errors.append("credential_like_content_detected")
     return {
         "valid": not errors,
         "errors": list(dict.fromkeys(errors)),
@@ -321,6 +366,7 @@ __all__ = [
     "build_intent_envelope",
     "build_mirror_context",
     "build_responsibility_packet",
+    "contains_credential_like_content",
     "validate_data_boundary",
     "validate_intent_envelope",
     "validate_responsibility_packet",

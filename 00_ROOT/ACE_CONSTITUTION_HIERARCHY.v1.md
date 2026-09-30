@@ -119,9 +119,12 @@ compare`，并在治理收据中写明痛苦复盘。没有证据时保持 `UNKN
 1. `resolve_conflict()` 只裁决显式提供的结构化候选；运行时目前执行的是根规则对调用上下文
    的优先级裁决，不会自动解析并比较所有 Markdown/Skill/插件中的自然语言规则，故全库语义
    冲突检测仍是 `UNKNOWN` / `REVIEW_REQUIRED`。
-2. `core/mirror_constitution.py` 的 `validate_data_boundary()` 有校验实现，但截至本记录，
-   尚未接入覆盖所有模型外发、记忆写入和交付输出的统一生产拦截点。数据分类与脱敏不能仅凭
-   这份校验函数或模型提示词视为已强制执行。
+2. `core/mirror_constitution.py` 的 `validate_data_boundary()` 已接入 MinerPool 对话/图像发送、
+   OpenAI-compatible Provider、legacy LLM/SurvivalLoop/local-miner 路径、任务/经验/记忆写入、
+   记忆考古导出、Telegram 底层发送及 CoreSyncer 常见凭证形状筛查；缺分类默认拒绝，
+   `sanitized=true` 不构成脱敏证明。当前是分路径门禁，不等于所有模型、文件同步、通知和交付出口
+   已实现统一且完整的数据分级/内容脱敏。CoreSyncer 仍缺经治理的内容分类/脱敏收据，凭证正则
+   只能拦截已知形状；尚未完成的直连调用、线上部署配置和真实远端覆盖状态保持 `UNKNOWN`。
 3. `build_intent_envelope()` 目前是可用组件，不等于每一种自然语言意图都已通过统一准入入口。
 
 因此，本次运行时接线不等于上述缺口关闭；遇到来源不明、无法分类或规则冲突时，应阻断或

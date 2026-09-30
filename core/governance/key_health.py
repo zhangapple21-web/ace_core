@@ -26,21 +26,60 @@ Key Health（Key 健康度）
 
 import json
 import logging
+import re
 import statistics
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any, Mapping, Optional
 
 logger = logging.getLogger(__name__)
+
+_CREDENTIAL_ASSIGNMENT = re.compile(
+    r"(?i)\b(?:authorization|api[_-]?key|access[_-]?token|secret|password)\b\s*[:=]\s*(?:bearer\s+)?[^\s,;\"']+"
+)
+_CREDENTIAL_SHAPE = re.compile(
+    r"(?i)\b(?:sk-[A-Za-z0-9_-]{12,}|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|"
+    r"xox[baprs]-[A-Za-z0-9-]{20,}|AKIA[0-9A-Z]{16}|AIza[A-Za-z0-9_-]{30,}|nvapi-[A-Za-z0-9_-]{16,}|hf_[A-Za-z0-9]{20,})\b"
+)
+_SENSITIVE_META_KEY = re.compile(
+    r"(?i)(?:api[_-]?key|key[_-]?prefix|authorization|auth[_-]?(?:header|token)|"
+    r"access[_-]?token|refresh[_-]?token|secret|password|credential|private[_-]?key)"
+)
+
+
+def _redact_credential_text(value: Any, limit: int = 100) -> str:
+    """Keep useful failure diagnostics while removing credential-shaped text."""
+    text = str(value or "")
+    text = _CREDENTIAL_ASSIGNMENT.sub("credential=[REDACTED]", text)
+    text = _CREDENTIAL_SHAPE.sub("[REDACTED]", text)
+    return text[:limit]
+
+
+def _sanitize_metadata(value: Any) -> Any:
+    """Remove credential-bearing metadata before it can be persisted again."""
+    if isinstance(value, Mapping):
+        return {
+            str(key): _sanitize_metadata(item)
+            for key, item in value.items()
+            if not _SENSITIVE_META_KEY.search(str(key))
+        }
+    if isinstance(value, (list, tuple)):
+        return [_sanitize_metadata(item) for item in value]
+    if isinstance(value, str):
+        return _redact_credential_text(value, limit=max(100, len(value)))
+    if value is None or isinstance(value, (bool, int, float)):
+        return value
+    # Unknown objects are not safe to serialize as a repr may expose secrets.
+    return None
 
 
 @dataclass
 class KeyHealthRecord:
     """单个 Key 的健康记录"""
-    key_id: str                  # Key 标识符（不存完整 key，只存前缀+hash）
+    key_id: str                  # Key 标识符（仅稳定指纹，不包含可见前缀）
     provider: str                # 所属 Provider
-    key_prefix: str = ""         # Key 前缀（用于展示）
+    key_prefix: str = ""         # 旧记录兼容字段；加载时清空，序列化/展示时忽略
     success_count: int = 0       # 成功次数
     failure_count: int = 0       # 失败次数
     total_requests: int = 0      # 总请求数
@@ -63,7 +102,6 @@ class KeyHealthRecord:
         return {
             "key_id": self.key_id,
             "provider": self.provider,
-            "key_prefix": self.key_prefix,
             "success_count": self.success_count,
             "failure_count": self.failure_count,
             "total_requests": self.total_requests,
@@ -79,7 +117,7 @@ class KeyHealthRecord:
             "status": self.status,
             "first_seen": self.first_seen,
             "failure_reasons": self.failure_reasons,
-            "meta": self.meta,
+            "meta": _sanitize_metadata(self.meta),
         }
 
 
@@ -121,7 +159,9 @@ class KeyHealthManager:
                 record = KeyHealthRecord(
                     key_id=data["key_id"],
                     provider=data.get("provider", ""),
-                    key_prefix=data.get("key_prefix", ""),
+                    # Legacy logs may have stored a visible API-key prefix.
+                    # Ignore it so loading old state cannot re-expose it in reports.
+                    key_prefix="",
                     success_count=data.get("success_count", 0),
                     failure_count=data.get("failure_count", 0),
                     total_requests=data.get("total_requests", 0),
@@ -131,13 +171,16 @@ class KeyHealthManager:
                     p95_latency_ms=data.get("p95_latency_ms", 0.0),
                     last_success=data.get("last_success", ""),
                     last_failure=data.get("last_failure", ""),
-                    last_failure_reason=data.get("last_failure_reason", ""),
+                    last_failure_reason=_redact_credential_text(data.get("last_failure_reason", "")),
                     failure_streak=data.get("failure_streak", 0),
                     health_score=data.get("health_score", 100.0),
                     status=data.get("status", "healthy"),
-                    failure_reasons=data.get("failure_reasons", {}),
+                    failure_reasons={
+                        _redact_credential_text(reason, limit=50): count
+                        for reason, count in (data.get("failure_reasons", {}) or {}).items()
+                    },
                     first_seen=data.get("first_seen", ""),
-                    meta=data.get("meta", {}),
+                    meta=_sanitize_metadata(data.get("meta", {})),
                 )
                 self._records[key_id] = record
 
@@ -154,10 +197,10 @@ class KeyHealthManager:
             logger.error(f"保存 Key 健康记录失败: {e}")
 
     def _key_id(self, api_key: str, provider: str) -> str:
-        """生成 Key 标识符（不存完整 key）"""
+        """以完整凭证的不可读指纹稳定关联记录，不保留任何可见前缀。"""
         import hashlib
-        raw = f"{provider}:{api_key[:8]}:{len(api_key)}"
-        return hashlib.md5(raw.encode("utf-8")).hexdigest()[:10]
+        raw = f"{provider}:{api_key}"
+        return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:20]
 
     def _update_health_score(self, record: KeyHealthRecord):
         """计算健康评分"""
@@ -199,7 +242,6 @@ class KeyHealthManager:
             self._records[key_id] = KeyHealthRecord(
                 key_id=key_id,
                 provider=provider,
-                key_prefix=api_key[:10] + "..." if len(api_key) > 10 else api_key,
                 first_seen=now,
             )
 
@@ -242,7 +284,6 @@ class KeyHealthManager:
             self._records[key_id] = KeyHealthRecord(
                 key_id=key_id,
                 provider=provider,
-                key_prefix=api_key[:10] + "..." if len(api_key) > 10 else api_key,
                 first_seen=now,
             )
 
@@ -253,11 +294,11 @@ class KeyHealthManager:
         record.total_requests += 1
         record.failure_streak += 1
         record.last_failure = now
-        record.last_failure_reason = reason[:100] if reason else ""
+        record.last_failure_reason = _redact_credential_text(reason)
 
         # 失败原因统计
         if reason:
-            short_reason = reason[:50]
+            short_reason = _redact_credential_text(reason, limit=50)
             record.failure_reasons[short_reason] = record.failure_reasons.get(short_reason, 0) + 1
 
         # 更新成功率
@@ -357,7 +398,7 @@ class KeyHealthManager:
         # Key 列表
         lines.append("## Key 列表（按健康度排序）")
         lines.append("")
-        lines.append("| # | Provider | Key 前缀 | 健康度 | 状态 | 成功率 | 平均延迟 | 连续失败 |")
+        lines.append("| # | Provider | Key 指纹 | 健康度 | 状态 | 成功率 | 平均延迟 | 连续失败 |")
         lines.append("|---|----------|----------|--------|------|--------|----------|----------|")
 
         for i, k in enumerate(all_keys[:20], 1):
@@ -368,7 +409,7 @@ class KeyHealthManager:
                 "suspended": "🔴",
             }.get(k.status, "⚪")
             lines.append(
-                f"| {i} | {k.provider} | `{k.key_prefix}` | "
+                f"| {i} | {k.provider} | `{k.key_id}` | "
                 f"{k.health_score:.0f}% | {status_icon} {k.status} | "
                 f"{k.success_rate*100:.0f}% | {k.avg_latency_ms:.0f}ms | "
                 f"{k.failure_streak} |"

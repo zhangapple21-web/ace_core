@@ -2,26 +2,98 @@
   "contract_version": "ace.memory_kernel.migration_assessment.v1",
   "status": "STAGED_MIGRATION_REQUIRED",
   "source": "06_RUNTIME\\ace\\data\\memory\\memory_index.json",
-  "entry_count": 6922,
+  "entry_count": 6984,
   "type_counts": {
     "daily_summary": 343,
     "file_scan": 289,
     "json_structure": 2,
-    "task_archive": 624,
-    "cycle_summary": 5664
+    "task_archive": 627,
+    "cycle_summary": 5723
   },
   "data_class_counts": {
-    "PRIVATE": 6922
+    "PRIVATE": 6984
   },
   "source_path_count": 291,
-  "source_coverage": 0.042039872869112975,
-  "latest_created_at": "2026-09-28T15:11:03.944798",
+  "source_coverage": 0.041666666666666664,
+  "latest_created_at": "2026-09-29T00:23:54.341399",
   "reasons": [
     "legacy_index_large",
     "source_coverage_below_50_percent",
     "all_records_private"
   ],
   "action": "只迁移有来源和明确用途的受治理切片；不把日常摘要批量当作事实导入",
+  "caller_unification": {
+    "status": "PASS_SINGLE_GATEWAY_RUNTIME_AUDIT",
+    "facade": "MemoryGateway -> MemoryIndex",
+    "wired_consumer_count": 8,
+    "evidence_authenticated": false,
+    "receipt_ref": "08_GOVERNANCE/evidence/memory_gateway_caller_unification_20260928.json",
+    "source_hashes_current": true
+  },
+  "real_data_rollback": {
+    "status": "PASS_OFFLINE_COPY_REHEARSAL",
+    "required_basis": "REAL_PRIVATE_DATA_OFFLINE_COPY",
+    "data_basis": "REAL_PRIVATE_DATA_OFFLINE_BACKEND_REHEARSAL",
+    "entry_count": 6979,
+    "source_sha256": "4fa2f836f465e147dfd3d15d7296fee51f2331f0e183d345dc7cd70b517e0d08",
+    "restored_sha256": "4fa2f836f465e147dfd3d15d7296fee51f2331f0e183d345dc7cd70b517e0d08",
+    "production_cutover_status": "NOT_RUN",
+    "receipt_authenticated": false
+  },
+  "replacement_gate": {
+    "status": "REVIEW_REQUIRED",
+    "missing_evidence": [
+      "query_count",
+      "query_strata_counts",
+      "recall_at_5",
+      "recall_delta_vs_legacy_at_5",
+      "mrr_delta_vs_legacy_at_10",
+      "precision_delta_vs_legacy_at_5",
+      "conflict_retention_rate",
+      "unknown_abstention_rate",
+      "p99_latency_ms",
+      "legacy_p99_latency_ms",
+      "privacy_leak_count",
+      "boundary_tests_passed",
+      "concurrent_read_count",
+      "concurrent_write_count",
+      "crash_injection_points_passed",
+      "rollback_data_basis",
+      "rollback_source_sha256",
+      "rollback_restored_sha256",
+      "rollback_lost_acknowledged_writes",
+      "rollback_duration_minutes"
+    ],
+    "failed_gates": [],
+    "thresholds": {
+      "minimum_labeled_queries": 300,
+      "minimum_queries_per_stratum": 50,
+      "query_strata": [
+        "general",
+        "temporal",
+        "conflict",
+        "provenance",
+        "privacy",
+        "unknown"
+      ],
+      "recall_at_5_min": 0.9,
+      "max_recall_at_5_regression_vs_legacy": 0.02,
+      "max_mrr_at_10_regression_vs_legacy": 0.02,
+      "max_precision_at_5_regression_vs_legacy": 0.02,
+      "conflict_retention_rate_min": 1.0,
+      "unknown_abstention_rate_min": 1.0,
+      "p99_latency_ms_hard_cap": 250.0,
+      "p99_latency_legacy_multiplier_max": 1.25,
+      "privacy_leak_count_max": 0,
+      "minimum_concurrent_reads": 100,
+      "minimum_concurrent_writes": 10,
+      "minimum_crash_injection_points": 3,
+      "rollback_data_basis_required": "REAL_PRIVATE_DATA_OFFLINE_COPY",
+      "rollback_lost_acknowledged_writes_max": 0,
+      "rollback_duration_minutes_max": 5.0
+    },
+    "evidence_authenticated": false
+  },
   "execution_authorized": false,
   "production_integration": false,
   "promotion": false

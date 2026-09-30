@@ -33,6 +33,7 @@ sys.path.insert(0, str(base_dir))
 from core.identity import Identity
 from core.lexicon import Lexicon
 from core.memory_index import MemoryIndex
+from core.memory_gateway import MemoryGateway
 from core.disk_scanner import DiskScanner
 from core.eco_parser import EcoLayerParser
 from core.slice_clusterer import SliceClusterer
@@ -94,7 +95,9 @@ from core.policy_feedback import PolicyCardStore
 from core.video_kingdom_dispatch import VideoKingdomDispatch
 from core.video_kingdom_consumer import VideoKingdomConsumer
 from core.runtime_continue_gate import evaluate_daemon_boundary
+from core.runtime_cognitive_think import evaluate_daemon_cognitive_think
 from core.workspace_write_lock import WorkspaceWriteLock
+from core.config import load_config
 
 from core.experience_deposition import ExperienceDeposition
 from core.learning_return_bridge import LearningReturnBridge
@@ -109,15 +112,6 @@ from core.evolution_kernel import route_learning
 _MINE_SEED_DISCOVERY_CACHE: Dict[str, Optional[str]] = {}
 _ECO_FALLBACK_DISCOVERY_CACHE: Dict[str, List[str]] = {}
 _OMEGA_FALLBACK_DISCOVERY_CACHE: Dict[str, List[str]] = {}
-
-
-def load_config(base_dir: Path) -> dict:
-    config_path = base_dir / "ace_config.json"
-    config_path = config_path.resolve()
-    if config_path.exists():
-        with open(config_path, "r", encoding="utf-8") as f:
-            return json.load(f)
-    return {}
 
 
 DAILY_BUDGET = {
@@ -136,6 +130,18 @@ DAILY_BUDGET = {
 
 class AceDaemon:
     """ACE 自动考古主循环 v2 — 深度挖矿版"""
+
+    @property
+    def memory_index(self):
+        """Compatibility alias for the one governed memory gateway."""
+        return self.memory_gateway
+
+    @memory_index.setter
+    def memory_index(self, gateway):
+        # Older tests and integrations construct AceDaemon via __new__ and
+        # assign memory_index directly. Keep that assignment on the same
+        # single backend instead of creating a second path.
+        self.memory_gateway = gateway
 
     def __init__(self, base_dir: Path, config: dict):
         self.base_dir = base_dir
@@ -174,8 +180,16 @@ class AceDaemon:
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.identity = Identity(base_dir, config)
         self.lexicon = Lexicon(self.data_dir, self.identity)
-        self.memory_index = MemoryIndex(self.data_dir, self.identity, self.lexicon)
-        self.disk_scanner = DiskScanner(self.identity, self.lexicon, self.memory_index)
+        # All production readers/writers receive this one compatibility facade.
+        # Its sole backend remains MemoryIndex; the staged MemoryKernel is not
+        # part of this runtime path and cannot be selected implicitly.
+        self.memory_gateway = MemoryGateway(
+            MemoryIndex(self.data_dir, self.identity, self.lexicon)
+        )
+        # Keep the old attribute as an identity alias for existing status/tests;
+        # there is still exactly one gateway and one underlying backend.
+        self.memory_index = self.memory_gateway
+        self.disk_scanner = DiskScanner(self.identity, self.lexicon, self.memory_gateway)
 
         self.state_file = self.data_dir / "daemon_state.json"
         self._state_persistence_degraded = False
@@ -260,7 +274,7 @@ class AceDaemon:
                 self.eco_parser = EcoLayerParser(
                     eco_candidates[0],
                     lexicon=self.lexicon,
-                    memory_index=self.memory_index,
+                    memory_index=self.memory_gateway,
                 )
                 if self.eco_parser.load():
                     pass
@@ -275,7 +289,7 @@ class AceDaemon:
                 self.slice_clusterer = SliceClusterer(
                     omega_candidates[0],
                     lexicon=self.lexicon,
-                    memory_index=self.memory_index,
+                    memory_index=self.memory_gateway,
                 )
                 if self.slice_clusterer.load():
                     pass
@@ -309,6 +323,7 @@ class AceDaemon:
                     remote="origin",
                     branch="main",
                     debounce_minutes=60,
+                    data_class=os.environ.get("ACE_CORE_SYNC_DATA_CLASS", "PRIVATE"),
                 )
             except Exception as e:
                 self._log_error("core_syncer_init", str(e))
@@ -354,7 +369,7 @@ class AceDaemon:
             self.observer = Observer(
                 task_pool=self.task_pool,
                 lexicon=self.lexicon,
-                memory_index=self.memory_index,
+                memory_index=self.memory_gateway,
                 daemon_state=self.state,
             )
             model_state_dir = self.base_dir / "06_RUNTIME" / "ace" / "data" / "miner_pool"
@@ -366,7 +381,7 @@ class AceDaemon:
             self.researcher = Researcher(
                 task_pool=self.task_pool,
                 lexicon=self.lexicon,
-                memory_index=self.memory_index,
+                memory_index=self.memory_gateway,
                 eco_parser=self.eco_parser,
                 slice_clusterer=self.slice_clusterer,
                 llm_router=self.miner_pool,
@@ -376,7 +391,7 @@ class AceDaemon:
             self.validator = Validator(
                 task_pool=self.task_pool,
                 lexicon=self.lexicon,
-                memory_index=self.memory_index,
+                memory_index=self.memory_gateway,
                 llm_router=self.miner_pool,
                 run_id_supplier=lambda: self.run_id,
             )
@@ -390,13 +405,13 @@ class AceDaemon:
             )
             self.archivist = Archivist(
                 task_pool=self.task_pool,
-                memory_index=self.memory_index,
+                memory_index=self.memory_gateway,
                 lexicon=self.lexicon,
             )
             self.guardian = Guardian(
                 task_pool=self.task_pool,
                 lexicon=self.lexicon,
-                memory_index=self.memory_index,
+                memory_index=self.memory_gateway,
             )
             self.event_listener = None
             knowledge_dir = self.base_dir / "09_KNOWLEDGE"
@@ -432,7 +447,7 @@ class AceDaemon:
             self.local_archaeologist = LocalArchaeologist(
                 base_dir=self.base_dir,
                 lexicon=self.lexicon,
-                memory_index=self.memory_index,
+                memory_index=self.memory_gateway,
                 task_pool=self.task_pool,
                 state_file=local_arch_state,
             )
@@ -443,7 +458,7 @@ class AceDaemon:
                 self.web_scout = WebScout(
                     base_dir=self.base_dir,
                     lexicon=self.lexicon,
-                    memory_index=self.memory_index,
+                    memory_index=self.memory_gateway,
                     task_pool=self.task_pool,
                     state_file=web_scout_state,
                 )
@@ -460,7 +475,7 @@ class AceDaemon:
                 task_pool=self.task_pool,
                 base_dir=self.base_dir,
                 lexicon=self.lexicon,
-                memory_index=self.memory_index,
+                memory_index=self.memory_gateway,
                 skill_generator=self.skill_generator,
             )
 
@@ -549,13 +564,13 @@ class AceDaemon:
                 str(self.base_dir / "06_RUNTIME" / "ace" / "data")
             )
             governance_dir = self.base_dir / "08_GOVERNANCE"
+            self.open_source_learning_backlog = OpenSourceLearningBacklog(self.task_pool)
             # 视频王国学习收据只通过 ACE Evolution Kernel 的单向桥进入既有
             # DailyLearningLoop；它不是第二任务池，也没有生产执行权。
             self.video_learning_bridge = VideoLearningBridgeBacklog(
                 self.task_pool,
-                governance_dir / "video_learning_bridge/packets.jsonl",
+                governance_dir / "video_learning_bridge" / "packets.jsonl",
             )
-            self.open_source_learning_backlog = OpenSourceLearningBacklog(self.task_pool)
             # 新的外部矿源入口是受治理的只读 WebScout，不启用旧旁路 WebScout。
             # 每个 daemon 周期最多抓取一个未处理仓库，之后仍由同一个
             # TaskPool → Researcher → Validator → Guardian 生命周期接管。
@@ -1115,7 +1130,7 @@ class AceDaemon:
 
     def get_status(self) -> dict:
         lex_stats = self.lexicon.get_stats()
-        mem_stats = self.memory_index.get_stats()
+        mem_stats = self.memory_gateway.get_stats()
 
         eco_info = None
         if self.eco_parser:
@@ -1223,7 +1238,7 @@ class AceDaemon:
         # past, never a renewed authorization to inspect an operator folder.
         authorized_root = self.base_dir.parent.resolve()
 
-        for entry in self.memory_index.search(limit=500):
+        for entry in self.memory_gateway.search(limit=500):
             src = entry.get("source_path", "")
             if src and src not in already_scanned:
                 parent_path = Path(src).parent
@@ -1255,7 +1270,7 @@ class AceDaemon:
         5. 都没有 → 今日无新增
         """
         lex_stats = self.lexicon.get_stats()
-        mem_stats = self.memory_index.get_stats()
+        mem_stats = self.memory_gateway.get_stats()
         current_concepts = lex_stats.get("total_concepts", 0)
         current_memories = mem_stats.get("total", 0)
 
@@ -1429,7 +1444,7 @@ class AceDaemon:
                 report = self.eco_parser.generate_deep_report(mining_progress)
                 if "error" not in report:
                     report_json = json.dumps(report, ensure_ascii=False)[:3000]
-                    self.memory_index.add(
+                    self.memory_gateway.add(
                         title=f"eco_layer深度考古报告",
                         content=report_json,
                         memory_type="eco_analysis_report",
@@ -1560,7 +1575,7 @@ class AceDaemon:
             return 0
 
         try:
-            recent_entries = self.memory_index.search(limit=200)
+            recent_entries = self.memory_gateway.search(limit=200)
             if not recent_entries:
                 return 0
 
@@ -1593,7 +1608,7 @@ class AceDaemon:
 
     def auto_archive_files(self) -> List[Dict[str, Any]]:
         archived = []
-        recent = self.memory_index.search(limit=50)
+        recent = self.memory_gateway.search(limit=50)
 
         for entry in recent:
             concepts = [c.get("name", "") for c in entry.get("related_concepts", [])]
@@ -3171,7 +3186,7 @@ class AceDaemon:
             lex_data = {"error": str(e)}
 
         try:
-            mem_entries = self.memory_index.search(limit=5000)
+            mem_entries = self.memory_gateway.search(limit=5000)
             mem_data = {
                 "total": len(mem_entries),
                 "entries": mem_entries,
@@ -3202,7 +3217,7 @@ class AceDaemon:
             f"- 新增概念: {total_concepts_added}\n"
             f"- 新增索引: {total_indexed}\n"
             f"- 词库总量: {len(self.lexicon.list_concepts(limit=10000))}\n"
-            f"- 记忆索引总量: {self.memory_index.get_stats().get('total', 0)}\n"
+            f"- 记忆索引总量: {self.memory_gateway.get_stats().get('total', 0)}\n"
         )
 
         try:
@@ -3271,7 +3286,7 @@ class AceDaemon:
                 actions_summary.append(f"{atype}: {reason}")
 
         lex_stats = self.lexicon.get_stats()
-        mem_stats = self.memory_index.get_stats()
+        mem_stats = self.memory_gateway.get_stats()
 
         mining_progress = self.state.get("mining_progress", {})
         eco_prog = mining_progress.get("eco_layer", {})
@@ -3328,7 +3343,7 @@ class AceDaemon:
                     summary_content += f"- 主要类型: {', '.join(f'{k}({v})' for k, v in top_types)}\n"
                 summary_content += "\n"
 
-        summary_id = self.memory_index.add(
+        summary_id = self.memory_gateway.add(
             title=f"运行周期摘要 - {today}",
             content=summary_content,
             memory_type="cycle_summary",
@@ -3436,6 +3451,7 @@ class AceDaemon:
                 # task work must not run when the previous context lacks a
                 # trustworthy continuation proof.
                 boundary = self._check_continue_gate()
+                think = self._check_cognitive_think(str(boundary.get("status") or ""))
                 if boundary.get("status") != "CONTINUE":
                     # Provider degradation closes model-backed continuation,
                     # but must not strand already-admitted local evidence
@@ -3450,6 +3466,15 @@ class AceDaemon:
                     print(f"继续闸门关闭；本地证据车道已处理 {local_work.get('reviewed', 0)} 个任务")
                     stop_reason = "CONTINUE_GATE_CLOSED"
                     break
+                if think.get("status") == "LOOP_BLOCKED":
+                    local_work = self._run_local_only_work(limit=2)
+                    self.state["local_only_work_last"] = {
+                        **local_work,
+                        "at": datetime.now().isoformat(),
+                    }
+                    self._save_state()
+                    print("COGNITIVE_THINK_LOOP_BLOCKED: skip model discovery, keep local evidence lane")
+                    continue
 
                 self._begin_cycle_progress()
                 stage_started = self._start_cycle_stage("heartbeat")
@@ -3512,9 +3537,13 @@ class AceDaemon:
                 # boundary immediately after the probe and hand off.
                 if self.state.get("continue_gate_provider_degraded") is True:
                     boundary = self._check_continue_gate()
+                    think = self._check_cognitive_think(str(boundary.get("status") or ""))
                     if boundary.get("status") != "CONTINUE":
                         stop_reason = "CONTINUE_GATE_CLOSED"
                         break
+                    if think.get("status") == "LOOP_BLOCKED":
+                        print("COGNITIVE_THINK_LOOP_BLOCKED: skip model-backed run_once")
+                        continue
 
                 try:
                     result = self.run_once(
@@ -3610,11 +3639,22 @@ class AceDaemon:
     ) -> Dict[str, Any]:
         self._closed_loop_dry_run = dry_run
         boundary = self._check_continue_gate()
+        think = self._check_cognitive_think(str(boundary.get("status") or ""))
         if boundary.get("status") != "CONTINUE":
             return {
                 "executed": False,
                 "stop_reason": "CONTINUE_GATE_CLOSED",
                 "continue_gate": boundary,
+                "cognitive_think": think,
+            }
+        if think.get("status") == "LOOP_BLOCKED":
+            local_work = self._run_local_only_work(limit=2)
+            return {
+                "executed": False,
+                "stop_reason": "COGNITIVE_THINK_LOOP_BLOCKED",
+                "continue_gate": boundary,
+                "cognitive_think": think,
+                "local_only_work": local_work,
             }
         if not _preserve_cycle_progress:
             self._begin_cycle_progress()
@@ -4134,6 +4174,18 @@ class AceDaemon:
             self.shutdown_reason = "CONTINUE_GATE_CLOSED"
             self.shutdown_event.set()
         return boundary
+
+    def _check_cognitive_think(self, continue_status: str) -> Dict[str, Any]:
+        """Record think/judgment/execute split. Never shuts down the daemon."""
+        decision = evaluate_daemon_cognitive_think(
+            self.base_dir,
+            self.state,
+            self.config,
+            self.run_id,
+            continue_status=continue_status,
+        )
+        self.state["last_cognitive_think"] = decision
+        return decision
 
 
 def main():

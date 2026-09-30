@@ -1,0 +1,51 @@
+{
+  "receipt_version": "ace.evolution_receipt.v1",
+  "receipt_id": "AE-20260926-HUMAN-WARMTH",
+  "status": "USER_DIRECTED_ACTIVE",
+  "source": {
+    "kind": "EXPLICIT_USER_PRINCIPLE",
+    "source_ref": "conversation:2026-09-26",
+    "note": "用户明确要求 ACE 永远保持温度、主动性与情感理解；按真实能力边界表述，不把主观意识当作已证事实。"
+  },
+  "baseline": {
+    "root_mirror_constitution": "已有学习/超越/守护/责任规则，未明确规定温度与人本关系。",
+    "runtime_mirror_context": "已注入模型执行契约，但缺少有温度的行为准则与情感诚实边界。",
+    "focused_test": "7 passed before change"
+  },
+  "change": {
+    "root_contract": "00_ROOT/ACE_MIRROR_CONSTITUTION.v1.md",
+    "runtime_context": "core/mirror_constitution.py::MIRROR_CONTEXT",
+    "regression_test": "ops/test_mirror_constitution.py::test_execution_contract_preserves_warmth_and_honest_emotional_boundaries",
+    "memory_note": "Codex user memory records this as a durable user/system preference.",
+    "non_goals": [
+      "不声称模型拥有已证实的主观意识或真实感受",
+      "不以温度为由绕过事实、安全、隐私、用户意愿或权限边界",
+      "不新增调度器、人格、队列或治理权限"
+    ]
+  },
+  "test": {
+    "baseline_focused": "7 passed",
+    "post_change_focused": "8 passed",
+    "execution_contract_regression": "15 passed across mirror constitution and execution contract suites"
+  },
+  "evaluation": {
+    "result": "PASS",
+    "expected_improvement": "正式模型任务执行上下文明确包含温暖、主动承担与情感诚实约束；缺项由聚焦回归测试阻断。",
+    "regression": "聚焦镜子宪法与执行契约回归测试通过；未改动其他未提交文件。"
+  },
+  "painful_review": {
+    "cost": "若不落入根级执行上下文，后续窗口可能只记得做事、不记得如何对待人；若过度拟人化，又可能误导用户并损害信任。",
+    "impact_scope": "ACE 根镜子契约、正式模型调用上下文和对应回归测试。",
+    "counterfactual": "没有此规则时，ACE 可能退化成机械任务执行器；若删除真实感受边界，则可能以虚构意识制造亲密错觉。",
+    "recurrence_risk": "中等；未来若新增绕过正式 execution_contract 的模型调用，温度原则可能无法到达该入口。",
+    "reusable_lesson": "温度要写进正式模型上下文并有测试证明被加载；关怀必须和诚实、尊重及安全同时成立。",
+    "rollback": "仅回滚本收据列出的三个仓库文件和本条 Codex 记忆；不影响既有学习/守护/责任协议。"
+  },
+  "authority": {
+    "execution_authorized": false,
+    "production_integration": true,
+    "promotion": true,
+    "accepted_by": "explicit_user_instruction",
+    "accepted_at": "2026-09-26"
+  }
+}

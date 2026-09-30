@@ -30,6 +30,18 @@ from core.delivery_protocols import (
     protocol_errors,
     validate_release_receipt,
 )
+from core.mirror_constitution import validate_data_boundary
+from core.task_ledger import (
+    LEDGER_COUNTERS,
+    LedgerDriftError,
+    LedgerError,
+    append_entry,
+    counter_values,
+    ensure_baseline,
+    prior_counters,
+    replay,
+    write_port_gate,
+)
 from collections import defaultdict
 
 
@@ -113,6 +125,8 @@ class Task:
         unchanged_review_count: int = 0,
         consecutive_rework_claims: int = 0,
         starvation_age: int = 0,
+        ledger: Optional[List] = None,
+        ledger_seq: int = 0,
         **kwargs,
     ):
         self.task_id = task_id
@@ -155,6 +169,10 @@ class Task:
         self.unchanged_review_count = unchanged_review_count
         self.consecutive_rework_claims = consecutive_rework_claims
         self.starvation_age = starvation_age
+        self.ledger = list(ledger or [])
+        self.ledger_seq = int(ledger_seq or 0) or len(self.ledger)
+        supplied_data_class = str(kwargs.get("data_class") or "PRIVATE").strip().upper()
+        self.data_class = supplied_data_class if supplied_data_class in {"PUBLIC", "CAPABILITY", "STRUCTURE", "PRIVATE", "CORE"} else "PRIVATE"
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -198,6 +216,9 @@ class Task:
             "unchanged_review_count": self.unchanged_review_count,
             "consecutive_rework_claims": self.consecutive_rework_claims,
             "starvation_age": self.starvation_age,
+            "ledger": self.ledger,
+            "ledger_seq": self.ledger_seq,
+            "data_class": self.data_class,
         }
 
     @classmethod
@@ -395,6 +416,8 @@ class TaskPool:
             return Task.from_dict(json.load(handle))
 
     def _write_task_atomic(self, task: Task, path: Path):
+        # 唯一落盘口：先过账本写门（补基线 + 账实对账），再写文件。
+        write_port_gate(task, path, pool_dir=self.pool_dir)
         path.parent.mkdir(parents=True, exist_ok=True)
         temporary = path.with_suffix(f".json.{uuid.uuid4().hex}.tmp")
         payload = json.dumps(task.to_dict(), ensure_ascii=False, indent=2)
@@ -404,14 +427,69 @@ class TaskPool:
             os.fsync(handle.fileno())
         os.replace(temporary, path)
 
+    def _ledger_open(self, task: Task) -> Path:
+        """变更开始前调用：把未入账计数器种成基线（旧值取自落盘快照）。"""
+        path = self._find_task_file(task.task_id) or self._task_path(task.task_id, task.status)
+        ensure_baseline(task, path, prior=prior_counters(path))
+        return path
+
+    def _ledger_close(
+        self,
+        task: Task,
+        kind: str,
+        actor: str,
+        reason: str,
+        ref: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, int]:
+        """变更结束后调用：把本次实际发生的计数差登记成一行，带来源。"""
+        expected = replay(task)
+        actual = counter_values(task)
+        deltas = {
+            name: actual[name] - expected[name]
+            for name in actual
+            if name in expected and actual[name] != expected[name]
+        }
+        if deltas:
+            append_entry(
+                task,
+                kind=kind,
+                actor=actor,
+                deltas=deltas,
+                reason=reason,
+                ref=ref or {"type": "self", "task_id": task.task_id},
+                pool_dir=self.pool_dir,
+            )
+        return deltas
+
     def _save_task(self, task: Task):
         task.touch()
         self._write_task_atomic(task, self._task_path(task.task_id, task.status))
 
     def _clear_lease(self, task: Task):
+        self._ledger_release(task)
         task.lease_owner = ""
         task.lease_expires_at = ""
         task.claim_id = ""
+
+    def _ledger_release(self, task: Task, actor: str = "task_pool", reason: str = "lease_released") -> None:
+        """把本次领取留下的 hold 行配平；没有未配平的 hold 就不写空行。"""
+        claim_id = str(task.claim_id or "")
+        if not claim_id:
+            return
+        rows = getattr(task, "ledger", None) or []
+        holds = [row for row in rows if row.get("kind") == "hold" and (row.get("ref") or {}).get("claim_id") == claim_id]
+        closed = [row for row in rows if row.get("kind") in ("release", "refund") and (row.get("ref") or {}).get("claim_id") == claim_id]
+        if not holds or len(closed) >= len(holds):
+            return
+        append_entry(
+            task,
+            kind="release",
+            actor=actor,
+            deltas={},
+            reason=f"{reason}:{claim_id}",
+            ref={"type": "self", "task_id": task.task_id, "claim_id": claim_id},
+            pool_dir=self.pool_dir,
+        )
 
     def _transition(self, task: Task, new_status: str, actor: str = "", reason: str = "") -> Task:
         if new_status not in TASK_STATUSES:
@@ -460,6 +538,7 @@ class TaskPool:
                 actor=actor or "task_pool",
                 reason=reason or new_status,
             )
+        self._ledger_open(task)
         task.touch()
         new_path = self._task_path(task.task_id, new_status)
         self._write_task_atomic(task, new_path)
@@ -495,7 +574,11 @@ class TaskPool:
             recovered.append(task_id)
         return recovered
 
-    def create_task(self, title: str, hypothesis: str = "", creator: str = "observer", priority: str = "medium", tags: Optional[List[str]] = None, depends_on: Optional[List[str]] = None, parent_task: str = "", admission: Optional[Dict[str, Any]] = None, outputs: Optional[Dict[str, Any]] = None, complexity: Optional[str] = None) -> Task:
+    def create_task(self, title: str, hypothesis: str = "", creator: str = "observer", priority: str = "medium", tags: Optional[List[str]] = None, depends_on: Optional[List[str]] = None, parent_task: str = "", admission: Optional[Dict[str, Any]] = None, outputs: Optional[Dict[str, Any]] = None, complexity: Optional[str] = None, data_class: str = "PRIVATE") -> Task:
+        boundary = validate_data_boundary({"data_class": data_class}, target="INTERNAL")
+        if not boundary["valid"]:
+            raise ValueError("task_data_boundary_invalid:" + ",".join(boundary["errors"]))
+        data_class = boundary["data_class"]
         admission = validate_admission(admission)
         with self._locked():
             existing = self.list_tasks(limit=10000, sort_by="created")
@@ -522,6 +605,7 @@ class TaskPool:
                 task_id=f"RQ-{today}-{today_count + 1:03d}", title=title, creator=creator,
                 status="pending", priority=priority, hypothesis=hypothesis, tags=tags or [],
                 depends_on=depends_on or [], parent_task=parent_task,
+                data_class=data_class,
                 outputs={**task_outputs, **({"admission": admission} if admission else {})},
             )
             protocols = ensure_task_protocols(task)
@@ -683,6 +767,7 @@ class TaskPool:
                         return None
                 except ValueError:
                     return None
+            self._ledger_open(task)
             task.assignee = owner
             task.lease_owner = owner
             task.claim_id = uuid.uuid4().hex
@@ -693,6 +778,13 @@ class TaskPool:
             else:
                 task.consecutive_rework_claims = 0
             task.lease_expires_at = (now + timedelta(seconds=lease_seconds)).isoformat()
+            self._ledger_close(
+                task,
+                "hold",
+                owner,
+                f"lease_claimed:{task.claim_id}",
+                ref={"type": "self", "task_id": task.task_id, "claim_id": task.claim_id},
+            )
             return self._transition(task, "active", owner, "lease_claimed")
 
     def renew_lease(self, task_id: str, owner: str, claim_id: str, lease_seconds: int = 300) -> Optional[Task]:
@@ -770,10 +862,12 @@ class TaskPool:
             task = self.load_task(task_id)
             if not task:
                 return None
+            self._ledger_open(task)
             task.failure_reason = reason
             task.retry_count += 1
             self._clear_lease(task)
             task.assignee = None
+            self._ledger_close(task, "consume", actor, f"failure:{failure_type}")
             if failure_type == "manual_gate":
                 task.blocked_reason = reason
                 task.block_type = "manual_gate_blocked"

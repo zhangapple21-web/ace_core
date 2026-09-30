@@ -12,6 +12,8 @@ Local Miner v2 - 多源模型调用，不依赖 TRAE
 import os, sys, json, argparse, urllib.request, urllib.error
 from datetime import datetime
 from pathlib import Path
+from urllib.parse import urlparse
+from core.mirror_constitution import validate_data_boundary
 
 # Load keys from miner_env.sh
 def load_env():
@@ -53,8 +55,19 @@ MODEL_FALLBACK_CHAIN = [
 ]
 
 
-def call_ollama(prompt, model=None, max_tokens=500, temperature=0.7):
+def _boundary_blocked(data_boundary, target, payload=None):
+    decision = validate_data_boundary(data_boundary, target=target, payload=payload)
+    if decision["valid"]:
+        return ""
+    return "DATA_BOUNDARY_BLOCKED:" + ",".join(decision["errors"])
+
+
+def call_ollama(prompt, model=None, max_tokens=500, temperature=0.7, data_boundary=None):
     """调用本地 Ollama 模型"""
+    host = (urlparse(OLLAMA_BASE).hostname or "").lower()
+    target = "INTERNAL" if host in {"localhost", "127.0.0.1", "::1"} else "MODEL_CONTEXT"
+    if error := _boundary_blocked(data_boundary, target, payload=prompt):
+        return {"error": error, "source": "ollama"}
     model = model or OLLAMA_MODEL
     data = {
         "model": model,
@@ -93,7 +106,9 @@ def check_ollama_available() -> bool:
         return False
 
 
-def call_github_models(prompt, model="gpt-4o-mini", max_tokens=500, temperature=0.7):
+def call_github_models(prompt, model="gpt-4o-mini", max_tokens=500, temperature=0.7, data_boundary=None):
+    if error := _boundary_blocked(data_boundary, "MODEL_CONTEXT", payload=prompt):
+        return {"error": error, "source": "github"}
     if not GITHUB_PAT: return {"error": "GITHUB_PAT not set", "source": "github"}
     data = {"model": model, "messages": [{"role": "user", "content": prompt}], "max_tokens": max_tokens, "temperature": temperature}
     req = urllib.request.Request(f"{GITHUB_BASE}/chat/completions", data=json.dumps(data).encode(), headers={"Authorization": f"Bearer {GITHUB_PAT}", "Content-Type": "application/json"})
@@ -106,7 +121,9 @@ def call_github_models(prompt, model="gpt-4o-mini", max_tokens=500, temperature=
     except Exception as e: return {"error": f"Error: {e}", "source": "github"}
 
 
-def call_zhipu(prompt, model="glm-4-flash", max_tokens=500, temperature=0.7):
+def call_zhipu(prompt, model="glm-4-flash", max_tokens=500, temperature=0.7, data_boundary=None):
+    if error := _boundary_blocked(data_boundary, "MODEL_CONTEXT", payload=prompt):
+        return {"error": error, "source": "zhipu"}
     if not ZHIPU_KEY: return {"error": "ZHIPU_KEY not set", "source": "zhipu"}
     data = {"model": model, "messages": [{"role": "user", "content": prompt}], "max_tokens": max_tokens}
     req = urllib.request.Request(f"{ZHIPU_BASE}/chat/completions", data=json.dumps(data).encode(), headers={"Authorization": f"Bearer {ZHIPU_KEY}", "Content-Type": "application/json"})
@@ -118,13 +135,15 @@ def call_zhipu(prompt, model="glm-4-flash", max_tokens=500, temperature=0.7):
     except Exception as e: return {"error": f"Error: {e}", "source": "zhipu"}
 
 
-def call_hf(prompt, model="openai/gpt-oss-120b", max_tokens=500, temperature=0.7):
+def call_hf(prompt, model="openai/gpt-oss-120b", max_tokens=500, temperature=0.7, data_boundary=None):
     """调用 HuggingFace Inference Providers (OpenAI 兼容, router.huggingface.co)
 
     测试结果 (2026-07-10): 30ms 延迟, gpt-oss-120b 可用
     支持自动路由: :fastest / :cheapest / :preferred
     注意: 必须带 User-Agent, 否则 Cloudflare 会拦截 (403)
     """
+    if error := _boundary_blocked(data_boundary, "MODEL_CONTEXT", payload=prompt):
+        return {"error": error, "source": "hf"}
     if not HF_KEY: return {"error": "HF_KEY not set", "source": "hf"}
     data = {"model": model, "messages": [{"role": "user", "content": prompt}], "max_tokens": max_tokens, "temperature": temperature, "stream": False}
     headers = {"Authorization": f"Bearer {HF_KEY}", "Content-Type": "application/json", "User-Agent": "ACE-Miner/2.0"}
@@ -137,8 +156,10 @@ def call_hf(prompt, model="openai/gpt-oss-120b", max_tokens=500, temperature=0.7
     except Exception as e: return {"error": f"Error: {e}", "source": "hf"}
 
 
-def call_apiyi(prompt, model="gpt-4o-mini", max_tokens=500, temperature=0.7):
+def call_apiyi(prompt, model="gpt-4o-mini", max_tokens=500, temperature=0.7, data_boundary=None):
     """调用 API易 (310+模型, 主力推荐)"""
+    if error := _boundary_blocked(data_boundary, "MODEL_CONTEXT", payload=prompt):
+        return {"error": error, "source": "apiyi"}
     if not APIYI_KEY: return {"error": "APIYI_KEY not set", "source": "apiyi"}
     data = {"model": model, "messages": [{"role": "user", "content": prompt}], "max_tokens": max_tokens, "temperature": temperature}
     headers = {"Authorization": f"Bearer {APIYI_KEY}", "Content-Type": "application/json"}
@@ -151,8 +172,10 @@ def call_apiyi(prompt, model="gpt-4o-mini", max_tokens=500, temperature=0.7):
     except Exception as e: return {"error": f"Error: {e}", "source": "apiyi"}
 
 
-def call_sixfinger(prompt, model="claude-haiku-4-5", max_tokens=500, temperature=0.7):
+def call_sixfinger(prompt, model="claude-haiku-4-5", max_tokens=500, temperature=0.7, data_boundary=None):
     """调用 Sixfinger (Claude 系列专用)"""
+    if error := _boundary_blocked(data_boundary, "MODEL_CONTEXT", payload=prompt):
+        return {"error": error, "source": "sixfinger"}
     if not SIXFINGER_KEY: return {"error": "SIXFINGER_KEY not set", "source": "sixfinger"}
     data = {"model": model, "messages": [{"role": "user", "content": prompt}], "max_tokens": max_tokens, "temperature": temperature}
     headers = {"Authorization": f"Bearer {SIXFINGER_KEY}", "Content-Type": "application/json"}
@@ -435,7 +458,7 @@ def list_models() -> list:
     return list(MODELS.keys())
 
 
-def call_model(prompt, max_tokens=500, temperature=0.7, prefer=None, capability=None):
+def call_model(prompt, max_tokens=500, temperature=0.7, prefer=None, capability=None, data_boundary=None):
     """统一模型调用 — 按 Capability 路由 + Health Score 排序 + 自动 fallback
 
     路由逻辑：
@@ -505,7 +528,14 @@ def call_model(prompt, max_tokens=500, temperature=0.7, prefer=None, capability=
 
         import time as _time
         t0 = _time.time()
-        result = provider_fn(prompt, model=model_name, max_tokens=max_tokens, temperature=temperature)
+        provider_boundary = data_boundary or {"data_class": "PRIVATE"}
+        result = provider_fn(
+            prompt,
+            model=model_name,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            data_boundary=provider_boundary,
+        )
         latency = (_time.time() - t0) * 1000
 
         if "error" not in result:

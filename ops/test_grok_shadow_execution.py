@@ -7,7 +7,11 @@ def test_shadow_task_requires_explicit_opt_in(monkeypatch):
     pool = MinerPool(coze_assets_path="C:/nonexistent-assets")
     assert pool.initialize()
 
-    assert pool.chat("grok_research_shadow", [{"role": "user", "content": "x"}])["success"] is False
+    assert pool.chat(
+        "grok_research_shadow",
+        [{"role": "user", "content": "x"}],
+        data_boundary={"data_class": "PUBLIC"},
+    )["success"] is False
 
 
 def test_shadow_task_records_provider_authoritative_cost(monkeypatch):
@@ -31,6 +35,7 @@ def test_shadow_task_records_provider_authoritative_cost(monkeypatch):
         "grok_research_shadow",
         [{"role": "user", "content": "x"}],
         include_shadow=True,
+        data_boundary={"data_class": "PUBLIC"},
     )
 
     assert result["success"] is True

@@ -17,13 +17,7 @@ import json
 import sys
 from pathlib import Path
 
-
-def load_config(base_dir: Path) -> dict:
-    config_path = base_dir / "ace_config.json"
-    if config_path.exists():
-        with open(config_path, "r", encoding="utf-8") as f:
-            return json.load(f)
-    return {}
+from core.config import load_config
 
 
 def main(base_dir=None):

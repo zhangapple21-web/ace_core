@@ -28,7 +28,7 @@ def test_large_low_provenance_index_is_staged(tmp_path):
     assert report["production_integration"] is False
     assert report["replacement_gate"]["status"] == "REVIEW_REQUIRED"
     assert "rollback_source_sha256" in report["replacement_gate"]["missing_evidence"]
-    assert report["caller_unification"]["status"] == "NOT_MET"
+    assert report["caller_unification"]["status"] == "NOT_EVALUATED"
     assert report["real_data_rollback"]["status"] == "NOT_RUN"
 
 
@@ -54,7 +54,66 @@ def test_small_provenanced_index_can_be_bounded(tmp_path):
     assert report["status"] == "READY_FOR_BOUNDED_MIGRATION"
     assert report["source_coverage"] == 1.0
     assert report["replacement_gate"]["status"] == "REVIEW_REQUIRED"
-    assert report["caller_unification"]["facade"] == "NOT_IMPLEMENTED"
+    assert report["caller_unification"]["facade"] == "MemoryGateway"
+
+
+def test_assessment_consumes_hash_bound_caller_and_real_rollback_receipts(tmp_path):
+    import hashlib
+
+    source = tmp_path / "memory_index.json"
+    source.write_text(json.dumps({"entries": []}), encoding="utf-8")
+    daemon_path = tmp_path / "ace_daemon.py"
+    cli_path = tmp_path / "ace.py"
+    daemon_path.write_text("daemon", encoding="utf-8")
+    cli_path.write_text("cli", encoding="utf-8")
+    expected_checks = (
+        "single_gateway_backend",
+        "all_wired_consumers_share_gateway",
+        "daemon_has_no_direct_memory_index_reads_or_writes",
+        "candidate_kernel_not_in_daemon_path",
+        "legacy_cli_fails_closed",
+    )
+    caller_receipt = {
+        "contract_version": "ace.memory_gateway.caller_unification.v1",
+        "status": "PASS_SINGLE_GATEWAY_RUNTIME_AUDIT",
+        "daemon_source_sha256": hashlib.sha256(daemon_path.read_bytes()).hexdigest(),
+        "cli_source_sha256": hashlib.sha256(cli_path.read_bytes()).hexdigest(),
+        "wired_consumer_count": 2,
+        "checks": {key: True for key in expected_checks},
+        "receipt_ref": "fixture://caller-audit",
+    }
+    rollback_receipt = {
+        "status": "PASS_REAL_PRIVATE_DATA_BACKEND_ROLLBACK_REHEARSAL",
+        "data_basis": "REAL_PRIVATE_DATA_OFFLINE_BACKEND_REHEARSAL",
+        "source_sha256_at_snapshot": "a" * 64,
+        "rollback_restored_sha256": "a" * 64,
+        "source_unchanged_at_finish": True,
+        "production_file_modified": False,
+        "rollback_lost_baseline_records": 0,
+        "raw_offline_copy_retained": False,
+        "entry_count": 6979,
+    }
+
+    report = assess(
+        source,
+        repo_root=tmp_path,
+        caller_receipt=caller_receipt,
+        rollback_receipt=rollback_receipt,
+    )
+
+    assert report["caller_unification"]["status"] == "PASS_SINGLE_GATEWAY_RUNTIME_AUDIT"
+    assert report["real_data_rollback"]["status"] == "PASS_OFFLINE_COPY_REHEARSAL"
+    assert report["real_data_rollback"]["production_cutover_status"] == "NOT_RUN"
+    assert report["replacement_gate"]["status"] == "REVIEW_REQUIRED"
+
+    daemon_path.write_text("changed daemon", encoding="utf-8")
+    stale_report = assess(
+        source,
+        repo_root=tmp_path,
+        caller_receipt=caller_receipt,
+        rollback_receipt=rollback_receipt,
+    )
+    assert stale_report["caller_unification"]["status"] == "STALE_OR_INCOMPLETE"
 
 
 def _passing_replacement_metrics():

@@ -1,0 +1,67 @@
+# 一阶尺子样例清单：OpenStall 实测机制 + 本批 ACE 候选，逐条声明强制方。
+# 用途 1：check_external_mechanism_safety.py 的可跑样例（样例本身就是一次对账）。
+# 用途 2：以后吸收任何外部机制时照这个形状先填表 —— 填不出 enforced_by 就不许进设计。
+#
+# 跑法：
+#   cd C:/tmp/ace_core
+#   PYTHONIOENCODING=utf-8 py -3.11 ops/check_external_mechanism_safety.py ops/external_mechanism_safety.sample.yaml
+
+mechanisms:
+  # ── OpenStall 实测面（考古证据支撑的"服务端可强制"对照组）──
+  - id: OS-escrow-state-machine
+    name: "escrow 状态机：open 过期自动退款、非法转移机读拒绝"
+    enforced_by: third_party_server
+    status: VERIFIED
+    evidence:
+      - {type: file, path: "C:/Users/Administrator/Documents/Qoder/2026-09-28/1ea1e950/sandbox/evidence/probe_result.json"}
+      - {type: file, path: "C:/Users/Administrator/Documents/Qoder/2026-09-28/1ea1e950/sandbox/evidence/probe3_result.json"}
+
+  - id: OS-rating-loop
+    name: "完成后才能评分；不满意无法记录"
+    enforced_by: counterparty
+    status: DISCOVERED
+    remedy_in_counterparty_hand: true
+    # 故意不填 sweeper：复现 OpenStall 的 delivered 冻结缺陷形态，检查器必须判 REJECT
+
+  - id: OS-dispute
+    name: "争议救济写在 provider 自愿退款里"
+    enforced_by: counterparty
+    status: DISCOVERED
+    remedy_in_counterparty_hand: true
+    sweeper: "none"
+
+  - id: OS-heartbeat-advice
+    name: "文档要求 heartbeat 拉公告，但 CLI 里没有 mailbox 命令"
+    enforced_by: counterparty
+    status: DISCOVERED
+    carrier: "openstall mailbox"
+    sweeper: "none"
+
+  # ── 本批 ACE 落地候选：已带载体的应 PASS，没载体的应被尺子拦下 ──
+  - id: ACE-C4-ledger
+    name: "带活指针与操作后快照的可重放账本"
+    enforced_by: self
+    status: VERIFIED
+    absorption: true
+    carrier: "ops/task_ledger_reconcile.py"
+
+  - id: ACE-C1-beneficiary
+    name: "受益人测试（外部指令装载前）"
+    enforced_by: self
+    status: CANDIDATE
+    absorption: true
+    carrier: "ops/check_beneficiary_test.py"
+
+  - id: ACE-C8-transition-table
+    name: "显式状态转移表 + 每个非终态配清道者"
+    enforced_by: self
+    status: CANDIDATE
+    carrier: "ops/check_state_transition_table.py"   # 尚未存在：尺子应判 carrier_dead
+
+  - id: ACE-C2-qrvr-rubric
+    name: "事前评分表 + 红旗否决"
+    enforced_by: counterparty
+    status: DISCOVERED
+    carrier: "ops/check_beneficiary_test.py"
+    absorption: true
+    # 评分依赖对手方供货数据；没填 sweeper → 尺子应拦住"发现即接收"

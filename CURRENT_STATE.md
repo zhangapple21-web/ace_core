@@ -3,6 +3,28 @@
 > Daily working memory. Updated when progress is made.
 > For permanent principles, see AGENTS.md.
 
+## Cognitive Think Gate (2026-09-24)
+
+- 默认思考闸门已接入：`ace.cognitive_think.v1`。
+- ACE 的认知中枢拥有充分、动态、可恢复的思考权；思考用于形成判断，不自动获得执行权；改变未来行为的判断必须沉淀为事实、证据、推断、未知与经验；思考必须能够收敛，而不是无限循环。
+- 运行时落盘 `runtime/cognitive_think_runtime_state.json`；daemon 每轮 continue_gate 之后评估，LOOP_BLOCKED 只跳过模型发现，不停机。
+- 不要新造第二套调度器。
+
+## Memory Path Decision (2026-09-29)
+
+- 当前生产路径为唯一 `MemoryGateway → MemoryIndex`；daemon 构造一个 Gateway，并向所有已 wiring 的记忆消费者注入同一实例。`daemon.memory_index` 是同一 Gateway 的兼容别名，不是第二后端。`MemoryKernel` 仍是 `STAGED_TARGET`，没有生产消费者。
+- CLI 的旧 `mem` 命令在导入 legacy scheduler 前 fail-closed；scheduler 本身也已退役。`core.agent.memory_system.ACEBaseMemory` 是旧 Markdown 迁移专用类型，无 daemon 生产 wiring。`SelfHealing` 现只读检查 canonical runtime index，发现损坏时禁止自动重建空索引。
+- `MemoryIndex` 现对文件损坏/结构错误 fail-closed，写入经 fsync + 同目录原子替换；写失败回滚内存追加。活跃消费者对象身份和故障保存行为已有回归测试。准确调用清单见 `docs/ACE_MEMORY_KERNEL.v1.md`。
+- `HindsightStyleRetriever` 是 `MemoryKernel.query()` 内部的只读排序策略，不拥有存储或晋升权；旧 `MemoryIndex` 上重复的独立 Hindsight 搜索入口已移除。
+- 选择有界并置，不双写、不默认双读。迁移必须显式调用 `MemoryKernel.import_records()`，每批最多 50 条；`search_governed()` 只读内核，不再在查询时导入旧库。
+- 迁移批次以 `IMPORT_BATCH_STARTED/COMPLETED/REJECTED` 进入内核现有哈希事件链；可回读 `batch_id`、调用方声明的 `selected_by`、逐条哈希、结果摘要和中断状态。该调用方标识未认证。
+- 候选导入保留旧记录的创建时间、来源引用和分级；同标题不同来源不会误合并。2026-09-28 两条同名记录的时间/来源测试通过。
+- 活跃 daemon 的 8 个记忆消费者经 `ops/run_memory_gateway_caller_audit.py` 实测共享同一 Gateway；收据 `08_GOVERNANCE/evidence/memory_gateway_caller_unification_20260928.json` 绑定 daemon/CLI 源码哈希。旧 CLI fail-closed；该收据是本机可复跑证据，不是治理批准。
+- 真实本地 PRIVATE 索引副本回滚演练：`PASS_REAL_PRIVATE_DATA_BACKEND_ROLLBACK_REHEARSAL`，最新收据 `06_RUNTIME/ace/data/memory/evidence/real_memory_backend_rollback_20260929.json`。当前快照 6,985 条 PRIVATE；50 条进入一次性隔离候选 Kernel；候选账本故障后恢复旧索引副本，基线 ID 集合与快照哈希一致，未写生产文件。旧的 6,979 条收据保留为历史证据；该离线演练不等于生产切换窗口已演练。
+- 量化 A/B 门槛已预注册于 `ops/assess_memory_index_migration.py`，但当前没有合格的 300 条独立标注查询集，也没有真实 A/B 与 Validator/Guardian 治理复核。状态为 `REVIEW_REQUIRED`，不得切换默认路径。
+- 最新评估 `08_GOVERNANCE/evidence/memory_kernel_migration_assessment_20260929.json` 已对齐 6,985 条当前索引及 6,985 条回滚快照。Kernel 自检和 focused regression 证明内核局部机制，不证明生产迁移或默认路径已切换。后续不得新增第三套索引/协议/后台记忆进程。
+
+
 ---
 
 ## Runtime Boundary Closure (2026-09-06)

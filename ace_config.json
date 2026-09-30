@@ -42,9 +42,9 @@
     "max_concurrent_tasks": 1
   },
   "runtime": {
-    "miner_pool_assets_path": "C:\\tmp\\private_coze-assets",
+    "miner_pool_assets_path": "${ACE_MINER_ASSETS_PATH}",
     "allow_external_learning": true,
-    "video_kingdom_root": "D:\\视频创作\\ace-video-kingdom",
+    "video_kingdom_root": "${ACE_VIDEO_KINGDOM_ROOT}",
     "governed_external_mining": {
       "enabled": true,
       "max_readme_chars": 12000,

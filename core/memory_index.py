@@ -12,6 +12,9 @@
 """
 
 import json
+import os
+import tempfile
+import threading
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Any
@@ -19,6 +22,10 @@ from typing import Dict, List, Optional, Any
 from .identity import Identity
 from .lexicon import Lexicon
 from .mirror_constitution import DATA_CLASSES, validate_data_boundary
+
+
+class MemoryIndexIntegrityError(RuntimeError):
+    """The durable index cannot be trusted; fail closed instead of replacing it."""
 
 
 class MemoryIndex:
@@ -32,31 +39,55 @@ class MemoryIndex:
 
         self.index_file = index_dir / "memory_index.json"
         self._index: List[Dict[str, Any]] = []
+        self._lock = threading.RLock()
         self._load()
 
     def _load(self):
-        if self.index_file.exists():
-            try:
-                with open(self.index_file, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                self._index = data.get("entries", [])
-                for entry in self._index:
-                    if isinstance(entry, dict):
-                        classification = str(entry.get("data_class") or "PRIVATE").strip().upper()
-                        entry["data_class"] = classification if classification in DATA_CLASSES else "PRIVATE"
-            except Exception:
-                self._index = []
+        if not self.index_file.exists():
+            return
+        try:
+            with self.index_file.open("r", encoding="utf-8") as stream:
+                data = json.load(stream)
+        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+            raise MemoryIndexIntegrityError("memory_index_unreadable; restore a verified snapshot") from exc
+        if not isinstance(data, dict) or not isinstance(data.get("entries"), list):
+            raise MemoryIndexIntegrityError("memory_index_shape_invalid; restore a verified snapshot")
+        if any(not isinstance(entry, dict) for entry in data["entries"]):
+            raise MemoryIndexIntegrityError("memory_index_entry_invalid; restore a verified snapshot")
+        self._index = data["entries"]
+        for entry in self._index:
+            classification = str(entry.get("data_class") or "PRIVATE").strip().upper()
+            entry["data_class"] = classification if classification in DATA_CLASSES else "PRIVATE"
 
     def _save(self):
-        data = {
-            "version": "0.1.0",
-            "identity": self.identity.name,
-            "updated_at": datetime.now().isoformat(),
-            "entry_count": len(self._index),
-            "entries": self._index,
-        }
-        with open(self.index_file, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
+        with self._lock:
+            data = {
+                "version": "0.1.0",
+                "identity": self.identity.name,
+                "updated_at": datetime.now().isoformat(),
+                "entry_count": len(self._index),
+                "entries": self._index,
+            }
+            temp_path = None
+            try:
+                descriptor, temp_name = tempfile.mkstemp(
+                    prefix=f"{self.index_file.name}.",
+                    suffix=".tmp",
+                    dir=str(self.index_dir),
+                )
+                temp_path = Path(temp_name)
+                with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as stream:
+                    json.dump(data, stream, ensure_ascii=False, indent=2)
+                    stream.flush()
+                    os.fsync(stream.fileno())
+                os.replace(temp_path, self.index_file)
+            except Exception:
+                if temp_path is not None:
+                    try:
+                        temp_path.unlink(missing_ok=True)
+                    except OSError:
+                        pass
+                raise
 
     def add(
         self,
@@ -106,8 +137,13 @@ class MemoryIndex:
             "access_count": 0,
         }
 
-        self._index.append(entry)
-        self._save()
+        with self._lock:
+            self._index.append(entry)
+            try:
+                self._save()
+            except Exception:
+                self._index.pop()
+                raise
         return mem_id
 
     def search(
@@ -128,8 +164,10 @@ class MemoryIndex:
         - 相关概念
         """
         results = []
+        with self._lock:
+            entries = list(self._index)
 
-        for entry in self._index:
+        for entry in entries:
             if memory_type and entry.get("type") != memory_type:
                 continue
             if category and entry.get("category") != category:
@@ -192,8 +230,10 @@ class MemoryIndex:
 
     def get_recent(self, limit: int = 20) -> List[Dict[str, Any]]:
         """获取最近的记忆"""
+        with self._lock:
+            entries = list(self._index)
         sorted_entries = sorted(
-            self._index, key=lambda x: x.get("created_at", ""), reverse=True
+            entries, key=lambda x: x.get("created_at", ""), reverse=True
         )
         return sorted_entries[:limit]
 
@@ -203,7 +243,9 @@ class MemoryIndex:
         category_counts = {}
         concept_counts = {}
 
-        for entry in self._index:
+        with self._lock:
+            entries = list(self._index)
+        for entry in entries:
             t = entry.get("type", "unknown")
             type_counts[t] = type_counts.get(t, 0) + 1
 
@@ -235,8 +277,10 @@ class MemoryIndex:
             "edges": [],
         }
 
+        with self._lock:
+            entries = list(self._index)
         concept_memories = {}
-        for entry in self._index:
+        for entry in entries:
             for concept in entry.get("related_concepts", []):
                 name = concept.get("name")
                 if not name:
@@ -264,7 +308,7 @@ class MemoryIndex:
                 if mem_node_id not in node_set:
                     node_set.add(mem_node_id)
                     entry = next(
-                        (e for e in self._index if e["id"] == mem_id), None
+                        (e for e in entries if e["id"] == mem_id), None
                     )
                     if entry:
                         graph["nodes"].append({

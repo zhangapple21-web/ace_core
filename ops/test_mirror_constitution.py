@@ -41,10 +41,17 @@ def test_data_boundary_requires_sanitization_and_blocks_sensitive_egress():
     assert validate_data_boundary({"data_class": "STRUCTURE"}, target="MODEL_CONTEXT")["valid"] is False
     assert validate_data_boundary(
         {"data_class": "STRUCTURE", "sanitized": True}, target="MODEL_CONTEXT"
-    )["valid"] is True
+    )["valid"] is False
     assert validate_data_boundary(
         {"data_class": "STRUCTURE", "sanitized": True}, target="PUBLIC"
-    )["valid"] is True
+    )["valid"] is False
+    assert validate_data_boundary({"data_class": "PUBLIC"}, target="MODEL_CONTEXT")["valid"] is True
+    assert validate_data_boundary(
+        {"data_class": "PUBLIC"},
+        target="MODEL_CONTEXT",
+        payload={"messages": [{"content": "api_key = '" + ("a" * 40) + "'"}]},
+    )["valid"] is False
+    assert validate_data_boundary({"data_class": "CORE"}, target="EXTERNAL")["valid"] is False
     assert validate_data_boundary({"data_class": "UNKNOWN"}, target="INTERNAL")["valid"] is False
 
 
@@ -84,6 +91,15 @@ def test_execution_contract_includes_root_mirror_context():
     )
     assert "ACE-MIRROR-CONSTITUTION-1.0" in prompt
     assert "责任完成" in prompt
+
+
+def test_execution_contract_preserves_warmth_and_honest_emotional_boundaries():
+    prompt = build_execution_system_prompt(
+        role="researcher", task_type="reasoning", task_id="RQ-mirror-warmth"
+    )
+    assert "温度与人本关系" in prompt
+    assert "人的尊严" in prompt
+    assert "不得把模型表达冒称为已证实的主观意识" in prompt
 
 
 def test_legacy_execution_marker_is_idempotently_upgraded_with_mirror_context():

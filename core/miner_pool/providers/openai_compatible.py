@@ -16,6 +16,7 @@ from typing import Dict, List, Any, Optional
 
 from core.oneapi_model_catalog import OneAPIModelCatalog
 from core.execution_contract import govern_model_messages
+from core.mirror_constitution import validate_data_boundary
 
 from . import BaseProvider
 
@@ -59,6 +60,20 @@ class OpenAICompatibleProvider(BaseProvider):
 
         if not model:
             result["error"] = "model is required"
+            return result
+
+        boundary = validate_data_boundary(
+            kwargs.pop("data_boundary", None),
+            target="MODEL_CONTEXT",
+            payload={"messages": messages},
+        )
+        if not boundary["valid"]:
+            result["error"] = "DATA_BOUNDARY_BLOCKED:" + ",".join(boundary["errors"])
+            result["governance"] = {
+                "selected_route_state": "DATA_BOUNDARY_BLOCKED",
+                "data_class": boundary.get("data_class"),
+                "target": boundary.get("target"),
+            }
             return result
 
         try:
@@ -225,6 +240,18 @@ class ShenwenImagesProvider(OpenAICompatibleProvider):
             return result
         if not 1 <= n <= 5:
             result["error"] = "n must be between 1 and 5"
+            return result
+
+        boundary = validate_data_boundary(
+            kwargs.pop("data_boundary", None), target="MODEL_CONTEXT", payload=prompt
+        )
+        if not boundary["valid"]:
+            result["error"] = "DATA_BOUNDARY_BLOCKED:" + ",".join(boundary["errors"])
+            result["governance"] = {
+                "selected_route_state": "DATA_BOUNDARY_BLOCKED",
+                "data_class": boundary.get("data_class"),
+                "target": boundary.get("target"),
+            }
             return result
 
         try:

@@ -1,0 +1,19 @@
+{
+  "ace_review": {
+    "decision": "HOLD_FOR_EVIDENCE",
+    "reviewer": "free_zone_reflection_relay"
+  },
+  "automatic_model_call": false,
+  "automatic_production_promotion": false,
+  "contract_version": "ace.free_zone_feedback.v1",
+  "epistemic_status": "UNKNOWN",
+  "feedback_hash": "07c618928e50447c3820d195ef8846444adcbc314130c392e7a72af94ee10838",
+  "feedback_id": "FEEDBACK-EXP-20260920103258539299-FREEZONE-D7B0CA0A25F4",
+  "observation": "Free Zone experiment EXP-20260920103258539299-FREEZONE-D7B0CA0A25F4 produced a PASS distillation without a linked ACE reality-gap exchange.",
+  "production_integration": false,
+  "recorded_at": "2026-09-20T10:33:00.930327+00:00",
+  "source": {
+    "distillation_sha256": "420d7e3e21df7a043bdcdfd6dd972685599dee6d5a1a3ff7f79bc6aad9402fa1",
+    "ref": "07_SANDBOX/free_research/distillations/EXP-20260920103258539299-FREEZONE-D7B0CA0A25F4.json"
+  }
+}

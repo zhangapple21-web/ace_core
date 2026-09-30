@@ -18,6 +18,10 @@ def test_weights_are_canonical_and_sum_to_one():
     assert profile_metadata()["daily_truthful_grade_call"] is True
     assert profile_metadata()["no_a_output"] == "NO_A_TODAY"
     assert profile_metadata()["tn6_role"].startswith("prior_provenance_only")
+    assert profile_metadata()["playbook"]["contract_version"] == "ace.ultrashort_playbook.v1"
+    assert profile_metadata()["playbook"]["recommendation_authority"] is False
+    assert profile_metadata()["review_boundary"]["snapshot_semantics"] == "AS_OF_NOT_FINAL_DAY_GRADE"
+    assert profile_metadata()["review_boundary"]["manual_judgement_changes_rules"] is False
     policy = profile_metadata()["early_move_policy"]
     assert policy["four_to_five_pct_is_actionable"] is True
     assert policy["no_guarantee"] is True
@@ -112,6 +116,20 @@ def test_early_move_lane_is_metadata_only_and_does_not_change_score():
     assert result["early_move_policy"]["no_guarantee"] is True
 
 
+def test_playbook_context_is_lineage_only():
+    result = classify_candidate(
+        _full_factors(4),
+        gates=_passed_gates(),
+        risk_scores=_high_risk(),
+        evidence_complete=True,
+        playbook_context={"regime": "ATTACK", "setup_type": "BREAKOUT"},
+    )
+    assert result["score"] == 4.0
+    assert result["playbook_context"]["contract_version"] == "ace.ultrashort_playbook.v1"
+    assert result["playbook_context"]["score_contribution"] == 0.0
+    assert result["playbook_context"]["changes_candidate_grade"] is False
+
+
 def test_daily_summary_reports_a_plus_even_when_risk_is_high():
     result = summarize_daily_opportunity([
         {"candidate_id": "aggressive", "attack_grade": "A+", "conviction": "HIGH", "risk_level": "HIGH"},
@@ -137,5 +155,19 @@ def test_daily_summary_distinguishes_empty_pool_from_no_a():
     result = summarize_daily_opportunity([])
     assert result["daily_signal"] == "NO_SUITABLE_SETUP"
     assert result["no_a_reason"] == "no_candidate_cards"
+
+
+def test_daily_summary_is_explicitly_snapshot_scoped():
+    result = summarize_daily_opportunity(
+        [{"candidate_id": "one", "attack_grade": "A", "conviction": "HIGH", "risk_level": "MEDIUM"}],
+        observed_at="2026-09-24T09:40:00+08:00",
+        snapshot_id="snap-001",
+        snapshot_hash="a" * 64,
+    )
+    assert result["daily_signal"] == "A_PRESENT"
+    assert result["call_scope"] == "POINT_IN_TIME_SNAPSHOT"
+    assert result["snapshot_as_of"] == "2026-09-24T09:40:00+08:00"
+    assert result["outcome_status"] == "PENDING_REVIEW"
+    assert result["final_daily_grade_not_claimed"] is True
 
 

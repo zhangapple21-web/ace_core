@@ -416,6 +416,7 @@ def test_execution_retries_the_same_allowed_model_after_transient_failure():
         task_type="execution",
         messages=[{"role": "user", "content": "retry"}],
         max_retries=3,
+        data_boundary={"data_class": "PUBLIC"},
     )
 
     assert result["success"] is True
@@ -441,6 +442,7 @@ def test_execution_does_not_retry_non_retryable_provider_error():
         task_type="execution",
         messages=[{"role": "user", "content": "retry"}],
         max_retries=3,
+        data_boundary={"data_class": "PUBLIC"},
     )
 
     assert result["success"] is False
@@ -478,6 +480,7 @@ def test_openai_compatible_provider_rejects_empty_content_response(monkeypatch):
     result = provider.chat(
         messages=[{"role": "user", "content": "test"}],
         model="test-model",
+        data_boundary={"data_class": "PUBLIC"},
     )
 
     assert result["success"] is False
@@ -523,6 +526,7 @@ def test_openai_compatible_provider_rejects_tool_call_without_content(monkeypatc
     result = provider.chat(
         messages=[{"role": "user", "content": "test"}],
         model="test-model",
+        data_boundary={"data_class": "PUBLIC"},
     )
 
     assert result["success"] is False
@@ -546,6 +550,7 @@ def test_multi_chat_uses_each_preselected_model_spec():
         messages=[{"role": "user", "content": "compare routes"}],
         model_count=2,
         diverse=True,
+        data_boundary={"data_class": "PUBLIC"},
     )
 
     assert [result["requested_model"] for result in results] == [
@@ -573,6 +578,7 @@ def test_miner_pool_skips_provider_watchdog_offline_candidate_before_call():
         task_type="reasoning",
         messages=[{"role": "user", "content": "route around known offline provider"}],
         max_retries=1,
+        data_boundary={"data_class": "PUBLIC"},
     )
 
     assert result["success"] is True
@@ -615,7 +621,7 @@ def test_shenwen_terra_cost_uses_only_actual_usage_fields():
     }
     pool._router.set_available_providers(["shenwen"])
 
-    result = pool.chat("strategic", [{"role": "user", "content": "cost"}])
+    result = pool.chat("strategic", [{"role": "user", "content": "cost"}], data_boundary={"data_class": "PUBLIC"})
 
     assert result["cost"] == {
         "currency": "USD",
@@ -645,7 +651,7 @@ def test_shenwen_mini_cost_treats_absent_usage_fields_as_zero():
     }
     pool._router.set_available_providers(["shenwen"])
 
-    result = pool.chat("execution", [{"role": "user", "content": "cost"}])
+    result = pool.chat("execution", [{"role": "user", "content": "cost"}], data_boundary={"data_class": "PUBLIC"})
 
     assert result["cost"] == {
         "currency": "USD",

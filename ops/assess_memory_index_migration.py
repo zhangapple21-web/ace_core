@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import re
@@ -203,21 +204,101 @@ def evaluate_replacement_evidence(evidence: dict | None) -> dict:
     }
 
 
-def assess(source: Path) -> dict:
+def _load_receipt(path: Path | None) -> dict | None:
+    if path is None or not path.is_file():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def _caller_status(receipt: dict | None, repo_root: Path) -> dict:
+    if not isinstance(receipt, dict):
+        return {"status": "NOT_EVALUATED", "facade": "MemoryGateway", "evidence_authenticated": False}
+    daemon_path = repo_root / "ace_daemon.py"
+    cli_path = repo_root / "ace.py"
+    try:
+        daemon_sha = hashlib.sha256(daemon_path.read_bytes()).hexdigest()
+        cli_sha = hashlib.sha256(cli_path.read_bytes()).hexdigest()
+    except OSError:
+        return {"status": "STALE_OR_UNREADABLE", "facade": "MemoryGateway", "evidence_authenticated": False}
+    checks = receipt.get("checks")
+    checks = checks if isinstance(checks, dict) else {}
+    expected = (
+        "single_gateway_backend",
+        "all_wired_consumers_share_gateway",
+        "daemon_has_no_direct_memory_index_reads_or_writes",
+        "candidate_kernel_not_in_daemon_path",
+        "legacy_cli_fails_closed",
+    )
+    valid = (
+        receipt.get("contract_version") == "ace.memory_gateway.caller_unification.v1"
+        and receipt.get("status") == "PASS_SINGLE_GATEWAY_RUNTIME_AUDIT"
+        and receipt.get("daemon_source_sha256") == daemon_sha
+        and receipt.get("cli_source_sha256") == cli_sha
+        and all(checks.get(key) is True for key in expected)
+        and int(receipt.get("wired_consumer_count", 0)) > 0
+    )
+    return {
+        "status": "PASS_SINGLE_GATEWAY_RUNTIME_AUDIT" if valid else "STALE_OR_INCOMPLETE",
+        "facade": "MemoryGateway -> MemoryIndex",
+        "wired_consumer_count": int(receipt.get("wired_consumer_count", 0) or 0),
+        "evidence_authenticated": False,
+        "receipt_ref": receipt.get("receipt_ref"),
+        "source_hashes_current": receipt.get("daemon_source_sha256") == daemon_sha and receipt.get("cli_source_sha256") == cli_sha,
+    }
+
+
+def _rollback_status(receipt: dict | None) -> dict:
+    if not isinstance(receipt, dict):
+        return {
+            "status": "NOT_RUN",
+            "required_basis": REPLACEMENT_THRESHOLDS["rollback_data_basis_required"],
+            "production_cutover_status": "NOT_RUN",
+        }
+    source_hash = str(receipt.get("source_sha256_at_snapshot") or "").lower()
+    restored_hash = str(receipt.get("rollback_restored_sha256") or "").lower()
+    valid = (
+        receipt.get("status") == "PASS_REAL_PRIVATE_DATA_BACKEND_ROLLBACK_REHEARSAL"
+        and receipt.get("data_basis") == "REAL_PRIVATE_DATA_OFFLINE_BACKEND_REHEARSAL"
+        and bool(re.fullmatch(r"[0-9a-f]{64}", source_hash))
+        and source_hash == restored_hash
+        and receipt.get("source_unchanged_at_finish") is True
+        and receipt.get("production_file_modified") is False
+        and receipt.get("rollback_lost_baseline_records") == 0
+        and receipt.get("raw_offline_copy_retained") is False
+    )
+    return {
+        "status": "PASS_OFFLINE_COPY_REHEARSAL" if valid else "STALE_OR_INCOMPLETE",
+        "required_basis": REPLACEMENT_THRESHOLDS["rollback_data_basis_required"],
+        "data_basis": receipt.get("data_basis"),
+        "entry_count": receipt.get("entry_count"),
+        "source_sha256": source_hash,
+        "restored_sha256": restored_hash,
+        "production_cutover_status": "NOT_RUN",
+        "receipt_authenticated": False,
+    }
+
+
+def assess(
+    source: Path,
+    *,
+    repo_root: Path | None = None,
+    caller_receipt: dict | None = None,
+    rollback_receipt: dict | None = None,
+) -> dict:
+    repo_root = (repo_root or Path(__file__).resolve().parents[1]).resolve()
+    caller_status = _caller_status(caller_receipt, repo_root)
+    rollback_status = _rollback_status(rollback_receipt)
     if not source.exists():
         return {
             "contract_version": "ace.memory_kernel.migration_assessment.v1",
             "status": "SOURCE_MISSING",
             "source": str(source),
-            "caller_unification": {
-                "status": "NOT_MET",
-                "facade": "NOT_IMPLEMENTED",
-                "inventory_ref": "docs/ACE_MEMORY_KERNEL.v1.md#允许替换默认路径的条件",
-            },
-            "real_data_rollback": {
-                "status": "NOT_RUN",
-                "required_basis": REPLACEMENT_THRESHOLDS["rollback_data_basis_required"],
-            },
+            "caller_unification": caller_status,
+            "real_data_rollback": rollback_status,
             "replacement_gate": evaluate_replacement_evidence(None),
             "execution_authorized": False,
             "production_integration": False,
@@ -252,15 +333,8 @@ def assess(source: Path) -> dict:
         "latest_created_at": max((str(item.get("created_at") or "") for item in entries), default=None),
         "reasons": reasons,
         "action": "只迁移有来源和明确用途的受治理切片；不把日常摘要批量当作事实导入",
-        "caller_unification": {
-            "status": "NOT_MET",
-            "facade": "NOT_IMPLEMENTED",
-            "inventory_ref": "docs/ACE_MEMORY_KERNEL.v1.md#允许替换默认路径的条件",
-        },
-        "real_data_rollback": {
-            "status": "NOT_RUN",
-            "required_basis": REPLACEMENT_THRESHOLDS["rollback_data_basis_required"],
-        },
+        "caller_unification": caller_status,
+        "real_data_rollback": rollback_status,
         "replacement_gate": evaluate_replacement_evidence(None),
         "execution_authorized": False,
         "production_integration": False,
@@ -273,7 +347,13 @@ def main() -> int:
     parser.add_argument("--source", type=Path, default=Path("06_RUNTIME/ace/data/memory/memory_index.json"))
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
-    report = assess(args.source)
+    repo_root = Path(__file__).resolve().parents[1]
+    evidence_root = repo_root / "08_GOVERNANCE" / "evidence"
+    caller_receipt = _load_receipt(evidence_root / "memory_gateway_caller_unification_20260928.json")
+    rollback_receipt = _load_receipt(
+        repo_root / "06_RUNTIME" / "ace" / "data" / "memory" / "evidence" / "real_memory_backend_rollback_20260929.json"
+    )
+    report = assess(args.source, repo_root=repo_root, caller_receipt=caller_receipt, rollback_receipt=rollback_receipt)
     if args.output:
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")

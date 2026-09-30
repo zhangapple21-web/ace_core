@@ -44,6 +44,7 @@ from .providers.openai_compatible import (
     ShenwenImagesProvider,
 )
 from ..execution_contract import ensure_execution_contract, normalize_untrusted_messages
+from ..mirror_constitution import validate_data_boundary
 
 
 PROVIDER_FACTORY = {
@@ -316,6 +317,32 @@ class MinerPool:
                 "tried_models": [str],
             }
         """
+        data_boundary = kwargs.pop("data_boundary", None)
+        boundary = validate_data_boundary(
+            data_boundary,
+            target="MODEL_CONTEXT",
+            payload={"system_prompt": system_prompt, "messages": messages},
+        )
+        if not boundary["valid"]:
+            return {
+                "success": False,
+                "content": "",
+                "model": "",
+                "provider": "",
+                "usage": {},
+                "latency_ms": 0,
+                "error": "DATA_BOUNDARY_BLOCKED:" + ",".join(boundary["errors"]),
+                "tried_models": [],
+                "attempts": [],
+                "cost": {},
+                "task_type": task_type,
+                "routing": {"selected_route_state": "DATA_BOUNDARY_BLOCKED"},
+                "data_boundary": {
+                    "data_class": boundary.get("data_class"),
+                    "target": boundary.get("target"),
+                    "allowed": False,
+                },
+            }
         if not self._initialized:
             self.initialize()
 
@@ -331,6 +358,11 @@ class MinerPool:
             "attempts": [],
             "cost": {},
             "task_type": task_type,
+            "data_boundary": {
+                "data_class": boundary.get("data_class"),
+                "target": boundary.get("target"),
+                "allowed": True,
+            },
         }
 
         # Routing metadata is a first-class result.  It contains no prompt or
@@ -439,6 +471,7 @@ class MinerPool:
                     temperature=temperature,
                     max_tokens=max_tokens,
                     timeout=timeout,
+                    data_boundary=data_boundary,
                     **kwargs,
                 )
             except Exception as error:
@@ -546,6 +579,7 @@ class MinerPool:
         system_prompt: str = "",
         model_count: int = 3,
         diverse: bool = True,
+        data_boundary: Optional[Dict[str, Any]] = None,
     ) -> List[Dict[str, Any]]:
         """
         多模型并行调用（用于交叉验证、多视角）
@@ -580,6 +614,7 @@ class MinerPool:
                 system_prompt=system_prompt,
                 max_retries=1,  # 多模型模式下每个模型只试一次
                 selected_spec=spec,
+                data_boundary=data_boundary,
             )
             result["requested_model"] = spec.full_id
             results.append(result)
@@ -593,6 +628,23 @@ class MinerPool:
         timeout: int = 900,
         **kwargs,
     ) -> Dict[str, Any]:
+        data_boundary = kwargs.pop("data_boundary", None)
+        boundary = validate_data_boundary(data_boundary, target="MODEL_CONTEXT", payload=prompt)
+        if not boundary["valid"]:
+            return {
+                "success": False,
+                "images": [],
+                "model": model,
+                "provider": "shenwen_images",
+                "usage": {},
+                "latency_ms": 0,
+                "error": "DATA_BOUNDARY_BLOCKED:" + ",".join(boundary["errors"]),
+                "data_boundary": {
+                    "data_class": boundary.get("data_class"),
+                    "target": boundary.get("target"),
+                    "allowed": False,
+                },
+            }
         if not self._initialized:
             self.initialize()
 
@@ -615,6 +667,7 @@ class MinerPool:
                 prompt=prompt,
                 model=model,
                 timeout=timeout,
+                data_boundary=data_boundary,
                 **kwargs,
             )
         except Exception as e:

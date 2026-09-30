@@ -1,5 +1,40 @@
 # ACE Memory Kernel v1
 
+## 状态收口（2026-09-29 更新）
+
+**当前结论：MemoryKernel 不能切生产默认；`MemoryIndex` 仍是唯一生产存储后端，并由 `MemoryGateway` 作为唯一运行时入口；Hindsight 是 MemoryKernel 内部检索策略。** 活跃调用方统一和真实 PRIVATE 数据副本回滚演练已完成；这不等于候选检索 A/B、治理复核或生产切换已通过。
+
+| 收口项 | 当前状态 |
+| --- | --- |
+| 批次审计 | 已落实；`selected_by` 是调用方声明值，不是认证身份。 |
+| 量化门槛 | 已接入评估器；没有合格的独立标注集和真实 A/B 收据，指标未通过。 |
+| 调用方统一 | 活跃 daemon 运行时 8 个已接线消费者共享一个 `MemoryGateway`；CLI 旧记忆命令 fail-closed，Markdown 记忆骨架为迁移专用。哈希绑定收据：`08_GOVERNANCE/evidence/memory_gateway_caller_unification_20260928.json`。 |
+| 真实数据回滚 | 当前快照 6,985 条真实 PRIVATE 数据副本演练 `PASS_REAL_PRIVATE_DATA_BACKEND_ROLLBACK_REHEARSAL`；未触碰生产文件，未做生产切换。 |
+| 一次性切换清单 | 已列出；未执行，不切生产。 |
+| 独立提交 | `7cb943b`，已本地提交、未推送；来源和推送边界见下方记录。 |
+
+**下一道门：**
+
+> 先用真实本地、独立标注的查询集完成预注册 A/B 和隐私/并发评估，再经过既有治理复核；只有全门通过才可在一次维护窗口切换。之前保持 `MemoryIndex` 默认，不做隐式双读或双写。
+
+**真实数据副本演练收据：**
+
+- `06_RUNTIME/ace/data/memory/evidence/real_memory_backend_rollback_20260929.json`：2026-09-29 00:31（本地时间）快照为 6,985 条、全部 `PRIVATE`；从其中显式选择 50 条仅导入临时目录中的候选 Kernel，批次收据完整，候选只读查询有回执。旧收据 `real_memory_backend_rollback_20260928.json` 保留为历史快照证据。
+- 临时目录中对候选事件账本注入损坏，Kernel 正确 fail-closed；回绑到旧 `MemoryIndex` 副本并恢复后，条目 ID 集合和文件 SHA-256 与演练基线一致；耗时小于 1 秒。临时原始副本已销毁，生产源只读且演练前后哈希一致。
+- 这证明“真实数据的隔离副本可恢复”，不证明故障中的生产切换已演练，也不替代 A/B 标签、Validator/Guardian 治理复核或维护窗口切换验收。
+
+`ops/assess_memory_index_migration.py` 现读取并校验当前 daemon/CLI 源码哈希、调用方审计收据和最新的 2026-09-29 回滚收据；`08_GOVERNANCE/evidence/memory_kernel_migration_assessment_20260929.json` 是本次现状，旧的 2026-09-28 报告保留为历史记录。当前调用方统一和离线副本恢复均通过，量化 A/B 仍为 `REVIEW_REQUIRED`，生产切换仍为 `NOT_RUN`。本地收据均未认证为治理批准。
+
+**`selected_by` 语义：**
+
+> 审计记录的是调用方声明了谁，不代表系统认证了谁。
+
+**`7cb943b` provenance / 推送边界：**
+
+- 完整提交：`7cb943bb567512cde6d2b4b4f351bf64ed37dda0`；父提交：`4b6103ef0b0f0c1dafbf351d4c98c7663a8815a1`（`test(ace): check that every pointer the F-family queue cards cite still resolves`）。
+- 分支：`core/daemon-lifecycle-resilience-20260912`；该提交只包含已记录的记忆治理代码、文档和测试，不包含当前工作树的其他在途改动。提交验收记录为 68 项相关测试通过、Kernel 自检 PASS、`py_compile` 与 `git diff --check` 通过。
+- 推送范围白名单意图仅为 `7cb943b` 与其直接父提交 `4b6103e`。当前远端 `origin/core/daemon-lifecycle-resilience-20260912` 指向 `9fdd18d`，本地分支领先 8 个提交；现有分支普通推送会附带所选两提交之外的另外 6 个提交。因此本次不推送，也不把普通分支推送描述成满足白名单。若后续要严格遵守该范围，须从干净远端基线隔离并重放这两项变更（届时会产生新提交 SHA），核对补丁等价后才可推送；所有其他提交和在途工作树改动均排除在外。本记录不表示已推送。
+
 ## 目标
 
 把 ACE 目前分散的记忆能力收敛成一条可恢复、可审计、可替换的主线：
@@ -29,7 +64,8 @@
 
 | 现有能力 | Memory Kernel 的位置 |
 | --- | --- |
-| `core/memory_index.py` | 当前生产运行时索引；`search_governed()` 只读已存在的内核，不执行迁移 |
+| `core/memory_gateway.py` | 唯一活跃生产记忆入口；只暴露兼容读写 API，不开放候选迁移或 Kernel 查询 |
+| `core/memory_index.py` | 唯一生产存储后端，由 Gateway 持有；`search_governed()` 仍是显式候选 API，不执行迁移 |
 | `core/agent/memory_system.py` | 早期 Markdown 双层记忆骨架，保留考古和迁移用途，不再作为隐式生产真相 |
 | `core/experience_deposition.py` | 经验文件沉积器；内核只接收其来源/证据投影，不绕过 Guardian 和闭环晋升 |
 | `core/hindsight_memory_adapter.py` | 只读多策略召回器；内核对其加上范围、状态、分级和恢复边界 |
@@ -40,33 +76,31 @@
 
 | 组件 | 当前状态 | 权威/职责 |
 | --- | --- | --- |
-| `MemoryIndex` | `ACTIVE_LEGACY_RUNTIME` | daemon 与 worker 当前实际读写的运行时索引；仍是现行默认路径，直到切换门通过。 |
+| `MemoryGateway → MemoryIndex` | `ACTIVE_PRODUCTION_PATH` | daemon 构造的唯一 Gateway 实例注入所有已 wiring 的记忆消费者；Backend 仍为 MemoryIndex。`daemon.memory_index` 仅是同一 Gateway 的兼容别名。 |
 | `MemoryKernel` | `STAGED_TARGET` | 目标治理账本与候选迁移路径；目前没有 daemon/worker 生产消费者，不能称为当前生产真相源。 |
 | `HindsightStyleRetriever` | `INTERNAL_RETRIEVAL_STRATEGY` | 只读排序策略，由 `MemoryKernel.query()` 复用；不是存储、写入权威或另一套记忆生命周期。 |
 | `ACEBaseMemory` | `LEGACY_MIGRATION_ONLY` | 旧 Markdown 记忆骨架，只能作为显式迁移输入。 |
 
-因此当前选择是**有限期并置**：旧索引继续承载现有运行时读写；内核只作为已测但未准入的替代候选；不做双写、默认双读或自动回退。Hindsight 算法只在候选内核的查询实现中复用；它不再有直接挂到旧 `MemoryIndex` 的独立查询入口。
+因此当前选择是**有界并置**：Gateway 统一生产入口，仍由旧索引承载读写；内核只作为隔离候选；不做双写、默认双读或自动回退。Hindsight 仅在候选内核内部使用。
 
-**调用方统一尚未完成。** 目前 daemon 把同一个 `MemoryIndex` 实例注入部分读写模块，但调用者仍直接调用旧 `.search()` / `.add()`；`search_governed()` 是查询候选 Kernel 的试验入口，不是生产统一门面，也不应在 Kernel 获批前被当成生产默认。当前调用清单：
+**活跃生产调用方已统一。** `ace_daemon.py` 只构造一个 `MemoryGateway(MemoryIndex(...))`；默认实际接线的 8 个消费者为 `disk_scanner`、`observer`、`researcher`、`validator`、`archivist`、`guardian`、`local_archaeologist`、`task_creator`。存在来源资产时，`eco_parser` / `slice_clusterer` 以及显式启用时的 `web_scout` 也注入同一 Gateway。访问方法为兼容的 `add/search/get_by_concept/get_recent/get_stats/get_concept_graph`；没有独立 backend 选择或 Kernel 隐式回退。`ops/run_memory_gateway_caller_audit.py` 在隔离临时目录实际构造 daemon 并验证已接线对象身份；同时检查 daemon 的直接读写旁路、候选 Kernel 未接入和旧 CLI fail-closed。收据记录 8 个默认消费者、零 Provider 调用、零生产数据写入，并绑定 daemon/CLI 源码哈希。该收据是本机可复跑证据，不是独立治理批准。
 
-| 调用方 | 当前入口/状态 | Kernel 替换前必须完成 |
-| --- | --- | --- |
-| `ace_daemon.py` | 构造 `MemoryIndex` 并自身直接 `.search()` / `.add()`；将实例注入多个 runtime 组件，确认为主 runtime owner。 | 创建唯一兼容门面；daemon 自身及所有注入消费者改为依赖门面接口。 |
-| `core/task_roles.py` | 由 daemon 注入同一实例；直接 `.search()` / `.add()` / `.get_stats()`。 | 所有角色查询、写入及统计走同一门面。 |
-| `core/disk_scanner.py`、`core/eco_parser.py`、`core/slice_clusterer.py` | daemon 注入；扫描、解析及聚类路径直接写 `.add()`。 | 写入改经门面；扫描恢复仍使用已批准的后端恢复接口。 |
-| `core/local_archaeologist.py` | daemon 注入；直接 `.search()`。 | 检索改经门面，保留来源及数据分级过滤。 |
-| `core/web_scout.py` | 源码中有注入及 `.add()`；daemon 注释显示旧 WebScout 路径不作为当前受治理挖矿入口，实际运行触发状态需单独确认。 | 若仍可执行则纳入门面，否则明确退役；不得保留隐藏写旁路。 |
-| `ace.py` | 操作者 CLI 经 scheduler 的 `memory_index` 直接 `.add()` / `.search()`。 | CLI 改用同一门面；迁移诊断工具只能走显式候选 API。 |
-| `core/self_healing.py` | 直接读写 `memory_index.json`，损坏时先备份再重建空索引；绕过 `MemoryIndex` API。 | 迁移前改用后端恢复接口，并证明恢复不会静默丢弃已提交记忆。 |
-| `core/base_worker.py`、`06_RUNTIME/workers/base_worker.py`、`core/agent/memory_system.py` | 源码仍有直接访问或独立构造；当前生产 wiring 未证明，且存在重复/历史实现。 | 逐一证明仍在用并纳入门面，或经测试确认已退役；UNKNOWN 按阻塞处理。 |
+| 调用方/历史路径 | 当前入口与结论 |
+| --- | --- |
+| `ace_daemon.py`、`core/task_roles.py`、扫描/解析/聚类/考古器及可选 WebScout | 唯一生产 Gateway；旧属性名 `memory_index` 仅为接口兼容，不代表另一个后端。 |
+| `ace.py mem` | 在主入口处明确拒绝，拒绝发生于加载 legacy scheduler 之前；底层 `core.scheduler` 自身也会 fail-closed。历史 handler 不可达，不是生产消费者。 |
+| `core/self_healing.py` | 只读检查 canonical runtime data dir 的 `memory_index.json`；检测损坏后标记不可自动修复，不重建空索引、不写记忆。 |
+| `ops/status_summary.py` | 只读读取 `memory_index.json` 的总数用于运维状态展示，不做查询、写入或迁移；属于诊断旁路，不是第二生产检索入口。 |
+| `core/base_worker.py`、`06_RUNTIME/workers/base_worker.py` | 仅为接收注入对象的 worker 基类；生产 daemon 未实例化独立旁路，已 wiring 实例由 Gateway 覆盖。 |
+| `core/agent/memory_system.py` / `ACEBaseMemory` | 独立的旧 Markdown 类型，`LEGACY_MIGRATION_ONLY`；当前无 daemon 生产消费者，不是第二个活动 JSON 索引。 |
 
-以上调用目前没有统一切到 Kernel，也没有已落地的 `MemoryGateway`/兼容 facade；因此当前准确状态是“一个旧后端被多处直接调用 + 一个隔离候选”，不是“调用方已统一”。`MemoryIndex.search_governed()` 只查询已存在的 Kernel，不负责迁移；迁移必须由调用者明确选择记录后调用 `MemoryKernel.import_records()`，每批硬上限为 50 条。
+`MemoryIndex.search_governed()` 仍是候选查询 API，不属于 Gateway，也不负责迁移；只有显式调用 `MemoryKernel.import_records()` 才能迁移，每批硬上限 50 条。导入现保留来源时间和引用，并按稳定来源身份区分重复标题；没有来源事件 ID 时不会把同名旧记录错误合并。
 
 ### 批次审计收据
 
 每次显式迁移必须提供 `selected_by`（调用方声明的责任标识；当前没有认证系统，故收据明确标记 `selection_identity_authenticated=false`）。Kernel 在同一哈希链记录批次开始和结束事件，含唯一 `batch_id`、时间、来源前缀、选中记录数与逐条内容哈希、批次哈希、导入/拒绝计数、拒绝原因、结果和事件哈希。可用 `MemoryKernel.list_import_batches()` 回读状态；只有开始事件而无结束事件的批次会显示 `INCOMPLETE`。超出 50 条会写入零写入拒绝事件，再抛出带批次 ID 的错误。收据不复制原始记忆文本。
 
-当前默认旧检索行为没有被静默替换。这是因为真实索引有 6,922 条记录、来源覆盖率约 4.2%、全部为 `PRIVATE`；全量导入不合适，内核也尚未接管所有生产读写调用。并置有清楚边界和退场条件，不代表两套都成为默认。
+当前默认旧检索行为没有被静默替换。真实索引截至最新演练快照为 6,985 条、全部 `PRIVATE`，来源字段并不完整；全量导入不合适。并置有清楚边界和退场条件，不代表两套都成为默认。
 
 ## 收敛规则
 
@@ -79,13 +113,13 @@ Markdown/旧索引只能通过 candidate-only 迁移进入。任何新增字段�
 标为 `PRIVATE`，主要是周期摘要和任务归档。因此已经记录为
 `STAGED_MIGRATION_REQUIRED`，不会把这些摘要批量伪装成事实导入；后续只迁移有来源、
 有用途、可验证的切片。评估脚本是 `ops/assess_memory_index_migration.py`，收据位于
-`08_GOVERNANCE/evidence/memory_kernel_migration_assessment_20260928.json`。
+`08_GOVERNANCE/evidence/memory_kernel_migration_assessment_20260929.json`。
 
 ### 允许替换默认路径的条件
 
 阈值在执行真实 A/B 前预注册于 `ops/assess_memory_index_migration.py` 的 `REPLACEMENT_THRESHOLDS`；评估收据缺字段保持 `REVIEW_REQUIRED`，仅指标过线返回 `METRICS_PASS_REVIEW_REQUIRED`，不等于治理晋升。阈值为：至少 300 条真实本地脱敏标注查询，六类（general/temporal/conflict/provenance/privacy/unknown）各不少于 50 条；Recall@5 ≥ 0.90，Recall@5/MRR@10/Precision@5 相对旧路径回退均不超过 0.02；冲突保留率与 UNKNOWN 拒答准确率均为 100%；P99 ≤ min(250ms, 旧路径 P99 × 1.25)；越权泄漏为 0，边界测试全过；至少 100 个并发读、10 个并发写、3 个故障注入点均完成恢复演练。
 
-真实数据回滚门要求在本机的**真实 PRIVATE 索引副本**上执行，不能上传；回滚前后快照 SHA-256 必须相同、已确认写入丢失数为 0、回滚耗时 ≤ 5 分钟。合成数据回滚、材料声明或单独的脚本 PASS 都不算通过；收据须可回读并由既有 Validator/Guardian 复核。
+真实数据回滚门要求在本机的**真实 PRIVATE 索引副本**上执行，不能上传；回滚前后快照 SHA-256 必须相同、已确认写入丢失数为 0、回滚耗时 ≤ 5 分钟。该离线副本演练已经完成并有收据；生产维护窗口的切换/回绑演练仍未运行，收据也尚未进入既有 Validator/Guardian 复核，因此不能据此宣称生产切换门全过。
 
 只有以下切换清单全部打勾，才可把 Kernel 变为唯一生产后端：
 

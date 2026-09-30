@@ -438,6 +438,11 @@ def test_daemon_recovers_stale_lock_after_forced_process_termination():
         start_code = (
             "from pathlib import Path; "
             "from ace_daemon import AceDaemon; "
+            "AceDaemon._find_eco_layer = lambda self: []; "
+            "AceDaemon._find_omega_final = lambda self: []; "
+            "AceDaemon._find_mine_seed = lambda self: None; "
+            "from core.miner_pool.miner_pool import MinerPool; "
+            "MinerPool._find_coze_assets = lambda self: None; "
             f"AceDaemon(Path({str(daemon_root)!r}), {{}}).run_daemon("
             "interval_seconds=60, dry_run=True)"
         )
@@ -465,6 +470,11 @@ def test_daemon_recovers_stale_lock_after_forced_process_termination():
         recover_code = (
             "from pathlib import Path; "
             "from ace_daemon import AceDaemon; "
+            "AceDaemon._find_eco_layer = lambda self: []; "
+            "AceDaemon._find_omega_final = lambda self: []; "
+            "AceDaemon._find_mine_seed = lambda self: None; "
+            "from core.miner_pool.miner_pool import MinerPool; "
+            "MinerPool._find_coze_assets = lambda self: None; "
             f"AceDaemon(Path({str(daemon_root)!r}), {{}}).run_daemon("
             "interval_seconds=0, max_iterations=1, dry_run=True)"
         )

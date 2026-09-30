@@ -32,6 +32,7 @@ from pathlib import Path
 from datetime import datetime
 from typing import Dict, List, Any, Optional
 from dataclasses import dataclass, field
+from core.mirror_constitution import validate_data_boundary
 
 
 TRIGGER_TYPES = [
@@ -279,6 +280,7 @@ class AutonomousKernel:
         providers: Optional[List[str]] = None,
         experiment_id: Optional[str] = None,
         max_tokens: int = 500,
+        data_class: str = "PRIVATE",
     ) -> Dict[str, Any]:
         """
         对照实验：同一输入跑所有（或指定）provider，收集输出做对比。
@@ -286,6 +288,24 @@ class AutonomousKernel:
         注意：这不是顺序 fallback，是故意每个都跑一遍做对比。
         即使第一个成功了，后面的也要跑，因为目的是对照，不是快速返回。
         """
+        boundary = validate_data_boundary(
+            {"data_class": data_class},
+            target="MODEL_CONTEXT",
+            payload={"prompt": prompt, "system_prompt": system_prompt},
+        )
+        if not boundary["valid"]:
+            return {
+                "status": "BLOCKED",
+                "reason": "DATA_BOUNDARY_BLOCKED",
+                "data_boundary": {
+                    "data_class": boundary.get("data_class"),
+                    "target": boundary.get("target"),
+                    "allowed": False,
+                    "errors": boundary.get("errors", []),
+                },
+                "provider_calls": 0,
+            }
+
         if not experiment_id:
             experiment_id = f"exp_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{self._experiment_count}"
         self._experiment_count += 1
@@ -307,6 +327,7 @@ class AutonomousKernel:
                     system_prompt=system_prompt,
                     model=self._provider_model(provider_name),
                     max_tokens=max_tokens,
+                    data_boundary={"data_class": data_class},
                 )
                 results[provider_name] = {
                     "success": result.get("success", False),
@@ -330,6 +351,7 @@ class AutonomousKernel:
             "prompt": prompt,
             "system_prompt": system_prompt,
             "providers": target_providers,
+            "data_class": data_class,
             "results": results,
         }
 

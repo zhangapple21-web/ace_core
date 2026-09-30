@@ -1,0 +1,80 @@
+{
+  "schema_version": "ace.backup_completeness_manifest.v1",
+  "generated_at": "2026-09-30T10:00:00+08:00",
+  "status": "PARTIAL_BLOCKED",
+  "decision": "not yet BACKUP_COMPLETE/RECOVERABLE",
+  "scope": "ACE core runtime + ACE video capability domain + optional recovery assets",
+  "forbidden_revival_dependencies": ["3000", "3002", "legacy scheduler", "legacy heartbeat"],
+  "repositories": [
+    {
+      "name": "ace_core",
+      "remote": "https://github.com/zhangapple21-web/ace_core.git",
+      "canonical_ref": "core/daemon-lifecycle-resilience-20260912",
+      "head_before_recovery_commit": "92fc44f",
+      "working_tree_before_recovery_commit": "DIRTY",
+      "tracked_changes": "present",
+      "untracked_critical_candidates": [
+        "core/memory_gateway.py",
+        "core/task_ledger.py",
+        "core/runtime_cognitive_think.py",
+        "ops/test_memory_gateway.py",
+        "ops/test_task_ledger.py",
+        "docs/REPOSITORY_ASSET_GOVERNANCE_BASELINE.v1.md"
+      ],
+      "ignored_runtime_state": {
+        "task_pool": {"classification": "REBUILDABLE", "files": 794, "bytes": 14671611},
+        "02_FRAGMENT_INDEX": {"classification": "REBUILDABLE_WITH_OPTIONAL_HISTORY", "bytes": 2130198},
+        "02_MEMORY": {"classification": "REBUILDABLE_WITH_OPTIONAL_HISTORY", "bytes": 19842},
+        "06_RUNTIME/ace": {"classification": "REBUILDABLE_WITH_OPTIONAL_HISTORY", "bytes": 365076014},
+        "runtime": {"classification": "REBUILDABLE", "bytes": 981458},
+        "agent_team": {"classification": "OPTIONAL_RESEARCH_STATE", "bytes": 4282368}
+      },
+      "remote_verification": "PENDING_COMMIT_AND_PUSH"
+    },
+    {
+      "name": "ace-video-kingdom",
+      "remote": "https://github.com/zhangapple21-web/ace-video-kingdom.git",
+      "canonical_ref": "main",
+      "head_before_recovery_commit": "a7e9468",
+      "working_tree_before_recovery_commit": "DIRTY",
+      "tracked_changes": "present",
+      "untracked_critical_candidates": [
+        "assets/schema/*.json",
+        "assets/templates/*.json",
+        "docs/*.v1.md",
+        "governance/*.v1.json",
+        "research/*.v1.json*",
+        "tests/*.py",
+        "tools/*.py"
+      ],
+      "excluded_local_or_generated": [
+        "media_staging/",
+        "temp/",
+        "assets/cache/",
+        "research/persona_dna_library/20260920_canheguiying_reincarnation_v2/world_live_watchdog.log (2787652162 bytes)",
+        "sites/tinghe-archive/public/assets/",
+        "runtime/"
+      ],
+      "remote_verification": "PENDING_SELECTIVE_STAGE_COMMIT_AND_PUSH"
+    }
+  ],
+  "asset_classes": [
+    {"class": "source_code", "required": true, "remote_form": "Git commit", "status": "PENDING"},
+    {"class": "protocols_and_governance", "required": true, "remote_form": "Markdown/JSON in repositories", "status": "PENDING"},
+    {"class": "schema_and_migrations", "required": true, "remote_form": "Versioned schema + migration scripts", "status": "PENDING_AUDIT"},
+    {"class": "tests_and_regression", "required": true, "remote_form": "Versioned tests + command receipts", "status": "PENDING"},
+    {"class": "bootstrap_and_restore", "required": true, "remote_form": "recovery/bootstrap.ps1 + map", "status": "CREATED_LOCAL_PENDING_PUSH"},
+    {"class": "runtime_state", "required": false, "remote_form": "rebuild or sanitized snapshot", "status": "REBUILDABLE"},
+    {"class": "secrets", "required": true, "remote_form": "private secret manager / private repo", "status": "SECRET_REQUIRED"},
+    {"class": "media_and_model_weights", "required": false_for_core, "remote_form": "licensed object storage or re-download", "status": "HUMAN_REQUIRED"}
+  ],
+  "pass_conditions": [
+    "all core changes reviewed and pushed",
+    "remote checkout succeeds in empty directory",
+    "bootstrap succeeds without current-machine-only files",
+    "offline core tests and health check pass",
+    "TaskPool/lease/fencing smoke passes",
+    "no LOCAL_ONLY_CRITICAL asset",
+    "restore receipt records exact commits and limitations"
+  ]
+}

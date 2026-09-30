@@ -134,6 +134,7 @@ def test_execution_falls_over_from_ds41_502_to_oneapi(monkeypatch):
         task_type="execution",
         messages=[{"role": "user", "content": "keep working"}],
         max_retries=3,
+        data_boundary={"data_class": "PUBLIC"},
     )
 
     assert result["success"] is True

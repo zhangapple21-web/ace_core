@@ -44,6 +44,10 @@ data/
 nodes/
 ace_core_local/
 
+# Disaster-recovery bootstrap local state (never commit operator paths/secrets)
+ace_config.local.json
+recovery/bootstrap_report.json
+
 # Local-only coordination and transient execution material.  Canonical
 # protocols, source, tests, receipts and bounded research records remain
 # versioned; these files are rebuildable or contain host-specific state.

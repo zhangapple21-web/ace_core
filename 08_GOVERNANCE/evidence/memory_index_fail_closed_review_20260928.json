@@ -1,0 +1,49 @@
+{
+  "contract_version": "ace.memory_index.painful_review.v1",
+  "review_id": "MR-20260928-MEMORY-INDEX-FAIL-CLOSED",
+  "status": "FIXED_AND_TESTED_NEAR_MISS",
+  "review_type": "NEAR_MISS_NO_CONFIRMED_PRODUCTION_DATA_LOSS",
+  "occurred_at": "2026-09-28T15:19:20Z",
+  "baseline": {
+    "production_backend": "MemoryIndex",
+    "real_index_snapshot_entries": 6979,
+    "real_index_snapshot_data_class": "PRIVATE",
+    "production_source_modified_by_rehearsal": false
+  },
+  "failure_mechanism": {
+    "before": "MemoryIndex._load swallowed parse/shape errors and initialized an empty in-memory list; a subsequent add could persist the empty list plus one new entry over the previous index.",
+    "observed_production_data_loss": false,
+    "counterfactual": "If a corrupt or malformed index had been followed by a successful add, the complete previously persisted index could have been overwritten.",
+    "potential_scope": "The whole active memory_index.json, including all records present at the verified snapshot."
+  },
+  "change": [
+    "Corrupt or malformed MemoryIndex files now fail closed and are not rewritten as empty.",
+    "MemoryIndex writes now use a same-directory fsynced temporary file and atomic replace; a failed save rolls back the in-memory append.",
+    "SelfHealing now inspects the canonical runtime memory path and refuses automatic empty-index reconstruction.",
+    "Candidate Kernel imports preserve source time and anchors and avoid merging unrelated same-title records."
+  ],
+  "verification": {
+    "focused_tests": "34 passed; self-healing regression: 2 passed",
+    "real_private_data_offline_backend_rollback": "PASS_REAL_PRIVATE_DATA_BACKEND_ROLLBACK_REHEARSAL",
+    "candidate_kernel_rows_imported": 50,
+    "candidate_kernel_rows_rejected": 0,
+    "rollback_baseline_ids_restored_exactly": true,
+    "production_source_hash_unchanged": true,
+    "raw_private_copy_retained": false,
+    "production_integration": false
+  },
+  "painful_review": {
+    "direct_cost_confirmed": "No production data loss was observed; the real source remained unchanged during the rehearsal.",
+    "counterfactual_cost": "A later write after a corrupt load could have replaced thousands of private records with an empty index plus the new entry.",
+    "impact_scope": "One runtime memory index and all data consumers depending on it; the rehearsal baseline contained 6979 private records.",
+    "recurrence_risk_after_change": "Silent empty fallback and torn-file writes are covered by fail-closed, atomic-write, and preservation tests. An externally corrupted startup still requires a verified restore point; no stale backup is restored automatically.",
+    "reusable_lesson": "Persistent memory corruption must never be translated into a healthy empty store; recovery must verify a snapshot before replacing any source.",
+    "unknowns": [
+      "No independently labelled real retrieval A/B set has been validated.",
+      "No production maintenance-window backend cutover or rollback has been executed."
+    ]
+  },
+  "promotion": "NOT_A_CAPABILITY_PROMOTION",
+  "execution_authorized": false,
+  "production_integration": false
+}

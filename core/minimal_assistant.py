@@ -209,7 +209,12 @@ def _clarification_response(packet: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def call_assistant(user_text: str, model: str | None = None) -> dict[str, Any]:
+def call_assistant(
+    user_text: str,
+    model: str | None = None,
+    *,
+    data_class: str = "PRIVATE",
+) -> dict[str, Any]:
     packet = interpret_explicit_input(user_text)
     if packet["confirmation_required"]:
         return _clarification_response(packet)
@@ -242,6 +247,7 @@ def call_assistant(user_text: str, model: str | None = None) -> dict[str, Any]:
         temperature=config.temperature,
         max_tokens=config.max_tokens,
         timeout=90,
+        data_boundary={"data_class": data_class},
     )
     result["resolved_provider"] = config.provider
     result["resolved_model"] = config.model
@@ -255,10 +261,12 @@ def handle_assistant_command(args: list[str]) -> int:
         print("  python ace.py assistant <问题>")
         print("  python ace.py assistant --model <模型名> <问题>")
         print("  python ace.py assistant --json <问题>")
+        print("  --public-input 仅当输入已确认可公开发送时使用；默认按 PRIVATE 拒绝外发")
         return 0
 
     model = None
     json_mode = False
+    data_class = "PRIVATE"
     remaining: list[str] = []
     idx = 0
     while idx < len(args):
@@ -271,6 +279,10 @@ def handle_assistant_command(args: list[str]) -> int:
             json_mode = True
             idx += 1
             continue
+        if arg == "--public-input":
+            data_class = "PUBLIC"
+            idx += 1
+            continue
         remaining.append(arg)
         idx += 1
 
@@ -280,7 +292,7 @@ def handle_assistant_command(args: list[str]) -> int:
         return 1
 
     try:
-        result = call_assistant(prompt, model=model)
+        result = call_assistant(prompt, model=model, data_class=data_class)
     except Exception as exc:
         print(f"assistant 调用失败: {exc}")
         return 1

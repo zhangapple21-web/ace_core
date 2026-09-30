@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 from dataclasses import dataclass, field
 from core.execution_contract import govern_model_messages
+from core.mirror_constitution import validate_data_boundary
 
 
 @dataclass
@@ -124,17 +125,20 @@ class LLMRouter:
                         priority=30,
                     ))
 
-        # 云端 OneAPI（备用）
-        self.models.append(ModelInfo(
-            name="oneapi-cloud",
-            provider="oneapi",
-            config=LLMConfig(
-                base_url="http://localhost:3000/v1/chat/completions",
-                api_key="jHhtKnCuHVriXUaHC992D9B645D44e8a9c901625A17fCd41",
-                model="gpt-4o",
-            ),
-            priority=50,
-        ))
+        # Cloud OneAPI credentials must come from the process environment;
+        # never bake a credential into a public-source file.
+        oneapi_key = os.environ.get("ACE_ONEAPI_API_KEY") or os.environ.get("ONEAPI_API_KEY")
+        if oneapi_key and oneapi_key.strip():
+            self.models.append(ModelInfo(
+                name="oneapi-cloud",
+                provider="oneapi",
+                config=LLMConfig(
+                    base_url=os.environ.get("ACE_ONEAPI_BASE_URL", "http://localhost:3000/v1/chat/completions"),
+                    api_key=oneapi_key.strip(),
+                    model=os.environ.get("ACE_ONEAPI_MODEL", "gpt-4o"),
+                ),
+                priority=50,
+            ))
 
     def _parse_env_file(self, path: Path) -> Dict[str, str]:
         """解析 .sh 环境变量文件"""
@@ -174,6 +178,7 @@ class LLMRouter:
         self,
         messages: List[Dict[str, str]],
         tier: str = "medium",
+        data_boundary: Optional[Dict[str, Any]] = None,
         **kwargs,
     ) -> Dict[str, Any]:
         """
@@ -181,6 +186,10 @@ class LLMRouter:
 
         自动路由，失败自动切换下一个
         """
+        boundary = validate_data_boundary(data_boundary, target="MODEL_CONTEXT", payload=messages)
+        if not boundary["valid"]:
+            raise RuntimeError("DATA_BOUNDARY_BLOCKED:" + ",".join(boundary["errors"]))
+
         messages = govern_model_messages(
             messages,
             task_type="legacy_llm_router",
@@ -249,8 +258,12 @@ def get_llm_router() -> LLMRouter:
     return _llm_router
 
 
-def chat(messages: List[Dict[str, str]], tier: str = "medium") -> str:
+def chat(
+    messages: List[Dict[str, str]],
+    tier: str = "medium",
+    data_boundary: Optional[Dict[str, Any]] = None,
+) -> str:
     """简单聊天接口"""
     router = get_llm_router()
-    result = router.call(messages, tier=tier)
+    result = router.call(messages, tier=tier, data_boundary=data_boundary)
     return result.get("choices", [{}])[0].get("message", {}).get("content", "")

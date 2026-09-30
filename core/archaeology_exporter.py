@@ -15,6 +15,7 @@ import shutil
 from pathlib import Path
 from datetime import datetime
 from typing import Dict, Any, Optional
+from core.mirror_constitution import validate_data_boundary
 
 
 class ArchaeologyExporter:
@@ -109,7 +110,16 @@ class ArchaeologyExporter:
         return files
 
     def export_memory_index(self, memory_data: Dict[str, Any]) -> list:
-        """导出记忆索引快照"""
+        """只导出显式分级为 PUBLIC 的记忆，未知/旧记录默认拒绝。"""
+        entries = memory_data.get("entries") if isinstance(memory_data, dict) else None
+        if not isinstance(entries, list):
+            raise ValueError("memory_export_data_boundary_blocked:entries_missing")
+        for entry in entries:
+            boundary = validate_data_boundary(entry, target="EXTERNAL")
+            if not boundary["valid"]:
+                # Do not copy private or legacy-unclassified material into a
+                # separate repository that may later be synchronized.
+                raise ValueError("memory_export_data_boundary_blocked")
         mem_dir = self.target_dir / "memory_index"
         mem_dir.mkdir(exist_ok=True)
 

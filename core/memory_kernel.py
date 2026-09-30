@@ -579,6 +579,32 @@ class MemoryKernel:
                 rejected.append({"reason": "record_not_mapping"})
                 continue
             try:
+                related_event_id = str(raw.get("related_event_id") or "").strip()
+                if related_event_id:
+                    claim_key = related_event_id
+                else:
+                    # A legacy title is not a stable event/claim identity:
+                    # repeated titles can describe distinct times and sources.
+                    # Keep each imported row independently auditable until a
+                    # governed consolidation step explicitly relates them.
+                    claim_key = "legacy-import:" + _sha(
+                        {
+                            "source_prefix": prefix,
+                            "source_id": str(raw.get("id") or ""),
+                            "record": dict(raw),
+                        }
+                    )[:32]
+                source_path = str(raw.get("source_path") or "").strip()
+                source_refs = raw.get("source_refs") or []
+                evidence_refs = raw.get("evidence_refs") or []
+                if isinstance(source_refs, str):
+                    source_refs = [source_refs]
+                if isinstance(evidence_refs, str):
+                    evidence_refs = [evidence_refs]
+                if not source_refs and source_path:
+                    source_refs = [source_path]
+                if not evidence_refs and source_path:
+                    evidence_refs = [source_path]
                 record = self.capture(
                     content=str(raw.get("content") or raw.get("summary") or "").strip(),
                     title=str(raw.get("title") or ""),
@@ -588,12 +614,20 @@ class MemoryKernel:
                         "feedback": "EXPERIENCE",
                         "reference": "SEMANTIC",
                     }.get(str(raw.get("type") or "").lower(), "UNKNOWN"),
-                    claim_key=str(raw.get("related_event_id") or raw.get("title") or raw.get("id") or "imported"),
+                    claim_key=claim_key,
                     data_class=str(raw.get("data_class") or "PRIVATE").upper(),
-                    source_refs=[str(raw.get("source_path") or f"{prefix}:{raw.get('id', 'unknown')}")],
-                    evidence_refs=[str(raw.get("source_path"))] if raw.get("source_path") else [],
+                    source_refs=source_refs or [f"{prefix}:{raw.get('id', 'unknown')}"],
+                    evidence_refs=evidence_refs,
                     tags=raw.get("tags") or [],
-                    metadata={"imported_from": dict(raw)},
+                    polarity=str(raw.get("polarity") or "UNKNOWN").upper(),
+                    metadata={
+                        "imported_from": {
+                            "id": str(raw.get("id") or ""),
+                            "type": str(raw.get("type") or ""),
+                            "created_at": str(raw.get("created_at") or ""),
+                            "updated_at": str(raw.get("updated_at") or ""),
+                        }
+                    },
                 )
                 imported.append(record["id"])
             except (TypeError, ValueError) as exc:

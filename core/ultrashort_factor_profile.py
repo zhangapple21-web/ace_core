@@ -192,6 +192,7 @@ def classify_candidate(
     tn6_prior: Mapping[str, Any] | None = None,
     decision_discipline: Mapping[str, Any] | None = None,
     company_view: Mapping[str, Any] | None = None,
+    playbook_context: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Translate research factors into an explicit opportunity card.
 
@@ -213,6 +214,20 @@ def classify_candidate(
         from .company_view import normalize_company_view
 
         company_context = normalize_company_view(company_view)
+    playbook = None
+    if playbook_context is not None:
+        from .ultrashort_playbook import CONTRACT_VERSION as PLAYBOOK_CONTRACT_VERSION
+
+        if not isinstance(playbook_context, Mapping):
+            raise ValueError("playbook_context_must_be_mapping")
+        # The context is deliberately copied as evidence metadata.  The
+        # playbook helpers classify observations, but never alter the score or
+        # grant production authority.
+        playbook = dict(playbook_context)
+        playbook.setdefault("contract_version", PLAYBOOK_CONTRACT_VERSION)
+        playbook.setdefault("research_status", "RESEARCH_ONLY")
+        playbook["score_contribution"] = 0.0
+        playbook["changes_candidate_grade"] = False
 
     result: dict[str, Any] = {
         "profile_id": PROFILE_ID,
@@ -227,6 +242,7 @@ def classify_candidate(
         "early_move_policy": dict(EARLY_MOVE_POLICY),
         "decision_discipline": discipline,
         "company_view": company_context,
+        "playbook_context": playbook,
     }
     result.update({"score": scored.get("score"), "factor_scores": scored.get("factor_scores")})
 
@@ -279,7 +295,28 @@ def classify_candidate(
     return result
 
 
-def summarize_daily_opportunity(candidates: Any) -> dict[str, Any]:
+def _snapshot_call_metadata(
+    *, observed_at: str | None, snapshot_id: str | None, snapshot_hash: str | None
+) -> dict[str, Any]:
+    """Make the time scope explicit so a later outcome cannot backfill the call."""
+
+    return {
+        "call_scope": "POINT_IN_TIME_SNAPSHOT",
+        "snapshot_as_of": str(observed_at) if observed_at is not None else None,
+        "snapshot_id": str(snapshot_id) if snapshot_id is not None else None,
+        "snapshot_hash": str(snapshot_hash) if snapshot_hash is not None else None,
+        "outcome_status": "PENDING_REVIEW",
+        "final_daily_grade_not_claimed": True,
+    }
+
+
+def summarize_daily_opportunity(
+    candidates: Any,
+    *,
+    observed_at: str | None = None,
+    snapshot_id: str | None = None,
+    snapshot_hash: str | None = None,
+) -> dict[str, Any]:
     """Make the daily opportunity call without forcing a two-name shortlist.
 
     The function consumes already-classified research cards.  It deliberately
@@ -316,7 +353,7 @@ def summarize_daily_opportunity(candidates: Any) -> dict[str, Any]:
         })
 
     if not normalized:
-        return {
+        result = {
             "daily_signal": "NO_SUITABLE_SETUP",
             "a_grade_present": False,
             "best_candidate_id": None,
@@ -327,6 +364,10 @@ def summarize_daily_opportunity(candidates: Any) -> dict[str, Any]:
             "no_a_reason": "no_candidate_cards",
             "semantics": "daily_opportunity_truthful_no_force_two_names; research_only",
         }
+        result.update(_snapshot_call_metadata(
+            observed_at=observed_at, snapshot_id=snapshot_id, snapshot_hash=snapshot_hash
+        ))
+        return result
 
     ranked = sorted(
         normalized,
@@ -346,7 +387,7 @@ def summarize_daily_opportunity(candidates: Any) -> dict[str, Any]:
     else:
         signal = "NO_A_TODAY"
 
-    return {
+    result = {
         "daily_signal": signal,
         "a_grade_present": best_grade in {"A+", "A"},
         "best_candidate_id": best["candidate_id"],
@@ -358,6 +399,10 @@ def summarize_daily_opportunity(candidates: Any) -> dict[str, Any]:
         "ranked_candidates": ranked,
         "semantics": "daily_opportunity_truthful_no_force_two_names; research_only",
     }
+    result.update(_snapshot_call_metadata(
+        observed_at=observed_at, snapshot_id=snapshot_id, snapshot_hash=snapshot_hash
+    ))
+    return result
 
 
 def profile_metadata() -> dict[str, Any]:
@@ -365,6 +410,8 @@ def profile_metadata() -> dict[str, Any]:
 
     from .decision_discipline import metadata as decision_discipline_metadata
     from .company_view import metadata as company_view_metadata
+    from .ultrashort_playbook import metadata as playbook_metadata
+    from .ultrashort_review import metadata as review_boundary_metadata
 
     return {
         "profile_id": PROFILE_ID,
@@ -385,4 +432,6 @@ def profile_metadata() -> dict[str, Any]:
         "early_move_policy": dict(EARLY_MOVE_POLICY),
         "decision_discipline": decision_discipline_metadata(),
         "company_view": company_view_metadata(),
+        "playbook": playbook_metadata(),
+        "review_boundary": review_boundary_metadata(),
     }

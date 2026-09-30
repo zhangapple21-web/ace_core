@@ -1,4 +1,9 @@
+import os
 from typing import Any, Dict, List
+
+from core.beneficiary_check import RED_FLAG, check_admission
+
+BENEFICIARY_GATE_ENV = "ACE_BENEFICIARY_GATE"
 
 
 REQUIRED_FIELDS = (
@@ -20,6 +25,38 @@ SOURCE_TYPES = {
     "system_observation",
     "external_research",
 }
+
+
+def beneficiary_gate(admission: Dict[str, Any]) -> Dict[str, Any]:
+    """受益人测试的准入载体。
+
+    shadow（默认）= 只把结论计数附到准入卡上，不阻断；
+    enforce = 红旗直接拒绝准入（ ValueError，与既有拒绝语同族）。
+    只存 verdict/计数/模式名，不存正文聚合（C7/G-20：聚合值不落盘）。
+    """
+    report = check_admission(admission)
+    if not report.get("applies"):
+        return report
+    summary = {
+        "applies": True,
+        "source_type": report["source_type"],
+        "verdict": report["verdict"],
+        "red_flags": report["red_flags"],
+        "warnings": report["warnings"],
+        "patterns": sorted({p for finding in report["findings"] for p in finding["patterns"]}),
+    }
+    mode = (os.environ.get(BENEFICIARY_GATE_ENV) or "shadow").strip().lower()
+    if mode == "enforce" and report["verdict"] == "DISCARD":
+        first = next(
+            (f for f in report["findings"] if f["severity"] == RED_FLAG),
+            {"patterns": [], "line": 0},
+        )
+        raise ValueError(
+            "beneficiary_red_flag:"
+            + ",".join(first.get("patterns", []))
+            + f":unit_line_{first.get('line')}"
+        )
+    return summary
 
 
 def validate_admission(admission: Dict[str, Any]) -> Dict[str, Any]:
@@ -44,7 +81,11 @@ def validate_admission(admission: Dict[str, Any]) -> Dict[str, Any]:
             )
         ):
             raise ValueError("learning_contract_required")
-    return dict(admission)
+    result = dict(admission)
+    gate = beneficiary_gate(admission)
+    if gate.get("applies"):
+        result["beneficiary_check"] = gate
+    return result
 
 
 def duplicate_task(tasks: List[Any], admission: Dict[str, Any]):

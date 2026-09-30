@@ -30,6 +30,7 @@ from .execution_discipline import (
 from .delivery_protocols import ensure_task_protocols, protocol_errors, validate_release_receipt
 from .miner_pool.task_profiles import get_task_profile
 from .execution_contract import build_execution_system_prompt, summarize_execution_feedback
+from .cognitive_think_gate import COGNITIVE_HUB, LOOP_BLOCKED, evaluate_cognitive_think_gate
 
 
 LOCAL_ARCHAEOLOGY_TAGS = {"archaeology", "local_archaeology", "fragment", "碎片考古", "考古"}
@@ -163,12 +164,36 @@ def _record_model_execution(
             "depends_on": list(task.depends_on or []),
         }
         prior_traces = task.outputs.get("model_execution", []) if isinstance(task.outputs, dict) else []
-        if isinstance(prior_traces, list) and prior_traces:
+        if not isinstance(prior_traces, list):
+            prior_traces = []
+        prior_feedback = None
+        if prior_traces:
             prior_feedback = prior_traces[-1].get("execution_feedback") if isinstance(prior_traces[-1], dict) else None
             if isinstance(prior_feedback, dict):
                 # This is a bounded routing hint from the previous attempt,
                 # not a claim about the truth of the model's content.
                 routing_context["execution_feedback"] = dict(prior_feedback)
+        think_gate = evaluate_cognitive_think_gate(
+            actor_role=COGNITIVE_HUB,
+            think_rounds=len(prior_traces),
+            new_evidence_since_last_think=(
+                isinstance(prior_feedback, dict)
+                and prior_feedback.get("status") == "TEXT_UNSTRUCTURED"
+            ),
+            execution_requested=False,
+            existing_execution_authorized=False,
+            complexity=str((envelope.get("complexity") if isinstance(envelope, dict) else None) or "medium"),
+        )
+        trace["cognitive_think"] = think_gate
+        if think_gate.get("status") == LOOP_BLOCKED or think_gate.get("thinking_permitted") is not True:
+            trace["api_called"] = False
+            trace["api_result"] = "blocked"
+            trace["result"] = "blocked"
+            trace["error"] = "THINK_LOOP_BLOCKED"
+            trace["execution_feedback"] = summarize_execution_feedback("")
+            trace["trace_complete"] = False
+            task.outputs.setdefault("model_execution", []).append(trace)
+            return None
         response = llm_router.chat(
             task_type=task_type,
             messages=[{"role": "user", "content": prompt}],
@@ -182,6 +207,7 @@ def _record_model_execution(
             # task attempt so a failed request cannot multiply upstream spend.
             max_retries=1,
             task_context=routing_context,
+            data_boundary={"data_class": getattr(task, "data_class", "PRIVATE")},
         )
     except Exception as error:
         response = {"success": False, "error": str(error)}

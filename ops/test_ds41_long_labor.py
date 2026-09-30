@@ -94,6 +94,7 @@ def test_ds41_provider_does_not_force_thinking_disabled(monkeypatch):
         messages=[{"role": "user", "content": "hi"}],
         model="deepseek-v4.1-flash",
         max_tokens=16,
+        data_boundary={"data_class": "PUBLIC"},
     )
 
     assert result["success"] is True
@@ -132,6 +133,7 @@ def test_ds41_provider_uses_reasoning_content_if_message_empty(monkeypatch):
     result = provider.chat(
         messages=[{"role": "user", "content": "hi"}],
         model="deepseek-v4.1-flash",
+        data_boundary={"data_class": "PUBLIC"},
     )
 
     assert result["success"] is True

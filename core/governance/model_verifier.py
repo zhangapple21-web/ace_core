@@ -170,7 +170,6 @@ class ModelVerifier:
         result.evidence = {
             "url": chat_url,
             "request_body": payload,
-            "api_key_prefix": api_key[:10] + "..." if api_key else "",
         }
 
         req = urllib.request.Request(

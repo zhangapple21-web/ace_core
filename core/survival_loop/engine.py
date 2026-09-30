@@ -38,6 +38,7 @@ from typing import Dict, List, Any, Optional
 
 from core.oneapi_model_catalog import OneAPIModelCatalog
 from core.execution_contract import ensure_execution_contract, normalize_untrusted_messages
+from core.mirror_constitution import validate_data_boundary
 
 
 _ONEAPI_MODEL_CATALOG = OneAPIModelCatalog()
@@ -291,6 +292,24 @@ class SurvivalLoopEngine:
         """
         tried: List[Dict] = []
         last_error = ""
+        data_boundary = kwargs.pop("data_boundary", None)
+        boundary = validate_data_boundary(data_boundary, target="MODEL_CONTEXT", payload={"system_prompt": system_prompt, "messages": messages})
+        if not boundary["valid"]:
+            return {
+                "success": False,
+                "content": "",
+                "model": "",
+                "provider": "",
+                "usage": {},
+                "latency_ms": 0,
+                "error": "DATA_BOUNDARY_BLOCKED:" + ",".join(boundary["errors"]),
+                "tried": [],
+                "data_boundary": {
+                    "data_class": boundary.get("data_class"),
+                    "target": boundary.get("target"),
+                    "allowed": False,
+                },
+            }
 
         task_type = str(kwargs.pop("task_type", "survival_loop"))
         try:
@@ -347,6 +366,7 @@ class SurvivalLoopEngine:
                     temperature=temperature,
                     max_tokens=max_tokens,
                     timeout=timeout,
+                    data_boundary=data_boundary,
                     **kwargs,
                 )
             except Exception as e:
@@ -399,6 +419,11 @@ class SurvivalLoopEngine:
             if not model:
                 return False, "", model, {}, 0, "model is required"
 
+            data_boundary = kwargs.pop("data_boundary", None)
+            boundary = validate_data_boundary(data_boundary, target="MODEL_CONTEXT", payload=messages)
+            if not boundary["valid"]:
+                return False, "", model, {}, 0, "DATA_BOUNDARY_BLOCKED:" + ",".join(boundary["errors"])
+
             if name == "gemini":
                 return self._call_gemini(
                     base_url=base_url,
@@ -409,6 +434,7 @@ class SurvivalLoopEngine:
                     max_tokens=max_tokens,
                     timeout=timeout,
                     start_time=start,
+                    data_boundary=data_boundary,
                     **kwargs,
                 )
 
@@ -496,6 +522,9 @@ class SurvivalLoopEngine:
         返回: (ok, content, model, usage, latency_ms, error)
         """
         try:
+            boundary = validate_data_boundary(kwargs.pop("data_boundary", None), target="MODEL_CONTEXT", payload=messages)
+            if not boundary["valid"]:
+                return False, "", model, {}, 0, "DATA_BOUNDARY_BLOCKED:" + ",".join(boundary["errors"])
             base_url = base_url.rstrip("/")
             chat_url = f"{base_url}/models/{model}:generateContent?key={api_key}"
 

@@ -125,7 +125,7 @@ def test_call_assistant_blocks_ambiguous_execution_before_provider_call(monkeypa
 def test_handle_assistant_command_prints_json_response(monkeypatch, capsys):
     monkeypatch.setattr(
         "core.minimal_assistant.call_assistant",
-        lambda prompt, model=None: {"success": True, "content": "ok", "resolved_model": model or "gpt-4o"},
+        lambda prompt, model=None, **_kwargs: {"success": True, "content": "ok", "resolved_model": model or "gpt-4o"},
     )
 
     exit_code = handle_assistant_command(["--json", "帮我写一个脚本"])

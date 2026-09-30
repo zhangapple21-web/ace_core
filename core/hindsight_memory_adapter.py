@@ -97,10 +97,35 @@ def _concept_names(record: Mapping[str, Any]) -> set[str]:
 
 
 def _record_time(record: Mapping[str, Any]) -> Optional[datetime]:
-    for key in ("timestamp", "created_at", "updated_at", "last_used_at"):
-        parsed = _parse_datetime(record.get(key))
+    metadata = record.get("metadata")
+    imported_from = metadata.get("imported_from") if isinstance(metadata, Mapping) else None
+    source_created_at = (
+        imported_from.get("created_at") if isinstance(imported_from, Mapping) else None
+    )
+    for value in (
+        record.get("source_created_at"),
+        source_created_at,
+        record.get("occurred_at"),
+        record.get("timestamp"),
+        record.get("created_at"),
+        record.get("updated_at"),
+        record.get("last_used_at"),
+    ):
+        parsed = _parse_datetime(value)
         if parsed is not None:
             return parsed
+    return None
+
+
+def _source_ref(record: Mapping[str, Any]) -> Optional[str]:
+    direct = record.get("source_path") or record.get("source_ref")
+    if direct:
+        return str(direct)
+    refs = record.get("source_refs") or record.get("evidence_refs") or []
+    if isinstance(refs, str):
+        return refs or None
+    if isinstance(refs, (list, tuple)):
+        return next((str(ref) for ref in refs if str(ref).strip()), None)
     return None
 
 
@@ -269,7 +294,7 @@ class HindsightStyleRetriever:
                 score=fused[memory_id],
                 rank=rank,
                 signals=signal_values[memory_id],
-                source_ref=by_id[memory_id].get("source_path") or by_id[memory_id].get("source_ref"),
+                source_ref=_source_ref(by_id[memory_id]),
                 data_class=str(by_id[memory_id].get("data_class")),
             ).to_dict()
             for rank, memory_id in enumerate(ordered, start=1)

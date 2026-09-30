@@ -30,6 +30,8 @@ Continuity is the core axiom — protect the system's ability to keep running be
 
 ## Core Principles
 
+**Cognitive Think Gate**  — ACE 的认知中枢拥有充分、动态、可恢复的思考权；思考用于形成判断，不自动获得执行权；改变未来行为的判断必须沉淀为事实、证据、推断、未知与经验；思考必须能够收敛，而不是无限循环。 Default gate: `ace.cognitive_think.v1` (`core/cognitive_think_gate.py`, `core/runtime_cognitive_think.py`). Thinking cannot promote. Models/Agnes/windows are leaves with no think right. `continue_gate` decides whether a long turn may continue; the think gate decides think ≠ execute.
+
 **Continuity Principle** — Protect continuity before optimization.
 
 **Recovery First (OPS-004)** — The first thing when taking over a project is Recovery, not Bootstrap.
@@ -214,6 +216,7 @@ Three completed discovery windows with zero Candidates require an `INVESTIGATE_D
 - **RoundTable (historical, not wired)** — The duplicate protocol implementation has no production consumer. Validator, Guardian, and Archivist remain separate wired lifecycle roles; do not infer a running council from file presence.
 - **Governor** — Invariant enforcement, security constraints
 - **Runtime recovery (production)** — SelfHealing, lifecycle-lock recovery, atomic state writes, and periodic backup are wired. The legacy `recovery_protocol.py` copies are retained historical implementations, not the production owner.
+- **Repository / asset governance (2026-09-29)** — Before cleaning or reusing a clone, read `docs/REPOSITORY_ASSET_GOVERNANCE_BASELINE.v1.md`. It is the single current index for `KEEP / MERGE / ARCHIVE / DELETE`, the TaskPool/Worker Capsule/ops status labels, retired tombstones, and the R60 recovery point. It records evidence and recovery paths; it does not grant production execution authority.
 
 ---
 
