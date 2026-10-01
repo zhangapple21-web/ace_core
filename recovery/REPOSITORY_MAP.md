@@ -2,10 +2,12 @@
 
 基线日期：2026-09-30
 
+下表 HEAD 是历史记录，不证明当前远程状态或恢复通过。恢复入口每次重新查询指定 ref 并校验 checkout HEAD；PASS 仅覆盖实际执行步骤，不含 60 项专项、death drill 或 daemon health 验收。历史外部演练与当前入口范围见 `recovery/RESTORE_TEST_RESULT.md`。
+
 | Repository | Purpose | Canonical branch/ref | Remote | Last known good / verified | State | Recovery entry |
 |---|---|---|---|---|---|---|
 | `ace_core` | 当前 ACE 核心运行时、TaskPool、Worker/lease/fencing、Memory、协议、schema、测试、恢复 | `core/daemon-lifecycle-resilience-20260912` | `https://github.com/zhangapple21-web/ace_core.git` | remote HEAD（文档生成时）`bffec587884f4844a6b8d1fd21afd2c1866084de`；恢复时以 `git ls-remote` 为准; behavior baseline `2ce7f9068441c0d341d8ed26cec1ea77d72cdbf8` | canonical | `recovery/restore_from_remote.py`, `recovery/bootstrap.py` |
-| `ace-video-kingdom` | 视频能力域、门禁、模型/能力路由、规则、测试、入口 | `main` | `https://github.com/zhangapple21-web/ace-video-kingdom.git` | `27da48891ac778e88689fd1e33cdc058472f9b90` | canonical（本地未跟踪项目资产不进入核心链） | `recovery/ACE_VIDEO_RECOVERY_POINTER.md` |
+| `ace-video-kingdom` | 视频能力域、门禁、模型/能力路由、规则、测试、入口 | `main` | `https://github.com/zhangapple21-web/ace-video-kingdom.git` | `27da48891ac778e88689fd1e33cdc058472f9b90` | canonical（本地未跟踪项目资产不进入核心链） | `recovery/restore_from_remote.py --with-video` |
 | `ace-capability-registry` | 能力登记与审计工具 | `main` | `https://github.com/zhangapple21-web/ace-capability-registry.git` | `67e49a226ea404f02a209f4188bc8d4cf81ba1e6` | optional extension | 单独 clone |
 | `ace-skill-vault` | Skill 资产与依赖图 | `main` | `https://github.com/zhangapple21-web/ace-skill-vault.git` | `8468afa336aee75f23e097b5c0a8859f8cf0a7e` | optional extension | 单独 clone |
 | `ace-knowledge-forge` | 知识锻造 | `master` | `https://github.com/zhangapple21-web/ace-knowledge-forge.git` | `9a383989aa10a93996cbfd093ac89496a0c69545` | optional knowledge | 单独 clone |
