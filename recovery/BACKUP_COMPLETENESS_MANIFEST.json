@@ -89,7 +89,19 @@
     "credentials": "credential configuration excluded; secret scan fail-closed"
   },
   "repositories": {
-    "optional_ls_remote": "2026-10-01 non-interactive, 16/16 unique requested refs exit=0; details in REPOSITORY_MAP.md",
+    "remote_ref_observation": {
+      "observed_at_start": "2026-10-01T06:02:34Z",
+      "observed_at_end": "2026-10-01T06:02:37Z",
+      "method": "git -c credential.interactive=false ls-remote --heads URL refs/heads/REF; non-interactive; timeout 30s",
+      "core": {"url": "https://github.com/zhangapple21-web/ace_core.git", "ref": "core/daemon-lifecycle-resilience-20260912", "sha": "4d40191b539dfcc0e651504437e20d07daa5dd4e", "status": "EXISTS", "exit_code": 0},
+      "state": {"url": "https://github.com/zhangapple21-web/ace-civilization-backup.git", "ref": "main", "sha": "a40340bf1329b3789773ce09d2cd11a50676f5da", "status": "EXISTS", "exit_code": 0},
+      "video": {"url": "https://github.com/zhangapple21-web/ace-video-kingdom.git", "ref": "main", "sha": "27da48891ac778e88689fd1e33cdc058472f9b90", "status": "EXISTS", "exit_code": 0},
+      "current_core_restore_result": "UNVERIFIED: no restore, health or business rerun at current HEAD; evidence.core_remote_head and remote_restore_evidence.clone_core are historical rehearsal SHAs",
+      "failure_policy": "ACCESS_BLOCKED for inaccessible remote; BRANCH_MISSING for successful query without requested branch; UNVERIFIED for timeout or ambiguous evidence; sha=null, never reuse historical SHA",
+      "credential_repository": "UNVERIFIED: not queried or read",
+      "state_manifest_check": {"source": "existing isolated state checkout git object at observed remote SHA; not credential repository", "sha256": "829b2278b5ca15fe4275a62253782eb87619933fc5f637db0fb3dbe5e33a97f2", "entries": 1674, "counts_match_evidence": true, "content_hashes_rechecked": false, "state_push": "NOT_PERFORMED"}
+    },
+    "optional_ls_remote": "Observed-at 2026-10-01T06:02:34Z through 2026-10-01T06:02:37Z; non-interactive, 16/16 EXISTS, unique requested refs exit=0; full URL/ref/SHA details in REPOSITORY_MAP.md; no optional clone or content validation",
     "unknown": ["完整跨仓 build DAG", "optional 扩展自动运行时加载", "截断扫描范围外行为关键资产", "跨文件事务一致性", "继承 epoch 行为连续性"],
     "no_gitlinks_note": "无 gitlink 不等于全仓图完整",
     "optional_discovery": "仅显式 clone，不自动发现"

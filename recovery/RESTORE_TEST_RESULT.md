@@ -6,7 +6,13 @@
 
 状态：`PARTIAL`。远程回执证明 core 分支和私有 state 白名单可在隔离目录中取回并完成 hash 校验；不证明整机、跨文件事务一致性、历史行为连续性、daemon 每日迭代、外部 Provider 或完整宿主工作流可恢复。
 
-## 当前远程证据
+## 当前远程 ref 对账（非恢复重跑）
+
+Observed-at：2026-10-01T06:02:34Z–2026-10-01T06:02:37Z；非交互 `git ls-remote --heads` 查得 core `core/daemon-lifecycle-resilience-20260912` 为 `4d40191b539dfcc0e651504437e20d07daa5dd4e`，state `main` 为 `a40340bf1329b3789773ce09d2cd11a50676f5da`，video `main` 为 `27da48891ac778e88689fd1e33cdc058472f9b90`，均 `EXISTS`、exit=0。16/16 optional refs 同样 `EXISTS`，SHA 未变；没有 ACCESS_BLOCKED 或 BRANCH_MISSING。本次只查询 ref，当前 core HEAD 的完整恢复、health、业务结果为 `UNVERIFIED`；下文 PARTIAL/FAIL 是各自历史 checkout 结果，不能作为当前 HEAD 的重跑结果。
+
+从既有隔离 state checkout 的当前远程 SHA 对象复核 `STATE_MANIFEST.json`：SHA-256 `829b2278b5ca15fe4275a62253782eb87619933fc5f637db0fb3dbe5e33a97f2`，1674 entries，counts 与下文一致；未读取凭据仓，未重推 state，也未重新逐项校验 state 内容。
+
+## 历史远程恢复证据
 
 - core：`https://github.com/zhangapple21-web/ace_core.git`，branch `core/daemon-lifecycle-resilience-20260912`，远程/checkout SHA `4414401034b1040351b45f60cbbbb8afdb8ef434`，`ref_match=true`。
 - state：`https://github.com/zhangapple21-web/ace-civilization-backup.git`，branch `main`，远程/checkout SHA `a40340bf1329b3789773ce09d2cd11a50676f5da`，`ref_match=true`，private verification PASS；没有读取 secret repo 内容。
@@ -20,7 +26,7 @@
 - 远程 health 实际 overall `error`，exit `2`，`errors=1`、`warnings=1`；daemon heartbeat 为 `status=born, pid=None`。WARN/ERROR 不能折算 PASS。
 - `ace.py status` 返回 `0`，展示恢复后的 796 tasks、612 knowledge records、7457 memory index records；这是 smoke/status，不是 daemon E2E。
 - 隔离 integrated bootstrap tests：`153 passed`；cleanvenv：`103 passed, 3 blocked`；`18 unittest` 通过。
-- 历史隔离 integrated bootstrap 为 `PARTIAL`、exit `3`；health `exit=2`、1 error/3 warnings。这些是旧验证记录，不替代当前远程 state 演练；恢复代码已发布到上述 core SHA。
+- 历史隔离 integrated bootstrap 为 `PARTIAL`、exit `3`；health `exit=2`、1 error/3 warnings。这些是旧验证记录，不替代历史远程 state 演练，更不代表当前 core HEAD 已重跑；恢复演练的 core SHA 见上文。
 - cleanvenv Python `3.11.9`；历史 `pip check` PASS。`recovery/requirements-recovery.lock` 仅覆盖该测试集，不能视为全系统依赖锁。
 - 视频域历史演练：`36 passed` 离线测试及 dry-run；`provider_submission=NOT_PERFORMED`，不出片、不提交真实 Provider。
 - `business_validation.json` 总体为 `FAIL`：股票 `time` 字段误取价格变化值 `0.30`；真实报价非空但没有模拟单或成交。5 个 Skill 的 loadable/frontmatter 检查和一次纯 helper 调用不是宿主 E2E。

@@ -1,8 +1,10 @@
 # Repository Map
 
-更新日期：2026-10-01。此表覆盖 `restore_from_remote.py` 当前明确列出的 core、state、video 和全部 16 个 OPTIONAL_REPOS，不代表整机资产或完整跨仓依赖图。
+更新日期：2026-10-01；当前远程 ref 观测时间：2026-10-01T06:02:34Z–2026-10-01T06:02:37Z。此表覆盖 `restore_from_remote.py` 当前明确列出的 core、state、video 和全部 16 个 OPTIONAL_REPOS，不代表整机资产或完整跨仓依赖图。
 
-## 已恢复真源
+## 当前远程 ref 与历史演练
+
+本次 `ls-remote --heads` 查得：core `core/daemon-lifecycle-resilience-20260912` 当前 SHA `4d40191b539dfcc0e651504437e20d07daa5dd4e`，state `main` 当前 SHA `a40340bf1329b3789773ce09d2cd11a50676f5da`，video `main` 当前 SHA `27da48891ac778e88689fd1e33cdc058472f9b90`；三项均 `EXISTS`、exit=0。以下表格仅记录历史已演练 SHA，不能当作当前 HEAD。core 当前 HEAD 的完整恢复结果为 `UNVERIFIED`，本次未重跑恢复。state 从既有隔离 checkout 的当前远程 SHA 对象复核 manifest hash/count：1674 files、65 evidence files、37960831 bytes，与下表证据一致；未重新推送 state。
 
 | Repository | Branch | Credential-free URL | 已演练 SHA | 范围 |
 |---|---|---|---|---|
@@ -14,7 +16,7 @@ core SHA 是恢复代码演练版本，不是本文档发布后的动态 HEAD。
 
 ## 可选仓库完整列表
 
-2026-10-01 非交互执行 `git -c credential.interactive=false ls-remote --heads URL BRANCH`；设置 `GIT_TERMINAL_PROMPT=0`、`GCM_INTERACTIVE=Never`，每仓 timeout=30s。以下 16 项 exit=0 且唯一分支 HEAD；仅证明 ref 可查询，不证明内容已恢复、测试通过或运行时已加载。失败、超时、空结果须记 UNKNOWN，不沿用历史截短 SHA。
+Observed-at：2026-10-01T06:02:34Z–2026-10-01T06:02:37Z。2026-10-01 非交互执行 `git -c credential.interactive=false ls-remote --heads URL BRANCH`；设置 `GIT_TERMINAL_PROMPT=0`、`GCM_INTERACTIVE=Never`，每仓 timeout=30s。以下 16 项状态均为 `EXISTS`，exit=0 且唯一分支 HEAD；`ACCESS_BLOCKED`=不可访问、`BRANCH_MISSING`=成功查询但分支不存在、`UNVERIFIED`=超时或无法验证，失败时当前 SHA 为 UNKNOWN；仅证明 ref 可查询，不证明内容已恢复、测试通过或运行时已加载。失败、超时、空结果须记 UNKNOWN，不沿用历史截短 SHA。
 
 | Repository | Branch | Credential-free URL | Observed HEAD | 用途 / 范围 |
 |---|---|---|---|---|
