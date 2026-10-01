@@ -1,39 +1,42 @@
 # Restore Test Result
 
-基线日期：2026-09-30
-状态：`BACKUP_COMPLETE / RECOVERABLE`（核心离线链、视频 Provider-free 链和非 C/D 盘符路径演练；外部服务/私有资产仍按人工清单）。
+更新日期：2026-10-01
 
+## 结论
 
-## 便携路径复核（提交 `17b90ebb717ee2e84b1dcf7a8f5c065a9c6d573d`）
+状态：`PARTIAL`。远程回执证明 core 分支和私有 state 白名单可在隔离目录中取回并完成 hash 校验；不证明整机、跨文件事务一致性、历史行为连续性、daemon 每日迭代、外部 Provider 或完整宿主工作流可恢复。
 
-- `portable_paths.ROOTS` 单一解析层：PASS。
-- 关键执行链绝对路径审计：PASS；`recovery/path_audit.py` 无 findings。
-- 非 C/D 盘符模拟（`Y:` subst 隔离根）：PASS；仅从远程 clone、bootstrap、核心测试、视频 clone/test/dry-run 均通过。
-- 核心专项回归：PASS；`63 passed`。
+## 当前远程证据
 
-## 最终独立演练（仅从远程真源）
+- core：`https://github.com/zhangapple21-web/ace_core.git`，branch `core/daemon-lifecycle-resilience-20260912`，远程/checkout SHA `4414401034b1040351b45f60cbbbb8afdb8ef434`，`ref_match=true`。
+- state：`https://github.com/zhangapple21-web/ace-civilization-backup.git`，branch `main`，远程/checkout SHA `a40340bf1329b3789773ce09d2cd11a50676f5da`，`ref_match=true`，private verification PASS；没有读取 secret repo 内容。
+- state manifest `829b2278b5ca15fe4275a62253782eb87619933fc5f637db0fb3dbe5e33a97f2`；1674 个文件逐项 bytes/SHA PASS，包含 task_pool 796、09_KNOWLEDGE 686、06_RUNTIME/ace 192、evidence files 65、37960831 bytes。
+- manifest 仅声明“两次匹配盘点”，不是跨文件事务快照。恢复的知识文件/records、runtime、memory index 数量分别为 686/612、192、7457；这些是恢复计数，不是行为连续性证明。
+- 回执：`C:\tmp\ace_remote_state_final_20261001\ACE_REMOTE_RESTORE_RECEIPT.json`；SHA-256 `e029cb275f17c9685f6d2d5489e7bbfbf13978c7aed3495d74cf8e72b00d9739`。
 
-演练编排器先从 GitHub clone `ace_core` canonical branch，再由该远程 checkout 执行 `recovery/restore_from_remote.py --workspace-root D:\\tmp\\ace_dr_final_final4 --with-video --with-optional`。编排器拒绝覆盖非空目录，不读取当前工作区、不下载凭据、不启动 Provider 或废弃端口。
+## 实际验证记录
 
-最终收据：`D:\\tmp\\ace_dr_final_final4\\ACE_REMOTE_RESTORE_RECEIPT.json`
+- 远程 bootstrap 实际 `PARTIAL`，exit code `3`，且使用 `--skip-tests`。
+- 远程 health 实际 overall `error`，exit `2`，`errors=1`、`warnings=1`；daemon heartbeat 为 `status=born, pid=None`。WARN/ERROR 不能折算 PASS。
+- `ace.py status` 返回 `0`，展示恢复后的 796 tasks、612 knowledge records、7457 memory index records；这是 smoke/status，不是 daemon E2E。
+- 隔离 integrated bootstrap tests：`153 passed`；cleanvenv：`103 passed, 3 blocked`；`18 unittest` 通过。
+- 历史隔离 integrated bootstrap 为 `PARTIAL`、exit `3`；health `exit=2`、1 error/3 warnings。这些是旧验证记录，不替代当前远程 state 演练；恢复代码已发布到上述 core SHA。
+- cleanvenv Python `3.11.9`；历史 `pip check` PASS。`recovery/requirements-recovery.lock` 仅覆盖该测试集，不能视为全系统依赖锁。
+- 视频域历史演练：`36 passed` 离线测试及 dry-run；`provider_submission=NOT_PERFORMED`，不出片、不提交真实 Provider。
+- `business_validation.json` 总体为 `FAIL`：股票 `time` 字段误取价格变化值 `0.30`；真实报价非空但没有模拟单或成交。5 个 Skill 的 loadable/frontmatter 检查和一次纯 helper 调用不是宿主 E2E。
 
-| 验证项 | 结果 |
-|---|---|
-| `ace_core` clone | PASS；远程分支 checkout，便携路径演练核心 HEAD：`17b90ebb717ee2e84b1dcf7a8f5c065a9c6d573d`；视频 HEAD：`27da48891ac778e88689fd1e33cdc058472f9b90` |
-| `bootstrap.py` | PASS；compileall PASS；bootstrap pytest `34 passed`；`ace.py status` PASS |
-| TaskPool/Worker/lease/fencing 专项 | PASS；`60 passed` |
-| Worker Capsule 跨进程 death drill | PASS；`first=HALF_DONE`，等待 lease 过期后 `resume=PASS`，旧 fencing 清除，最终 `review` |
-| 当前 AceDaemon | PASS；直接运行 `ace.py daemon --serve --interval 1 --max-iter 8 --dry-run --force` 正常退出 `0` |
-| `ops/health_check.py --json` | PASS 门槛；daemon 已授权启动时 `errors=0`（`warnings=2` 仅为空知识/归档状态，健康命令本身以 warning exit `1` 退出） |
-| `ace-video-kingdom` clone | PASS；`main` |
-| 视频离线测试 | PASS；`36 passed` |
-| 视频入口 dry-run | PASS；`COMPLETED`，`provider_submission=NOT_PERFORMED` |
-| 3000/3002、legacy scheduler/heartbeat | 未由恢复链启动；未成为恢复依赖 |
+## 快照排除和边界
 
-当前机器的 `127.0.0.1:3000` 若存在，是已有的 `local_oneapi_gateway_launcher.py` 外部进程，不是本恢复入口启动的 ACE 旧路径；恢复脚本未触碰该进程。
+- 排除统计已复核：15152 个 backup/cache/test/validation/claim，5 个 source/transient process state，300 个 raw external HTML。HTML 仅保留 hash，正文未上传，不能从 state snapshot 恢复；credential configuration 被排除，secret scan fail-closed。
+- C/D 文件系统盘点仍截断：C 159268、D 138394，`truncated=true`；X/Y 只是 D 子目录映射，不是独立介质。整机资产覆盖 `UNKNOWN/PARTIAL`。
+- 未恢复保证：Provider 密钥、用户密钥、`mine-seed-credentials` 内容、CosyVoice 权重/参考音频、私有媒体/缓存、白名单之外资产、计划任务动作值。历史连续性、继承 epoch 行为、跨文件事务一致性均 UNKNOWN。
+- daemon 未启动；heartbeat、每日迭代、计划任务动作未验。旧 `3000/3002`、legacy scheduler/heartbeat 不由恢复链启动，也不作为健康门槛。
+- 不做继承 epoch 行为验证、daemon 视频交易或真实视频任务。
 
-## 冷启动限制
+## 可选仓库检查
 
-冷 checkout 未启动 daemon 时，health 会报告 heartbeat error；这是未授权启动的预期门槛，不是远程缺失。按运维授权启动当前 `AceDaemon` 后再以 `errors=0` 验收。
+`restore_from_remote.py` 的全部 16 个 OPTIONAL_REPOS 已于 2026-10-01 以无交互 `git ls-remote` 检查，16/16 唯一 requested ref exit=0；这只证明分支 ref 可查询，不证明内容 clone、测试通过或运行时加载。完整 URL、branch、SHA 见 `REPOSITORY_MAP.md`；凭据仓未查询，UNKNOWN 不假设。
 
-凭据、Provider、CosyVoice 权重、私有媒体和运行态历史不进入公开 Git；来源与人工补回方式见 `MISSING_HUMAN_REQUIRED.md`。没有这些输入时，核心离线能力仍可复活，外部能力保持受限。
+## 严格 PASS 条件
+
+只有扫描未截断且范围明确、行为关键依赖和历史状态有具事务边界的可验证快照、bootstrap/restore/health 全部 PASS 且 exit code 0、daemon heartbeat/每日迭代/计划任务动作实际验证、Skill 宿主 E2E 和模拟单有证据时，才可改写为 PASS。当前保持 `PARTIAL`。

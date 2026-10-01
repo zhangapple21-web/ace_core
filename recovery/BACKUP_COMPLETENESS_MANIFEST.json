@@ -1,42 +1,89 @@
 {
-  "schema_version": "ace.backup_completeness_manifest.v2",
-  "generated_at": "2026-09-30T14:15:00+08:00",
-  "scope": "整机 C:/D: 范围内 ACE 核心、视频能力域、能力/Skill/知识扩展与隐藏恢复依赖",
-  "status": "BACKUP_COMPLETE_RECOVERABLE",
-  "decision": "远程 canonical refs 已验证；恢复入口与 bootstrap 已统一接入 portable_paths.ROOTS；非 C/D 盘符隔离演练、核心回归和视频 dry-run 均为 PASS。",
-  "inventory": {
-    "filesystem_roots_scanned": ["C:\\", "D:\\"],
-    "ace_core_root": "C:\\tmp\\ace_core",
-    "video_root": "D:\\视频创作\\ace-video-kingdom",
-    "operator_environment": ["C:\\Users\\Administrator\\.codex\\skills", "D:\\Trae"],
-    "noncanonical_clones_and_drills": ["C:\\tmp\\ace_core_remote_sync", "D:\\tmp\\ace-video-kingdom", "D:\\tmp\\ace_dr_*", "D:\\tmp\\ACE_SYSTEM_BACKUP_*"],
-    "classification_rule": "非 canonical clone、缓存、日志、演练目录不进入恢复链；若发现其包含未远程化的行为关键修改，必须把状态改为 LOCAL_ONLY_CRITICAL 并阻断 PASS。"
+  "schema_version": "ace.backup_completeness_manifest.v4",
+  "evidence_updated_date": "2026-10-01",
+  "scope": "远程恢复发布材料、state 白名单及其验证证据",
+  "status": "PARTIAL",
+  "decision": "证据支持已发布 core 与私有 state 白名单的部分离线恢复；不支持整机完整备份、跨文件事务一致性、daemon 行为连续性或完整宿主工作流。",
+  "evidence": {
+    "remote_restore_receipt": "C:\\tmp\\ace_remote_state_final_20261001\\ACE_REMOTE_RESTORE_RECEIPT.json",
+    "remote_restore_receipt_sha256": "e029cb275f17c9685f6d2d5489e7bbfbf13978c7aed3495d74cf8e72b00d9739",
+    "core_remote_head": "4414401034b1040351b45f60cbbbb8afdb8ef434",
+    "state_remote_head": "a40340bf1329b3789773ce09d2cd11a50676f5da",
+    "state_manifest_sha256": "829b2278b5ca15fe4275a62253782eb87619933fc5f637db0fb3dbe5e33a97f2",
+    "state_hash_verification": {"status": "PASS", "files": 1674, "roots": ["task_pool", "09_KNOWLEDGE", "06_RUNTIME/ace"]},
+    "state_counts": {"06_RUNTIME/ace": 192, "09_KNOWLEDGE": 686, "task_pool": 796, "evidence_files": 65, "files": 1674, "bytes": 37960831},
+    "restored_index_evidence": {"knowledge_files": 686, "knowledge_loaded_records": 612, "runtime_files": 192, "memory_index_records": 7457, "task_pool_records": 796},
+    "core_bootstrap": {"status": "PARTIAL", "exit_code": 3, "tests": "SKIP (--skip-tests)"},
+    "core_health": {"overall": "error", "exit_code": 2, "errors": 1, "warnings": 1, "pass": false},
+    "isolated_bootstrap_tests": {"passed": 153},
+    "cleanvenv_tests": {"passed": 103, "blocked": 3},
+    "unittest": {"passed": 18},
+    "video_offline_tests": {"passed": 36},
+    "video_dry_run": {"pass": true, "provider_submission": "NOT_PERFORMED", "real_video_task": false},
+    "business_validation_overall": "FAIL",
+    "stock_time_field_semantics": "FAIL: time 字段误取价格变化值，源码未修改",
+    "stock_actual_quote": "PASS: 曾返回非空报价；单源不等于生产准入",
+    "simulated_order": "UNVERIFIED: 无现有订单接口，没有生成模拟单或成交",
+    "skill_validation": "5 个 loadable/frontmatter 检查及一次纯 helper 调用；不是宿主 E2E"
   },
-  "forbidden_revival_dependencies": ["3000", "3002", "legacy scheduler", "legacy heartbeat"],
-  "repositories": [
-    {"name":"ace_core","remote":"https://github.com/zhangapple21-web/ace_core.git","canonical_ref":"core/daemon-lifecycle-resilience-20260912","last_remote_head_verified":"17b90ebb717ee2e84b1dcf7a8f5c065a9c6d573d","behavior_baseline":"2ce7f9068441c0d341d8ed26cec1ea77d72cdbf8","classification":"REMOTE_CANONICAL","recovery_entry":"recovery/restore_from_remote.py"},
-    {"name":"ace-video-kingdom","remote":"https://github.com/zhangapple21-web/ace-video-kingdom.git","canonical_ref":"main","remote_head":"27da48891ac778e88689fd1e33cdc058472f9b90","classification":"REMOTE_CANONICAL_OPTIONAL_DOMAIN","recovery_entry":"recovery/ACE_VIDEO_RECOVERY_POINTER.md"},
-    {"name":"ace-capability-registry","remote":"https://github.com/zhangapple21-web/ace-capability-registry.git","canonical_ref":"main","remote_head":"67e49a226ea404f02a209f4188bc8d4cf81ba1e6","classification":"REMOTE_CANONICAL_OPTIONAL"},
-    {"name":"ace-skill-vault","remote":"https://github.com/zhangapple21-web/ace-skill-vault.git","canonical_ref":"main","remote_head":"8468afa336aee75f23e097b5c0a8859f8cf0a7e","classification":"REMOTE_CANONICAL_OPTIONAL"},
-    {"name":"ace-knowledge-forge","remote":"https://github.com/zhangapple21-web/ace-knowledge-forge.git","canonical_ref":"master","remote_head":"9a383989aa10a93996cbfd093ac89496a0c69545","classification":"REMOTE_CANONICAL_OPTIONAL"},
-    {"name":"ace-salvage","remote":"https://github.com/zhangapple21-web/ace-salvage.git","canonical_ref":"main","remote_head":"22759c180d70452562769af9a091a1e157fafd44","classification":"REMOTE_CANONICAL_OPTIONAL"},
-    {"name":"ace-structure-steward","remote":"https://github.com/zhangapple21-web/ace-structure-steward.git","canonical_ref":"main","remote_head":"7aa9b95e824c51a883b19ec1d5c6fad37aa7c456","classification":"REMOTE_CANONICAL_OPTIONAL"},
-    {"name":"ace-video-assets","remote":"https://github.com/zhangapple21-web/ace-video-assets.git","canonical_ref":"main","remote_head":"59d81bf94dfe98a3709587025cf4aa7c21862208","classification":"REMOTE_CANONICAL_OPTIONAL_ASSET"},
-    {"name":"R1_continuity_archive","remote":"https://github.com/zhangapple21-web/R1_continuity_archive.git","canonical_ref":"main","remote_head":"3b45edbb9d75a8548352ca969336ed1e8ed2aab7","classification":"REMOTE_CANONICAL_ARCHAEOLOGY"},
-    {"name":"mine-seed-credentials","remote":"https://github.com/zhangapple21-web/mine-seed-credentials.git","canonical_ref":"main","classification":"SECRET_REQUIRED_NOT_PUBLIC_RESTORE"},
-    {"name":"ace-task-queue","remote":"https://github.com/zhangapple21-web/ace-task-queue.git","canonical_ref":"main","classification":"OPTIONAL_NONCORE_LOCAL_CHANGES_UNVERIFIED"}
+  "dependency_lock": {
+    "path": "recovery/requirements-recovery.lock",
+    "source": "clean_venv Python 3.11.9 pip freeze",
+    "packages": 22,
+    "scope": "仅历史验证测试集，非全系统锁",
+    "source_venv_pip_check": "PASS",
+    "fresh_reinstall": "NOT_VERIFIED",
+    "cache_package_migration": false,
+    "editable_paths_or_credentials": false
+  },
+  "historical_validation_sources": {
+    "validation_summary": "C:\\tmp\\ace_restore_validation_20260930\\validation_summary.json",
+    "business_validation": "C:\\tmp\\ace_restore_validation_20260930\\business_validation.json",
+    "local_only_note": "153/103/18/36 测试与股票 FAIL 是历史隔离记录，非当前远程 checkout 重跑；当前恢复摘要已内嵌。",
+    "integrated_health": {"exit_code": 2, "errors": 1, "warnings": 3, "pass": false}
+  },
+  "remote_restore_evidence": {
+    "status": "PARTIAL",
+    "clone_core": {"branch": "core/daemon-lifecycle-resilience-20260912", "sha": "4414401034b1040351b45f60cbbbb8afdb8ef434", "ref_match": true},
+    "clone_state": {"branch": "main", "sha": "a40340bf1329b3789773ce09d2cd11a50676f5da", "ref_match": true},
+    "private_verification": "PASS; permissions recorded in receipt; no secret content read",
+    "state_inventory": "Two matching inventories; not a cross-file transaction",
+    "daemon": "NOT_STARTED; heartbeat and daily iteration unverified",
+    "forbidden_dependencies": ["3000", "3002", "legacy scheduler", "legacy heartbeat"]
+  },
+  "inventory_limits": {
+    "C_scan": {"entries_seen": 159268, "truncated": true},
+    "D_scan": {"entries_seen": 138394, "truncated": true},
+    "X": "模拟 D 目录映射，不是独立介质",
+    "Y": "模拟 D 目录映射，不是独立介质",
+    "secrets_and_user_data": "未读取、未备份、不可从 Git 恢复",
+    "historical_task_memory_db_logs": "未纳入白名单快照；历史连续性 UNKNOWN",
+    "scheduled_task_action_values": "未检查",
+    "daemon_daily_iteration": "daemon 未启动，未验"
+  },
+  "snapshot_exclusions": {
+    "backup_cache_test_validation_claim": 15152,
+    "source_or_transient_process_state": 5,
+    "raw_external_html_hash_only": 300,
+    "raw_external_html_note": "正文未上传，因此不能从 state snapshot 恢复",
+    "credentials": "credential configuration excluded; secret scan fail-closed"
+  },
+  "repositories": {
+    "optional_ls_remote": "2026-10-01 non-interactive, 16/16 unique requested refs exit=0; details in REPOSITORY_MAP.md",
+    "unknown": ["完整跨仓 build DAG", "optional 扩展自动运行时加载", "截断扫描范围外行为关键资产", "跨文件事务一致性", "继承 epoch 行为连续性"],
+    "no_gitlinks_note": "无 gitlink 不等于全仓图完整",
+    "optional_discovery": "仅显式 clone，不自动发现"
+  },
+  "pass_conditions": [
+    "C/D 扫描未截断且范围明确",
+    "行为关键依赖和历史状态有可验证且具事务边界的快照",
+    "bootstrap、restore、health 全部 status=PASS 且 exit_code=0",
+    "daemon heartbeat、每日迭代、计划任务动作已实际验证",
+    "Skill 宿主 E2E 和模拟单均有证据",
+    "视频保持 dry-run 且 provider_submission=NOT_PERFORMED",
+    "发布 SHA 已真实提交并推送"
   ],
-  "asset_classes": [
-    {"asset":"source/protocol/schema/migrations/tests/recovery scripts","classification":"REMOTE_CANONICAL","required_for_core":true},
-    {"asset":"config templates and variable names","classification":"REMOTE_TEMPLATE","required_for_core":true},
-    {"asset":"TaskPool/lease/memory indexes/runtime caches","classification":"REBUILDABLE","required_for_core":false},
-    {"asset":"API keys, tokens, passwords, machine keys","classification":"SECRET_REQUIRED","required_for_core":true,"never_upload":true},
-    {"asset":"CosyVoice weights and private media","classification":"HUMAN_REQUIRED","required_for_core":false},
-    {"asset":"Codex/Trae installation and local operator profile","classification":"OPERATOR_ENVIRONMENT","required_for_core":false},
-    {"asset":"legacy 3000/3002 and schedulers","classification":"ARCHAEOLOGY_ONLY","required_for_core":false}
-  ],
-  "local_only_critical": [],
-  "pass_conditions": ["remote canonical refs verified", "restore entry is versioned", "fresh empty workspace recovery receipt is PASS", "non-C/D logical drive rehearsal is PASS", "offline tests and daemon health gate verified", "video dry-run does not submit Provider", "no secret or obsolete port is required"],
-  "restore_evidence": {"portable_path_audit":"PASS", "non_cd_drive":"PASS via Y: subst","receipt":"D:\\tmp\\ace_dr_final_final4\\ACE_REMOTE_RESTORE_RECEIPT.json","bootstrap":"34 passed","core_specialized":"60 passed","video":"36 passed","daemon_health":"errors=0 after current AceDaemon startup","death_drill":"HALF_DONE then PASS"},
-  "evidence_pointer": "recovery/RESTORE_TEST_RESULT.md"
+  "pass": false,
+  "local_only_critical_assessment": "UNKNOWN: 截断盘点不能证明不存在本地关键单点",
+  "never_claim": ["整机完整", "完整可恢复", "跨文件事务一致性已验证", "daemon 连续性已验证", "WARN 健康等同 PASS"]
 }
