@@ -20,6 +20,7 @@ import json
 import os
 import sys
 import time
+import tempfile
 from datetime import datetime
 from pathlib import Path
 
@@ -45,7 +46,7 @@ except (AttributeError, ValueError):
 
 # Scratch pool lives outside the repository so a drill can never look like
 # production task state; only the receipt is written back into the evidence dir.
-SCRATCH_DEFAULT = Path(os.environ.get("TEMP", "C:/tmp")) / "ace_worker_capsule_drill"
+SCRATCH_DEFAULT = Path(os.environ.get("TEMP") or tempfile.gettempdir()) / "ace_worker_capsule_drill"
 
 ADMISSION = {
     # ``core.task_admission.SOURCE_TYPES`` has no vocabulary for a direct user
@@ -75,7 +76,7 @@ def _reset_scratch_pool(pool_dir: Path) -> int:
     ``--pool-dir`` that points at the production pool cannot delete anything.
     """
 
-    temp_root = Path(os.environ.get("TEMP", "C:/tmp")).resolve()
+    temp_root = Path(os.environ.get("TEMP") or tempfile.gettempdir()).resolve()
     resolved = pool_dir.resolve()
     if temp_root not in resolved.parents or resolved.name != "pool":
         raise SystemExit(

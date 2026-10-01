@@ -60,7 +60,8 @@ def detect_stock_intent(user_text: str) -> StockDialogueIntent:
 
 def _knowledge_root() -> Path:
     raw = os.environ.get("ACE_STOCK_DIALOGUE_KB_ROOT")
-    return Path(raw) if raw else Path(r"C:\tmp\telegram_stock_dialogue_archaeology")
+    # 该知识库是可选外部资产；未提供时安全地禁用，而不是猜测旧机器路径。
+    return Path(raw).expanduser() if raw else Path("__ace_optional_stock_kb_disabled__")
 
 
 def _query_references(user_text: str, limit: int = 3) -> list[dict[str, Any]]:

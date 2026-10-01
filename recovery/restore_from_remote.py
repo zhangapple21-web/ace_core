@@ -21,6 +21,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from portable_paths import layout, portable_environment, resolve  # noqa: E402
+from recovery.state_snapshot import STATE_URL, restore as restore_state, verify_private  # noqa: E402
 
 
 CORE_URL = "https://github.com/zhangapple21-web/ace_core.git"
@@ -107,7 +108,7 @@ def clone(url: str, ref: str, destination: Path, *, result: dict | None = None) 
         remote = checked_run(["git", "ls-remote", "--heads", url, ref])
         result["remote_head"] = parse_remote_head(remote["stdout"], ref)
         destination.parent.mkdir(parents=True, exist_ok=True)
-        cloned = checked_run(["git", "clone", "--branch", ref, "--single-branch", url, str(destination)])
+        cloned = checked_run(["git", "-c", "core.autocrlf=false", "clone", "--branch", ref, "--single-branch", url, str(destination)])
         result.update(cloned)
         result["status"] = "FAIL"
         result["checked_out_branch"] = checked_run(["git", "branch", "--show-current"], destination)["stdout"].strip()
@@ -150,6 +151,8 @@ def main() -> int:
     parser.add_argument("--with-video", action="store_true", help="同时恢复 ace-video-kingdom 并运行离线视频验证")
     parser.add_argument("--with-optional", action="store_true", help="同时 clone 能力、Skill、知识和公开资产仓库")
     parser.add_argument("--skip-tests", action="store_true", help="只做 clone/bootstrap，不运行测试")
+    parser.add_argument("--state-url", default=STATE_URL, help="私有状态仓库；传空字符串可仅恢复代码")
+    parser.add_argument("--state-ref", default="main", help="状态仓库分支")
     args = parser.parse_args()
     root = args.workspace_root.expanduser().resolve()
     if root.exists() and any(root.iterdir()):
@@ -175,8 +178,14 @@ def main() -> int:
         clone(url, ref, destination, result=step)
 
     try:
+        if args.state_url:
+            receipt["state_private_verification"] = verify_private(args.state_url)
         core = resolve(root, "restore_core")
         clone_step("clone_core", CORE_URL, CORE_REF, core)
+        if args.state_url:
+            state = root / "ace-state"
+            clone_step("clone_state", args.state_url, args.state_ref, state)
+            receipt["steps"].append({"name": "restore_state", "status": "PASS", **restore_state(state, core)})
         bootstrap = [python, "recovery/bootstrap.py", "--workspace-root", str(core)]
         if args.skip_tests:
             bootstrap.append("--skip-tests")
@@ -222,7 +231,13 @@ def main() -> int:
         # 保留本次失败产物在旁目录，不删除 checkout，也不阻塞同一目标重试。
         failed_root = Path(tempfile.mkdtemp(prefix=f"{root.name}_failed_", dir=root.parent))
         receipt_path = failed_root / "ACE_REMOTE_RESTORE_RECEIPT.json"
-        root.rename(failed_root / "workspace")
+        receipt["retained_workspace"] = str(root)
+        receipt_path.write_text(json.dumps(receipt, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        try:
+            root.rename(failed_root / "workspace")
+            receipt["retained_workspace"] = str(failed_root / "workspace")
+        except OSError as exc:
+            receipt["archive_error"] = str(exc)
         receipt_path.write_text(json.dumps(receipt, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(receipt, ensure_ascii=False, indent=2))
     print(f"receipt: {receipt_path}")

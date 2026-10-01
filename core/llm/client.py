@@ -251,9 +251,10 @@ def get_llm_router() -> LLMRouter:
     """获取 LLM 路由单例"""
     global _llm_router
     if _llm_router is None:
-        coze_assets = Path(__file__).parent.parent.parent / "coze-assets"
-        if not coze_assets.exists():
-            coze_assets = Path("c:/Users/USER/Downloads/Telegram Desktop/coze-assets")
+        # 只接受显式的外部资产路径；未配置时使用仓库旁的可选目录，
+        # 不回退到任何旧电脑的用户目录。
+        configured = os.environ.get("ACE_MINER_ASSETS_PATH", "").strip()
+        coze_assets = Path(configured).expanduser() if configured else Path(__file__).parent.parent.parent / "coze-assets"
         _llm_router = LLMRouter(str(coze_assets))
     return _llm_router
 

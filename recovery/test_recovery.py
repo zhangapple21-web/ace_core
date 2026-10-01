@@ -145,11 +145,69 @@ class CloneTests(unittest.TestCase):
             self.assertEqual(asset.read_text(), "keep")
             self.assertEqual(list(root.iterdir()), [asset])
 
+    def test_clone_disables_checkout_newline_conversion(self):
+        sha = 'a' * 40
+        outputs = [f'{sha}\trefs/heads/main', '', 'main', sha, 'offline']
+        with tempfile.TemporaryDirectory() as tmp, patch.object(
+                restore, 'run', side_effect=[command_result(stdout=x) for x in outputs]) as run:
+            restore.clone('offline', 'main', Path(tmp) / 'checkout')
+        self.assertEqual(run.call_args_list[1].args[0][:5],
+                         ['git', '-c', 'core.autocrlf=false', 'clone', '--branch'])
+
     def test_coze_remote(self):
         self.assertIn(("coze-assets", "https://github.com/ACEE0011/coze-assets.git", "main"), restore.OPTIONAL_REPOS)
 
 
 class OrchestratorTests(unittest.TestCase):
+    def test_archive_denied_preserves_original_error_and_receipt(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / 'restore'
+            argv = ['restore', '--workspace-root', str(root)]
+            with patch.object(restore.sys, 'argv', argv), \
+                    patch.object(restore.shutil, 'which', return_value='git'), \
+                    patch.object(restore, 'verify_private', side_effect=RuntimeError('original failure')), \
+                    patch.object(Path, 'rename', side_effect=PermissionError('archive denied')), \
+                    contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(restore.main(), 1)
+            receipts = list(Path(tmp).rglob('ACE_REMOTE_RESTORE_RECEIPT.json'))
+            self.assertEqual(len(receipts), 1)
+            receipt = json.loads(receipts[0].read_text(encoding='utf-8'))
+            self.assertEqual(receipt['error'], 'original failure')
+            self.assertEqual(receipt['archive_error'], 'archive denied')
+            self.assertEqual(receipt['retained_workspace'], str(root))
+            self.assertTrue(root.is_dir())
+
+    def test_state_restore_precedes_bootstrap(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / 'restore'
+            events = []
+
+            def fake_clone(url, ref, destination, *, result):
+                events.append('clone_' + destination.name)
+                destination.mkdir(parents=True)
+                result.update(status='PASS')
+                if destination.name == 'ace_core':
+                    (destination / 'recovery').mkdir()
+                    (destination / 'recovery/bootstrap_report.json').write_text(json.dumps({'checks': checks()}))
+
+            def fake_state(snapshot, workspace):
+                events.append('restore_state')
+                return {'counts': {'files': 3}, 'manifest_sha256': 'a' * 64}
+
+            def fake_run(cmd, cwd):
+                events.append('bootstrap')
+                return command_result()
+
+            argv = ['restore', '--workspace-root', str(root), '--state-ref', 'snapshot-main']
+            with patch.object(restore.sys, 'argv', argv), patch.object(restore.shutil, 'which', return_value='git'), \
+                    patch.object(restore, 'verify_private', return_value={'private': True}), \
+                    patch.object(restore, 'clone', side_effect=fake_clone) as clone, \
+                    patch.object(restore, 'restore_state', side_effect=fake_state), \
+                    patch.object(restore, 'run', side_effect=fake_run), contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(restore.main(), 0)
+            self.assertEqual(events, ['clone_ace_core', 'clone_ace-state', 'restore_state', 'bootstrap'])
+            self.assertEqual(clone.call_args_list[1].args[1], 'snapshot-main')
+
     def test_receipt_workspace_and_continuation(self):
         for code, health, declared, expected in (
                 (0, "PASS", None, "PASS"), (0, "NOT_READY", None, "PARTIAL"),
@@ -176,7 +234,7 @@ class OrchestratorTests(unittest.TestCase):
                     commands.append(cmd)
                     return command_result(code if "recovery/bootstrap.py" in cmd else 0)
 
-                argv = ["restore", "--workspace-root", str(root), "--with-video", "--with-optional"]
+                argv = ["restore", "--workspace-root", str(root), "--with-video", "--with-optional", "--state-url", ""]
                 with patch.object(restore.sys, "argv", argv), patch.object(restore.shutil, "which", return_value="git"), \
                         patch.object(restore, "clone", side_effect=fake_clone), patch.object(restore, "run", side_effect=fake_run), \
                         patch.object(restore, "OPTIONAL_REPOS", [("optional-test", "offline", "main")]), \

@@ -1,7 +1,7 @@
 # ACE Recovery Map（灾备与一键复活基线）
 
 > 基线日期：2026-09-30（Asia/Shanghai）
-> 当前结论：`BACKUP_COMPLETE / RECOVERABLE`（核心离线复活与视频能力域 dry-run 已在独立目录验证；私密凭据、模型权重、私有媒体按人工清单补回）。
+> 当前结论：`BACKUP_COMPLETE / RECOVERABLE`（核心离线复活、视频能力域 dry-run 与非 C/D 盘符映射演练均已在独立目录验证；私密凭据、模型权重、私有媒体按人工清单补回）。
 
 ## 1. 真源与边界
 
@@ -24,15 +24,24 @@
 6. 按 `MISSING_HUMAN_REQUIRED.md` 从安全来源补回凭据、模型权重和获授权媒体；未补回时只能使用离线能力，不得宣称外部 Provider 已恢复。
 7. 运维授权后再启动当前 `ace.py daemon --serve ...` 并运行 `ops/health_check.py --json`；空 checkout 未启动 daemon 时的 heartbeat error 是预期门槛，不是缺失源码。
 
-## 3. 当前验证基线
+## 4. 便携路径策略（当前有效）
+
+- `portable_paths.py` 是当前恢复链的唯一仓库内路径解析层；`recovery/bootstrap.py`、`recovery/restore_from_remote.py` 和关键运行时回退均不再写死旧电脑绝对路径。
+- 仓库内目录由 `ROOTS` 表统一声明。整个 checkout 放到新盘符时，只需把 `--workspace-root` 指向新盘符目录，无需改代码。
+- 外部资产只通过 `ACE_MINER_ASSETS_PATH`、`ACE_VIDEO_KINGDOM_ROOT` 等显式变量提供；空值表示禁用，绝不猜测旧机器目录。
+- `recovery/path_audit.py` 在 bootstrap 中自动运行，阻断恢复入口关键文件重新引入机器专属绝对路径。
+
+
+## 5. 当前验证基线
 
 - `ace_core` canonical branch：`core/daemon-lifecycle-resilience-20260912`
+- 当前远程 HEAD：`17b90ebb717ee2e84b1dcf7a8f5c065a9c6d573d`（便携路径治理提交）
 - `ace_core` 文档生成时远程 HEAD：`bffec587884f4844a6b8d1fd21afd2c1866084de`（恢复入口始终以 `git ls-remote` 和实际 clone 为准）
 - `ace_core` 行为验证基线：`2ce7f9068441c0d341d8ed26cec1ea77d72cdbf8`
 - `ace-video-kingdom/main`：`27da48891ac778e88689fd1e33cdc058472f9b90`
 - 最新独立演练目录：`D:\\tmp\\ace_dr_final_20260930_r3`（历史收据）；最终入口演练以 `ACE_REMOTE_RESTORE_RECEIPT.json` 为准。
 
-## 4. 验收标准
+## 6. 验收标准
 
 必须同时满足：远程 ref 可 checkout；bootstrap/compileall/离线测试通过；TaskPool/lease/fencing 演练通过；当前 AceDaemon 启动后 health `errors=0`；视频 dry-run 完成且 `provider_submission=NOT_PERFORMED`；没有 `LOCAL_ONLY_CRITICAL`；人工依赖有来源、变量名和补回方式。
 
