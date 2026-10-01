@@ -19,6 +19,7 @@
 """
 
 import json
+import math
 import os
 import time
 from pathlib import Path
@@ -203,11 +204,25 @@ class MinerPool:
         return self._watchdog.run_full_check(test_models=test_models)
 
     @staticmethod
-    def _shenwen_cost(model: str, usage: Dict[str, Any]) -> Dict[str, Any]:
-        # Shenwen Grok Heavy returns provider-authoritative cost in
-        # micro-USD ticks; do not infer a price table for it.
-        ticks = usage.get("cost_in_usd_ticks") if isinstance(usage, dict) else None
-        if isinstance(ticks, (int, float)):
+    def _shenwen_cost(
+        model: str, usage: Dict[str, Any], provider: str = "shenwen"
+    ) -> Dict[str, Any]:
+        if not isinstance(usage, dict):
+            return {}
+
+        def valid_number(value: Any) -> bool:
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or value < 0:
+                return False
+            try:
+                return math.isfinite(value)
+            except OverflowError:
+                return False
+
+        # 权威 ticks 不限供应商；非法证据不可当成免费。
+        if "cost_in_usd_ticks" in usage:
+            ticks = usage["cost_in_usd_ticks"]
+            if not valid_number(ticks):
+                return {}
             return {
                 "currency": "USD",
                 "input_usd": 0.0,
@@ -218,6 +233,8 @@ class MinerPool:
                 "provider_cost_ticks": ticks,
                 "usage_source": "provider_response",
             }
+        if provider not in {"shenwen", "shenwen_grok", "shenwen_ds41"}:
+            return {}
         prices = {
             "gpt-5.6-terra": {
                 "input": 0.44,
@@ -233,24 +250,31 @@ class MinerPool:
             },
         }
         price = prices.get(model)
-        if not price or not isinstance(usage, dict):
+        if not price:
+            return {}
+
+        token_fields = ("prompt_tokens", "completion_tokens", "cache_read_tokens", "cache_write_tokens")
+        present_fields = [name for name in token_fields if name in usage]
+        if not present_fields or any(not valid_number(usage[name]) for name in present_fields):
             return {}
 
         def token_count(name: str) -> float:
-            value = usage.get(name, 0)
-            return value if isinstance(value, (int, float)) else 0
+            return usage.get(name, 0)
 
         input_usd = token_count("prompt_tokens") * price["input"] / 1_000_000
         cache_read_usd = token_count("cache_read_tokens") * price["cache_read"] / 1_000_000
         cache_write_usd = token_count("cache_write_tokens") * price["cache_write"] / 1_000_000
         output_usd = token_count("completion_tokens") * price["output"] / 1_000_000
+        total_usd = input_usd + cache_read_usd + cache_write_usd + output_usd
+        if not math.isfinite(total_usd):
+            return {}
         return {
             "currency": "USD",
             "input_usd": input_usd,
             "cache_read_usd": cache_read_usd,
             "cache_write_usd": cache_write_usd,
             "output_usd": output_usd,
-            "total_usd": round(input_usd + cache_read_usd + cache_write_usd + output_usd, 12),
+            "total_usd": round(total_usd, 12),
             "usage_source": "provider_response",
         }
 
@@ -459,6 +483,9 @@ class MinerPool:
                     "success": False,
                     "retryable": False,
                     "error": last_error,
+                    "usage": {},
+                    "cost": {},
+                    "cost_status": "not_called",
                 })
                 self._router.mark_model_health(spec.full_id, False)
                 spec = None
@@ -481,12 +508,12 @@ class MinerPool:
             latency_ms = call_result.get("latency_ms", 0)
             error = call_result.get("error", "")
             retryable = not success and self._is_retryable_error(error)
-            call_cost = {}
-            if success and spec.provider in {"shenwen", "shenwen_grok", "shenwen_ds41"}:
-                call_cost = self._shenwen_cost(
-                    call_result.get("model", spec.model),
-                    call_result.get("usage", {}),
-                )
+            call_usage = call_result.get("usage", {})
+            call_cost = self._shenwen_cost(
+                call_result.get("model", spec.model),
+                call_usage,
+                provider=spec.provider,
+            )
             result["attempts"].append({
                 "number": attempt + 1,
                 "model": spec.full_id,
@@ -496,6 +523,9 @@ class MinerPool:
                 "success": success,
                 "retryable": retryable,
                 "error": error,
+                "usage": call_usage,
+                "cost": call_cost,
+                "cost_status": "known" if call_cost else "unknown",
             })
             self._router.record_call(
                 model_id=spec.full_id,
@@ -515,8 +545,8 @@ class MinerPool:
                 result["model"] = call_result.get("model", spec.model)
                 result["provider"] = spec.provider
                 result["usage"] = call_result.get("usage", {})
-                if spec.provider in {"shenwen", "shenwen_grok", "shenwen_ds41"}:
-                    result["cost"] = call_cost
+                # 顶层仅保留成功调用费用，完整链费用留在 attempts。
+                result["cost"] = call_cost
                 result["latency_ms"] = latency_ms
                 result["tried_models"] = tried
                 result["routing"] = self._router.resolve_route(
