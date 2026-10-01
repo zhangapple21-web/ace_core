@@ -4,7 +4,8 @@
 # Scope: recorded 103 safe tests (3 blocked), 153 isolated bootstrap tests,
 # 18 recovery unittests and 36 provider-free video tests; not host E2E.
 # Includes frozen direct and transitive packages; no local cache artifacts.
-# pip check passed in the source venv; fresh reinstall is NOT VERIFIED.
+# pip check passed in the source venv; fresh reinstall passed 2026-10-01 in a new Python 3.11.9 venv with no system/user site packages.
+# Verification was online and focused only; no offline wheelhouse or full ACE dependency rebuild is claimed.
 # Registry tools needing PyYAML, daemon and real providers are outside scope.
 # Bootstrap is unchanged and does not automatically install this file.
 baostock==0.9.4

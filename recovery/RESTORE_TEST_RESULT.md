@@ -25,6 +25,16 @@
 - 视频域历史演练：`36 passed` 离线测试及 dry-run；`provider_submission=NOT_PERFORMED`，不出片、不提交真实 Provider。
 - `business_validation.json` 总体为 `FAIL`：股票 `time` 字段误取价格变化值 `0.30`；真实报价非空但没有模拟单或成交。5 个 Skill 的 loadable/frontmatter 检查和一次纯 helper 调用不是宿主 E2E。
 
+## Fresh Reinstall 验证（2026-10-01）
+
+- 在新的空路径 `C:\tmp\ace_recovery_fresh_20261001_subverify` 从 core 远程 clone canonical branch；checkout 与 `git ls-remote` 均为 `919768e353459011f22ebfde1cd1056bffa75fdd`。没有复用已存在的 `C:\tmp\ace_recovery_fresh_20261001`，没有复制 venv 或包缓存。
+- 使用 `py -3.11 -m venv .recovery-venv` 创建新环境：Python `3.11.9`，Windows AMD64，`pyvenv.cfg` 的 `include-system-site-packages=false`，`site.ENABLE_USER_SITE=False`，`sys.prefix != sys.base_prefix`；pip `24.0`，未升级 pip。
+- 新 venv 执行 `python -m pip install --no-cache-dir -r recovery/requirements-recovery.lock`，exit `0`，22 个锁定包安装成功；`python -m pip check` exit `0`，输出 `No broken requirements found.`。
+- 同一 venv 执行 `python -m pytest -q -p no:cacheprovider recovery/test_recovery.py recovery/test_state_snapshot.py`，exit `0`，`29 passed, 28 subtests passed in 1.66s`。仅 focused recovery 验证，不重跑全业务 behavior，也不将历史 103/153/18/36 计数冒充本次结果。
+- **bootstrap 边界**：读取 `bootstrap.py` 确认它使用调用者的 Python 准备目录/配置并执行检查，根本不创建隔离 venv 或安装 lock。因此 code-only bootstrap 不能视为完整 dependency rebuild；本次为人工显式执行的在线 recovery 测试集 dependency rebuild，不修改 bootstrap，不改变任何锁定版本或模型；仅同步 lock 的验证状态注释，具体证据以 manifest 本节对应字段为准。
+- **网络与依赖局限**：本次在线包下载成功，`pytdx==1.72` 通过隔离构建产生 wheel，pip 临时构建缓存未迁移。lock 未锁定构建工具，也不含包制品 hash 或离线 wheelhouse；未来包源可用性、断网恢复、其他 Python/平台、PyYAML registry 工具和完整 ACE 依赖/业务仍未验证。未审计包源基础设施，成功安装不能推断长期可恢复。
+- **安全边界**：未 clone 私有 state，focused tests 仅使用合成临时 fixtures/模拟调用；未启动 daemon、provider、交易或真实视频任务，未执行继承 epoch 行为。仅使用既有 Git 认证，生产目录和发布仓库无关 dirty 未改动。整机恢复结论仍为 `PARTIAL`。
+
 ## 快照排除和边界
 
 - 排除统计已复核：15152 个 backup/cache/test/validation/claim，5 个 source/transient process state，300 个 raw external HTML。HTML 仅保留 hash，正文未上传，不能从 state snapshot 恢复；credential configuration 被排除，secret scan fail-closed。
