@@ -18,7 +18,7 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Any, Optional
 
 from core.task_admission import duplicate_task, validate_admission
-from core.civilization_map_reference import admission_envelope, same_admission_intent
+from core.civilization_map_reference import admission_envelope, same_admission_intent, same_canonical_object
 from core.execution_discipline import (
     build_execution_discipline,
     execution_gate,
@@ -586,9 +586,17 @@ class TaskPool:
         with self._locked():
             existing = self.list_tasks(limit=10000, sort_by="created")
             if admission:
-                duplicate = duplicate_task(existing, admission)
-                if duplicate and same_admission_intent(duplicate, admission, title=title):
-                    return duplicate
+                for candidate in existing:
+                    if candidate.status in {"archived", "graveyard", "rejected"}:
+                        continue
+                    duplicate = duplicate_task([candidate], admission)
+                    if duplicate and same_admission_intent(duplicate, admission, title=title):
+                        return duplicate
+                for candidate in existing:
+                    if candidate.status in {"archived", "graveyard", "rejected"}:
+                        continue
+                    if same_canonical_object(candidate, admission, title=title) and same_admission_intent(candidate, admission, title=title):
+                        return candidate
             today = datetime.now().strftime("%Y%m%d")
             today_count = sum(1 for task in existing if task.task_id.startswith(f"RQ-{today}"))
             task_outputs = dict(outputs or {})

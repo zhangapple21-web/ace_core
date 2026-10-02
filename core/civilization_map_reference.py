@@ -93,7 +93,13 @@ def same_admission_intent(existing: Any, admission: Mapping[str, Any], *, title:
         return prior["canonical_object_id"] == current["canonical_object_id"]
     return prior == current
 
-
+def same_canonical_object(existing: Any, admission: Mapping[str, Any], *, title: str) -> bool:
+    """Match an existing task by canonical object, independent of source locator."""
+    existing_outputs = getattr(existing, "outputs", {}) or {}
+    existing_admission = existing_outputs.get("admission", {}) if isinstance(existing_outputs, Mapping) else {}
+    prior = admission_envelope(existing_admission, title=str(getattr(existing, "title", "")))
+    current = admission_envelope(admission, title=title)
+    return prior["canonical_object_id"] == current["canonical_object_id"]
 @dataclass(frozen=True)
 class MapObjectRef:
     object_id: str

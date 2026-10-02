@@ -127,6 +127,44 @@ def test_taskpool_splits_same_intent_when_payload_changes():
         assert len(pool.list_tasks()) == 2
 
 
+def test_taskpool_rechecks_all_same_source_intents():
+    from core.task import TaskPool
+
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        pool = TaskPool(temp_dir)
+        inspect = pool.create_task("Inspect source", admission=_admission(intent="inspect"))
+        repair = _admission(intent="repair")
+        repair["payload"] = {"scope": "same"}
+        repair_retry = _admission(intent="repair")
+        repair_retry["payload"] = {"scope": "same"}
+        repair = pool.create_task("Repair source", admission=repair)
+        repair_retry = pool.create_task("Repair source retry", admission=repair_retry)
+        assert repair_retry.task_id == repair.task_id
+        assert repair_retry.task_id != inspect.task_id
+        assert len(pool.list_tasks()) == 2
+
+
+def test_taskpool_matches_explicit_identity_across_source_locators():
+    from core.task import TaskPool
+
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        pool = TaskPool(temp_dir)
+        first_admission = _admission(source_ref="C:/world-a/object.json")
+        first_admission["canonical_object_id"] = canonical_object_id("shared", "object-1")
+        first_admission["payload"] = {"scope": "same"}
+        second_admission = _admission(source_ref="D:/world-b/object.json")
+        second_admission["canonical_object_id"] = canonical_object_id("shared", "object-1")
+        second_admission["payload"] = {"scope": "same"}
+        first = pool.create_task("Inspect object", admission=first_admission)
+        second = pool.create_task("Inspect object retry", admission=second_admission)
+        assert second.task_id == first.task_id
+        assert len(pool.list_tasks()) == 1
+
+
 def test_taskpool_persists_map_identity_and_intent_fields():
     from core.task import TaskPool
 

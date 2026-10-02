@@ -11,18 +11,18 @@
 | canonical ID | 语义对象 | role | state | 当前 Authority / locator | 关系结论 |
 |---|---|---|---|---|---|
 | `ace:ace:9aa60e2c19530c29db3dd808` | ACE civilization map kernel | authority | current | `core/civilization_map_reference.py` + L0-L6 根文档 | ACE 本体引用层，不拥有下挂世界数据 |
-| `ace:root:3a2d29bda949988667c2ec47` | ROOT_STATE / 根连续性 | authority | current | `00_ROOT/ROOT_STATE.md` | 启动最小根状态；属于本体连续性基线 |
-| `ace:memory:3da839763a46ef5436180e05` | MemoryGateway → MemoryIndex | authority | current | `06_RUNTIME/ace/data/memory/memory_index.json` | 当前唯一生产记忆读写链；gateway 是受控 facade |
-| `ace:memory:1d9a430e6b0e48fbaab704e9` | MemoryKernel | authority candidate | candidate | `core/memory_kernel.py`、events/snapshot 设计 | staged migration candidate；不得默认读写或形成第二索引 |
-| `ace:knowledge:8e22a97322e4fcdb803ef9cb` | canonical Knowledge | authority | current | `09_KNOWLEDGE/` | 受治理 Knowledge 目录权威 |
-| `ace:taskpool:8b5334168400b1f2c941b428` | TaskPool task state | authority | current | `task_pool/` | 任务生命周期权威；不与 shared queue 合并 |
-| `ace:runtime:111dc53eb6ef0b4a304099aa` | daemon runtime state | authority evidence | current | `06_RUNTIME/ace/data/memory/daemon_state.json` + heartbeat | 快照与心跳共同构成运行证据；快照单独不能证明 liveness |
-| `ace:evidence:08d54593767be5246b951c45` | governance evidence registry | evidence ledger | current | `08_GOVERNANCE/evidence/evidence_registry.jsonl` | 证据收据，不直接授予生产权威 |
-| `ace:experience:02d3fb71abb909a8affcf5ff` | ExperienceDeposition | authority | current | 受治理 Knowledge / ExperienceDeposition 路径 | 经验沉积权威；不能由 summary/index 单独替代 |
-| `ace:capability:dd2ec07eb6f2689d25149d04` | capability cards | candidate projection | candidate | `09_KNOWLEDGE/capability_cards/` | `RESEARCH_READY_NOT_PROMOTED`；不是生产能力或 provider route |
-| `ace:daily-learning:f2b5a9297d60847590d0e3d9` | DailyLearningLoop local knowledge | secondary write candidate | candidate | `06_RUNTIME/ace/data/memory/daily_learning/knowledge/` | 潜在第二知识写入路径；未证明近期双写，必须持续隔离审计 |
+| `ace:root:8ec6513f6535db48f9fc3fa6` | ROOT_STATE / 根连续性 | authority | current | `00_ROOT/ROOT_STATE.md` | 启动最小根状态；属于本体连续性基线 |
+| `ace:memory:26bfd55ee6f8981791c98432` | production MemoryGateway → MemoryIndex | authority | current | `06_RUNTIME/ace/data/memory/memory_index.json` | 当前唯一生产记忆读写链；gateway 是受控 facade |
+| `ace:memory:ba60be090e39113e0f00083a` | MemoryKernel | authority candidate | candidate | `core/memory_kernel.py`、events/snapshot 设计 | staged migration candidate；不得默认读写或形成第二索引 |
+| `ace:knowledge:d8b6820194489e2912b6e35e` | canonical Knowledge | authority | current | `09_KNOWLEDGE/` | 受治理 Knowledge 目录权威 |
+| `ace:taskpool:ff2c1f3136e5f602057981ee` | TaskPool task state | authority | current | `task_pool/` | 任务生命周期权威；不与 shared queue 合并 |
+| `ace:runtime:bdd8c0d60999bc2266c61aa2` | daemon runtime state | authority evidence | current | `06_RUNTIME/ace/data/memory/daemon_state.json` + heartbeat | 快照与心跳共同构成运行证据；快照单独不能证明 liveness |
+| `ace:evidence:70547a1da9a143ad4cac2f2b` | governance evidence registry | evidence ledger | current | `08_GOVERNANCE/evidence/evidence_registry.jsonl` | 证据收据，不直接授予生产权威 |
+| `ace:experience:ace36ed40ee2e507a6adc6a9` | ExperienceDeposition | authority | current | 受治理 Knowledge / ExperienceDeposition 路径 | 经验沉积权威；不能由 summary/index 单独替代 |
+| `ace:capability:a36f0df542c451f4a7e1b7b4` | capability cards | projection | candidate | `09_KNOWLEDGE/capability_cards/` | `RESEARCH_READY_NOT_PROMOTED`；不是生产能力或 provider route |
+| `ace:knowledge:b1faad47c7d967e3e6e64d63` | DailyLearningLoop local Knowledge | candidate writer | candidate | `06_RUNTIME/ace/data/memory/daily_learning/knowledge/` | 潜在第二知识写入路径；未证明近期双写，必须持续隔离审计 |
 
-> ID 的生成使用 `canonical_object_id(namespace, local_identity)`；上述路径只作为 locator，不是身份来源。
+> census 的 local identity 使用 `map-kernel`、`canonical-knowledge` 等稳定语义名；路径只作为 locator，不是身份来源。ID 由 `canonical_object_id(namespace, local_identity)` 生成。
 
 ## 2. 权威关系图（文字版）
 
