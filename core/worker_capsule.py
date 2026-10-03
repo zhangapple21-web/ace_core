@@ -37,6 +37,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from .execution_discipline import (
     PIPELINE_STAGES,
+    ExecutionDiscipline,
     add_evidence_ledger_entry,
     record_checkpoint,
     record_event,
@@ -396,8 +397,14 @@ def _refusal(reason: str, task_id: str, hint: str, **extra: Any) -> Dict[str, An
 
 def _envelope_of(task: Any) -> Dict[str, Any]:
     outputs = getattr(task, "outputs", None)
-    envelope = outputs.get("execution_discipline") if isinstance(outputs, dict) else None
-    return envelope if isinstance(envelope, dict) else {}
+    if not isinstance(outputs, dict):
+        return {}
+    envelope = outputs.get("execution_discipline")
+    if isinstance(envelope, ExecutionDiscipline):
+        return envelope.to_dict()
+    if isinstance(envelope, dict):
+        return envelope
+    return {}
 
 
 def _next_stage(envelope: Dict[str, Any]) -> Tuple[str, str]:
@@ -787,10 +794,16 @@ def render_task_capsule(
     # admission time; rendering both made one piece of evidence look like two,
     # which is exactly the miscount a weak worker cannot self-check.
     deduped_known: List[Any] = []
-    seen_known: set[str] = set()
+    seen_known: set[tuple[str, str]] = set()
     for item in known:
-        key = _fact_line(item)
-        if key and key not in seen_known:
+        if isinstance(item, dict):
+            content = _one_line(item.get("content") or item.get("fact") or item.get("summary") or "")
+            source = _one_line(item.get("source") or item.get("from") or "")
+        else:
+            content = _one_line(item)
+            source = ""
+        key = (content, source)
+        if content and key not in seen_known:
             seen_known.add(key)
             deduped_known.append(item)
     kf_lines, kf_omitted = _section_lines(deduped_known)

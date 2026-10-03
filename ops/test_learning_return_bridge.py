@@ -85,3 +85,59 @@ def test_video_learning_packet_returns_bounded_card_after_guardian(tmp_path):
     assert card["source_packet_id"] == "EK-abc"
     assert card["production_integration"] is False
     assert card["recommended_capabilities"] == []
+
+def test_internal_archaeology_becomes_research_candidate_without_second_task(tmp_path):
+    source = tmp_path / "08_ARCHAEOLOGY" / "2026-06-30_hunting_report.md"
+    source.parent.mkdir()
+    source.write_text("# 开放狩猎报告\n\n### 1. Example\n", encoding="utf-8")
+    task = SimpleNamespace(
+        task_id="RQ-ARCH-001",
+        guardian_decision="experience",
+        evidence=[{"source": str(source), "source_ref": str(source)}],
+        outputs={"discovery": {"evidence": [{"ref": str(source)}]}},
+    )
+    result = LearningReturnBridge(tmp_path).materialize(task)
+    assert result["status"] == "MATERIALIZED"
+    assert result["handoff"]["status"] == "INTERNAL_ARCHAEOLOGY_NOT_DISPATCHED"
+    assert result["production_integration"] is False
+    card = json.loads((tmp_path / "09_KNOWLEDGE/capability_cards/CAP-RQ-ARCH-001.json").read_text(encoding="utf-8"))
+    assert card["capability_state"] == "RESEARCH_READY_NOT_PROMOTED"
+    assert card["source_kind"] == "internal_archaeology"
+    assert card["higher_grade_eligible"] is False
+    assert card["higher_grade_requires_independent_evidence"] == 2
+
+def test_local_archaeology_intake_policy_separates_sources(tmp_path):
+    from core.local_archaeologist import LocalArchaeologist
+
+    scanner = LocalArchaeologist(tmp_path, SimpleNamespace(), SimpleNamespace())
+    assert scanner._intake_policy("tg_finding", ".md", tmp_path / "finding.md")["decision"] == "research"
+    assert scanner._intake_policy("tg_index", ".json", tmp_path / "index.json")["decision"] == "observe"
+    assert scanner._intake_policy("archaeology", ".md", tmp_path / "secret.md")["decision"] == "skip"
+    assert scanner._intake_policy("repository_material", ".md", tmp_path / "README.md")["decision"] == "research"
+
+
+def test_real_local_collection_excludes_sensitive_and_keeps_policy(tmp_path):
+    from core.local_archaeologist import LocalArchaeologist
+
+    root = tmp_path / "08_ARCHAEOLOGY"
+    root.mkdir()
+    (root / "continuity.md").write_text("# Continuity invariants", encoding="utf-8")
+    (root / "secret.md").write_text("excluded", encoding="utf-8")
+    scanner = LocalArchaeologist(tmp_path, SimpleNamespace(), SimpleNamespace())
+    candidates = scanner._collect_candidate_files()
+    assert len(candidates) == 1
+    policy = candidates[0]["intake_policy"]
+    assert policy["authority"] == "local_read_only"
+    assert policy["retention"] == "LINEAGE"
+    assert policy["evidence_quality"] == "source_assertion"
+    assert scanner.scan()["files_scanned"] == 1
+
+
+def test_unknown_material_is_cold_observation_not_deletion(tmp_path):
+    from core.local_archaeologist import LocalArchaeologist
+
+    scanner = LocalArchaeologist(tmp_path, SimpleNamespace(), SimpleNamespace())
+    policy = scanner._intake_policy("unknown", ".txt", tmp_path / "unknown.txt")
+    assert policy["decision"] == "observe"
+    assert policy["retention"] == "COLD"
+    assert policy["reobserve"] is True

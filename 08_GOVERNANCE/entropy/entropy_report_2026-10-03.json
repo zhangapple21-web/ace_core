@@ -1,0 +1,157 @@
+{
+  "timestamp": "2026-10-03T14:27:21.550063",
+  "duplicate_files": [],
+  "duplicate_concepts": [],
+  "duplicate_protocols": [],
+  "duplicate_constraints": [],
+  "duplicate_experiences": [],
+  "duplicate_lexicons": [],
+  "duplicate_tasks": [],
+  "semantic_duplicates": [
+    {
+      "type": "semantic_duplicate",
+      "id1": "dispatch_mode",
+      "id2": "dsp_config",
+      "similarity": 0.8824,
+      "semantic_distance": 0.1176,
+      "reason": "内容高度相似但ID不同",
+      "suggestion": "建议MERGE而非新增"
+    },
+    {
+      "type": "semantic_duplicate",
+      "id1": "dispatch_mode",
+      "id2": "npu_acceleration",
+      "similarity": 0.8824,
+      "semantic_distance": 0.1176,
+      "reason": "内容高度相似但ID不同",
+      "suggestion": "建议MERGE而非新增"
+    },
+    {
+      "type": "semantic_duplicate",
+      "id1": "dispatch_mode",
+      "id2": "aum_module",
+      "similarity": 0.8824,
+      "semantic_distance": 0.1176,
+      "reason": "内容高度相似但ID不同",
+      "suggestion": "建议MERGE而非新增"
+    },
+    {
+      "type": "semantic_duplicate",
+      "id1": "dispatch_mode",
+      "id2": "firefox_integration",
+      "similarity": 0.8824,
+      "semantic_distance": 0.1176,
+      "reason": "内容高度相似但ID不同",
+      "suggestion": "建议MERGE而非新增"
+    },
+    {
+      "type": "semantic_duplicate",
+      "id1": "dispatch_mode",
+      "id2": "stock_market_module",
+      "similarity": 0.8824,
+      "semantic_distance": 0.1176,
+      "reason": "内容高度相似但ID不同",
+      "suggestion": "建议MERGE而非新增"
+    },
+    {
+      "type": "semantic_duplicate",
+      "id1": "dispatch_mode",
+      "id2": "poe_integration",
+      "similarity": 0.8824,
+      "semantic_distance": 0.1176,
+      "reason": "内容高度相似但ID不同",
+      "suggestion": "建议MERGE而非新增"
+    },
+    {
+      "type": "semantic_duplicate",
+      "id1": "dispatch_mode",
+      "id2": "bias_monitoring",
+      "similarity": 0.8824,
+      "semantic_distance": 0.1176,
+      "reason": "内容高度相似但ID不同",
+      "suggestion": "建议MERGE而非新增"
+    },
+    {
+      "type": "semantic_duplicate",
+      "id1": "dispatch_mode",
+      "id2": "pseudo_algorithm_kernel",
+      "similarity": 0.8824,
+      "semantic_distance": 0.1176,
+      "reason": "内容高度相似但ID不同",
+      "suggestion": "建议MERGE而非新增"
+    },
+    {
+      "type": "semantic_duplicate",
+      "id1": "dispatch_mode",
+      "id2": "five_world_autonomy",
+      "similarity": 0.8824,
+      "semantic_distance": 0.1176,
+      "reason": "内容高度相似但ID不同",
+      "suggestion": "建议MERGE而非新增"
+    },
+    {
+      "type": "semantic_duplicate",
+      "id1": "dispatch_mode",
+      "id2": "autonomous_operation",
+      "similarity": 0.8824,
+      "semantic_distance": 0.1176,
+      "reason": "内容高度相似但ID不同",
+      "suggestion": "建议MERGE而非新增"
+    },
+    {
+      "type": "semantic_duplicate",
+      "id1": "dispatch_mode",
+      "id2": "copilot_studio",
+      "similarity": 0.8824,
+      "semantic_distance": 0.1176,
+      "reason": "内容高度相似但ID不同",
+      "suggestion": "建议MERGE而非新增"
+    },
+    {
+      "type": "semantic_duplicate",
+      "id1": "本地考古吸收__SKILL_本地考古吸收_json",
+      "id2": "本地考古吸收__SKILL_碎片考古_json",
+      "similarity": 0.8571,
+      "semantic_distance": 0.1429,
+      "reason": "内容高度相似但ID不同",
+      "suggestion": "建议MERGE而非新增"
+    },
+    {
+      "type": "semantic_duplicate",
+      "id1": "本地考古吸收__SKILL_本地考古吸收_json",
+      "id2": "本地考古吸收__SKILL_考古报告分析_json",
+      "similarity": 0.8571,
+      "semantic_distance": 0.1429,
+      "reason": "内容高度相似但ID不同",
+      "suggestion": "建议MERGE而非新增"
+    },
+    {
+      "type": "semantic_duplicate",
+      "id1": "本地考古吸收__provider_health_202606",
+      "id2": "本地考古吸收__provider_inventory_202",
+      "similarity": 0.5455,
+      "semantic_distance": 0.4545,
+      "reason": "内容高度相似但ID不同",
+      "suggestion": "建议MERGE而非新增"
+    }
+  ],
+  "conflicts": [],
+  "orphaned_knowledge": [],
+  "input_paths": {
+    "lexicon": "C:\\tmp\\ace_core\\06_RUNTIME\\ace\\data\\memory\\lexicon.json",
+    "experiences": "C:\\tmp\\ace_core\\09_KNOWLEDGE\\experiences.json",
+    "evolution": "C:\\tmp\\ace_core\\09_KNOWLEDGE\\evolution.json"
+  },
+  "input_status": {
+    "lexicon": "loaded",
+    "experiences": "missing",
+    "evolution": "missing"
+  },
+  "read_errors": {
+    "experiences": "file_not_found",
+    "evolution": "file_not_found"
+  },
+  "entropy_score": 15.053763440860216,
+  "duplication_rate": 0.15053763440860216,
+  "total_duplicates": 14
+}

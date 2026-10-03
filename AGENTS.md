@@ -193,16 +193,16 @@ Three completed discovery windows with zero Candidates require an `INVESTIGATE_D
 - **Provider Failure Sediment** — Auto-write Experience when provider degrades (failure→experience→constraint)
 - **Model Registry** — 3 providers: Ollama → GitHub Models → Zhipu GLM
 - **Local Miner** — Unified `call_model()` with auto-fallback, no TRAE dependency
-- **Experience Sediment** — Write findings to `02_MEMORY/experience/`
-- **Memory path truth (2026-09-28)** — `MemoryIndex` is still the active daemon/worker
-  runtime read/write path. `MemoryKernel` is a staged replacement candidate, not
-  yet a production consumer or current source of truth. `HindsightStyleRetriever`
-  is a read-only ranking strategy under `MemoryKernel.query()`, not another store;
-  no standalone Hindsight search route is exposed on `MemoryIndex`.
-  Caller unification is NOT MET: daemon, role, scanner/parser/clusterer,
-  archaeologist, CLI and raw self-healing paths still use the legacy API or file;
-  see the caller inventory and one-time cutover gate in
-  `docs/ACE_MEMORY_KERNEL.v1.md`. `search_governed()` is a candidate query, not
+- **Experience Sediment** — The canonical daemon deposition path is `09_KNOWLEDGE/`; `02_MEMORY/experience/` is a legacy/archaeology path and is not assumed to be an active production writer without runtime evidence.
+- **Memory path truth (2026-10-02)** — `MemoryGateway → MemoryIndex` is the
+  active daemon/worker production read/write path. `MemoryGateway` is the single
+  facade and the daemon's wired memory consumers share that gateway; the backend
+  remains `MemoryIndex`. `MemoryKernel` is a staged replacement candidate, not a
+  production consumer or current source of truth. `HindsightStyleRetriever` is a
+  read-only ranking strategy under `MemoryKernel.query()`, not another store; no
+  standalone Hindsight search route is exposed on `MemoryIndex`.
+  The caller-unification audit passed with 8 wired consumers, zero provider calls,
+  and zero production data writes. `search_governed()` is a candidate query, not
   the production facade. Legacy migration is a separate explicit
   `MemoryKernel.import_records()` call, capped at 50 records with a hash-chained
   batch receipt. Recall never promotes by itself; Validator/Guardian/closed-loop

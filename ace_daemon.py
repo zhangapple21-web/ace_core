@@ -361,10 +361,13 @@ class AceDaemon:
         try:
             task_pool_dir = self.base_dir / "task_pool"
             self.task_pool = TaskPool(str(task_pool_dir))
+            # Free Zone 独立 TaskPool，隔离实验任务与生产任务
+            freezone_pool_dir = self.base_dir / "task_pool_freezone"
+            self.freezone_task_pool = TaskPool(str(freezone_pool_dir))
             self.free_zone_reflection_relay = FreeZoneReflectionRelay(
                 self.base_dir,
                 sandbox_root=self.base_dir / "07_SANDBOX" / "free_research",
-                task_pool=self.task_pool,
+                task_pool=self.freezone_task_pool,
             )
             self.observer = Observer(
                 task_pool=self.task_pool,
@@ -610,6 +613,7 @@ class AceDaemon:
                 ],
                 external_discoverer=(self.external_learning_discovery.discover if self.external_learning_discovery else None),
                 learning_router=route_learning,
+                knowledge_dir=str(self.base_dir / "09_KNOWLEDGE"),
             )
             self.lifecycle_lock_file = task_pool_dir / ".lifecycle.lock"
         except Exception as e:
@@ -2180,6 +2184,7 @@ class AceDaemon:
                     system_prompt="Daily provider health check. Return only OK.",
                     max_retries=1,
                     max_tokens=8,
+                    data_boundary={"data_class": "PUBLIC", "source_scope": "AUTHORIZED_PROJECT_CONTEXT"},
                 )
             except Exception as error:
                 response = {"success": False, "error": str(error)}
@@ -2393,7 +2398,9 @@ class AceDaemon:
                 scan_result = self.file_scanner.scan_and_create(
                     max_new=2,
                     allowed_priorities=None if production_policy["file_scanner"] else {"critical", "high"},
-                    allow_task_creation=False,
+                    # Discovery is allowed to admit bounded read-only material
+                    # tasks; Researcher/Validator/Guardian still gate learning.
+                    allow_task_creation=True,
                 )
                 result["fragment_scanned"] = scan_result.get("scanned", 0)
                 result["fragment_new"] = scan_result.get("new_files", 0)
@@ -3454,18 +3461,22 @@ class AceDaemon:
                 think = self._check_cognitive_think(str(boundary.get("status") or ""))
                 if boundary.get("status") != "CONTINUE":
                     # Provider degradation closes model-backed continuation,
-                    # but must not strand already-admitted local evidence
-                    # work.  Consume only the bounded, hash-verifiable lane;
-                    # then let the scheduler start a fresh context later.
+                    # but must not terminate the daily daemon.  Keep the
+                    # process alive, service the local evidence lane, and
+                    # retry the governed gate on the next scheduled cycle.
                     local_work = self._run_local_only_work(limit=2)
                     self.state["local_only_work_last"] = {
                         **local_work,
                         "at": datetime.now().isoformat(),
                     }
                     self._save_state()
-                    print(f"继续闸门关闭；本地证据车道已处理 {local_work.get('reviewed', 0)} 个任务")
-                    stop_reason = "CONTINUE_GATE_CLOSED"
-                    break
+                    self.heartbeat.beat(reason="continue_gate_closed")
+                    print(f"继续闸门关闭；本地证据车道已处理 {local_work.get('reviewed', 0)} 个任务，等待下一轮")
+                    if max_iterations > 0 and iteration >= max_iterations:
+                        stop_reason = "reached_max_iterations"
+                        break
+                    self.shutdown_event.wait(max(1, interval_seconds))
+                    continue
                 if think.get("status") == "LOOP_BLOCKED":
                     local_work = self._run_local_only_work(limit=2)
                     self.state["local_only_work_last"] = {
@@ -3539,8 +3550,10 @@ class AceDaemon:
                     boundary = self._check_continue_gate()
                     think = self._check_cognitive_think(str(boundary.get("status") or ""))
                     if boundary.get("status") != "CONTINUE":
-                        stop_reason = "CONTINUE_GATE_CLOSED"
-                        break
+                        self.heartbeat.beat(reason="provider_degraded_retry")
+                        print("provider 健康探针降级；保留 daemon 常驻并等待下一轮")
+                        self.shutdown_event.wait(max(1, interval_seconds))
+                        continue
                     if think.get("status") == "LOOP_BLOCKED":
                         print("COGNITIVE_THINK_LOOP_BLOCKED: skip model-backed run_once")
                         continue
@@ -3749,7 +3762,7 @@ class AceDaemon:
                 local_arch_result = self.local_archaeologist.scan(
                     allowed_priorities=allowed_priorities,
                 )
-                status_l = local_arch_result["status"]
+                status_l = local_arch_result.get("status", "unknown")
                 if status_l == "found_new_structures":
                     print(f"  扫描文件: {local_arch_result['files_scanned']} 个")
                     print(f"  发现新结构: {local_arch_result['new_structures_count']} 个")
@@ -4008,7 +4021,10 @@ class AceDaemon:
                 print(f"    {cat}: {count} 条")
         print()
         self._complete_cycle_stage("archive_analysis", stage_started)
-
+        governance_result = self._run_memory_governance_probe(dry_run=dry_run)
+        print(f"  Entropy: {governance_result.get('entropy_score')} | 报告: {governance_result.get('entropy_report_status')}")
+        print(f"  孟婆候选: {governance_result.get('mengpo_candidates')} | 冷却执行: {governance_result.get('cooldown_executed')}")
+        print()
         stage_started = self._start_cycle_stage("daily_summary")
         print("【写入今日考古摘要】")
         summary_id = self.write_daily_summary(decision, action_results, total_concepts_added, total_indexed)
@@ -4067,33 +4083,18 @@ class AceDaemon:
 
         self._save_state()
 
-        # === Curator：Today's Work Finished — 馆长唤醒 ===
-        stage_started = self._start_cycle_stage("curator")
-        print("【Repository Curator：今日产物整理】")
-        curator_heartbeat = self._start_stage_heartbeat("curator")
-        try:
-            if self.repository_curator:
-                curator_result = self.repository_curator.wakeup(triggered_by="daemon_loop")
-                scanned = curator_result.get("artifacts_scanned", 0)
-                summary = curator_result.get("summary", "无")
-                print(f"  扫描产物: {scanned} 个")
-                print(f"  决策摘要: {summary}")
-                if curator_result.get("duplicates_found"):
-                    print(f"  发现重复: {len(curator_result['duplicates_found'])} 个")
-                if curator_result.get("split_candidates"):
-                    print(f"  需拆分: {len(curator_result['split_candidates'])} 个")
-            else:
-                print("  [跳过] Curator 未初始化")
-        except Exception as e:
-            self._log_error("repository_curator", str(e))
-            print(f"  [错误] {e}")
-        finally:
-            self._stop_stage_heartbeat(curator_heartbeat)
-            self.heartbeat.status.pop("current_stage", None)
-            self.heartbeat.status.pop("stage_heartbeat_at", None)
-            self.heartbeat.beat(reason="stage:curator_complete")
-        print()
-        self._complete_cycle_stage("curator", stage_started)
+        curator_stage_started = self._start_cycle_stage("curator")
+        # 馆长是持续存在的生态观察位，不是本轮产物处理节点。
+        if self.repository_curator:
+            try:
+                curator_observation = self.repository_curator.observe_ecosystem(trigger="daemon_cycle")
+                self.state["last_curator_observation"] = curator_observation
+                print("【Repository Curator：生态观察位】")
+                print("  馆长保持观察；仓库决策仅通过显式 curator 入口触发")
+            except Exception as e:
+                self._log_error("repository_curator_observation", str(e))
+        self._save_state()
+        self._complete_cycle_stage("curator", curator_stage_started)
 
         if self.repository_sync_enabled and self.core_syncer:
             try:
@@ -4163,6 +4164,7 @@ class AceDaemon:
             "sync": sync_result,
         }
 
+
     def _check_continue_gate(self) -> Dict[str, Any]:
         """Evaluate the fail-closed continuation boundary before any work."""
         boundary = evaluate_daemon_boundary(self.base_dir, self.state, self.config, self.run_id)
@@ -4175,7 +4177,24 @@ class AceDaemon:
             self.shutdown_event.set()
         return boundary
 
-    def _check_cognitive_think(self, continue_status: str) -> Dict[str, Any]:
+    def _run_memory_governance_probe(self, *, dry_run: bool = False) -> Dict[str, Any]:
+        from core.governance.entropy_monitor import EntropyMonitor
+        report_root = self.base_dir / "08_GOVERNANCE" / "entropy"
+        monitor = EntropyMonitor(report_path=str(report_root))
+        report = monitor.generate_report(lexicon_path=str(self.base_dir / "06_RUNTIME" / "ace" / "data" / "memory" / "lexicon.json"), experiences_path=str(self.base_dir / "09_KNOWLEDGE" / "experiences.json"), evolution_path=str(self.base_dir / "09_KNOWLEDGE" / "evolution.json"))
+        report_path = monitor.save_report(report)
+        result = {"entropy_report_status": "INPUT_ERROR" if report.has_input_errors() else "GENERATED", "entropy_score": report.entropy_score, "entropy_report": str(report_path), "entropy_input_status": report.input_status, "entropy_read_errors": report.read_errors, "mengpo_candidates": 0, "cooldown_executed": 0, "production_integration": False, "probe_only": True}
+        if dry_run:
+            return result
+        from core.governance.mengpo import ForgettingCandidate, MengpoMemoryDecay
+        probe = ForgettingCandidate(id=f"cycle-probe-{datetime.now().strftime('%Y%m%d%H%M%S%f')}", artifact="ACE_CYCLE_GOVERNANCE_PROBE", artifact_type="research_probe", reason="isolated non-production archive verification", pollution_score=MengpoMemoryDecay.POLLUTION_THRESHOLD, age_days=0, references=0, alternatives_exist=True, is_core=False)
+        mengpo = MengpoMemoryDecay(graveyard_path=str(self.base_dir / "08_GOVERNANCE" / "civilization" / "graveyard"), lines_path=str(self.base_dir / "08_GOVERNANCE" / "civilization" / "memory_lines.jsonl"), records_path=str(self.base_dir / "08_GOVERNANCE" / "decisions" / "mengpo_records.jsonl"))
+        result["mengpo_candidates"] = 1
+        if mengpo.forget(probe, reason=probe.reason):
+            result["cooldown_executed"] = 1
+        return result
+
+    def _check_cognitive_think(self, continue_status: str):
         """Record think/judgment/execute split. Never shuts down the daemon."""
         decision = evaluate_daemon_cognitive_think(
             self.base_dir,

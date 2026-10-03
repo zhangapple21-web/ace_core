@@ -296,7 +296,7 @@ class MengpoMemoryDecay:
         if created:
             try:
                 return (datetime.now() - datetime.fromisoformat(created.replace('Z', '+00:00'))).days
-            except:
+            except (ValueError, TypeError):
                 pass
         return 0
     
@@ -364,7 +364,7 @@ class MengpoMemoryDecay:
         # 统计Graveyard
         try:
             stats["graveyard_count"] = len(list(Path(self.graveyard_path).glob('*.json')))
-        except:
+        except (OSError, PermissionError):
             pass
         
         # 统计记录
@@ -378,7 +378,7 @@ class MengpoMemoryDecay:
                             stats["forgetting_records"] += 1
                         elif action == 'reject':
                             stats["rejected_forgets"] += 1
-        except:
+        except (FileNotFoundError, json.JSONDecodeError, OSError):
             pass
         
         return stats

@@ -11,6 +11,7 @@ constraints/unknowns in the envelope instead of becoming runtime behavior.
 
 from __future__ import annotations
 
+from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from typing import Any, Dict, Iterable, List, Optional
 
@@ -46,6 +47,56 @@ _EVENT_STAGE = {
     "archived": "stop",
     "stop": "stop",
 }
+
+
+@dataclass
+class ExecutionDiscipline:
+    """Typed envelope for task execution discipline.
+    
+    This dataclass provides type safety and serialization for the execution
+    discipline envelope that was previously a plain dict. All fields are
+    optional to maintain backward compatibility with existing stored tasks.
+    """
+    protocol: str = PROTOCOL_VERSION
+    start_protocol: str = START_PROTOCOL_VERSION
+    status: str = "prepared"
+    complexity: str = "simple"
+    classification_basis: str = "default_light_branch"
+    mode: str = "light"
+    source: str = "ace_task_admission"
+    created_at: str = ""
+    last_event: str = "prepared"
+    clarification: Dict[str, Any] = field(default_factory=dict)
+    minimal_plan: Dict[str, Any] = field(default_factory=dict)
+    verification: Dict[str, Any] = field(default_factory=dict)
+    constraints: Dict[str, Any] = field(default_factory=dict)
+    stop: Dict[str, Any] = field(default_factory=dict)
+    phases: List[str] = field(default_factory=list)
+    pipeline: Dict[str, Any] = field(default_factory=dict)
+    checkpoints: List[Dict[str, Any]] = field(default_factory=list)
+    evidence_ledger: Dict[str, List[Any]] = field(default_factory=dict)
+    events: List[Dict[str, Any]] = field(default_factory=list)
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Serialize to dict for JSON storage."""
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "ExecutionDiscipline":
+        """Deserialize from dict with defaults for missing fields."""
+        # Filter to known fields, ignore extras for forward compatibility
+        known_fields = {f.name for f in cls.__dataclass_fields__.values()}
+        filtered = {k: v for k, v in data.items() if k in known_fields}
+        return cls(**filtered)
+
+    @classmethod
+    def from_legacy_dict(cls, data: Dict[str, Any]) -> "ExecutionDiscipline":
+        """Create from legacy dict, backfilling required fields."""
+        # Ensure required fields have defaults
+        if "created_at" not in data or not data["created_at"]:
+            data["created_at"] = datetime.now().isoformat()
+        return cls.from_dict(data)
+
 
 _COMPLEX_TAGS = {
     "complex",
@@ -119,7 +170,7 @@ def build_execution_discipline(
     depends_on: Optional[Iterable[str]] = None,
     admission: Optional[Dict[str, Any]] = None,
     explicit_complexity: Optional[str] = None,
-) -> Dict[str, Any]:
+) -> ExecutionDiscipline:
     """Build the persisted, auditable envelope for a newly admitted task."""
 
     complexity, basis = classify_complexity(
@@ -162,17 +213,17 @@ def build_execution_discipline(
         explicitly_independent=bool(admission.get("independent_lanes", False)),
     )
 
-    return {
-        "protocol": PROTOCOL_VERSION,
-        "start_protocol": START_PROTOCOL_VERSION,
-        "status": "prepared",
-        "complexity": complexity,
-        "classification_basis": basis,
-        "mode": "structured" if structured else "light",
-        "source": "ace_task_admission",
-        "created_at": now,
-        "last_event": "prepared",
-        "clarification": {
+    return ExecutionDiscipline(
+        protocol=PROTOCOL_VERSION,
+        start_protocol=START_PROTOCOL_VERSION,
+        status="prepared",
+        complexity=complexity,
+        classification_basis=basis,
+        mode="structured" if structured else "light",
+        source="ace_task_admission",
+        created_at=now,
+        last_event="prepared",
+        clarification={
             "status": "recorded_from_admission" if admission else "recorded_with_unknowns",
             "goal": goal,
             "non_goals": [
@@ -183,7 +234,7 @@ def build_execution_discipline(
             "unknowns": _unknowns(admission),
             "boundary": boundary,
         },
-        "minimal_plan": {
+        minimal_plan={
             "status": "required" if structured else "not_required",
             "steps": [
                 "Re-read the source and current runtime/workspace state.",
@@ -191,13 +242,13 @@ def build_execution_discipline(
                 "Run the existing verification path and preserve evidence gaps.",
             ] if structured else [],
         },
-        "verification": {
+        verification={
             "method": verification,
             "required": structured,
             "reviewer": "existing_ace_validator_guardian",
             "independent_reviewer": "not_proven_by_pilot",
         },
-        "constraints": {
+        constraints={
             "parallelism": "refuse_by_default_for_shared_or_dependent_state",
             "parallelism_decision": route["decision"],
             "route": route,
@@ -205,7 +256,7 @@ def build_execution_discipline(
             "recovery": "use_existing_continue_gate_only",
             "external_side_effects": "not_authorized_by_protocol",
         },
-        "stop": {
+        stop={
             "required": True,
             "conditions": [
                 "Verification complete or an explicit evidence gap is recorded.",
@@ -214,37 +265,36 @@ def build_execution_discipline(
             ],
             "reason": "",
         },
-        "phases": phases,
-        "pipeline": pipeline,
-        "checkpoints": [],
-        "evidence_ledger": {
+        phases=phases,
+        pipeline=pipeline,
+        checkpoints=[],
+        evidence_ledger={
             "source": [],
             "runtime": [],
             "result": [],
             "review": [],
             "unknown": list(_unknowns(admission)),
         },
-        "events": [{"event": "prepared", "at": now, "actor": "task_admission"}],
-    }
+        events=[{"event": "prepared", "at": now, "actor": "task_admission"}],
+    )
 
 
 def record_event(task: Any, event: str, actor: str = "ace", **details: Any) -> None:
     """Append a bounded protocol event to a Task-like object in place."""
 
-    outputs = getattr(task, "outputs", None)
-    if not isinstance(outputs, dict):
+    envelope = _get_envelope(task)
+    if envelope is None:
         return
-    envelope = outputs.get("execution_discipline")
-    if not isinstance(envelope, dict):
-        return
-    events = envelope.setdefault("events", [])
+    events = envelope.events
     item = {"event": event, "actor": actor, "at": datetime.now().isoformat()}
     item.update({key: value for key, value in details.items() if value is not None})
     events.append(item)
-    del events[:-50]
-    envelope["last_event"] = event
+    # Keep last 50 events
+    if len(events) > 50:
+        del events[:-50]
+    envelope.last_event = event
     stage = _EVENT_STAGE.get(event)
-    pipeline = envelope.setdefault("pipeline", {})
+    pipeline = envelope.pipeline
     if stage and isinstance(pipeline, dict):
         stage_record = pipeline.setdefault(stage, {"status": "pending", "required": True, "evidence": []})
         stage_record["status"] = "complete" if event not in {"started", "stop"} else (
@@ -257,20 +307,23 @@ def record_event(task: Any, event: str, actor: str = "ace", **details: Any) -> N
             for value in values:
                 if value not in stage_record.setdefault("evidence", []):
                     stage_record["evidence"].append(value)
-            del stage_record["evidence"][:-20]
+            # Keep last 20 evidence items
+            stage_evidence = stage_record.setdefault("evidence", [])
+            if len(stage_evidence) > 20:
+                del stage_evidence[:-20]
     if event == "stop":
-        envelope["status"] = "stopped"
-        envelope.setdefault("stop", {})["reason"] = details.get("reason", "")
+        envelope.status = "stopped"
+        envelope.stop["reason"] = details.get("reason", "")
     elif event == "lifecycle_transition":
         target = details.get("to_status")
         if target == "active":
-            envelope["status"] = "in_progress"
+            envelope.status = "in_progress"
         elif target in {"blocked", "rejected", "archived", "graveyard"}:
-            envelope["status"] = "stopped"
+            envelope.status = "stopped"
     elif event in {"verified", "approved", "archived"}:
-        envelope["status"] = event
+        envelope.status = event
     elif event in {"started", "researched", "validated", "reviewed", "guardian_reviewed"}:
-        envelope["status"] = "in_progress"
+        envelope.status = "in_progress"
 
 
 def record_checkpoint(
@@ -284,13 +337,10 @@ def record_checkpoint(
 ) -> None:
     """Persist a bounded, replay-safe checkpoint without creating a new runtime."""
 
-    outputs = getattr(task, "outputs", None)
-    if not isinstance(outputs, dict):
+    envelope = _get_envelope(task)
+    if envelope is None:
         return
-    envelope = outputs.get("execution_discipline")
-    if not isinstance(envelope, dict):
-        return
-    checkpoints = envelope.setdefault("checkpoints", [])
+    checkpoints = envelope.checkpoints
     item = {
         "name": str(name),
         "status": str(status),
@@ -300,23 +350,24 @@ def record_checkpoint(
     }
     item.update({key: value for key, value in details.items() if value is not None})
     checkpoints.append(item)
-    del checkpoints[:-20]
+    # Keep last 20 checkpoints
+    if len(checkpoints) > 20:
+        del checkpoints[:-20]
 
 
 def add_evidence_ledger_entry(task: Any, kind: str, value: Any) -> None:
     """Add evidence to the protocol ledger while preserving unknowns."""
 
-    outputs = getattr(task, "outputs", None)
-    if not isinstance(outputs, dict):
+    envelope = _get_envelope(task)
+    if envelope is None:
         return
-    envelope = outputs.get("execution_discipline")
-    if not isinstance(envelope, dict):
-        return
-    ledger = envelope.setdefault("evidence_ledger", {})
+    ledger = envelope.evidence_ledger
     bucket = ledger.setdefault(kind if kind in {"source", "runtime", "result", "review", "unknown"} else "unknown", [])
     if value not in bucket:
         bucket.append(value)
-    del bucket[:-50]
+    # Keep last 50 per bucket
+    if len(bucket) > 50:
+        del bucket[:-50]
 
 
 def evaluate_route(
@@ -346,16 +397,34 @@ def evaluate_route(
     }
 
 
-def ensure_execution_discipline(task: Any) -> Dict[str, Any]:
-    """Backfill the envelope for legacy tasks without changing their semantics."""
+def _get_envelope(task: Any) -> Optional[ExecutionDiscipline]:
+    """Get the execution discipline envelope as a dataclass, handling both dict and dataclass."""
+    outputs = getattr(task, "outputs", None)
+    if not isinstance(outputs, dict):
+        return None
+    envelope = outputs.get("execution_discipline")
+    if isinstance(envelope, ExecutionDiscipline):
+        return envelope
+    if isinstance(envelope, dict):
+        return ExecutionDiscipline.from_legacy_dict(envelope)
+    return None
 
+
+def _set_envelope(task: Any, envelope: ExecutionDiscipline) -> None:
+    """Set the execution discipline envelope on a task (stored as dict for JSON serialization)."""
     outputs = getattr(task, "outputs", None)
     if not isinstance(outputs, dict):
         outputs = {}
         task.outputs = outputs
-    envelope = outputs.get("execution_discipline")
-    if isinstance(envelope, dict) and envelope.get("protocol") == PROTOCOL_VERSION:
+    outputs["execution_discipline"] = envelope.to_dict()
+
+
+def ensure_execution_discipline(task: Any) -> ExecutionDiscipline:
+    """Backfill the envelope for legacy tasks without changing their semantics."""
+    envelope = _get_envelope(task)
+    if envelope is not None:
         return envelope
+    outputs = getattr(task, "outputs", {}) or {}
     envelope = build_execution_discipline(
         title=getattr(task, "title", ""),
         hypothesis=getattr(task, "hypothesis", ""),
@@ -364,24 +433,24 @@ def ensure_execution_discipline(task: Any) -> Dict[str, Any]:
         depends_on=getattr(task, "depends_on", []),
         admission=outputs.get("admission") if isinstance(outputs.get("admission"), dict) else None,
     )
-    envelope["source"] = "legacy_task_backfill"
-    outputs["execution_discipline"] = envelope
+    envelope.source = "legacy_task_backfill"
+    _set_envelope(task, envelope)
     return envelope
 
 
 def execution_gate(task: Any, *, allow_backfill: bool = True) -> tuple[bool, str]:
     """Check the minimum pre-execution envelope without invoking any model."""
 
-    outputs = getattr(task, "outputs", None)
-    existing = outputs.get("execution_discipline") if isinstance(outputs, dict) else None
-    if not isinstance(existing, dict) and not allow_backfill:
-        return False, "execution_discipline_missing_envelope"
-    envelope = ensure_execution_discipline(task) if allow_backfill else existing
-    if envelope.get("complexity") not in {"medium", "complex"}:
+    envelope = _get_envelope(task)
+    if envelope is None:
+        if not allow_backfill:
+            return False, "execution_discipline_missing_envelope"
+        envelope = ensure_execution_discipline(task)
+    if envelope.complexity not in {"medium", "complex"}:
         return True, "light_branch"
-    clarification = envelope.get("clarification")
-    plan = envelope.get("minimal_plan")
-    verification = envelope.get("verification")
+    clarification = envelope.clarification
+    plan = envelope.minimal_plan
+    verification = envelope.verification
     if not isinstance(clarification, dict) or not str(clarification.get("goal", "")).strip():
         return False, "execution_discipline_missing_goal"
     if not isinstance(plan, dict) or not isinstance(plan.get("steps"), list) or not plan["steps"]:
@@ -390,9 +459,9 @@ def execution_gate(task: Any, *, allow_backfill: bool = True) -> tuple[bool, str
         return False, "execution_discipline_missing_verification"
     if not str(clarification.get("boundary", "")).strip():
         return False, "execution_discipline_missing_boundary"
-    if envelope.get("protocol") != PROTOCOL_VERSION:
+    if envelope.protocol != PROTOCOL_VERSION:
         return False, "execution_discipline_protocol_mismatch"
-    if envelope.get("start_protocol") != START_PROTOCOL_VERSION:
+    if envelope.start_protocol != START_PROTOCOL_VERSION:
         return False, "execution_discipline_start_protocol_mismatch"
     return True, "structured_envelope_ready"
 
@@ -407,12 +476,11 @@ def validate_execution_discipline(task: Any) -> Dict[str, Any]:
 
     errors: List[str] = []
     warnings: List[str] = []
-    outputs = getattr(task, "outputs", None)
-    envelope = outputs.get("execution_discipline") if isinstance(outputs, dict) else None
+    envelope = _get_envelope(task)
     # Validation is an observation path.  Do not backfill or repair a missing
     # envelope while claiming to audit it; doing so would turn a damaged record
     # into a green receipt and would make independent acceptance self-fulfilling.
-    if not isinstance(envelope, dict):
+    if envelope is None:
         return {
             "valid": False,
             "protocol": None,
@@ -424,15 +492,15 @@ def validate_execution_discipline(task: Any) -> Dict[str, Any]:
             "required_stages": [],
             "event_count": 0,
         }
-    complexity = envelope.get("complexity")
+    complexity = envelope.complexity
     if complexity not in COMPLEXITIES:
         errors.append("invalid_complexity")
-    if envelope.get("protocol") != PROTOCOL_VERSION:
+    if envelope.protocol != PROTOCOL_VERSION:
         errors.append("protocol_mismatch")
-    if envelope.get("start_protocol") != START_PROTOCOL_VERSION:
+    if envelope.start_protocol != START_PROTOCOL_VERSION:
         errors.append("start_protocol_mismatch")
 
-    pipeline = envelope.get("pipeline")
+    pipeline = envelope.pipeline
     if not isinstance(pipeline, dict):
         errors.append("missing_pipeline")
         pipeline = {}
@@ -444,7 +512,7 @@ def validate_execution_discipline(task: Any) -> Dict[str, Any]:
         if not isinstance(pipeline.get(stage, {}).get("evidence", []), list):
             errors.append(f"invalid_stage_evidence:{stage}")
 
-    events = envelope.get("events", [])
+    events = envelope.events
     if not isinstance(events, list):
         errors.append("invalid_events")
         events = []
@@ -461,8 +529,8 @@ def validate_execution_discipline(task: Any) -> Dict[str, Any]:
             errors.append(f"stage_regression:{stage}")
         last_stage = max(last_stage, index)
 
-    status = envelope.get("status")
-    stop = envelope.get("stop")
+    status = envelope.status
+    stop = envelope.stop
     if status == "stopped":
         if not isinstance(stop, dict) or not str(stop.get("reason", "")).strip():
             errors.append("stopped_without_reason")
@@ -473,7 +541,7 @@ def validate_execution_discipline(task: Any) -> Dict[str, Any]:
 
     return {
         "valid": not errors,
-        "protocol": envelope.get("protocol"),
+        "protocol": envelope.protocol,
         "complexity": complexity,
         "status": status,
         "errors": errors,

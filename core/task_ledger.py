@@ -39,6 +39,7 @@ LEDGER_COUNTERS = (
     "consecutive_rework_claims",
     "starvation_age",
     "fencing_token",
+    "hold",
 )
 
 LEDGER_KINDS = (

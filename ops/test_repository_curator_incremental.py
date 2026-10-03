@@ -125,3 +125,17 @@ def test_curator_never_reprocesses_its_own_runtime_heartbeats_as_knowledge():
         assert [Path(item["path"]).name for item in artifacts] == ["decision.md"]
 
 
+
+def test_curator_observes_without_becoming_a_workflow_node():
+    with tempfile.TemporaryDirectory() as directory:
+        curator = _curator(Path(directory))
+        observation = curator.observe_ecosystem(trigger="test")
+
+        assert observation["role"] == "ecosystem_observer"
+        assert observation["workflow_node"] is False
+        assert observation["authority"] == "repository_decision_reserved"
+        assert set(observation["free_zone_counts"]) == {"experiments", "distillations", "promotion_proposals", "inbox", "reports"}
+        assert observation["production_integration"] is False
+        log = Path(directory) / "curator-data" / "ecosystem_observations.jsonl"
+        assert log.exists()
+        assert "ecosystem_observer" in log.read_text(encoding="utf-8")

@@ -24,7 +24,7 @@ from datetime import datetime
 sys.path.insert(0, str(Path(__file__).parent))
 try:
     from local_miner import call_github_models
-except:
+except ImportError:
     call_github_models = None
 
 WORKSPACE = Path(__file__).parent.parent
@@ -97,7 +97,7 @@ def validator_opinion(asset: dict) -> dict:
         try:
             json.loads(content)
             return {"role": "validator", "vote": "approve", "reason": "有效 JSON 结构"}
-        except:
+        except json.JSONDecodeError:
             pass
     
     # 规则: 检查 Markdown 结构

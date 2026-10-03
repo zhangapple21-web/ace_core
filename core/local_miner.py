@@ -559,7 +559,8 @@ def task_signal_discovery():
     if obs_path.exists():
         try:
             with open(obs_path) as f: observations = json.load(f).get("observations", [])[-20:]
-        except: pass
+        except (FileNotFoundError, json.JSONDecodeError, OSError):
+            pass
     if not observations:
         observations = [
             {"time": "2026-07-10T14:00:00", "type": "market", "data": "HS300 volume spike +15%"},

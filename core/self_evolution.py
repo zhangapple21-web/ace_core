@@ -16,6 +16,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
 import subprocess
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta
@@ -81,12 +82,14 @@ class SelfEvolutionCoordinator:
         静默，不制造任务。相同指纹在 Observation 仍活跃时不会重复写入。
         """
         signals = self.collect_signals(runtime_state or {})[: self.MAX_SIGNALS]
-        proposal = self.fuse(signals)
+        released = self._release_completed_active()
+        proposal = self.fuse(signals, excluded=self._completed_fingerprints())
         result: Dict[str, Any] = {
             "status": "NO_ACTION",
             "signals": len(signals),
             "proposal": None,
             "observation_id": None,
+            "released_fingerprint": released,
         }
         if proposal is None:
             self._state.update({"last_run_at": datetime.now().isoformat(), "last_signal_count": len(signals)})
@@ -152,29 +155,28 @@ class SelfEvolutionCoordinator:
         signals.extend(self._remote_catalog_signals())
         return signals
 
-    def fuse(self, signals: Iterable[EvolutionSignal]) -> Optional[EvolutionProposal]:
-        """按稳定 subject 聚合多源证据，选择一个最高价值候选。"""
+    def fuse(self, signals: Iterable[EvolutionSignal], excluded: Optional[Iterable[str]] = None) -> Optional[EvolutionProposal]:
+        """按稳定 subject 聚合多源证据，选择一个最高价值且未结案的候选。"""
+        done = {str(item) for item in (excluded or [])}
         grouped: Dict[str, List[EvolutionSignal]] = {}
         for signal in signals:
-            # 只按归一化主题分组，允许 runtime / archaeology / git 以不同语义
-            # 描述同一条演化缺口；kind 仍保留在证据中，不丢失来源语义。
             key = self._canonical_subject(signal)
             grouped.setdefault(key, []).append(signal)
         candidates = []
         for key, items in grouped.items():
             unique_sources = {item.source for item in items}
             score = min(1.0, sum(max(0.0, item.weight) for item in items) / 2.5)
-            if len(unique_sources) < 2 and score < 0.8:
+            if score <= 0:
                 continue
-            candidates.append((score, len(unique_sources), key, items))
+            fingerprint = self._fingerprint(key, items)
+            if fingerprint in done:
+                continue
+            candidates.append((score, len(unique_sources), key, items, fingerprint))
         if not candidates:
             return None
-        score, source_count, key, items = max(candidates, key=lambda item: (item[0], item[1], item[2]))
+        score, source_count, key, items, fingerprint = max(candidates, key=lambda item: (item[0], item[1], item[2]))
         subject = key
         kind = max(items, key=lambda item: item.weight).kind
-        fingerprint = hashlib.sha256(
-            json.dumps({"subject": subject, "kinds": sorted({i.kind for i in items}), "sources": sorted({i.source for i in items})}, sort_keys=True).encode()
-        ).hexdigest()[:20]
         now = datetime.now().isoformat()
         priority = "high" if score >= 0.8 or any(i.kind in {"runtime_bottleneck", "runtime_anomaly"} for i in items) else "medium"
         title = f"验证主动演化方向：{subject[:70]}"
@@ -199,11 +201,8 @@ class SelfEvolutionCoordinator:
 
     @staticmethod
     def _canonical_subject(signal: EvolutionSignal) -> str:
-        """把不同来源对同一系统性缺口的叫法归一化。"""
-        subject = signal.subject.strip().lower()
-        if signal.kind in {"repository_activity", "repository_gap"} or any(token in subject for token in ("主动发现", "演化索引", "self-evolution")):
-            return "主动演化闭环"
-        return subject
+        """去重只认具体问题，不把整个主题收成一个已结案桶。"""
+        return signal.subject.strip().lower()
 
     def _runtime_signals(self, state: Dict[str, Any]) -> List[EvolutionSignal]:
         if not state and self.task_pool is not None:
@@ -227,24 +226,48 @@ class SelfEvolutionCoordinator:
             signals.append(EvolutionSignal("runtime", "runtime_anomaly", "近期错误模式", f"recent_error_count={errors}", 1.2, "daemon:errors"))
         return signals
 
+    def _drawer_roots(self) -> List[Path]:
+        roots = [
+            self.base_dir / "08_ARCHAEOLOGY",
+            self.base_dir / "09_KNOWLEDGE",
+            self.base_dir / "07_SANDBOX" / "free_research",
+            self.base_dir.parent / "R1",
+            self.base_dir.parent / "R1_continuity_archive",
+            self.base_dir.parent / "ace-video-kingdom",
+        ]
+        roots.extend(self.base_dir.glob("**/SKILL.md"))
+        return roots
+
     def _archaeology_signals(self) -> List[EvolutionSignal]:
-        roots = [self.base_dir / "08_ARCHAEOLOGY", self.base_dir / "09_KNOWLEDGE"]
-        cutoff = datetime.now() - timedelta(days=14)
-        files: List[Path] = []
-        for root in roots:
-            if root.exists():
-                files.extend(path for path in root.rglob("*.md") if self._recent(path, cutoff))
+        done = self._completed_fingerprints()
         signals: List[EvolutionSignal] = []
-        for path in sorted(files, key=lambda p: p.stat().st_mtime, reverse=True)[: self.MAX_ARCHAEOLOGY_FILES]:
-            try:
-                text = path.read_text(encoding="utf-8", errors="ignore")[:12000]
-            except OSError:
-                continue
-            if not any(token in text.lower() for token in ("主动发现", "自我融合", "自我演化", "self-evolution", "evolution")):
-                continue
-            subject = "主动发现与跨域融合闭环"
-            signals.append(EvolutionSignal("archaeology", "evolution_gap", subject, f"历史材料 {path.name} 明确记录主动发现/融合模式", 1.1, str(path)))
+        for root in self._drawer_roots():
+            picked = 0
+            for path in self._drawer_files(root):
+                subject = f"{path.parent.name}/{path.stem}"[:120]
+                kind = "free_zone" if "free_research" in path.parts else "drawer_item"
+                source = "r1" if "R1" in path.parts else "archaeology"
+                signal = EvolutionSignal(source, kind, subject, path.name, 1.5, str(path))
+                drawer = EvolutionSignal(source, "drawer_root", subject, root.name, 1.0, str(root))
+                if self._fingerprint(subject.lower(), [signal, drawer]) in done:
+                    continue
+                signals.extend((signal, drawer))
+                if len(signals) >= self.MAX_SIGNALS:
+                    return signals
         return signals
+
+    def _drawer_files(self, root: Path):
+        if root.is_file():
+            yield root
+            return
+        if not root.is_dir():
+            return
+        skip = {".git", "node_modules", ".venv", "__pycache__", "dist", "attachments"}
+        for dirpath, dirnames, filenames in os.walk(root):
+            dirnames[:] = [name for name in dirnames if name not in skip]
+            for name in filenames:
+                if Path(name).suffix.lower() in {".md", ".json"}:
+                    yield Path(dirpath) / name
 
     def _repository_signals(self) -> List[EvolutionSignal]:
         signals: List[EvolutionSignal] = []
@@ -256,7 +279,7 @@ class SelfEvolutionCoordinator:
             remote, commit = self._git_snapshot(repo)
             if not remote and not commit:
                 continue
-            signals.append(EvolutionSignal("git", "repository_activity", "跨仓库演化索引", f"{repo.name}: {commit or 'unknown'}", 0.9, remote or str(repo)))
+            signals.append(EvolutionSignal("git", "repository_activity", repo.name, f"{repo.name}: {commit or 'unknown'}", 0.9, remote or str(repo)))
         return signals
 
     def _remote_catalog_signals(self) -> List[EvolutionSignal]:
@@ -297,6 +320,50 @@ class SelfEvolutionCoordinator:
         except OSError:
             return False
 
+    def _completed_fingerprints(self) -> set[str]:
+        raw = self._state.get("completed_fingerprints")
+        if not isinstance(raw, list):
+            return set()
+        return {str(item) for item in raw if str(item).strip()}
+
+    def _release_completed_active(self) -> str | None:
+        fingerprint = str(self._state.get("active_fingerprint") or "").strip()
+        if not fingerprint or fingerprint in self._completed_fingerprints():
+            return None
+        status = self._linked_task_status(fingerprint)
+        if status not in {"archived", "rejected", "graveyard"}:
+            return None
+        completed = list(self._completed_fingerprints())
+        completed.append(fingerprint)
+        self._state["completed_fingerprints"] = completed[-50:]
+        self._state["active_fingerprint"] = ""
+        self._state["released_at"] = datetime.now().isoformat()
+        self._state["released_task_status"] = status
+        self._save_state()
+        return fingerprint
+
+    def _linked_task_status(self, fingerprint: str) -> str:
+        state_path = self.base_dir / "06_RUNTIME" / "ace" / "data" / "closed_loop" / "background_state.json"
+        try:
+            payload = json.loads(state_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return ""
+        if not isinstance(payload, dict) or payload.get("last_fingerprint") != fingerprint:
+            return ""
+        task_id = str(payload.get("last_task_id") or "").strip()
+        if not task_id:
+            return ""
+        pool = self.base_dir / "task_pool"
+        for status in ("archived", "rejected", "graveyard", "approved", "review", "active", "pending", "blocked"):
+            if (pool / status / f"{task_id}.json").is_file():
+                return status
+        return ""
+
+    @staticmethod
+    def _fingerprint(subject: str, items: List[EvolutionSignal]) -> str:
+        return hashlib.sha256(
+            json.dumps({"subject": subject, "kinds": sorted({i.kind for i in items}), "sources": sorted({i.source for i in items})}, sort_keys=True).encode()
+        ).hexdigest()[:20]
     def _append_proposal(self, proposal: EvolutionProposal) -> None:
         try:
             with self.ledger_path.open("a", encoding="utf-8") as stream:

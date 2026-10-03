@@ -102,6 +102,32 @@ def test_same_source_reference_does_not_create_duplicate_task():
         assert len(pool.list_tasks()) == 1
 
 
+def test_archaeology_source_deduplicates_dynamic_observation_refs():
+    with tempfile.TemporaryDirectory() as temp_dir:
+        pool = TaskPool(temp_dir)
+        first_admission = admission("archaeology", r"C:\\tmp\\fragment.json")
+        first_admission["source_fingerprint"] = "sha256:same"
+        first = pool.create_task("fragment", creator="file_scanner", admission=first_admission)
+        second_admission = admission("archaeology", r"C:\\tmp\\fragment.json:2026-10-02T12:00:00:123")
+        second_admission["source_fingerprint"] = "sha256:same"
+        second = pool.create_task("fragment retry", creator="file_scanner", admission=second_admission)
+        assert second.task_id == first.task_id
+        assert len(pool.list_tasks()) == 1
+
+
+def test_archaeology_content_change_creates_new_version():
+    with tempfile.TemporaryDirectory() as temp_dir:
+        pool = TaskPool(temp_dir)
+        first_admission = admission("archaeology", r"C:\\tmp\\fragment.json")
+        first_admission["source_fingerprint"] = "sha256:old"
+        first = pool.create_task("fragment", creator="file_scanner", admission=first_admission)
+        changed = admission("archaeology", r"C:\\tmp\\fragment.json")
+        changed["source_fingerprint"] = "sha256:new"
+        second = pool.create_task("fragment changed", creator="file_scanner", admission=changed)
+        assert second.task_id != first.task_id
+        assert len(pool.list_tasks()) == 2
+
+
 if __name__ == "__main__":
     test_production_task_requires_valid_admission_metadata()
     test_admission_persists_required_metadata_for_archaeology_task()

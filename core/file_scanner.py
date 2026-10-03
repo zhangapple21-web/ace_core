@@ -25,6 +25,7 @@
 发现了新东西 → 建任务 → 交给 Researcher 去挖。
 """
 
+import hashlib
 import json
 import zipfile
 from pathlib import Path
@@ -227,13 +228,30 @@ class FileScanner:
         return score
 
     def _task_exists_for(self, path: Path) -> bool:
-        name_key = path.stem[:30].lower()
-        all_tasks = self.task_pool.list_tasks(limit=200)
-        for t in all_tasks:
-            if t.status in ("pending", "active", "review", "approved"):
-                if name_key in t.title[:30].lower():
-                    return True
+        """Avoid exact duplicate observations without collapsing same-name files."""
+        try:
+            source = str(path.resolve())
+            fingerprint = self._content_fingerprint(path)
+        except OSError:
+            return False
+        for task in self.task_pool.list_tasks(limit=10000):
+            # Check ALL statuses - if a task (even archived) exists for this file+fingerprint, don't recreate
+            outputs = task.outputs if isinstance(task.outputs, dict) else {}
+            if str(outputs.get("source_file", "")) == source and outputs.get("source_fingerprint") == fingerprint:
+                return True
+            # Compatibility for legacy records that predate source metadata;
+            # production scanner records always take the source-aware branch.
+            if not outputs.get("source_file") and path.name.lower() in task.title.lower():
+                return True
         return False
+
+    @staticmethod
+    def _content_fingerprint(path: Path) -> str:
+        digest = hashlib.sha256()
+        with path.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
+        return f"sha256:{digest.hexdigest()}"
 
     def _create_archaeology_task(self, path: Path) -> Optional[Any]:
         ext = path.suffix.lower()
@@ -258,6 +276,7 @@ class FileScanner:
 
         file_size = int(path.stat().st_size)
         file_mtime = datetime.fromtimestamp(path.stat().st_mtime).isoformat()
+        source_fingerprint = self._content_fingerprint(path)
         evidence = {
             "path": str(path),
             "extension": ext,
@@ -273,7 +292,8 @@ class FileScanner:
             tags=tags,
             admission={
                 "source_type": "archaeology",
-                "source_ref": f"{path.resolve()}:{file_mtime}:{file_size}",
+                "source_ref": str(path.resolve()),
+                "source_fingerprint": source_fingerprint,
                 "why_now": "A new or changed local fragment matched the archaeology scan.",
                 "evidence": [evidence],
                 "expected_result": "The fragment is analyzed and its reusable structures are recorded or bounded.",
@@ -282,7 +302,8 @@ class FileScanner:
                 "estimated_scope": "one local file",
             },
             outputs={
-                "source_file": str(path),
+                "source_file": str(path.resolve()),
+                "source_fingerprint": source_fingerprint,
                 "file_size": file_size,
                 "file_mtime": file_mtime,
                 "preview": preview,

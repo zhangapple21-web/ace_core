@@ -151,6 +151,40 @@ class RepositoryCurator:
         # 加载历史记录
         self._history: List[Dict] = self._load_history()
     
+    def observe_ecosystem(self, trigger: str = "runtime") -> Dict[str, Any]:
+        """持续生态观察位；观察 FA 产出，但不消费或晋升其材料。"""
+        now = datetime.now()
+        artifact_counts = {}
+        for directory in self.ARTIFACT_DIRS:
+            root = self.ace_runtime_dir / directory
+            artifact_counts[directory] = sum(1 for item in root.rglob("*") if item.is_file()) if root.exists() else 0
+        free_zone = self.ace_runtime_dir / "07_SANDBOX" / "free_research"
+        free_zone_counts = {
+            directory: sum(1 for item in (free_zone / directory).glob("*") if item.is_file())
+            if (free_zone / directory).exists() else 0
+            for directory in ("experiments", "distillations", "promotion_proposals", "inbox", "reports")
+        }
+        feedback = self.ace_runtime_dir / "08_GOVERNANCE" / "free_zone_bridge" / "feedback"
+        observation = {
+            "observer": "repository_curator",
+            "role": "ecosystem_observer",
+            "trigger": trigger,
+            "observed_at": now.isoformat(),
+            "run_count": self._run_count,
+            "last_curation_at": self._last_run.isoformat() if self._last_run else None,
+            "artifact_counts": artifact_counts,
+            "free_zone_counts": free_zone_counts,
+            "free_zone_feedback_count": sum(1 for item in feedback.glob("*.json")) if feedback.exists() else 0,
+            "history_entries": len(self._history),
+            "sync_manager_present": self.sync_manager is not None,
+            "authority": "repository_decision_reserved",
+            "workflow_node": False,
+            "production_integration": False,
+        }
+        path = self.data_dir / "ecosystem_observations.jsonl"
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(observation, ensure_ascii=False) + "\n")
+        return observation
     def wakeup(self, triggered_by: str = "scheduled") -> Dict[str, Any]:
         """
         馆长唤醒入口

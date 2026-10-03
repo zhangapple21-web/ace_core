@@ -24,8 +24,12 @@
 import json
 import re
 from pathlib import Path
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from typing import Dict, List, Any, Optional, Set
+import hashlib
+import os
+import time
+from collections import defaultdict
 
 
 # 扫描目录定义 — (路径, 优先级, 描述)
@@ -41,6 +45,7 @@ SCAN_DIRS = [
 ]
 
 # 感兴趣的文件类型
+EXT_PRIORITY = {".md": "high", ".txt": "medium", ".json": "medium"}
 TARGET_EXTS = {".md", ".json", ".txt"}
 
 
@@ -73,7 +78,7 @@ class LocalArchaeologist:
         self._budget = {
             "max_files_per_scan": 10,    # 每次最多扫描10个文件
             "max_tasks_per_scan": 3,     # 每次最多创建3个任务
-            "min_absorption_gap": 0.2,   # 吸收率低于80%才建任务
+            "min_absorption_gap": 0.8,   # 吸收率低于80%就进入受限考古任务
         }
 
         self._state = self._load_state()
@@ -81,36 +86,33 @@ class LocalArchaeologist:
     # ── state 层 ────────────────────────────────────────────
 
     def _load_state(self) -> dict:
+        defaults = {
+            "version": 2, "last_run": None, "last_scan_date": None,
+            "absorbed_files": set(), "known_structures": set(),
+            "fingerprints": {}, "source_last_seen": {},
+            "total_files_scanned": 0, "total_tasks_created": 0,
+            "total_structures_found": 0, "errors": [], "history": [],
+        }
         if self.state_file.exists():
             try:
                 raw = json.loads(self.state_file.read_text(encoding="utf-8"))
-                raw["absorbed_files"] = set(raw.get("absorbed_files", []))
-                raw["known_structures"] = set(raw.get("known_structures", []))
-                return raw
+                defaults.update(raw)
+                defaults["absorbed_files"] = set(defaults.get("absorbed_files", []))
+                defaults["known_structures"] = set(defaults.get("known_structures", []))
+                defaults.setdefault("fingerprints", {})
+                defaults.setdefault("source_last_seen", {})
+                return defaults
             except Exception:
                 pass
-
-        return {
-            "version": 1,
-            "last_run": None,
-            "last_scan_date": None,
-            "absorbed_files": set(),   # 已完全吸收的文件指纹
-            "known_structures": set(), # 已知的结构名
-            "total_files_scanned": 0,
-            "total_tasks_created": 0,
-            "total_structures_found": 0,
-            "errors": [],
-            "history": [],
-        }
+        return defaults
 
     def _save_state(self):
         save_data = dict(self._state)
-        save_data["absorbed_files"] = list(save_data["absorbed_files"])
-        save_data["known_structures"] = list(save_data["known_structures"])
-        self.state_file.write_text(
-            json.dumps(save_data, ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
+        save_data["absorbed_files"] = list(save_data.get("absorbed_files", set()))
+        save_data["known_structures"] = list(save_data.get("known_structures", set()))
+        save_data["fingerprints"] = dict(save_data.get("fingerprints", {}))
+        save_data["source_last_seen"] = dict(save_data.get("source_last_seen", {}))
+        self.state_file.write_text(json.dumps(save_data, ensure_ascii=False, indent=2), encoding="utf-8")
 
     def _ensure_today(self):
         today = date.today().isoformat()
@@ -152,35 +154,108 @@ class LocalArchaeologist:
 
                 # 计算文件指纹（路径+mtime+size）
                 try:
-                    stat = f.stat()
-                    fingerprint = f"{f.resolve()}|{stat.st_mtime}|{stat.st_size}"
+                    content_fingerprint = hashlib.sha256(f.read_bytes()).hexdigest()
+                    fingerprint = f"sha256:{content_fingerprint}"
                 except Exception:
                     fingerprint = str(f.resolve())
-
-                # 跳过已完全吸收的
                 if fingerprint in self._state["absorbed_files"]:
                     continue
-
+                relative = str(f)
+                source_class = self._classify_source(f, relative)
+                intake = self._intake_policy(source_class, f.suffix.lower(), f)
+                if intake["decision"] == "skip":
+                    continue
+                previous = self._state.get("fingerprints", {}).get(fingerprint, {})
+                seen_at = previous.get("seen_at")
+                if seen_at and datetime.now() < datetime.fromisoformat(seen_at) + timedelta(days=intake.get("cooldown_days", 7)):
+                    continue
+                if any(item["fingerprint"] == fingerprint for item in candidates):
+                    continue
                 candidates.append({
                     "path": str(f.resolve()),
                     "relative": rel_path,
                     "category": desc,
+                    "source_class": source_class,
+                    "intake_policy": intake,
                     "priority": priority,
                     "fingerprint": fingerprint,
                     "ext": f.suffix.lower(),
                 })
 
-        # 按优先级排序（高优先级在前）
-        candidates.sort(key=lambda x: -x["priority"])
-        return candidates
+        # Stable priority plus rotating source-class cursor prevents one source
+        # from monopolizing a bounded scan while preserving explicit priority.
+        candidates.sort(key=lambda x: (-x["priority"], x["source_class"], x["path"]))
+        return self._fair_select(candidates)
+
+    def _fair_select(self, candidates: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        if not candidates:
+            return []
+        last = self._state.get("source_last_seen", {})
+        groups = defaultdict(list)
+        for item in candidates:
+            groups[item["source_class"]].append(item)
+        ordered = sorted(groups, key=lambda source: (last.get(source, ""), -groups[source][0]["priority"], source))
+        result = []
+        while ordered:
+            next_order = []
+            for source in ordered:
+                if groups[source]:
+                    result.append(groups[source].pop(0))
+                if groups[source]:
+                    next_order.append(source)
+            ordered = next_order
+        return result
 
     # ── 执行层 ─────────────────────────────────────────────
 
-    def scan(
-        self,
-        force: bool = False,
-        allowed_priorities: Optional[Set[str]] = None,
-    ) -> Dict[str, Any]:
+    def _classify_source(self, path: Path, relative: str) -> str:
+        value = (str(path) + " " + str(relative)).replace("\\", "/").lower()
+        if "telegram_archive/04_findings" in value: return "tg_finding"
+        if "telegram_archive/03_clusters" in value: return "tg_cluster"
+        if "telegram_archive/02_index" in value: return "tg_index"
+        if "08_archaeology" in value: return "archaeology"
+        if "04_protocols" in value: return "protocol_material"
+        if "02_memory" in value: return "memory_material"
+        if "09_knowledge" in value: return "knowledge_material"
+        if "03_data" in value: return "data_material"
+        if "free_research" in value: return "free_zone"
+        if "/r1/" in value or "r1_continuity_archive" in value: return "r1_archive"
+        if ".git" in value: return "repository_material"
+        return "local_material"
+
+    def _intake_policy(self, source_class: str, extension: str, path: Path) -> Dict[str, Any]:
+        name = path.name.lower()
+        base = {"authority": "local_read_only", "freshness": "content_sha256", "retention": "LINEAGE", "forgetting_reason": "retained_for_evidence_lineage", "reobserve": False, "cooldown_days": 0, "source_priority": 0}
+        if any(token in name for token in ("secret", "credential", "token", "password", ".env")):
+            return {**base, "decision": "skip", "risk": "sensitive_material", "retention": "SKIP", "forgetting_reason": "sensitive_material"}
+        source_priority = {"archaeology": 5, "r1_archive": 5, "tg_finding": 4, "protocol_material": 4, "memory_material": 3, "knowledge_material": 2, "tg_index": 1}.get(source_class, 1)
+        base.update({"source_priority": source_priority, "cooldown_days": 30 if source_class in {"memory_material", "r1_archive", "archaeology"} else 7})
+        if source_class in {"tg_index", "knowledge_material", "data_material"} and extension == ".json":
+            return {**base, "decision": "observe", "risk": "index_or_derived_data", "evidence_quality": "derived", "retention": "LINEAGE_ONLY", "forgetting_reason": "derived_or_index_material", "reobserve": True}
+        if source_class in {"tg_finding", "archaeology", "protocol_material", "memory_material", "free_zone", "r1_archive", "repository_material", "local_material"}:
+            return {**base, "decision": "research", "risk": "read_only_local_material", "evidence_quality": "source_assertion"}
+        if source_class == "tg_cluster":
+            return {**base, "decision": "research", "risk": "curated_secondary_material", "evidence_quality": "curated_secondary"}
+        return {**base, "decision": "observe", "risk": "unclassified_material", "evidence_quality": "unknown", "retention": "COLD", "forgetting_reason": "unclassified_material", "reobserve": True}
+
+    def governance_candidate(self, file_info: Dict[str, Any], pollution_score: float = 0.0) -> Dict[str, Any]:
+        policy = file_info.get("intake_policy", {})
+        from .governance.mengpo import MengpoMemoryDecay
+        high_risk = policy.get("risk") in {"sensitive_material", "unclassified_material"} or pollution_score >= MengpoMemoryDecay.POLLUTION_THRESHOLD
+        return {"status": "COOLDOWN_CANDIDATE" if high_risk else "RETAIN_LINEAGE", "artifact_id": file_info.get("fingerprint"), "source_ref": file_info.get("path"), "pollution_score": pollution_score, "cooldown_days": policy.get("cooldown_days", 0), "graveyard_candidate": high_risk, "source_mutated": False, "guardian_required": True, "core_protection_applied": False}
+
+    def _analyze_file(self, file_info: Dict[str, Any]) -> Dict[str, Any]:
+        path = Path(file_info["path"])
+        ext = file_info["ext"]
+        content = self._read_json_content(path) if ext == ".json" else self._read_text_content(path)
+        structure_candidates = self._extract_structures(content)
+        total_structures = len(structure_candidates)
+        if total_structures == 0:
+            return {"total_structures": 0, "absorbed_count": 0, "absorption_rate": 1.0, "missing_structures": []}
+        missing = [s for s in structure_candidates if not self._is_structure_known(s)]
+        absorbed = total_structures - len(missing)
+        return {"total_structures": total_structures, "absorbed_count": absorbed, "absorption_rate": absorbed / total_structures, "missing_structures": missing, "file_path": str(path), "file_category": file_info["category"]}
+    def scan(self, force: bool = False, allowed_priorities: Optional[Set[str]] = None) -> Dict[str, Any]:
         """执行一次本地考古扫描
 
         返回结构化数据，不输出日志。
@@ -197,65 +272,45 @@ class LocalArchaeologist:
                 "tasks_created": 0,
                 "tasks": [],
             }
-
         # 取前 N 个
         max_files = self._budget["max_files_per_scan"]
-        to_scan = candidates if force else candidates[:max_files]
-
+        to_scan = candidates[:max_files]
         files_scanned = 0
         all_new_structures = []
         created_tasks = []
-
+        scanned_sources = []
+        mengpo_candidates = []
         for file_info in to_scan:
             try:
+                scanned_sources.append(file_info["source_class"])
+                candidate = self.governance_candidate(file_info)
+                mengpo_candidates.append(candidate)
                 result = self._analyze_file(file_info)
                 files_scanned += 1
-
+                self._state.setdefault("fingerprints", {})[file_info["fingerprint"]] = {"path": file_info["path"], "source_class": file_info["source_class"], "seen_at": datetime.now().isoformat()}
+                self._state.setdefault("source_last_seen", {})[file_info["source_class"]] = datetime.now().isoformat()
+                receipt = {"at": datetime.now().isoformat(), "fingerprint": file_info["fingerprint"], "source_ref": file_info["path"], "policy": file_info["intake_policy"], "governance": candidate}
+                with self.state_file.with_suffix(".lineage.jsonl").open("a", encoding="utf-8") as ledger:
+                    ledger.write(json.dumps(receipt, ensure_ascii=False) + "\n")
                 if result["absorption_rate"] < 1.0:
                     all_new_structures.extend(result["missing_structures"])
-
-                    # 吸收率低于阈值 → 创建考古任务
-                    if result["absorption_rate"] < self._budget["min_absorption_gap"]:
-                        if len(created_tasks) < self._budget["max_tasks_per_scan"]:
-                            task = self._create_absorption_task(
-                                file_info,
-                                result,
-                                allowed_priorities,
-                            )
-                            if task:
-                                created_tasks.append(task)
+                    if result["absorption_rate"] < self._budget["min_absorption_gap"] and len(created_tasks) < self._budget["max_tasks_per_scan"]:
+                        task = self._create_absorption_task(file_info, result, allowed_priorities)
+                        if task:
+                            created_tasks.append(task)
                 else:
-                    # 完全吸收 → 标记
                     self._state["absorbed_files"].add(file_info["fingerprint"])
-
             except Exception as e:
                 self._record_error(file_info["path"], str(e))
-
-        # 更新 state
         self._state["last_run"] = datetime.now().isoformat()
         self._state["total_files_scanned"] += files_scanned
         self._state["total_structures_found"] += len(all_new_structures)
         self._state["total_tasks_created"] += len(created_tasks)
-
-        # 去重已知结构
-        for s in all_new_structures:
-            self._state["known_structures"].add(s.lower())
-
-        # 历史记录
-        self._state.setdefault("history", []).insert(0, {
-            "at": datetime.now().isoformat(),
-            "files_scanned": files_scanned,
-            "new_structures": len(all_new_structures),
-            "tasks_created": len(created_tasks),
-        })
+        self._state.setdefault("history", []).insert(0, {"at": datetime.now().isoformat(), "files_scanned": files_scanned, "new_structures": len(all_new_structures), "tasks_created": len(created_tasks)})
         self._state["history"] = self._state["history"][:100]
-
         self._save_state()
-
         status = "found_new_structures" if all_new_structures else "no_new_structures"
-
         task_ids = [t.task_id for t in created_tasks] if created_tasks else []
-
         return {
             "status": status,
             "files_scanned": files_scanned,
@@ -264,34 +319,11 @@ class LocalArchaeologist:
             "new_structures": all_new_structures[:20],
             "tasks_created": len(created_tasks),
             "tasks": task_ids,
+            "sources_scanned": sorted(set(scanned_sources)),
+            "tasks_created_by_source": {source: sum(1 for task in created_tasks if getattr(task, "outputs", {}).get("source_class") == source) for source in sorted(set(scanned_sources))},
+            "mengpo_candidates": mengpo_candidates,
+            "cooldown_sources": [item["source_ref"] for item in mengpo_candidates if item.get("status") == "COOLDOWN_CANDIDATE"],
         }
-
-    # ── 分析层 ─────────────────────────────────────────────
-
-    def _analyze_file(self, file_info: Dict[str, Any]) -> Dict[str, Any]:
-        """分析单个文件的吸收状态"""
-        path = Path(file_info["path"])
-        ext = file_info["ext"]
-
-        if ext == ".json":
-            content = self._read_json_content(path)
-        elif ext in (".md", ".txt"):
-            content = self._read_text_content(path)
-        else:
-            content = ""
-
-        # 提取结构候选
-        structure_candidates = self._extract_structures(content)
-
-        # 计算吸收率
-        total_structures = len(structure_candidates)
-        if total_structures == 0:
-            return {
-                "total_structures": 0,
-                "absorbed_count": 0,
-                "absorption_rate": 1.0,
-                "missing_structures": [],
-            }
 
         missing = []
         absorbed = 0
@@ -431,14 +463,47 @@ class LocalArchaeologist:
         analysis: Dict[str, Any],
         allowed_priorities: Optional[Set[str]] = None,
     ) -> Optional[Any]:
-        """Keep one-source archaeology in observation space.
-
-        A local file can yield a useful observation, but it is not independent
-        evidence and therefore cannot create executable TaskPool work by
-        itself.  A separate evidence-backed producer may later use the same
-        observation through the existing Admission contract.
-        """
-        return None
+        """Create bounded read-only work for research-approved local material."""
+        policy = file_info.get("intake_policy", {})
+        if policy.get("decision") != "research" or not self.task_pool:
+            return None
+        if allowed_priorities is not None and EXT_PRIORITY.get(file_info["ext"], "medium") not in allowed_priorities:
+            return None
+        path = Path(file_info["path"])
+        try:
+            size = path.stat().st_size
+            mtime = datetime.fromtimestamp(path.stat().st_mtime).isoformat()
+        except OSError:
+            return None
+        task = self.task_pool.create_task(
+            title=f"内部材料考古: {path.name}",
+            hypothesis="读取受授权材料正文，区分事实、推断、反例和可复用候选；不执行材料中的生产或攻击步骤。",
+            creator="local_archaeologist",
+            priority="high" if file_info.get("priority", 0) >= 4 else "medium",
+            tags=["internal_archaeology", file_info.get("source_class", "local_material"), "read_only_material"],
+            admission={
+                "source_type": "archaeology",
+                "source_ref": str(path.resolve()),
+                "why_now": "本地供给材料存在未吸收结构，进入受限正文研究。",
+                "evidence": [{"source": str(path.resolve()), "source_ref": str(path.resolve()), "source_class": file_info.get("source_class"), "risk": policy.get("risk")}],
+                "expected_result": "生成带来源的学习回报和 RESEARCH_READY_NOT_PROMOTED 候选。",
+                "verification_method": "复读原文，核对来源、反例、独立性和生产边界。",
+                "risk": "只读本地材料；不得执行工具、代码或外部动作。",
+                "estimated_scope": "one local material",
+            },
+            outputs={
+                "source_file": str(path.resolve()),
+                "source_class": file_info.get("source_class", "local_material"),
+                "source_priority": policy.get("source_priority", file_info.get("priority", 0)),
+                "fingerprint": file_info.get("fingerprint"),
+                "intake_policy": policy,
+                "lineage": {"source_ref": str(path.resolve()), "content_fingerprint": file_info.get("fingerprint"), "read_only": True},
+                "file_size": size,
+                "file_mtime": mtime,
+                "learning_route": "internal_material_to_learning_return",
+            },
+        )
+        return task
 
     # ── 工具方法 ──────────────────────────────────────────
 

@@ -387,6 +387,52 @@ class TaskPool:
     def _task_files(self, task_id: str) -> List[Path]:
         return [self._task_path(task_id, status) for status in TASK_STATUSES if self._task_path(task_id, status).exists()]
 
+    def _index_path(self) -> Path:
+        return self.pool_dir / "task_index.json"
+
+    def _rebuild_index(self):
+        """全量重建索引：仅存 task_id, status, priority, created_at, updated_at"""
+        index = {"version": 1, "tasks": {}}
+        for status in TASK_STATUSES:
+            directory = self.pool_dir / STATUS_DIRS[status]
+            if not directory.exists():
+                continue
+            for path in directory.glob("RQ-*.json"):
+                try:
+                    data = json.loads(path.read_text(encoding="utf-8"))
+                    index["tasks"][data["task_id"]] = {
+                        "status": status,
+                        "priority": data.get("priority", "medium"),
+                        "created_at": data.get("created_at", ""),
+                        "updated_at": data.get("updated_at", ""),
+                    }
+                except (OSError, ValueError, json.JSONDecodeError, KeyError):
+                    continue
+        self._index_path().write_text(json.dumps(index, ensure_ascii=False), encoding="utf-8")
+
+    def _load_index(self) -> dict:
+        path = self._index_path()
+        if not path.exists():
+            return {"version": 1, "tasks": {}}
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError, json.JSONDecodeError):
+            return {"version": 1, "tasks": {}}
+
+    def _update_index(self, task: Task, old_status: Optional[str] = None):
+        """增量更新单条任务索引"""
+        index = self._load_index()
+        if old_status and task.task_id in index["tasks"]:
+            index["tasks"].pop(task.task_id, None)
+        index["tasks"][task.task_id] = {
+            "status": task.status,
+            "priority": task.priority,
+            "created_at": task.created_at,
+            "updated_at": task.updated_at,
+        }
+        path = self._index_path()
+        path.write_text(json.dumps(index, ensure_ascii=False), encoding="utf-8")
+
     def _find_task_file(self, task_id: str) -> Optional[Path]:
         files = self._task_files(task_id)
         if not files:
@@ -465,6 +511,7 @@ class TaskPool:
     def _save_task(self, task: Task):
         task.touch()
         self._write_task_atomic(task, self._task_path(task.task_id, task.status))
+        self._update_index(task)
 
     def _clear_lease(self, task: Task):
         self._ledger_release(task)
@@ -510,6 +557,7 @@ class TaskPool:
         ensure_execution_discipline(task)
         envelope = task.outputs.get("execution_discipline", {})
         route = envelope.get("constraints", {}).get("route") if isinstance(envelope, dict) else None
+        self._ledger_open(task)
         record_event(
             task,
             "lifecycle_transition",
@@ -539,6 +587,12 @@ class TaskPool:
                 actor=actor or "task_pool",
                 reason=reason or new_status,
             )
+        self._ledger_close(
+            task,
+            kind="consume",
+            actor=actor or "task_pool",
+            reason=f"transition:{old_status}->{new_status}",
+        )
         self._ledger_open(task)
         task.touch()
         new_path = self._task_path(task.task_id, new_status)
@@ -549,6 +603,7 @@ class TaskPool:
                     path.unlink()
                 except FileNotFoundError:
                     pass
+        self._update_index(task, old_status=old_status)
         return task
 
     def recover_incomplete_transitions(self) -> List[str]:
@@ -573,6 +628,8 @@ class TaskPool:
                     except FileNotFoundError:
                         pass
             recovered.append(task_id)
+        # 清理后重建索引
+        self._rebuild_index()
         return recovered
 
     def create_task(self, title: str, hypothesis: str = "", creator: str = "observer", priority: str = "medium", tags: Optional[List[str]] = None, depends_on: Optional[List[str]] = None, parent_task: str = "", admission: Optional[Dict[str, Any]] = None, outputs: Optional[Dict[str, Any]] = None, complexity: Optional[str] = None, data_class: str = "PRIVATE") -> Task:
@@ -623,6 +680,7 @@ class TaskPool:
             if protocols.get("active") and protocol_errors(protocols):
                 raise ValueError("delivery_protocol_invalid:" + ",".join(protocol_errors(protocols)))
             self._save_task(task)
+            self._update_index(task)
             return task
 
     def load_task(self, task_id: str) -> Optional[Task]:
@@ -661,27 +719,69 @@ class TaskPool:
             return True
 
     def list_tasks(self, status: Optional[str] = None, priority: Optional[str] = None, limit: int = 100, sort_by: str = "priority") -> List[Task]:
+        # 优先用索引过滤，再按需回读全量对象
+        index = self._load_index()
+        candidate_ids = []
+        for tid, info in index.get("tasks", {}).items():
+            if status and info.get("status") != status:
+                continue
+            if priority and info.get("priority") != priority:
+                continue
+            candidate_ids.append((tid, info))
+        if sort_by == "priority":
+            candidate_ids.sort(key=lambda x: (PRIORITY_ORDER.get(x[1].get("priority", "medium"), 99), x[1].get("created_at", "")))
+        elif sort_by == "created":
+            candidate_ids.sort(key=lambda x: x[1].get("created_at", ""), reverse=True)
+        elif sort_by == "reference_count":
+            # 索引里没有 reference_count，回退全表扫描
+            pass  # 留给下面的兜底逻辑
+
         tasks = []
         seen = set()
-        for current_status in ([status] if status else TASK_STATUSES):
-            directory = self.pool_dir / STATUS_DIRS.get(current_status, current_status)
-            for path in directory.glob("RQ-*.json") if directory.exists() else []:
-                if path.stem in seen:
-                    continue
-                try:
-                    task = self._read_task(path)
-                except (OSError, ValueError, json.JSONDecodeError):
-                    continue
-                if priority and task.priority != priority:
-                    continue
-                seen.add(task.task_id)
-                tasks.append(task)
-        if sort_by == "priority":
-            tasks.sort(key=lambda task: (PRIORITY_ORDER.get(task.priority, 99), task.created_at))
-        elif sort_by == "created":
-            tasks.sort(key=lambda task: task.created_at, reverse=True)
-        elif sort_by == "reference_count":
-            tasks.sort(key=lambda task: task.reference_count, reverse=True)
+        for tid, info in candidate_ids[:limit * 2]:  # 多取一点，防止读取失败
+            if tid in seen:
+                continue
+            # 找文件
+            status_dir = STATUS_DIRS.get(info.get("status", ""), "")
+            if not status_dir:
+                continue
+            path = self.pool_dir / status_dir / f"{tid}.json"
+            if not path.exists():
+                # 索引脏了，回退全表
+                continue
+            try:
+                task = self._read_task(path)
+            except (OSError, ValueError, json.JSONDecodeError):
+                continue
+            if priority and task.priority != priority:
+                continue
+            seen.add(task.task_id)
+            tasks.append(task)
+            if len(tasks) >= limit:
+                break
+
+        # 兜底：索引不全或 sort_by=reference_count 时全表扫描
+        if len(tasks) < limit and (sort_by == "reference_count" or not index.get("tasks")):
+            for current_status in ([status] if status else TASK_STATUSES):
+                directory = self.pool_dir / STATUS_DIRS.get(current_status, current_status)
+                for path in directory.glob("RQ-*.json") if directory.exists() else []:
+                    if path.stem in seen:
+                        continue
+                    try:
+                        task = self._read_task(path)
+                    except (OSError, ValueError, json.JSONDecodeError):
+                        continue
+                    if priority and task.priority != priority:
+                        continue
+                    seen.add(task.task_id)
+                    tasks.append(task)
+            if sort_by == "priority":
+                tasks.sort(key=lambda task: (PRIORITY_ORDER.get(task.priority, 99), task.created_at))
+            elif sort_by == "created":
+                tasks.sort(key=lambda task: task.created_at, reverse=True)
+            elif sort_by == "reference_count":
+                tasks.sort(key=lambda task: task.reference_count, reverse=True)
+
         return tasks[:limit]
 
     def move_task(self, task_id: str, new_status: str, actor: str = "", reason: str = "", task: Optional[Task] = None, claim_id: str = "") -> Optional[Task]:
@@ -734,15 +834,42 @@ class TaskPool:
             # could therefore create an active record with no owner/claim.
             # Preserve that API only by materialising the authoritative lease
             # here; never persist an unowned active task.
+            # Align with claim_task(): execution_gate, retry_after, ledger hold, rework handling.
             if stored.status == "pending" and new_status == "active" and not expected_claim:
                 now = datetime.now()
                 owner = (actor or "move_task").strip()
+                if not isinstance(owner, str) or not owner.strip():
+                    return None
+                task = self.load_task(task_id)
+                if not task:
+                    return None
+                ready, _ = execution_gate(task, allow_backfill=False)
+                if not ready:
+                    return None
+                if task.status == "pending" and task.retry_after:
+                    try:
+                        if datetime.fromisoformat(task.retry_after) > now:
+                            return None
+                    except ValueError:
+                        return None
+                self._ledger_open(task)
                 task.assignee = owner
                 task.lease_owner = owner
                 task.claim_id = uuid.uuid4().hex
                 task.fencing_token = max(task.fencing_token, stored.fencing_token) + 1
                 task.last_claimed_at = now.isoformat()
+                if task.outputs.get("last_validator_result", {}).get("outcome") == "rework_pending":
+                    task.consecutive_rework_claims += 1
+                else:
+                    task.consecutive_rework_claims = 0
                 task.lease_expires_at = (now + timedelta(seconds=300)).isoformat()
+                self._ledger_close(
+                    task,
+                    "hold",
+                    owner,
+                    f"lease_claimed:{task.claim_id}",
+                    ref={"type": "self", "task_id": task.task_id, "claim_id": task.claim_id},
+                )
                 task.audit_log.append({
                     "event": "lease_claimed",
                     "actor": owner,

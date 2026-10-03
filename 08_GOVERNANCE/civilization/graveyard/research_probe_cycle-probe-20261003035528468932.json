@@ -1,0 +1,11 @@
+{
+  "id": "cycle-probe-20261003035528468932",
+  "artifact": "ACE_CYCLE_GOVERNANCE_PROBE",
+  "artifact_type": "research_probe",
+  "forgotten_at": "2026-10-03T03:55:28.469924",
+  "forgotten_reason": "isolated non-production archive verification",
+  "pollution_score": 0.7,
+  "original_age_days": 0,
+  "original_references": 0,
+  "forgotten_by": "Mengpo"
+}

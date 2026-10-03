@@ -52,6 +52,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import os
 import sys
 from pathlib import Path
@@ -73,9 +74,21 @@ from core.worker_capsule import (  # noqa: E402
     submit_task_capsule_result,
 )
 
+# 结构化日志：stdout 只输出 JSON 结果，stderr 输出结构化日志
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s %(message)s",
+    stream=sys.stderr,
+)
+log = logging.getLogger("worker_capsule_cli")
+
 EXIT_OK = 0
-EXIT_REFUSED = 3
-EXIT_USAGE = 4
+EXIT_TASK_NOT_FOUND = 1
+EXIT_CLAIM_MISMATCH = 2
+EXIT_LEASE_EXPIRED = 3
+EXIT_REFUSED = 4
+EXIT_USAGE = 5
+EXIT_INTERNAL_ERROR = 6
 
 # ``TaskPool.fail_task`` (core/task.py:860) has no vocabulary check: any string
 # falls through to the *retryable* branch.  Measured on a scratch pool at
@@ -132,8 +145,19 @@ def _emit(payload: Dict[str, Any]) -> int:
     print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
     status = str(payload.get("status", ""))
     if status in {"CAPSULE_READY", "SUBMITTED", "STARTED", "RENEWED", "FAILED_RECORDED", "LISTED", "LEASES_FOUND", "NO_LIVE_LEASE", "LEASE_RECLAIMED", "TASK_SEEN"}:
+        log.info("command_ok status=%s task_id=%s", status, payload.get("task_id", ""))
         return EXIT_OK
     if status in {"REFUSED", "REJECTED"}:
+        reason = str(payload.get("reason", ""))
+        task_id = payload.get("task_id", "")
+        log.warning("command_refused status=%s reason=%s task_id=%s", status, reason, task_id)
+        # 根据 reason 返回细粒度退出码
+        if "task_not_found" in reason:
+            return EXIT_TASK_NOT_FOUND
+        if "claim_mismatch" in reason or "capsule_claim_mismatch" in reason:
+            return EXIT_CLAIM_MISMATCH
+        if "lease_expired" in reason or "capsule_lease_expired" in reason:
+            return EXIT_LEASE_EXPIRED
         return EXIT_REFUSED
     return EXIT_USAGE
 

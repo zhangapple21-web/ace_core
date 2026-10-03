@@ -48,6 +48,7 @@ class DailyLearningLoop:
         internal_candidate_sources: List[Callable[[], List[Tuple[Any, List[Dict[str, Any]]]]]],
         external_discoverer: Optional[Callable[[str, List[str]], List[Tuple[Any, List[Dict[str, Any]]]]]] = None,
         learning_router: Optional[Callable[[List[Dict[str, Any]]], Dict[str, Any]]] = None,
+        knowledge_dir: Optional[str] = None,
     ):
         self.data_dir = Path(data_dir)
         self.data_dir.mkdir(parents=True, exist_ok=True)
@@ -68,7 +69,7 @@ class DailyLearningLoop:
         Path(self.lifecycle_manager.db_path).parent.mkdir(parents=True, exist_ok=True)
         self.archivist = Archivist(task_pool=self.task_pool)
         self.guardian = Guardian(task_pool=self.task_pool)
-        self.deposition = ExperienceDeposition(str(self.data_dir / "knowledge"))
+        self.deposition = ExperienceDeposition(str(knowledge_dir or (self.data_dir / "knowledge")))
         self.runtime_claims = RuntimeClaimStore(self.data_dir / "runtime_claims")
 
     def run(self, run_date: str) -> Dict[str, Any]:

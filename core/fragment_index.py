@@ -90,11 +90,14 @@ class FragmentIndex:
         key = str(path.resolve())
         if key not in self.index:
             return False
+        rec = self.index[key]
+        # If explicitly marked as archaeologized, consider it known regardless of mtime
+        if rec.get("status") == "archaeologized":
+            return True
         try:
             size, mtime = self._fingerprint(path)
         except Exception:
             return True
-        rec = self.index[key]
         return rec.get("size") == size and abs(rec.get("mtime", 0) - mtime) < 0.001
 
     def mark_seen(self, path: Path, status: str = "seen"):
@@ -181,6 +184,7 @@ class FragmentIndex:
 
     def mark_archaeologized(self, path: Path, task_id: str = ""):
         key = str(path.resolve())
+        now = datetime.now().isoformat()
         # FileScanner creates a task before it calls this method.  A newly
         # discovered fragment therefore has no entry yet; persist its current
         # fingerprint here instead of rediscovering it every daemon cycle.
@@ -189,7 +193,6 @@ class FragmentIndex:
                 size, mtime = self._fingerprint(path)
             except Exception:
                 return
-            now = datetime.now().isoformat()
             self.index[key] = {
                 "size": size,
                 "mtime": mtime,
@@ -197,12 +200,17 @@ class FragmentIndex:
                 "last_checked": now,
                 "status": "archaeologized",
                 "topics": self._extract_topics(path),
+                "task_id": task_id,
+                "archaeologized_at": now,
             }
-        if key in self.index:
+        else:
+            # Preserve archaeologized status and original archaeologized_at
             self.index[key]["status"] = "archaeologized"
             self.index[key]["task_id"] = task_id
-            self.index[key]["last_checked"] = datetime.now().isoformat()
-            self._save()
+            self.index[key]["last_checked"] = now
+            if "archaeologized_at" not in self.index[key]:
+                self.index[key]["archaeologized_at"] = now
+        self._save()
 
     def get_stats(self) -> Dict[str, Any]:
         total = len(self.index)
