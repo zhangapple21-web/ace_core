@@ -667,7 +667,7 @@ class TaskPool:
                     depends_on=depends_on or [],
                     admission=admission,
                     explicit_complexity=complexity,
-                ),
+                ).to_dict(),
             )
             task = Task(
                 task_id=f"RQ-{today}-{today_count + 1:03d}", title=title, creator=creator,

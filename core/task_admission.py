@@ -46,6 +46,7 @@ SOURCE_TYPES = {
     "learning",
     "system_observation",
     "external_research",
+    "external_target",
 }
 
 
