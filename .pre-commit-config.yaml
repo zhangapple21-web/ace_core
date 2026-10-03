@@ -1,0 +1,10 @@
+# 仓库自包含 CI 护栏：跨机器运行，不依赖 C:\tmp 本机路径。
+repos:
+  - repo: local
+    hooks:
+      - id: verify-fixes
+        name: ACE 修复持久状态验证
+        entry: python ops/verify_fixes.py
+        language: system
+        pass_filenames: false
+        always_run: true
