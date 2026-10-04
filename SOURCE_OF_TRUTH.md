@@ -304,23 +304,64 @@ Governor 重复判定"在结构上不可能发生，无需再加防护。
 > 教训：`git diff --stat` 的行数不能当作"改动大小"的证据。1632 行的 diff
 > 背后是"基线选错了"，不是"改动很多"。
 
-### 11.7 未闭环
+### 11.7 生产重启收据（2026-10-04 20:15）
+
+在提交并验证后，通过 `ACE_Daemon_Boot` 做了一次受控重启，把本轮代码送进生产。
+
+重启前检查（全部通过才动手）：
+
+| 检查 | 结果 |
+|---|---|
+| TaskPool 在途任务 | `blocked 13 / graveyard 163 / rejected 4`，**无 active** |
+| `.daemon.lock` | 不存在 |
+| `.workspace.write.lock` | pid 9668（将死），`_owner_alive` 判死后接管 |
+| import 冒烟 + 临时 base_dir 真构造 | Governor / ExperienceDeposition / Guardian / DailyLearningLoop 全部建成，**0 条 `task_lifecycle_init` 被吞** |
+| `DailyLearningLoop` 持有的 Governor | **是** `__init__` 里那同一个实例 |
+| `Guardian` 看到的 writer | **是** `self.experience_deposition` |
+
+> `_init_task_lifecycle` 整段包在 `try/except` 里且只 `_log_error`，半初始化也会
+> "看起来在跑"。因此预检断言的是"链路走到末尾"，不是"`__init__` 没抛异常"。
+
+重启后（`Stop-ScheduledTask` → `Start-ScheduledTask`）：
+
+- pid **9668 → 10604**，run_id `6513572725a…` → `2daecfe068…`
+- `.workspace.write.lock` 的僵尸锁被设计中的 stale-recovery 接管（pid 10604）
+- 心跳 20:15:17 → **20:30:24** → 20:33:40，`cycle completed`
+- ACE `health=healthy`，`errors_total={}`
+
+**`file_scanner` 错误归零**：旧进程 15 分钟内必有 3 条（间隔中位 5.2 分钟，全部同因
+WinError 3）；新进程启动后 **0 条**。
+
+更强的证据不是"没报错"而是"真的干活了" —— 修复前整轮扫描中止，碎片产出恒为 0：
+
+| 新任务 | created_by | status |
+|---|---|---|
+| `RQ-20261004-036` | `local_archaeologist` | archived |
+| `RQ-20261004-037` | **`file_scanner`** | archived |
+| `RQ-20261004-038` | **`file_scanner`** | pending |
+
+治理半边同时在生产落盘：本轮新写 4 条知识记录
+（`EXP-RQ-20261004-034/035/036/037-*.json`），全部 `pattern` / `EVIDENCE`，
+`reference_count=0`（复用闸门关闭，未被触碰）。带 `epistemic_status` 的记录累计
+29 条，**全部是 `pattern`/`EVIDENCE`，无一条 `axiom`/`VERIFIED_FACT` 或
+`constraint`/`RULE`** —— 未经独立验证的执行结果在生产里也没有升格为长期规则。
+
+### 11.8 仍未闭环
 
 - **生产复用闸门关闭**：`ace_config.json` 无 `knowledge_reuse` 键 →
-  `enabled=False`、`mode=dry-run`。上述 knowledge_join 是在真实池上按 canary
-  模式验证的；要让它自然发生需要显式改配置（配置决策，未擅自改）。
-- **生产重启未执行**：属状态变更，需走 `ACE_Daemon_Boot` 计划任务。当前
-  pid 9668 持续存活、心跳正常。
+  `enabled=False`、`mode=dry-run`。knowledge_join 目前只在真实池上按 canary
+  模式验证过；要让它自然发生需要一次独立的 production-enable canary
+  （配置决策）。
+- 另一窗口的 worker-router WIP（`core/worker_router.py` 及其在 `ace_daemon.py`
+  的接线）**未提交**，留给该窗口自己固化；HEAD 对它的引用是 try/except
+  fail-closed，不受本次提交影响。
 - 全量回归：1292 tests / 17 failures，基线 46，**新增 0**；17 个全部落在
   `capability_routing` / `model_pool_mainline` / `execution_discipline` /
   `task_ledger` / `ds41` / `execution_contract`，无一触及本轮改动模块。
   `test_daemon_service_entrypoint` 对机器负载敏感（单跑 12.2s / 预算 30s，
   6 倍负载 14.3s），非合拢引入。
-- 另一窗口的 worker-router WIP（`core/worker_router.py` 及其在
-  `ace_daemon.py` 的接线）**未提交**，留给该窗口自己固化；HEAD 对它的引用
-  是 try/except fail-closed，不因本次提交改变。
 
-### 11.8 顺带修掉的一个真实运行时故障（活证据）
+### 11.9 顺带修掉的一个真实运行时故障（活证据）
 
 daemon 今天累计 50 条 `file_scanner` 错误，全部同因：
 `[WinError 3] 找不到路径 C:\tmp\ace-host-adapter-lab\...\node_modules\...`。
