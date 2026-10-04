@@ -83,10 +83,13 @@ logging.basicConfig(
 log = logging.getLogger("worker_capsule_cli")
 
 EXIT_OK = 0
-EXIT_TASK_NOT_FOUND = 1
-EXIT_CLAIM_MISMATCH = 2
-EXIT_LEASE_EXPIRED = 3
-EXIT_REFUSED = 4
+# The capsule port has one refusal contract: a command was understood, but
+# ACE refused to perform it.  Keep the named aliases for source compatibility;
+# shell workers must only branch on success (0) versus refusal (3).
+EXIT_REFUSED = 3
+EXIT_TASK_NOT_FOUND = EXIT_REFUSED
+EXIT_CLAIM_MISMATCH = EXIT_REFUSED
+EXIT_LEASE_EXPIRED = EXIT_REFUSED
 EXIT_USAGE = 5
 EXIT_INTERNAL_ERROR = 6
 
