@@ -1,0 +1,33 @@
+{
+  "schema": "ace.companion_runtime_manifest.v1",
+  "runtime_owner": "ace_core",
+  "continuity_owner": "ace_core",
+  "external_capabilities": [
+    {
+      "id": "ace-host-adapter",
+      "role": "replaceable_host_connector",
+      "repository": "https://github.com/zhangapple21-web/ace-host-adapter-lab.git",
+      "ref": "master",
+      "commit": "85b9fbdbfdefadb86dba846f2282a49892162a63",
+      "path": "companions/ace-host-adapter-lab",
+      "protocol": "ace.host_adapter.v0",
+      "python": ">=3.11,<3.12",
+      "dependency_file": "requirements.txt",
+      "entrypoint": "ace_mcp_server.py",
+      "transport": "stdio",
+      "mcp_registration": "mcp-config.json",
+      "pi_plugin": "pi-plugin/manifest.json",
+      "authority": "projection_only",
+      "state_owner": "ace_core",
+      "mutation_policy": "fail_closed"
+    }
+  ],
+  "recovery_contract": {
+    "core_must_restore_first": true,
+    "companion_source_must_be_pinned": true,
+    "companions_may_be_replaced": true,
+    "companions_must_not_create_runtime_state": true,
+    "models_are_external_capabilities": true,
+    "mcp_is_transport_only": true
+  }
+}

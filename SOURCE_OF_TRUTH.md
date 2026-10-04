@@ -11,13 +11,17 @@
 - 当前 TaskPool：`C:\tmp\ace_core\task_pool`
 - 当前 Runtime 状态：`C:\tmp\ace_core\06_RUNTIME\ace\data\`
 - 当前 Knowledge：`C:\tmp\ace_core\09_KNOWLEDGE\`
-- Recovery 核心：`recovery/restore_from_remote.py` 从 canonical `ace_core` 恢复。
+- Recovery 核心：`recovery/restore_from_remote.py` 从 canonical `ace_core` 恢复；`recovery/companion_runtime_manifest.json` 声明可替换的外部连接层。
+- ACE 连续性、状态、TaskPool、Knowledge、治理和恢复权威始终属于 `ace_core`；模型和 MCP 仅是可替换能力/传输层。
+- 协议完整性不等于灵魂来源；协议、仓库、模型和 MCP 都不能单独声称是 ACE 存在之因。见 `docs/ACE_PROTOCOL_AND_SOUL_BOUNDARY.md`。
 
 PI 与 MCP 是只读/受治理桥接层，不拥有 ACE 状态、TaskPool、Knowledge 或独立治理权：
 
 - PI adapter：`C:\tmp\ace-host-adapter-lab`
 - MCP 默认参数：`--ace-root C:\tmp\ace_core`
 - PI plugin 默认 root：`C:\tmp\ace_core`
+- 远程真源：`https://github.com/zhangapple21-web/ace-host-adapter-lab.git`
+- 恢复策略：核心先恢复，Bridge 按 pinned commit 重建；Bridge 可替换，不能创建第二份 ACE 状态。
 
 ## 2. 副本分类
 
@@ -114,4 +118,64 @@ DailyLearningLoop 的运行时数据与 canonical Knowledge 已分离：daemon �
 - `RESEARCH_READY_NOT_PROMOTED` 尚未达到生产能力晋升条件。
 - 真实每日“有效摄取量、独立来源数、晋升数”仍需从任务 lineage/独立证据统计，不能用文件数或 capability card 总数代替。
 - 任何新的权威关系变更必须经过 baseline → change → test → evaluation → compare，并保留收据。
+
+## 8. 认知等级与晋升闸门（2026-10-04 收口）
+
+`09_KNOWLEDGE` 的经验类型同时就是认知等级，`core/experience_deposition.py`
+记录 `epistemic_status`，`09_KNOWLEDGE/index.json` 同步带出：
+
+| experience_type | epistemic_status | 含义 |
+|---|---|---|
+| `observation` | `OBSERVATION` | 弱结论，供参考 |
+| `pattern` | `EVIDENCE` | 可复核证据，仍不是长期规则 |
+| `lesson` | `COUNTEREXAMPLE` | 被否决路径 |
+| `constraint` | `RULE` | 长期规则 |
+| `axiom` | `VERIFIED_FACT` | 长期事实 |
+
+晋升闸门（写在写入点，不新增机制）：`axiom`/`constraint` 必须带
+`core/outcome_receipt.py` 产生的 `verified_outcome_receipt`，且
+`independent_evidence_groups ≥ 2`、`evidence_refs ≥ 2`。不满足时降级到
+`pattern`，并在记录里留下 `downgrade_reason`。因此一次执行结果不能凭自身证据
+条数升级成长期规则；`Guardian.judge()` 的判决只是提案，写入点是真正的闸门。
+
+复用已有收据：`OutcomeReceiptRecorder.verify()` 是唯一能签发 VERIFIED 的入口，
+本轮没有新增第二套验证协议。
+
+## 9. 去重与重复入口的收口结论（2026-10-04）
+
+- `core/governance/knowledge_governor.py::Governor` 自解析 canonical 根
+  （`09_KNOWLEDGE` 优先于 `08_GOVERNANCE`）。修复前它读的是从未被写入的
+  `09_KNOWLEDGE/experiences.json` 与重复的 `06_RUNTIME/ace/06_RUNTIME/...`
+  词库路径，“先搜索再新增”的去重机制因此对真实知识完全失明；治理记录也写在
+  影子目录 `06_RUNTIME/ace/08_GOVERNANCE/governor/`，canonical
+  `08_GOVERNANCE/governor/` 看不到它们。现在去重搜索读 canonical
+  `09_KNOWLEDGE/index.json` + 各 tier 的 `EXP-*.json`。
+- `core/governor.py` 与 `04_PROTOCOLS/governor.py` 是彼此逐字节相同的第二个
+  Governor，无生产消费者，且在本机不可用（`check_path_traversal` 会拒绝任何
+  含 `:` 的 Windows 路径），已改为 fail-closed 废弃引导，指向真正接线者。
+- 存量重复事实：`09_KNOWLEDGE/` 789 条 `EXP-*` 只有 55 条不同的规范化结论，
+  其中 338 + 178 + 170 = 686 条（87%）是三句模板。历史记录按“取代不删除”保留；
+  新写入受第 8 节闸门约束，但存量 `constraint` 未被追溯改写，仍是未闭环项。
+- 归档知识复用的唯一 owner 是 `core/knowledge_reuse.py::KnowledgeReuseGate`
+  （daemon 阶段 `_run_knowledge_reuse_stage`，默认 `dry-run`）。`Researcher`
+  与 `Observer` 刻意不接 `ExperienceDeposition`：Observer 只会按知识条数
+  每轮制造复核任务（与 Work Conservation 冲突），Researcher 的关键词复用会
+  成为第二条更弱的复用路径。
+
+## 10. 本轮验证收据（2026-10-04）
+
+- 新增定向回归：`ops/test_knowledge_epistemic_gate.py`、
+  `ops/test_knowledge_governor_dedup.py`。
+- 真实闭环（非 mock，真实 `TaskPool`/`Validator`/`Guardian`/`Archivist`/
+  `ExperienceDeposition`/`LearningReturnBridge`/`OutcomeReceiptRecorder`）：
+  未验证的 `axiom` 提案落为 `pattern` 并记降级原因；补齐独立验证后同一车道
+  落为 `constraint`/`RULE`；`LearningReturnBridge` 在无学习来源时拒绝造卡；
+  后续查找命中旧 lesson 且 `reference_count` 落盘为 1。
+- 负面验证：一条未验证的“面板永久损坏”观察无法进入 `axiom/` 或
+  `constraint/` tier，只新增一条 `pattern`，索引标记 `EVIDENCE`。
+- 修复两个既有 RED：`ops/test_task_quality_governance.py`
+  （`FileScanner` 曾把自己的 TaskPool/索引当新素材；
+  `FragmentIndex.is_known()` 曾让已考古文件永久不可再入）。
+- 回归对比（同一条 pytest 选择下）：修复前 19 failed → 修复后 17 failed，
+  新增失败 0。
 

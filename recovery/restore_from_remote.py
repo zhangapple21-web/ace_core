@@ -26,6 +26,9 @@ from recovery.state_snapshot import STATE_URL, restore as restore_state, verify_
 
 CORE_URL = "https://github.com/zhangapple21-web/ace_core.git"
 CORE_REF = "core/daemon-lifecycle-resilience-20260912"
+BRIDGE_MANIFEST = json.loads((Path(__file__).parent / "companion_runtime_manifest.json").read_text(encoding="utf-8"))
+BRIDGE = BRIDGE_MANIFEST["external_capabilities"][0]
+BRIDGE_URL, BRIDGE_REF, BRIDGE_COMMIT = BRIDGE["repository"], BRIDGE["ref"], BRIDGE["commit"]
 VIDEO_URL = "https://github.com/zhangapple21-web/ace-video-kingdom.git"
 VIDEO_REF = "main"
 OPTIONAL_REPOS = [
@@ -148,6 +151,7 @@ def bootstrap_status(result: dict, report: dict, *, skip_tests: bool = False) ->
 def main() -> int:
     parser = argparse.ArgumentParser(description="ACE remote-only restore orchestrator")
     parser.add_argument("--workspace-root", type=Path, required=True, help="空的恢复目录")
+    parser.add_argument("--with-bridge", action="store_true", help="核心恢复后重建可替换的 MCP/PI 连接层")
     parser.add_argument("--with-video", action="store_true", help="同时恢复 ace-video-kingdom 并运行离线视频验证")
     parser.add_argument("--with-optional", action="store_true", help="同时 clone 能力、Skill、知识和公开资产仓库")
     parser.add_argument("--skip-tests", action="store_true", help="只做 clone/bootstrap，不运行测试")
@@ -203,6 +207,31 @@ def main() -> int:
         step["status"] = bootstrap_status(step, report, skip_tests=args.skip_tests)
         if step["status"] == "FAIL":
             raise RuntimeError("核心 bootstrap 失败")
+        if args.with_bridge:
+            bridge = root / "companions" / "ace-host-adapter-lab"
+            clone_step("clone_ace_host_adapter", BRIDGE_URL, BRIDGE_REF, bridge)
+            pin = run(["git", "checkout", "--detach", BRIDGE_COMMIT], bridge)
+            receipt["steps"].append({"name": "pin_bridge_commit", **pin})
+            head = run(["git", "rev-parse", "HEAD"], bridge)
+            if pin["status"] != "PASS" or head["status"] != "PASS" or head["stdout"].strip() != BRIDGE_COMMIT:
+                raise RuntimeError("Bridge pinned commit verification failed")
+            bridge_python = bridge / ".venv" / ("Scripts/python.exe" if sys.platform.startswith("win") else "bin/python")
+            for name, command in (
+                ("create_bridge_venv", [python, "-m", "venv", str(bridge / ".venv")]),
+                ("install_bridge_dependencies", [str(bridge_python), "-m", "pip", "install", "-r", str(bridge / "requirements.txt")]),
+            ):
+                step = {"name": name, **run(command, bridge)}
+                receipt["steps"].append(step)
+                if step["status"] != "PASS":
+                    raise RuntimeError(name + " failed")
+            config = {"mcpServers": {"ace-readonly": {
+                "command": str(bridge_python),
+                "args": ["-B", str(bridge / "ace_mcp_server.py"), "--ace-root", str(core)],
+                "env": {"PYTHONDONTWRITEBYTECODE": "1"},
+            }}}
+            config_path = root / "ACE_MCP_CONFIG.json"
+            config_path.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
+            receipt["bridge"] = {"commit": BRIDGE_COMMIT, "mcp_config": str(config_path), "host_registration": "NOT_PERFORMED", "authority": "connector_only"}
         if args.with_video:
             video = resolve(root, "restore_video")
             clone_step("clone_video", VIDEO_URL, VIDEO_REF, video)
