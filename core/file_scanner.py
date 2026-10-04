@@ -27,15 +27,20 @@
 
 import hashlib
 import json
+import os
 import zipfile
 from pathlib import Path
 from datetime import datetime
-from typing import Dict, List, Any, Optional, Set
+from typing import Any, Dict, Iterator, List, Optional, Set
 
 from .fragment_index import FragmentIndex
 
 
 SCAN_EXTENSIONS = {".zip", ".json", ".md", ".txt"}
+
+# Windows refuses paths beyond this length.  Probing such a path raises instead
+# of returning False, so the scanner has to know the limit.
+MAX_PATH = 250
 
 EXT_PRIORITY = {
     ".zip": "high",
@@ -83,6 +88,11 @@ class FileScanner:
         new_fragments = self._scan_new_fragments()
         result["scanned"] = new_fragments["total_scanned"]
         result["new_files"] = len(new_fragments["new"])
+        # Unreadable material is reported, never raised: a scanner that dies on
+        # one bad path also stops finding the good ones.
+        result["unreadable"] = len(new_fragments.get("skipped") or [])
+        if new_fragments.get("skipped"):
+            result["unreadable_examples"] = list(new_fragments["skipped"])[:3]
 
         if not new_fragments["new"]:
             return result
@@ -143,17 +153,28 @@ class FileScanner:
     def _scan_new_fragments(self) -> Dict[str, Any]:
         new_files: List[Path] = []
         total = 0
+        skipped: List[str] = []
         seen_names: Set[str] = set()  # 基于文件名的去重
 
         for root in self.scan_roots:
-            for f in root.rglob("*"):
+            # One unreadable subtree must not abort the whole scan.  Windows
+            # raises on paths beyond MAX_PATH, and a single deep node_modules
+            # under C:\tmp otherwise fails every cycle, fills daemon_state with
+            # the same error, and hides every real fragment behind it.
+            for f in self._walk(root, skipped):
                 if not f.is_file():
                     continue
                 if f.suffix.lower() not in SCAN_EXTENSIONS:
                     continue
+                if len(str(f)) > MAX_PATH:
+                    skipped.append(f"{f}: path_too_long")
+                    continue
                 if self._is_ignored(f):
                     continue
-                parts = f.relative_to(root).parts
+                try:
+                    parts = f.relative_to(root).parts
+                except ValueError:
+                    continue
                 if len(parts) > self.max_depth:
                     continue
 
@@ -168,7 +189,42 @@ class FileScanner:
                 if not self.fragment_index.is_known(f):
                     new_files.append(f)
 
-        return {"total_scanned": total, "new": new_files}
+        return {"total_scanned": total, "new": new_files, "skipped": skipped}
+
+    def _walk(self, root: Path, skipped: List[str]) -> Iterator[Path]:
+        """Yield every path under ``root``, tolerating unreadable subtrees."""
+        stack: List[Path] = [root]
+        while stack:
+            current = stack.pop()
+            try:
+                entries = list(os.scandir(current))
+            except (OSError, ValueError) as error:
+                skipped.append(f"{current}: {type(error).__name__}")
+                continue
+            for entry in entries:
+                path = Path(entry.path)
+                try:
+                    if entry.is_dir(follow_symlinks=False):
+                        stack.append(path)
+                        continue
+                except OSError:
+                    continue
+                yield path
+
+    def _own_output_paths(self) -> List[Path]:
+        """Directories whose contents are this scanner's own bookkeeping.
+
+        ``02_FRAGMENT_INDEX/`` and the TaskPool it writes to are ACE's own
+        ledgers.  Scanning them turns the scanner's output into its next input,
+        which is how a single repeated observation kept producing fresh
+        archaeology tasks.  They are excluded by identity, not only by living
+        inside the ACE root, so a Free Zone or scratch pool cannot feed itself.
+        """
+        own = [self.fragment_index.index_dir]
+        pool_dir = getattr(self.task_pool, "pool_dir", None)
+        if pool_dir is not None:
+            own.append(Path(pool_dir))
+        return own
 
     def _is_ignored(self, path: Path) -> bool:
         p = str(path).lower()
@@ -178,8 +234,13 @@ class FileScanner:
         # into broad scanning creates work from the scanner's own output.
         # Keep sibling sources such as mine-seed and Downloads in scope.
         try:
+            resolved = path.resolve()
+            for own_root in self._own_output_paths():
+                own_root = Path(own_root).resolve()
+                if resolved == own_root or own_root in resolved.parents:
+                    return True
             ace_root = self.fragment_index.index_dir.resolve().parent
-            if path.resolve().is_relative_to(ace_root):
+            if resolved.is_relative_to(ace_root):
                 return True
         except (OSError, ValueError):
             pass

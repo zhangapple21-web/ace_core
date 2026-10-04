@@ -42,8 +42,26 @@ print("\n2b. 检查归档知识复用接线...")
 daemon_src = (ROOT / "ace_daemon.py").read_text(encoding="utf-8")
 for _marker in ("_run_knowledge_reuse_stage", "_write_knowledge_reuse_report",
                 "_record_reuse_contributions", "_reuse_hint_for",
-                "KnowledgeReuseGate"):
+                "_knowledge_reuse_contributions", "KnowledgeReuseGate"):
     assert _marker in daemon_src, f"ace_daemon.py 缺少归档知识复用接线: {_marker}"
+# 治理侧接线：认知闸门注入 Guardian、单例 Governor。少了任何一个，
+# 长期规则的写入闸门就退回"证据条数够了就能升格"。
+for _marker in ("self.knowledge_governor",
+                "experience_deposition=self.experience_deposition"):
+    assert _marker in daemon_src, f"ace_daemon.py 缺少认知治理接线: {_marker}"
+assert daemon_src.count("Governor(") == 1, (
+    "必须只有一个 Governor 实例；多处构造会把治理记录写进影子目录")
+deposition_src = (ROOT / "core" / "experience_deposition.py").read_text(encoding="utf-8")
+for _marker in ("EPISTEMIC_STATUS", "LONG_TERM_TYPES", "MAX_UNVERIFIED_TYPE",
+                "_verification_state"):
+    assert _marker in deposition_src, f"core/experience_deposition.py 缺少认知闸门: {_marker}"
+# ace_daemon.py 必须能解析：上一次合拢时，一个被整文件覆盖的损坏版本
+# 直接提交进了历史。这里用编译而不是文本断言，损坏会立刻暴露。
+try:
+    compile(daemon_src, "ace_daemon.py", "exec")
+except SyntaxError as exc:
+    raise AssertionError(f"ace_daemon.py 无法解析: line {exc.lineno} {exc.text!r}")
+print("   复用 + 治理接线齐全，Governor 单例，文件可解析: PASSED")
 reuse_src = (ROOT / "core" / "knowledge_reuse.py").read_text(encoding="utf-8")
 assert "artifact_contributions" in reuse_src, "core/knowledge_reuse.py 缺少交付溯源核算"
 roles_src = (ROOT / "core" / "task_roles.py").read_text(encoding="utf-8")

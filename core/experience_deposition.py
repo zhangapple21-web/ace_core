@@ -9,21 +9,41 @@
   - 约束更新（如果有）
   - 词库概念（如果有）
 
-经验分类：
-  - axiom: 公理（证据充分，无反例）
-  - constraint: 约束（系统必须遵守的规则）
-  - pattern: 模式（反复出现的结构）
-  - lesson: 教训（失败或被废弃的经验）
-  - observation: 观察（弱结论，供参考）
+经验分类（同时也是认知等级，不得混用）：
+  - axiom: 公理 — VERIFIED_FACT，必须有独立验证收据
+  - constraint: 约束 — RULE，必须有独立验证收据
+  - pattern: 模式 — EVIDENCE，反复出现的结构，仍是可复核证据
+  - lesson: 教训 — COUNTEREXAMPLE，失败或被废弃的经验
+  - observation: 观察 — OBSERVATION，弱结论，供参考
+
+升级闸门：一次执行结果在拿到 ``verified_outcome_receipt``（由
+``core.outcome_receipt.OutcomeReceiptRecorder`` 产生，至少两份独立证据组）
+之前只能停在 observation/pattern；未经独立验证的观察不得成为长期规则。
 """
 
 import hashlib
 import json
+import os
 import re
 from pathlib import Path
 from datetime import datetime
 from typing import Dict, List, Any, Optional
 from .mirror_constitution import DATA_CLASSES, validate_data_boundary
+
+# 经验类型 -> 认知等级。等级不可凭“证据条数”跳级。
+EPISTEMIC_STATUS = {
+    "observation": "OBSERVATION",
+    "pattern": "EVIDENCE",
+    "lesson": "COUNTEREXAMPLE",
+    "constraint": "RULE",
+    "axiom": "VERIFIED_FACT",
+}
+
+# 只有这两个等级属于“长期规则”，因此必须经过独立验证闸门。
+LONG_TERM_TYPES = ("axiom", "constraint")
+
+# 未验证时允许降级到的最高等级。
+MAX_UNVERIFIED_TYPE = "pattern"
 
 
 class Experience:
@@ -43,6 +63,9 @@ class Experience:
         tags: Optional[List[str]] = None,
         created_at: Optional[str] = None,
         data_class: str = "PRIVATE",
+        epistemic_status: Optional[str] = None,
+        verification: Optional[Dict] = None,
+        downgrade_reason: str = "",
     ):
         self.experience_id = experience_id
         self.source_task_id = source_task_id
@@ -57,12 +80,16 @@ class Experience:
         self.created_at = created_at or datetime.now().isoformat()
         self.reference_count = 0
         self.last_used_at = self.created_at
+        self.epistemic_status = epistemic_status or EPISTEMIC_STATUS.get(self.experience_type, "OBSERVATION")
+        self.verification = dict(verification or {})
+        self.downgrade_reason = downgrade_reason
 
     def to_dict(self) -> Dict[str, Any]:
         return {
             "experience_id": self.experience_id,
             "source_task_id": self.source_task_id,
             "experience_type": self.experience_type,
+            "epistemic_status": self.epistemic_status,
             "conclusion": self.conclusion,
             "evidence": self.evidence,
             "constraints_updated": self.constraints_updated,
@@ -72,6 +99,8 @@ class Experience:
             "created_at": self.created_at,
             "reference_count": self.reference_count,
             "last_used_at": self.last_used_at,
+            "verification": self.verification,
+            "downgrade_reason": self.downgrade_reason,
         }
 
     @classmethod
@@ -181,11 +210,49 @@ class ExperienceDeposition:
                 return experience
         return None
 
+
+    @staticmethod
+    def _verification_state(task) -> Dict[str, Any]:
+        """Read the existing outcome-receipt proof instead of inferring trust."""
+        outputs = getattr(task, "outputs", None)
+        outputs = outputs if isinstance(outputs, dict) else {}
+        receipt = outputs.get("verified_outcome_receipt")
+        if not isinstance(receipt, dict) or receipt.get("status") != "VERIFIED":
+            return {"status": "UNVERIFIED", "reason": "no_verified_outcome_receipt"}
+        groups = int(receipt.get("independent_evidence_groups", 0) or 0)
+        refs = [str(ref).strip() for ref in receipt.get("evidence_refs", []) if str(ref).strip()]
+        if groups < 2 or len(refs) < 2:
+            return {
+                "status": "UNVERIFIED",
+                "reason": "independent_evidence_required",
+                "independent_evidence_groups": groups,
+            }
+        return {
+            "status": "VERIFIED",
+            "verifier": str(receipt.get("verifier", "")),
+            "verified_at": str(receipt.get("verified_at", "")),
+            "result_ref": str(receipt.get("result_ref", "")),
+            "verification_ref": str(receipt.get("verification_ref", "")),
+            "independent_evidence_groups": groups,
+            "evidence_refs": refs,
+        }
+
+    def _persist_experience(self, experience: Experience, path: Path) -> None:
+        """Persist one experience record atomically, then refresh the index."""
+        temporary = path.with_suffix(".json.tmp")
+        with open(temporary, "w", encoding="utf-8") as handle:
+            json.dump(experience.to_dict(), handle, ensure_ascii=False, indent=2)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+        self._index_experience(experience, path)
+
     def _index_experience(self, experience: Experience, path: Path) -> None:
         index = self._load_index()
         index[experience.experience_id] = {
             "path": str(path),
             "type": experience.experience_type,
+            "epistemic_status": experience.epistemic_status,
             "conclusion": experience.conclusion[:100],
             "source_task": experience.source_task_id,
         }
@@ -201,6 +268,9 @@ class ExperienceDeposition:
     ) -> Experience:
         """
         将任务转化为经验记录并沉积
+
+        未经独立验证的执行结果不会成为长期规则：``axiom``/``constraint``
+        会降到 ``pattern``，并在记录里留下降级原因与验证缺口。
         """
         if experience_type is None:
             if task.guardian_decision in Experience.EXPERIENCE_TYPES:
@@ -210,9 +280,19 @@ class ExperienceDeposition:
         if experience_type not in Experience.EXPERIENCE_TYPES:
             experience_type = "observation"
 
+        resolved_conclusion = conclusion or task.hypothesis or task.title
+
         existing = self._find_existing(task.task_id, experience_type)
         if existing is not None:
             return existing
+
+        verification = self._verification_state(task)
+        downgrade_reason = ""
+        if experience_type in LONG_TERM_TYPES and verification["status"] != "VERIFIED":
+            downgrade_reason = "downgraded_from_{}:{}".format(
+                experience_type, verification.get("reason", "unverified")
+            )
+            experience_type = MAX_UNVERIFIED_TYPE
 
         exp_id = self._experience_id(task.task_id, experience_type)
 
@@ -228,12 +308,14 @@ class ExperienceDeposition:
             experience_id=exp_id,
             source_task_id=task.task_id,
             experience_type=experience_type,
-            conclusion=conclusion or task.hypothesis or task.title,
+            conclusion=resolved_conclusion,
             evidence=evidence,
             constraints_updated=constraints_updated or [],
             related_concepts=related_concepts or [],
             tags=task.tags + [experience_type],
             data_class=getattr(task, "data_class", "PRIVATE"),
+            verification=verification,
+            downgrade_reason=downgrade_reason,
         )
 
         boundary = validate_data_boundary({"data_class": exp.data_class}, target="INTERNAL")
@@ -242,9 +324,18 @@ class ExperienceDeposition:
 
         subdir = self.EXPERIENCE_DIRS.get(experience_type, "observation")
         exp_path = self.knowledge_dir / subdir / f"{exp_id}.json"
+        if exp_path.exists():
+            concurrent = self._load_experience(exp_path)
+            if (
+                not concurrent
+                or concurrent.source_task_id != task.task_id
+                or concurrent.experience_type != experience_type
+            ):
+                raise RuntimeError(f"experience_identity_collision:{exp_id}")
+            return concurrent
+
         try:
-            with open(exp_path, "x", encoding="utf-8") as f:
-                json.dump(exp.to_dict(), f, ensure_ascii=False, indent=2)
+            self._persist_experience(exp, exp_path)
         except FileExistsError:
             concurrent = self._load_experience(exp_path)
             if (
@@ -253,9 +344,7 @@ class ExperienceDeposition:
                 or concurrent.experience_type != experience_type
             ):
                 raise RuntimeError(f"experience_identity_collision:{exp_id}")
-            exp = concurrent
-
-        self._index_experience(exp, exp_path)
+            return concurrent
 
         return exp
 
@@ -340,7 +429,34 @@ class ExperienceDeposition:
                 exp.touch()
                 results.append((score, exp))
         results.sort(key=lambda x: -x[0])
-        return [e for _, e in results[:limit]]
+        selected = [e for _, e in results[:limit]]
+        # Reuse is the only thing that turns a stored record into knowledge ACE
+        # actually kept.  Persist the reference so a later audit can prove the
+        # loop closed instead of inferring it from a file count.
+        for exp in selected:
+            self._record_reuse(exp)
+        return selected
+
+    def _record_reuse(self, experience: Experience) -> None:
+        """Persist reference_count/last_used_at for a reused experience."""
+        index = self._load_index()
+        path_text = ""
+        for record in index.values():
+            if isinstance(record, dict) and record.get("source_task") == experience.source_task_id:
+                if record.get("type") == experience.experience_type:
+                    path_text = str(record.get("path", ""))
+                    break
+        if not path_text:
+            subdir = self.EXPERIENCE_DIRS.get(experience.experience_type, "observation")
+            candidate = self.knowledge_dir / subdir / f"{experience.experience_id}.json"
+            path_text = str(candidate) if candidate.is_file() else ""
+        if not path_text:
+            return
+        try:
+            self._persist_experience(experience, Path(path_text))
+        except OSError:
+            # A reuse counter must never break the research path that reused it.
+            return
 
     def get_stats(self) -> Dict[str, Any]:
         """获取经验库统计"""

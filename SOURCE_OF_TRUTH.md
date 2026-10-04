@@ -162,6 +162,32 @@ DailyLearningLoop 的运行时数据与 canonical Knowledge 已分离：daemon �
   每轮制造复核任务（与 Work Conservation 冲突），Researcher 的关键词复用会
   成为第二条更弱的复用路径。
 
+## 9b. 治理与复用的合拢边界（2026-10-04）
+
+两端正交：**治理决定存什么，复用决定怎么用**，合拢后仍然各有一个 owner。
+
+| 关注点 | owner | 不做什么 |
+|---|---|---|
+| 净化 / 等级 / `reference_count` 落盘 | `core/experience_deposition.py` | 不判断“这次复用值不值” |
+| 身份键关联 / 提示词注入 / `artifact_contributions` | `core/knowledge_reuse.py` | 不写 Knowledge、不改等级 |
+
+- `reference_count` 是**两个不同对象上的同名字段**，实测确认不是一条链路：
+  `Experience.reference_count`（`09_KNOWLEDGE/<tier>/EXP-*.json`）由治理端
+  `find_related()` 复用时落盘；`Task.reference_count`（`task_pool/`）是任务账本
+  计数，被 `KnowledgeReuseGate.group_of()` 读取。复用模块不 import
+  `ExperienceDeposition`，也不 import `Governor`；治理模块不 import
+  `knowledge_reuse`。因此"复用触发 Governor 重复判定"在结构上不可能发生。
+- `knowledge_join:` 证据被 `core/task_roles.py::_is_reuse_pointer()` 显式排除在
+  `Validator._unique_evidence()` 与 prospect 评分之外：指向自家记忆的指针不是
+  对世界的独立观察，不能当佐证，也不能推动 evidence signature。
+- 注入顺序：`AceDaemon.__init__` 中 `self.knowledge_governor`
+  （`__init__` 早期）→ `experience_deposition` → `Guardian` →
+  `knowledge_reuse`（`_init_task_lifecycle` 内），两者共用同一个 `task_pool`。
+- 合拢验证：`ops/test_knowledge_governance_reuse_merge.py`（4 项）在真实
+  `AceDaemon` 上证明：Governor 定级 RULE → intent 任务按身份键命中 →
+  `knowledge_join:` 记录指向该 RULE 记录 → 交付产物真的引用后被记为
+  contribution → 该指针不算佐证也无法把未验证声明升成规则 → dry-run 只算不写。
+
 ## 10. 本轮验证收据（2026-10-04）
 
 - 新增定向回归：`ops/test_knowledge_epistemic_gate.py`、
@@ -178,4 +204,134 @@ DailyLearningLoop 的运行时数据与 canonical Knowledge 已分离：daemon �
   `FragmentIndex.is_known()` 曾让已考古文件永久不可再入）。
 - 回归对比（同一条 pytest 选择下）：修复前 19 failed → 修复后 17 failed，
   新增失败 0。
+
+## 11. 治理↔复用合拢收据（2026-10-04 第二轮）
+
+### 11.1 已合拢的接线
+
+| 关注点 | owner | 运行时落点 |
+|---|---|---|
+| 净化 / 等级 / `reference_count` | `core/experience_deposition.py` | `EPISTEMIC_STATUS`、`LONG_TERM_TYPES`、`_verification_state` |
+| 去重判定 | `core/governance/knowledge_governor.py` | `self.knowledge_governor`（全 runtime 单例） |
+| 身份键关联 / 提示词 / 交付溯源 | `core/knowledge_reuse.py` | `KnowledgeReuseGate` + `_run_knowledge_reuse_stage` |
+
+注入顺序：`__init__` 建 `self.knowledge_governor` → `_init_task_lifecycle`
+建 `experience_deposition` → 注入 `Guardian` → 建 `knowledge_reuse`；两者共用
+同一个 `task_pool`。`Governor(` 在 `ace_daemon.py` 中只出现 1 次。
+
+### 11.2 一处必须纠正的认知
+
+工单原述"Governor 写入的 `reference_count` 能被 `KnowledgeReuseGate` 读取"
+**不成立**：这是两个对象上的同名字段。
+
+- `Experience.reference_count` → `09_KNOWLEDGE/<tier>/EXP-*.json`，治理端独占写。
+- `Task.reference_count` → `task_pool/`，`KnowledgeReuseGate.group_of()` 读它做
+  重复组折叠。
+
+实测：复用挂载后治理记录 `reference_count` 仍为 0。`knowledge_reuse.py`
+既不 import `ExperienceDeposition` 也不 import `Governor`，因此"复用触发
+Governor 重复判定"在结构上不可能发生，无需再加防护。
+
+### 11.3 补上的一个真实缺口：join index 无人构建
+
+`core/knowledge_reuse.py` 完全信任 `09_KNOWLEDGE/join_index.v1.json`；该文件
+缺失/过期/指错时复用阶段静默地什么都不计划，**不报错**。全树无人构建它，
+它冻结在 2026-10-03T20:57，且只指向合拢前的记录（168 条中 0 条带
+`epistemic_status`）。这是工单验收第 2 项在生产上原本不可达的真实原因。
+
+新增 `ops/build_knowledge_join_index.py`：从 `09_KNOWLEDGE/index.json` +
+`task_pool/archived` 只读重建，原子写，非归档任务的记录被丢弃，悬空记录
+可见。当前：810 条全部入索引，`RULE=143`、`EVIDENCE=667`，gate
+`load_index()` 状态 `OK`。
+
+### 11.4 验收（第 2 项，真实 TaskPool）
+
+`ops/test_knowledge_governance_reuse_merge.py` + 真实池脚本全通过：
+
+```
+[PASS] Governor 把已验证记录定为 RULE
+[PASS] intent 任务按身份键命中 → knowledge_join:file:b8ee9e195092
+[PASS] 命中指向 EXP-RQ-20260823-004-constraint-6368bac88d9b.json（RULE）
+[PASS] 交付产物真的引用该 id → artifact_contributions 记账
+[PASS] 复用指针不算佐证（unique_evidence=0），也无法升格未验证声明
+[PASS] 复用未写 Governor 的 reference_count，且未新增任何 Knowledge 记录
+[PASS] dry-run 仍然算得出命中、但一条都不写
+```
+
+### 11.5 本轮发生的一次事故与护栏
+
+合拢中我一度用旧快照**整文件覆盖** `ace_daemon.py`，抹掉了复用窗口的
+`_reuse_hint_for` / `_record_reuse_contributions` / `_knowledge_reuse_contributions`；
+随后发现对方 commit `e0d4ce3` 里的 `ace_daemon.py` **本身就是坏的**
+（`_run_task_lifecycle_unlocked` 被截断，SyntaxError）。已从可编译基线重建并
+逐条原样回植 7 处接线。
+
+护栏（防止复发）：
+- `ops/test_ace_daemon_wiring_guard.py`：文件必须可编译；复用与治理 landmark
+  必须在位；用 AST 断言 landmark 是**被调用**的而不只是被 import；
+  `Governor(` 必须恰好 1 处。
+- `ops/verify_fixes.py` 第 2b 项扩展：补 `_knowledge_reuse_contributions`、
+  治理侧 landmark、`EPISTEMIC_STATUS` 组、以及对 `ace_daemon.py` 的**真实编译**
+  （此前只做文本断言，损坏文件能通过）。
+- 修正 `EPISTEMIC_STATUS` 拼写（原为 `EPSTEMIC_STATUS`）。
+
+### 11.6 提交前的第二次自我否决（重要）
+
+准备提交时才发现：工作树的 `ace_daemon.py` 是从旧快照重建的，因此相对 HEAD
+多出 **852/780** 行改动，其中包括
+
+- 另一窗口**未提交**的 worker-router 接线（`self.worker_router` /
+  `opencode_worker` / `opencode_workspace` / `_execute_task_with_worker` 完整实现）；
+- 一处真实回归：`_run_local_only_work` 里 `update_task` 之后的
+  `summary["reviewed"] / ["blocked"]` 记账 4 行被丢掉；
+- `self.lifecycle_lock_file` 的赋值（HEAD 在方法内赋值，两处读取用
+  `getattr` 兜底，故 HEAD 无此缺口）。
+
+若照此提交，会把别人的 WIP 一起吞掉，并静默回退一处记账逻辑。
+因此改为 **以 HEAD 为基线、只叠加本轮治理接线** 重写该文件。
+
+重写后的 diff 收敛为 `18 insertions(+), 3 deletions(-)`，仅触及
+`__init__` 与 `_init_task_lifecycle` 两个方法；命名面 0 丢失、仅新增
+`knowledge_governor`；函数体长度对比只有这两处变化。
+
+由此新增两条提交前断言（临时脚本，规则已写进
+`ops/test_ace_daemon_wiring_guard.py` 与 `ops/verify_fixes.py`）：
+
+1. **命名面双向对比**：HEAD 定义的每个 def/class/属性名都必须在暂存版本里
+   仍在（防止"函数还在但函数体被掏空"）。
+2. **函数体长度对比**：同名函数长度变化必须能逐条解释。
+
+> 教训：`git diff --stat` 的行数不能当作"改动大小"的证据。1632 行的 diff
+> 背后是"基线选错了"，不是"改动很多"。
+
+### 11.7 未闭环
+
+- **生产复用闸门关闭**：`ace_config.json` 无 `knowledge_reuse` 键 →
+  `enabled=False`、`mode=dry-run`。上述 knowledge_join 是在真实池上按 canary
+  模式验证的；要让它自然发生需要显式改配置（配置决策，未擅自改）。
+- **生产重启未执行**：属状态变更，需走 `ACE_Daemon_Boot` 计划任务。当前
+  pid 9668 持续存活、心跳正常。
+- 全量回归：1292 tests / 17 failures，基线 46，**新增 0**；17 个全部落在
+  `capability_routing` / `model_pool_mainline` / `execution_discipline` /
+  `task_ledger` / `ds41` / `execution_contract`，无一触及本轮改动模块。
+  `test_daemon_service_entrypoint` 对机器负载敏感（单跑 12.2s / 预算 30s，
+  6 倍负载 14.3s），非合拢引入。
+- 另一窗口的 worker-router WIP（`core/worker_router.py` 及其在
+  `ace_daemon.py` 的接线）**未提交**，留给该窗口自己固化；HEAD 对它的引用
+  是 try/except fail-closed，不因本次提交改变。
+
+### 11.8 顺带修掉的一个真实运行时故障（活证据）
+
+daemon 今天累计 50 条 `file_scanner` 错误，全部同因：
+`[WinError 3] 找不到路径 C:\tmp\ace-host-adapter-lab\...\node_modules\...`。
+`FileScanner._scan_new_fragments()` 用 `root.rglob("*")`，而 Windows 对超过
+MAX_PATH 的路径直接抛异常 —— `C:\tmp` 下那个 bun 依赖树让**整轮扫描中断**，
+于是同一错误每 5 分钟复写一次 `daemon_state.json`，同时真正的碎片一次也没被扫到。
+
+已改为 `os.scandir` 逐层下潜的 `_walk()`：单个不可读子树只记入
+`skipped` 并继续；超过 `MAX_PATH` 的路径提前跳过；`scan_and_create()` 把
+`unreadable` 计数放进结果而不是抛出。
+
+实测同一根目录：`scanned 15320 / new 3102 / skipped 1`（此前是 0/0/抛异常）。
+护栏：`ops/test_file_scanner_path_limit.py`。
 

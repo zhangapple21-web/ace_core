@@ -222,6 +222,10 @@ class AceDaemon:
         self.guardian = None
         self.event_listener = None
         self.experience_deposition = None
+        # One Governor instance for the whole runtime.  It resolves the
+        # canonical root itself, so its dedup search and record file match
+        # the store that ExperienceDeposition actually writes.
+        self.knowledge_governor = Governor(str(base_dir / "06_RUNTIME" / "ace"))
         self.outcome_receipt_recorder = OutcomeReceiptRecorder()
         self.learning_return_bridge = None
         self.policy_card_store = PolicyCardStore(self.data_dir / "policy_feedback")
@@ -375,6 +379,16 @@ class AceDaemon:
                 sandbox_root=self.base_dir / "07_SANDBOX" / "free_research",
                 task_pool=self.freezone_task_pool,
             )
+            # Canonical Knowledge writer.  Constructed before the Guardian so
+            # the promotion gate can consult historical lessons.  Observer and
+            # Researcher deliberately stay unwired: Observer's use of this
+            # store is a knowledge-count heuristic that manufactures review work
+            # every cycle (Work Conservation), and reuse of archived knowledge
+            # already has one owner, ``core/knowledge_reuse.py``, wired as
+            # ``_run_knowledge_reuse_stage``.  A second, keyword-based reuse
+            # path would be a parallel architecture, not a repair.
+            knowledge_dir = self.base_dir / "09_KNOWLEDGE"
+            self.experience_deposition = ExperienceDeposition(str(knowledge_dir))
             self.observer = Observer(
                 task_pool=self.task_pool,
                 lexicon=self.lexicon,
@@ -417,14 +431,15 @@ class AceDaemon:
                 memory_index=self.memory_gateway,
                 lexicon=self.lexicon,
             )
+            # Guardian is the last gate before long-term knowledge, so it must
+            # be able to see historical lessons before judging a promotion.
             self.guardian = Guardian(
                 task_pool=self.task_pool,
                 lexicon=self.lexicon,
                 memory_index=self.memory_gateway,
+                experience_deposition=self.experience_deposition,
             )
             self.event_listener = None
-            knowledge_dir = self.base_dir / "09_KNOWLEDGE"
-            self.experience_deposition = ExperienceDeposition(str(knowledge_dir))
             configured_video_root = self.config.get("runtime", {}).get("video_kingdom_root")
             self.learning_return_bridge = LearningReturnBridge(
                 self.base_dir,
@@ -622,7 +637,7 @@ class AceDaemon:
                 converter=self.obs_to_task_converter,
                 task_pool=self.task_pool,
                 evidence_registry=EvidenceRegistry(str(governance_dir)),
-                knowledge_governor=Governor(str(self.base_dir / "06_RUNTIME" / "ace")),
+                knowledge_governor=self.knowledge_governor,
                 lifecycle_manager=LifecycleManager(str(governance_dir / "daily_learning_lifecycle.jsonl")),
                 internal_candidate_sources=[
                     self._daily_learning_candidates,

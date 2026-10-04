@@ -91,13 +91,14 @@ class FragmentIndex:
         if key not in self.index:
             return False
         rec = self.index[key]
-        # If explicitly marked as archaeologized, consider it known regardless of mtime
-        if rec.get("status") == "archaeologized":
-            return True
         try:
             size, mtime = self._fingerprint(path)
         except Exception:
             return True
+        # An archaeologized file is "known" only while it is unchanged.  Treating
+        # the status alone as knowledge made every already-mined file invisible
+        # forever, so corrected or newly written material could never re-enter
+        # the lifecycle even after its first task had closed.
         return rec.get("size") == size and abs(rec.get("mtime", 0) - mtime) < 0.001
 
     def mark_seen(self, path: Path, status: str = "seen"):
@@ -204,10 +205,18 @@ class FragmentIndex:
                 "archaeologized_at": now,
             }
         else:
-            # Preserve archaeologized status and original archaeologized_at
+            # Preserve archaeologized status and original archaeologized_at,
+            # but refresh the fingerprint: is_known() is now fingerprint-based,
+            # so a stale size/mtime would rediscovery the same file forever.
             self.index[key]["status"] = "archaeologized"
             self.index[key]["task_id"] = task_id
             self.index[key]["last_checked"] = now
+            try:
+                size, mtime = self._fingerprint(path)
+                self.index[key]["size"] = size
+                self.index[key]["mtime"] = mtime
+            except OSError:
+                pass
             if "archaeologized_at" not in self.index[key]:
                 self.index[key]["archaeologized_at"] = now
         self._save()
