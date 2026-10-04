@@ -52,6 +52,24 @@ assert "JOIN_SOURCE_PREFIX" in roles_src and "_is_reuse_pointer" in roles_src, (
 )
 print("   PASSED")
 
+# 2c. 本仓库的文件必须真的能编译。
+# 这一项是被真实事故逼出来的：hunk 级暂存按索引行号落位，而共享树里另一个写者
+# 的结构改动只存在于工作区，于是提交进去的 ace_daemon.py 把我的方法插进了字典
+# 字面量中间——工作区测试全绿，提交版本根本无法 import。编译检查读的是磁盘上
+# 即将入库的内容，成本为零。
+print("\n2c. 编译核心模块...")
+for _rel in ("ace_daemon.py", "core/task_roles.py", "core/task.py",
+             "core/knowledge_reuse.py", "core/delivery_execution.py",
+             "core/file_scanner.py", "core/local_archaeologist.py",
+             "ops/daily_intent_scheduler.py", "ops/inject_target.py"):
+    _path = ROOT / _rel
+    if not _path.exists():
+        print(f"   SKIPPED {_rel} 不存在")
+        continue
+    compile(_path.read_text(encoding="utf-8"), _rel, "exec")
+    print(f"   {_rel}: COMPILES")
+print("   PASSED")
+
 # 3. 索引文件
 print("\n3. 检查任务索引...")
 index_path = POOL / "task_index.json"
@@ -190,13 +208,23 @@ with tempfile.TemporaryDirectory() as tmp:
 # The CLI is NOT on PATH but IS installed, and OpenCodeWorker resolves it by
 # absolute default. Assert the resolved worker is real, so the earlier belief
 # "no worker exists here" cannot quietly come back and silently disable delivery.
+#
+# This binds only on a host that actually runs the daemon. On a fresh CI
+# checkout there is no task pool ledger, so a missing CLI is an environment fact,
+# not a code regression — asserting it there would make this guard machine
+# dependent and turn every green pipeline red.
 from core.opencode_worker import OpenCodeWorker as _RealWorker  # noqa: E402
 
 _worker = _RealWorker()
-assert Path(_worker.executable).exists(), (
-    f"交付 worker 不可用: {_worker.executable} 不存在。file_exists_nonempty 意志会永远停在 delivery_not_produced"
-)
-print(f"   交付 worker: {_worker.executable}")
+_IS_RUNTIME_HOST = (POOL / "task_index.json").exists() or (ROOT / "09_KNOWLEDGE").exists()
+if Path(_worker.executable).exists():
+    print(f"   交付 worker: {_worker.executable}")
+elif _IS_RUNTIME_HOST:
+    raise AssertionError(
+        f"交付 worker 不可用: {_worker.executable} 不存在。file_exists_nonempty 意志会永远停在 delivery_not_produced"
+    )
+else:
+    print(f"   SKIPPED 非运行主机（无任务池账本），本机不存在交付 worker: {_worker.executable}")
 
 # The intent layer must be reachable from the real runtime, not only from a CLI
 # someone has to remember to run. And it must be wired to a real moment with a

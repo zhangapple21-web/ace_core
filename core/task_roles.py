@@ -745,7 +745,9 @@ class Researcher:
                 # The service decision must see the complete bounded priority
                 # queue.  A five-item page can hide an already-claimed model
                 # task behind old rework tasks indefinitely.
-                tasks = self.task_pool.list_tasks(status=status, priority=pri, limit=10000)
+                tasks = self._delivery_first(
+                    self.task_pool.list_tasks(status=status, priority=pri, limit=10000)
+                )
                 for task in tasks:
                     medium = (
                         self._aging_medium_candidate(priority)
@@ -1182,12 +1184,17 @@ class Validator:
 
     @staticmethod
     def _unique_evidence(task: Task) -> set:
+        # A knowledge_join entry is a pointer at what the archive already knows,
+        # not an independent observation of the world. Counting it would let
+        # ACE's own memory stand in for corroboration, and it would also move
+        # the evidence signature, which can re-open a settled rework loop.
         return {
             (
                 item.get("source", "") if isinstance(item, dict) else "",
                 item.get("content", "") if isinstance(item, dict) else str(item),
             )
             for item in task.evidence
+            if not _is_reuse_pointer(item)
         }
 
     @classmethod
@@ -1215,13 +1222,8 @@ class Validator:
     def _model_objections(response: Any) -> Dict[str, List[str]]:
         if not isinstance(response, dict) or not response.get("success"):
             return {"hard_objections": [], "advisory_objections": [], "counter_examples": []}
-        # A knowledge_join entry is a pointer at what the archive already knows,
-        # not an independent observation of the world. Counting it would let
-        # ACE's own memory stand in for corroboration, and it would also move
-        # the evidence signature, which can re-open a settled rework loop.
         content = response.get("content", "")
         if not isinstance(content, str) or not content.strip():
-            if not _is_reuse_pointer(item)
             return {"hard_objections": [], "advisory_objections": [], "counter_examples": []}
         try:
             payload = json.loads(content)
