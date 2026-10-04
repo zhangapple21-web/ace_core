@@ -43,7 +43,7 @@ def test_lazy_cat_challenge_executes_a_structural_counterexample_without_an_entr
         git_observer=lambda: {"status": "NO_SAFE_GIT_FOOD"},
     ).run_turn()
     assert report["claim"]["source_kind"] == "lazy_cat_challenge"
-    assert report["execution"]["outcome"] == "PASS"
+    assert report["execution"]["outcome"] == "INCONCLUSIVE"
     record = (root / "experiments" / f"{report['execution']['experiment_id']}.json").read_text(encoding="utf-8")
     assert "STRUCTURAL_COUNTEREXAMPLE_ONLY" in record
     process = json.loads(
@@ -53,10 +53,10 @@ def test_lazy_cat_challenge_executes_a_structural_counterexample_without_an_entr
     assert process["world_id"] not in process["unexecuted_rival_world_ids"]
     probe = next((root / "lazy_cat" / "challenge_probes").glob("*.json"))
     probe_data = json.loads(probe.read_text(encoding="utf-8"))
-    assert probe_data["state"] == "PROBE_COMPLETED_WITHIN_SCOPE"
-    assert LazyCatAudit(root).pending_challenges() == []
+    assert probe_data["state"] == "NEEDS_ANOTHER_PROBE"
+    assert LazyCatAudit(root).pending_challenges() != []
     society = SandboxSociety(root).run_turn()
-    assert society["roles"]["lazy_cat"]["pending_challenge_count"] == 0
+    assert society["roles"]["lazy_cat"]["pending_challenge_count"] >= 1
     verdict = next(
         item
         for item in (root / "lazy_cat" / "verdicts").glob("*.json")

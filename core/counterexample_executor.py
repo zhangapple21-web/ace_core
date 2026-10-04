@@ -60,6 +60,8 @@ class StructuralCounterexampleExecutor:
         missing = [str(item) for item in challenge.get("missing_dimensions", []) if str(item).strip()]
         evidence = source.get("evidence") if isinstance(source.get("evidence"), Mapping) else {}
         source_metadata = source.get("metadata") if isinstance(source.get("metadata"), Mapping) else {}
+        executed_states = {"EXECUTED", "OBSERVED", "FALSIFIED"}
+        dissent_executed = bool(counter_world.get("world_id")) and str(counter_world.get("execution_state", "")) in executed_states
         dimension_proofs = {
             "lineage": source_hash_valid and distillation_link_valid,
             "bounded_method": bool(str(source.get("method", "")).strip()),
@@ -72,7 +74,10 @@ class StructuralCounterexampleExecutor:
                 and manifest.get("automatic_promotion") is False
                 and _BOUNDARY_TARGETS.issubset(set(manifest.get("forbidden_targets", [])))
             ),
-            "dissent_blueprint": bool(counter_world.get("world_id")) and counter_world.get("execution_state") == "BLUEPRINT_ONLY",
+            # A blueprint is a proposed dissent, not an executed dissent.
+            # This is intentionally false until a dedicated executor records
+            # an observable execution state.
+            "dissent_blueprint": dissent_executed,
         }
         requested = {dimension: dimension_proofs.get(dimension, False) for dimension in missing}
         unresolved = sorted(dimension for dimension, proved in requested.items() if not proved)

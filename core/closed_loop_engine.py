@@ -19,6 +19,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Mapping, Optional
 
+from .coordinate_dynamics import Axis, CoordinateDynamics
 from .prediction_error_contract import (
     append_prediction_receipt,
     build_prediction_receipt,
@@ -81,6 +82,7 @@ class CycleReceipt:
     decision: str
     next_observation: Dict[str, Any]
     prediction_error: Dict[str, Any] = field(default_factory=dict)
+    coordinate: Dict[str, Any] = field(default_factory=dict)
     receipt_hash: str = ""
 
     def to_dict(self) -> Dict[str, Any]:
@@ -244,6 +246,7 @@ class ClosedLoopEngine:
         change: Optional[Mapping[str, Any]] = None,
         tolerance: float = 0.0,
         prediction: Optional[Mapping[str, Any]] = None,
+        coordinate: Optional[Mapping[str, Any]] = None,
     ) -> Dict[str, Any]:
         nodes = self.decompose(observation, objective, work_items)
         evaluation = self.evaluate(baseline, changed, directions, tolerance)
@@ -275,6 +278,26 @@ class ClosedLoopEngine:
                 decision = "BLOCKED_PREDICTION_UNKNOWN"
             elif prediction_decision == "RETRY" and decision == "PROMOTED_TO_CAPABILITY_GROWTH":
                 decision = "BLOCKED_PREDICTION_MISMATCH"
+        coordinate_receipt: Dict[str, Any] = {}
+        coordinate_input = coordinate
+        if coordinate_input is None and isinstance(observation.get("coordinate"), Mapping):
+            coordinate_input = observation.get("coordinate")
+        if isinstance(coordinate_input, Mapping):
+            position = coordinate_input.get("position", {})
+            target = coordinate_input.get("target", {})
+            if isinstance(position, Mapping) and isinstance(target, Mapping) and (position or target):
+                raw_weights = coordinate_input.get("axis_weights", {})
+                weights = raw_weights if isinstance(raw_weights, Mapping) else {}
+                axes = [Axis(str(name), float(weight)) for name, weight in weights.items()]
+                state = {"active_axes": coordinate_input.get("active_axes")} if "active_axes" in coordinate_input else {}
+                coordinate_receipt = CoordinateDynamics(axes).locate(
+                    objective=objective,
+                    position=position,
+                    target=target,
+                    state=state,
+                    feedback=coordinate_input.get("feedback") if isinstance(coordinate_input.get("feedback"), Mapping) else None,
+                    lineage={"cycle_objective": objective, "observation_source": observation.get("source", "")},
+                )
         created_at = _now()
         cycle_id = f"CLC-{datetime.now().strftime('%Y%m%d%H%M%S')}-{_hash({'objective': objective, 'observation': observation})}"
         next_observation = self._next_observation(cycle_id, objective, decision, evaluation, painful_review)
@@ -288,9 +311,10 @@ class ClosedLoopEngine:
             baseline=dict(baseline),
             change=dict(change or {"metrics": dict(changed)}),
             evaluation=evaluation,
+            next_observation=next_observation,
             painful_review=dict(painful_review),
             decision=decision,
-            next_observation=next_observation,
+            coordinate=coordinate_receipt,
             prediction_error=prediction_error,
         )
         payload = receipt.to_dict()

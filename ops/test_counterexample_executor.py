@@ -25,12 +25,25 @@ def _challenge(root):
     return json.loads((root / "lazy_cat" / "challenges" / "CHALLENGE-EXP-SOURCE.json").read_text(encoding="utf-8"))
 
 
-def test_structural_counterexample_executor_resolves_named_dimensions_without_claiming_truth(tmp_path):
+def test_structural_counterexample_executor_keeps_blueprint_inconclusive(tmp_path):
     root = tmp_path / "sandbox"
     challenge = _challenge(root)
     result = StructuralCounterexampleExecutor(root).execute(
         challenge=challenge,
         factory_worlds=[{"world_id": "WORLD-COUNTER", "stance": "COUNTEREXAMPLE_SEARCH", "execution_state": "BLUEPRINT_ONLY"}],
+    )
+
+    assert result["outcome"] == "INCONCLUSIVE"
+    assert result["evidence"]["dimension_proofs"]["dissent_blueprint"] is False
+    assert result["evidence"]["counterexample_witness"]["outcome"] == "INCONCLUSIVE"
+
+
+def test_structural_counterexample_executor_accepts_observed_execution_without_claiming_truth(tmp_path):
+    root = tmp_path / "sandbox"
+    challenge = _challenge(root)
+    result = StructuralCounterexampleExecutor(root).execute(
+        challenge=challenge,
+        factory_worlds=[{"world_id": "WORLD-COUNTER", "stance": "COUNTEREXAMPLE_SEARCH", "execution_state": "EXECUTED"}],
     )
 
     assert result["outcome"] == "PASS"
@@ -57,5 +70,3 @@ def test_structural_counterexample_executor_preserves_a_tampered_source_as_failu
     )
     assert result["outcome"] == "FAIL"
     assert result["evidence"]["source_record_hash_valid"] is False
-
-
