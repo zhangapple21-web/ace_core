@@ -484,6 +484,10 @@ class LocalArchaeologist:
             admission={
                 "source_type": "archaeology",
                 "source_ref": str(path.resolve()),
+                # Without this the admission carries no content identity, so
+                # duplicate_task() falls back to path+semantics and silently
+                # swallows a *changed* file as "already admitted".
+                "source_fingerprint": file_info.get("fingerprint"),
                 "why_now": "本地供给材料存在未吸收结构，进入受限正文研究。",
                 "evidence": [{"source": str(path.resolve()), "source_ref": str(path.resolve()), "source_class": file_info.get("source_class"), "risk": policy.get("risk")}],
                 "expected_result": "生成带来源的学习回报和 RESEARCH_READY_NOT_PROMOTED 候选。",
@@ -493,6 +497,7 @@ class LocalArchaeologist:
             },
             outputs={
                 "source_file": str(path.resolve()),
+                "source_fingerprint": file_info.get("fingerprint"),
                 "source_class": file_info.get("source_class", "local_material"),
                 "source_priority": policy.get("source_priority", file_info.get("priority", 0)),
                 "fingerprint": file_info.get("fingerprint"),

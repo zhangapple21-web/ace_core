@@ -45,6 +45,12 @@ from core.task_roles import Observer, Researcher, Validator, Archivist, Guardian
 from core.task_creator import TaskCreator
 from core.fragment_index import FragmentIndex
 from core.file_scanner import FileScanner
+from core.knowledge_reuse import (
+    KnowledgeReuseGate,
+    artifact_contributions,
+    build_daily_report,
+    write_report,
+)
 from core.mine_seed_scanner import MineSeedScanner
 from core.heartbeat import Heartbeat
 from core.self_healing import SelfHealing
@@ -466,6 +472,18 @@ class AceDaemon:
                     state_file=web_scout_state,
                 )
 
+            # Archived-knowledge reuse. Off unless the config says otherwise,
+            # and dry-run until it is told otherwise twice. It owns no
+            # scheduler: the daily shift calls it per in-flight task.
+            self.knowledge_reuse = KnowledgeReuseGate(
+                base_dir=self.base_dir,
+                task_pool=self.task_pool,
+                settings=self.config.get("runtime", {}).get("knowledge_reuse", {}),
+            )
+            self._knowledge_reuse_day = ""
+            self._knowledge_reuse_entries: list = []
+            self._knowledge_reuse_attached = 0
+            self._knowledge_reuse_contributions: list = []
             # 初始化技能生成器
             skills_dir = self.base_dir / "09_KNOWLEDGE" / "skills"
             self.skill_generator = SkillGenerator(
@@ -2341,6 +2359,284 @@ class AceDaemon:
             "inquiry_resolved": 0,
             "inquiry_unresolved": 0,
             "archived": 0,
+    def _delivery_worker_runner(self):
+        """Build a bounded delivery worker, or None when none can run.
+
+        Fail closed on purpose. OpenCodeWorker resolves the CLI by absolute
+        default (C:\\Users\\Administrator\\.local\\bin\\opencode.exe, verified
+        opencode v2.0.6) and only then falls back to OPENCODE_EXECUTABLE -- so
+        absence from PATH is not absence of a worker. When the worker genuinely
+        cannot be built or found, the executor reports NO_WORKER_AVAILABLE and
+        the task stays honestly undelivered instead of receiving a fabricated
+        receipt.
+        """
+        cached = getattr(self, "_delivery_runner_cache", None)
+        if cached is not None:
+            return cached if cached != "unavailable" else None
+        runner = None
+        try:
+            from core.opencode_worker import OpenCodeWorker
+
+            worker = OpenCodeWorker()
+            if Path(worker.executable).exists():
+                def runner(**kwargs):  # noqa: F811 - closed over worker on purpose
+                    return self.worker_router.run(
+                        "structured_readonly", worker,
+                        verify=lambda receipt: receipt.get("success") is True and bool(receipt.get("raw_output")),
+                        task=(
+                            f"Produce the deliverable at {kwargs['required_path']}. "
+                            f"Task: {kwargs['title']}. Hypothesis: {kwargs['hypothesis']}."
+                            + self._reuse_hint_for(kwargs.get("task_id", ""),
+                                                    kwargs.get("workspace", ""))
+                        ),
+                        workspace=kwargs["workspace"],
+                        expected_result=kwargs["required_path"],
+                        verification_method="file_exists_nonempty",
+                    )
+        except Exception as exc:
+            self._log_error("delivery_worker_init", str(exc))
+            runner = None
+        self._delivery_runner_cache = runner if runner is not None else "unavailable"
+        return runner
+
+    def _reuse_hint_for(self, task_id: str, workspace: str) -> str:
+        """Carry already-attached archived knowledge into the work itself.
+
+        Evidence that never reaches the prompt is decoration: the artifact would
+        be produced exactly as before and the reference count would rise for
+        nothing. Only ``knowledge_join:`` items travel, only when the artifact
+        they name really exists inside the workspace, and the worker is told to
+        write the source id it used into the deliverable — which is what later
+        lets a report trace the artifact back to the archived task instead of
+        asserting it.
+        """
+        task = self.task_pool.load_task(task_id) if (self.task_pool and task_id) else None
+        if task is None:
+            return ""
+        root = Path(workspace) if workspace else None
+        items: list[str] = []
+        for entry in (task.evidence or []):
+            if not isinstance(entry, dict):
+                continue
+            source = str(entry.get("source") or "")
+            if not source.startswith("knowledge_join:"):
+                continue
+            artifact = str(entry.get("artifact") or "").strip()
+            if not artifact or root is None:
+                continue
+            if not (root / artifact).is_file():
+                continue
+            items.append(
+                f"- {source} (archived task {entry.get('archived_task')}, "
+                f"artifact {artifact}, matched by {entry.get('identity_key')})"
+            )
+        if not items:
+            return ""
+        return (
+            " Prior archived knowledge you must actually use:\n"
+            + "\n".join(items)
+            + "\nUse what applies and write the matching knowledge_join source id"
+              " into the deliverable so its origin can be traced. If none of it"
+              " applies, say so explicitly instead of citing it."
+        )
+
+    def _run_knowledge_reuse_stage(self, task: Task, result: Dict[str, Any]) -> Dict[str, Any]:
+        """Tell an in-flight task what the archive already knows — or find out
+        that we cannot, without touching the task.
+
+        Dry-run is the default and the only mode that is allowed to be reached
+        first: it computes a plan, records it, and writes nothing to the pool.
+        Attaching evidence requires the switch on, the mode above dry-run, and
+        a matching canary task, so a forgotten config cannot leak history into
+        real work.
+        """
+        gate = getattr(self, "knowledge_reuse", None)
+        task_id = getattr(task, "task_id", "")
+        if gate is None:
+            return {"status": "GATE_UNAVAILABLE", "task": task_id}
+        try:
+            plan = gate.plan(task)
+        except Exception as e:
+            self._log_error("knowledge_reuse_plan", str(e), task_id)
+            return {"status": "PLAN_FAILED", "task": task_id, "error": str(e)}
+
+        attach: Dict[str, Any] = {"attached": 0, "reason": "DRY_RUN"}
+        budget = int(gate.settings.get("budget_evidence_per_day") or 20)
+        if plan.get("selected") and self._knowledge_reuse_attached >= budget:
+            attach = {"attached": 0, "reason": "DAILY_BUDGET_EXHAUSTED"}
+        elif plan.get("selected") and gate.may_write(task_id):
+            try:
+                attach = gate.attach(task, plan)
+            except Exception as e:
+                self._log_error("knowledge_reuse_attach", str(e), task_id)
+                attach = {"attached": 0, "reason": f"ATTACH_FAILED:{type(e).__name__}"}
+        self._knowledge_reuse_attached += int(attach.get("attached") or 0)
+
+        entry = {
+            "task": task_id,
+            "status": "PLANNED",
+            "mode": plan.get("mode"),
+            "enabled": plan.get("enabled"),
+            "reason": plan.get("reason"),
+            "identity_keys": plan.get("identity_keys", {}),
+            "selected": plan.get("selected", []),
+            "expected_writes": plan.get("expected_writes", {}),
+            "attached": int(attach.get("attached") or 0),
+            "attach_reason": attach.get("reason"),
+            "skipped": plan.get("skipped", []),
+        }
+        day = datetime.now().strftime("%Y-%m-%d")
+        if self._knowledge_reuse_day != day:
+            self._knowledge_reuse_day = day
+            self._knowledge_reuse_entries = []
+        self._knowledge_reuse_entries.append(entry)
+        result.setdefault("knowledge_reuse", []).append(entry)
+        return entry
+
+    def _write_knowledge_reuse_report(self, lifecycle_result: Dict[str, Any]) -> Optional[Path]:
+        """One file per day, rewritten in place, so a rerun is byte-identical.
+
+        The report keeps 'cited' and 'changed' apart on purpose: a rising
+        reference count is not evidence that old knowledge improved anything.
+        """
+        gate = getattr(self, "knowledge_reuse", None)
+        if gate is None:
+            return None
+        day = self._knowledge_reuse_day or datetime.now().strftime("%Y-%m-%d")
+        skip_reason = None if gate.enabled else "DISABLED"
+        try:
+            report = build_daily_report(day, gate.mode,
+                                        self._knowledge_reuse_entries, skip_reason,
+                                        contributions=self._knowledge_reuse_contributions)
+            path = write_report(self.base_dir, report,
+                                gate.settings.get("report_dir"))
+        except Exception as e:
+            self._log_error("knowledge_reuse_report", str(e))
+            return None
+        self.state.setdefault("cycle_progress", {})["knowledge_reuse"] = {
+            "mode": gate.mode,
+            "enabled": gate.enabled,
+            "verdict": report["verdict"],
+            "entries": len(self._knowledge_reuse_entries),
+            "evidence_selected": report["cited"]["evidence_selected"],
+            "evidence_attached": report["cited"]["evidence_attached"],
+            "duplicates_avoided": report["changed"]["duplicates_avoided"],
+            "artifact_contributions": len(report["changed"]["artifact_contributions"]),
+            "report": str(path),
+        }
+        return path
+
+    def _run_declared_deliveries(self, result: Dict[str, Any]) -> None:
+        """Execute and verify the physical deliverables that tasks promised.
+
+        Before this stage existed a task could promise a file, spend five
+        rounds in research/rework, and be blocked with an evidence-duplication
+        reason while the artifact was never created and never checked. The
+        declared success_metric is now decided once, against the filesystem,
+        and the receipt is stored on the task.
+        """
+        summary = {"review_seen": 0, "checked": 0, "delivered": 0, "not_produced": 0, "external_receipt": 0,
+                   "deferred": 0}
+        result["delivery_execution"] = summary
+        if not self.task_pool:
+            return
+        try:
+            from core.delivery_execution import DeliveryExecutor, declares_delivery
+
+            executor = DeliveryExecutor(self.base_dir, worker_runner=self._delivery_worker_runner())
+            # Only a worker-invoking check costs model time. Without a worker the
+            # stage is a pure disk read, so there is nothing worth deferring.
+            budget = 1 if executor.has_worker else len(self.task_pool.list_tasks(status="review", limit=5))
+            for task in self.task_pool.list_tasks(status="review", limit=5):
+                summary["review_seen"] += 1
+                if not declares_delivery(task):
+                    continue
+                if summary["checked"] >= budget:
+                    summary["deferred"] += 1
+                    continue
+                outcome = executor.execute(task)
+                verification = outcome.get("verification") or {}
+                delivery = dict(task.outputs.get("delivery") or {})
+                delivery["execution"] = outcome
+                delivery["verification"] = verification
+                task.outputs["delivery"] = delivery
+                # Everything below must happen BEFORE the persist: the validator
+                # re-reads the task from disk, so evidence or notes recorded
+                # after update_task would never enter the evidence signature.
+                if verification.get("satisfied") is True:
+                    self._record_delivery_evidence(task, verification)
+                    self._record_reuse_contributions(task, verification)
+                # Best effort only. The receipt is the evidence; a note is
+                # decoration, and a raising annotation must never be allowed to
+                # abort update_task and lose a verified delivery off the record.
+                try:
+                    task.add_research_note(
+                        f"交付已验证: {verification.get('required_path')} "
+                        f"({verification.get('size_bytes')} bytes)",
+                        researcher="delivery_executor",
+                    )
+                except Exception as exc:
+                    self._log_error("delivery_note_skipped", str(exc))
+                self.task_pool.update_task(task)
+                summary["checked"] += 1
+                if verification.get("satisfied") is True:
+                    summary["delivered"] += 1
+                    continue
+                if verification.get("satisfied") is None:
+                    summary["external_receipt"] += 1
+                    continue
+                # The promised artifact is still absent. Stop the self-debate
+                # loop and name the real reason instead of repeating evidence
+                # objections until the duplicate-evidence ceiling fires.
+                summary["not_produced"] += 1
+                required_path = verification.get("required_path") or delivery.get("required_path")
+                self.task_pool.block_task(
+                    task.task_id,
+                    reason=f"delivery_not_produced:{required_path}",
+                    actor="delivery_executor",
+                    block_type="external_condition_blocked",
+                )
+        except Exception as e:
+            self._log_error("delivery_execution", str(e))
+            result["delivery_execution"] = {**summary, "status": "ERROR", "error": str(e)}
+
+    def _record_delivery_evidence(self, task, verification: Dict[str, Any]) -> None:
+        """Fold a verified artifact into the task evidence set.
+
+        Keyed on the content hash so the entry is idempotent: re-verifying an
+        unchanged file adds nothing, while a real edit produces a new signature
+        and lets the validator converge instead of looping.
+        """
+        content = "verified_artifact:{path}:{sha}".format(
+            path=verification.get("required_path") or "",
+            sha=verification.get("content_sha256") or "",
+        )
+        entry = {"source": "delivery_verification", "content": content}
+        if entry in (task.evidence or []):
+            return
+        task.evidence = list(task.evidence or []) + [entry]
+
+    def _record_reuse_contributions(self, task: Task, verification: Dict[str, Any]) -> None:
+        """Ask the delivered file whether it really used the reused knowledge.
+
+        Attaching is a claim; the artifact citing the ``knowledge_join:`` id is
+        the receipt. Only ids the task actually carries can be credited, so a
+        report can never book an influence that nobody can point at.
+        """
+        gate = getattr(self, "knowledge_reuse", None)
+        if gate is None or not gate.enabled:
+            return
+        required_path = str(verification.get("required_path") or "")
+        try:
+            contributions = artifact_contributions(task, required_path, self.base_dir)
+        except Exception as exc:
+            self._log_error("knowledge_reuse_contribution", str(exc),
+                            getattr(task, "task_id", ""))
+            return
+        for item in contributions:
+            if item not in self._knowledge_reuse_contributions:
+                self._knowledge_reuse_contributions.append(item)
+
             "judged": 0,
             "experiences_deposited": 0,
             "experience_deposition_failures": 0,
@@ -2508,6 +2804,9 @@ class AceDaemon:
                 persisted = self.task_pool.load_task(task.task_id) or task
                 if (
                     not validation_result.get("passed")
+                    # Before any research or worker call, so reused knowledge can
+                    # reach the work itself rather than decorate it afterwards.
+                    self._run_knowledge_reuse_stage(task, result)
                     and validation_result.get("objections")
                     and not persisted.outputs.get("terminal_non_convergent")
                     and getattr(self, "inquiry_pipeline", None) is not None
@@ -2537,6 +2836,7 @@ class AceDaemon:
         except Exception as e:
             self._log_error("guardian", str(e))
 
+        self._run_declared_deliveries(result)
         try:
             result["policy_cards_projected"] = self._project_verified_policy_cards()
         except Exception as e:
@@ -4123,6 +4423,13 @@ class AceDaemon:
                     print(f"  导出文件: {export_detail.get('total_files', 0)} 个")
                 sync_detail = sync_result.get("details", {}).get("sync", {})
                 if sync_detail.get("pushed"):
+        self.state.setdefault("cycle_progress", {})["delivery_execution"] = lifecycle_result.get(
+            "delivery_execution", {}
+        )
+        self.state.setdefault("cycle_progress", {})["intent_pool"] = lifecycle_result.get(
+            "intent_pool", {}
+        )
+        self._write_knowledge_reuse_report(lifecycle_result)
                     print(f"  Git推送: 成功 ({sync_detail.get('commit_hash', '')})")
                 elif sync_detail.get("committed"):
                     print(f"  Git提交: 成功 (推送失败)")

@@ -235,13 +235,12 @@ class FileScanner:
         except OSError:
             return False
         for task in self.task_pool.list_tasks(limit=10000):
-            # Check ALL statuses - if a task (even archived) exists for this file+fingerprint, don't recreate
+            # Identity = file path + content fingerprint. A task that records
+            # only a path (or only a fingerprint) cannot be proven identical to
+            # this file, so it must not suppress creation.
             outputs = task.outputs if isinstance(task.outputs, dict) else {}
-            if str(outputs.get("source_file", "")) == source and outputs.get("source_fingerprint") == fingerprint:
-                return True
-            # Compatibility for legacy records that predate source metadata;
-            # production scanner records always take the source-aware branch.
-            if not outputs.get("source_file") and path.name.lower() in task.title.lower():
+            recorded = outputs.get("source_fingerprint") or outputs.get("fingerprint")
+            if str(outputs.get("source_file", "")) == source and recorded == fingerprint:
                 return True
         return False
 

@@ -20,6 +20,7 @@ from typing import Dict, List, Any, Optional
 from collections import Counter
 
 from .task import Task, TaskPool
+from .knowledge_reuse import JOIN_SOURCE_PREFIX
 from .execution_discipline import (
     add_evidence_ledger_entry,
     ensure_execution_discipline,
@@ -34,6 +35,13 @@ from .cognitive_think_gate import COGNITIVE_HUB, LOOP_BLOCKED, evaluate_cognitiv
 
 
 LOCAL_ARCHAEOLOGY_TAGS = {"archaeology", "local_archaeology", "fragment", "碎片考古", "考古"}
+
+
+def _is_reuse_pointer(item: Any) -> bool:
+    """True for entries that point at archived knowledge instead of observing
+    the world. Governance must not count them as corroboration."""
+    return (isinstance(item, dict)
+            and str(item.get("source") or "").startswith(JOIN_SOURCE_PREFIX))
 
 
 def _model_task_type(task: Task) -> str:
@@ -1176,8 +1184,13 @@ class Validator:
     def _model_objections(response: Any) -> Dict[str, List[str]]:
         if not isinstance(response, dict) or not response.get("success"):
             return {"hard_objections": [], "advisory_objections": [], "counter_examples": []}
+        # A knowledge_join entry is a pointer at what the archive already knows,
+        # not an independent observation of the world. Counting it would let
+        # ACE's own memory stand in for corroboration, and it would also move
+        # the evidence signature, which can re-open a settled rework loop.
         content = response.get("content", "")
         if not isinstance(content, str) or not content.strip():
+            if not _is_reuse_pointer(item)
             return {"hard_objections": [], "advisory_objections": [], "counter_examples": []}
         try:
             payload = json.loads(content)
@@ -1563,7 +1576,8 @@ class Validator:
         
         # === 2. 证据质量评分 ===
         quality_score = 50.0
-        evidence_count = len(task.evidence)
+        scored_evidence = [e for e in task.evidence if not _is_reuse_pointer(e)]
+        evidence_count = len(scored_evidence)
         if evidence_count >= 5:
             quality_score += 20
         elif evidence_count >= 3:
@@ -1574,11 +1588,11 @@ class Validator:
             quality_score -= 30
         
         # 证据内容长度
-        if task.evidence:
+        if scored_evidence:
             avg_len = sum(
                 len(e.get("content", "")) if isinstance(e, dict) else len(str(e))
-                for e in task.evidence
-            ) / len(task.evidence)
+                for e in scored_evidence
+            ) / len(scored_evidence)
             if avg_len > 200:
                 quality_score += 15
             elif avg_len > 100:
