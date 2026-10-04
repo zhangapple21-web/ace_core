@@ -8,7 +8,7 @@
       "role": "replaceable_host_connector",
       "repository": "https://github.com/zhangapple21-web/ace-host-adapter-lab.git",
       "ref": "master",
-      "commit": "a8697ca56a25a0d7b9a3d2d0ad582115516b12c4",
+      "commit": "28fc3f0c828a43e331d2a8c00e12851f0f10b4d0",
       "path": "companions/ace-host-adapter-lab",
       "protocol": "ace.host_adapter.v0",
       "python": ">=3.11,<3.12",

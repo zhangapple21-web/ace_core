@@ -546,7 +546,7 @@ def validate_execution_discipline(task: Any) -> Dict[str, Any]:
         "status": status,
         "errors": errors,
         "warnings": warnings,
-        "last_event": envelope.get("last_event"),
+        "last_event": envelope.last_event,
         "required_stages": required_stages,
         "event_count": len(events),
     }
