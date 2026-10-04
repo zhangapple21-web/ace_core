@@ -79,6 +79,22 @@ def _task_source_type(task: Task) -> str:
     return "unknown"
 
 
+def _declares_delivery(task: Task) -> bool:
+    outputs = task.outputs if isinstance(task.outputs, dict) else {}
+    delivery = outputs.get("delivery")
+    return isinstance(delivery, dict) and bool(str(delivery.get("required_path") or "").strip())
+
+
+def _has_verified_delivery(task: Task) -> bool:
+    """True when the delivery gate has verified the declared artifact on disk."""
+    outputs = task.outputs if isinstance(task.outputs, dict) else {}
+    delivery = outputs.get("delivery")
+    if not isinstance(delivery, dict):
+        return False
+    verification = delivery.get("verification")
+    return isinstance(verification, dict) and verification.get("satisfied") is True
+
+
 def _is_admitted_model_task(task: Task) -> bool:
     outputs = task.outputs if isinstance(task.outputs, dict) else {}
     decision = outputs.get("model_task_admission", {})
@@ -700,6 +716,21 @@ class Researcher:
         )
         self.task_pool.update_task(medium)
 
+    @staticmethod
+    def _delivery_first(tasks: List[Task]) -> List[Task]:
+        """Order ties so tasks promising a physical artifact are researched first.
+
+        Priority ordering is untouched; this only breaks ties inside one
+        priority level. Without it the researcher's bounded per-cycle budget is
+        consumed by internal rework loops that can never deliver anything, and a
+        waiting external will never reaches the review queue where the delivery
+        gate can verify it.
+        """
+        return sorted(
+            tasks,
+            key=lambda task: 0 if _declares_delivery(task) else 1,
+        )
+
     def pick_up_task(self, priority: str = "high") -> Optional[Task]:
         """领取最高优先级的待办任务（含卡住的active任务）"""
         priority_order = ["critical", "high", "medium", "low"]
@@ -1311,11 +1342,16 @@ class Validator:
                 for item in packet_items
                 if isinstance(item, dict) and item.get("source") and item.get("content")
             })
-        if evidence_count == 0:
+        # A verified physical artifact is first-hand evidence about the world,
+        # and a strictly stronger acceptance test than counting memory excerpts.
+        # When the task's declared success_metric has been decided on disk, the
+        # evidence-volume heuristics below have nothing left to say about it.
+        delivery_verified = _has_verified_delivery(task)
+        if evidence_count == 0 and not delivery_verified:
             objection = "没有任何证据支持，研究不充分"
             objections.append(objection)
             hard_objections.append(objection)
-        elif evidence_count < 3:
+        elif evidence_count < 3 and not delivery_verified:
             objection = f"仅{evidence_count}条证据，样本量不足"
             objections.append(objection)
             hard_objections.append(objection)
@@ -1335,7 +1371,7 @@ class Validator:
             objections.append(objection)
             hard_objections.append(objection)
 
-        if self.memory_index and task.evidence:
+        if self.memory_index and task.evidence and not delivery_verified:
             first_ev = task.evidence[0]
             ev_content = first_ev.get("content", "") if isinstance(first_ev, dict) else str(first_ev)
             if len(ev_content) < 50:
@@ -1470,7 +1506,10 @@ class Validator:
         elif (
             not legacy_rework_migration
             and not hard_objections
-            and evidence_count >= 3
+            # Three independent evidence items, or one artifact whose declared
+            # success_metric the delivery gate already decided by inspecting the
+            # filesystem. The artifact is not a self-reported claim.
+            and (evidence_count >= 3 or delivery_verified)
         ):
             result["passed"] = True
             result["verdict"] = "初步通过，可进入终审"

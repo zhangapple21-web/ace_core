@@ -3100,6 +3100,74 @@ class AceDaemon:
             exp = self.experience_deposition.deposit_from_task(
                 task, lexicon=self.lexicon
             )
+    def _run_intent_pool_if_due(
+        self,
+        queue_path: Optional[Path] = None,
+        state_path: Optional[Path] = None,
+    ) -> Dict[str, Any]:
+        """Let the external intent pool choose one will for today, on the
+        existing evening shift.
+
+        This is not a second scheduler. It reuses the same 18:30 dedicated shift
+        as the free-zone turns and fires at most once a day, guarded by a date
+        key in daemon_state. The grain barn still decides: when nothing is worth
+        executing, or external work is already at capacity, this returns
+        HEALTHY_IDLE / NO_VALID_INTENT and injects nothing.
+        """
+        now = datetime.now()
+        if (now.hour, now.minute) < (18, 30):
+            return {"status": "WAITING_FOR_DEDICATED_SHIFT"}
+        day = now.strftime("%Y-%m-%d")
+        if self.state.get("intent_pool_date") == day:
+            return {"status": "ALREADY_RUN_TODAY"}
+        if not self.task_pool:
+            return {"status": "TASK_POOL_UNAVAILABLE"}
+        try:
+            from ops import daily_intent_scheduler as intent_pool
+
+            capacity = int(self.config.get("runtime", {}).get("intent_pool_capacity", 3))
+            queue = intent_pool.load_queue(queue_path)
+            state = intent_pool.load_state(state_path)
+            if not queue:
+                return {"status": "NO_VALID_INTENT", "reason": "intent_queue_empty"}
+            report = intent_pool.assess(self.task_pool, queue, capacity, state)
+            decision = intent_pool.decide(report)
+            summary: Dict[str, Any] = {
+                "status": decision["outcome"],
+                "reason": decision["reason"],
+                "external_in_flight": report["in_flight"],
+                "capacity": capacity,
+                "evaluated_at": report["evaluated_at"],
+            }
+            # Record what was observed BEFORE injecting. assess() read the pool
+            # before the injection existed, so persisting these afterwards wrote
+            # a "candidate" entry on top of the "injected" one and made the
+            # recorded state trail the truth.
+            intent_pool.record_observations(state, report)
+            if decision["outcome"] == "INJECT":
+                chosen = next(
+                    item["intent"]
+                    for item in report["eligible"]
+                    if str(item["intent"]["intent_id"]) == decision["intent_id"]
+                )
+                injection = intent_pool.inject_selected(chosen, self.task_pool, state)
+                summary["intent_id"] = decision["intent_id"]
+                summary["injection"] = injection
+                # Report what actually happened, not what was decided. INJECT is
+                # the intent to act; INJECTED / REFUSED_ALREADY_INJECTED is the
+                # outcome, and only the latter means a task exists.
+                summary["status"] = injection["outcome"]
+            # Always persist, even on a no-op turn, so the pool's own history
+            # keeps up with the live TaskPool.
+            intent_pool.save_state(state, state_path)
+            self.state["intent_pool_date"] = day
+            self.state["intent_pool_last"] = summary
+            self._save_state()
+            return summary
+        except Exception as e:
+            self._log_error("intent_pool", str(e))
+            return {"status": "ERROR", "error": str(e)}
+
             if exp:
                 result["experiences_deposited"] += 1
                 bridge = getattr(self, "learning_return_bridge", None)
@@ -4348,6 +4416,10 @@ class AceDaemon:
         observation_priorities = (
             None if observation_policy["observer"] else {"critical", "high"}
         )
+        try:
+            lifecycle_result["intent_pool"] = self._run_intent_pool_if_due()
+        except Exception as e:
+            self._log_error("intent_pool", str(e))
         if obs_recorded > 0 and self.obs_to_task_converter:
             try:
                 convert_result = self.obs_to_task_converter.convert(

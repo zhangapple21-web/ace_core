@@ -31,7 +31,10 @@ def validate_target(payload: dict) -> list[str]:
         return ["payload_must_be_object"]
     if payload.get("protocol") != PROTOCOL:
         errors.append("protocol_mismatch")
-    if not payload.get("title") or not isinstance(payload["title"], str) or len(payload["title"]) > 200:
+    title = payload.get("title")
+    # Strip first: a whitespace-only title is truthy, and inject() strips it
+    # anyway, so it would create a task with an empty name.
+    if not isinstance(title, str) or not title.strip() or len(title) > 200:
         errors.append("title_required_or_too_long")
     expected = payload.get("expected_output")
     if not expected or not isinstance(expected, str):
@@ -53,7 +56,14 @@ def validate_target(payload: dict) -> list[str]:
     return errors
 
 
-def inject(payload: dict) -> dict:
+def inject(payload: dict, pool=None) -> dict:
+    """Create one external-target task and return its receipt.
+
+    ``pool`` exists so callers that already hold a pool -- the daemon and the
+    intent scheduler -- inject into *that* pool. It defaults to the production
+    pool, so the CLI entry point keeps working unchanged and stays the single
+    injection path in the system.
+    """
     title = str(payload["title"]).strip()
     hypothesis = str(payload.get("hypothesis", "")).strip()
     expected_output = str(payload["expected_output"]).strip().replace("\\", "/")
@@ -66,7 +76,8 @@ def inject(payload: dict) -> dict:
         if tag not in tags:
             tags.append(tag)
 
-    pool = TaskPool(str(ROOT / "task_pool"))
+    if pool is None:
+        pool = TaskPool(str(ROOT / "task_pool"))
     admission = {
         "source_type": "external_target",
         "source_ref": expected_output,

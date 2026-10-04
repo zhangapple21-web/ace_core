@@ -986,6 +986,48 @@ class TaskPool:
             task.block_type = ""
             return self._transition(task, "pending", actor, "解除阻塞")
 
+    def reopen_task(
+        self,
+        task_id: str,
+        reason: str,
+        actor: str = "",
+        new_evidence: Optional[List[Any]] = None,
+    ) -> Optional[Task]:
+        """Reopen a task that is waiting for human or external new evidence.
+
+        ``unblock_task`` deliberately refuses anything flagged
+        ``terminal_non_convergent``, so a task blocked with the reason
+        ``相同证据集重复验证达到上限，等待人工或外部新证据`` had no way back:
+        the escape hatch the reason promised did not exist. This is that hatch.
+
+        It is fail-closed. A reason is mandatory, the non-convergent flag is
+        cleared only on the persisted record, and the reopen is written to the
+        audit log as its own event so the repeated-validation history stays
+        visible instead of being erased.
+        """
+        if not isinstance(reason, str) or not reason.strip():
+            raise ValueError("reopen_reason_required")
+        with self._locked():
+            task = self.load_task(task_id)
+            if not task or task.status != "blocked":
+                return None
+            if new_evidence:
+                task.evidence = list(task.evidence or []) + list(new_evidence)
+            task.outputs.pop("terminal_non_convergent", None)
+            task.blocked_reason = ""
+            task.block_type = ""
+            task.audit_log.append({
+                "event": "reopened",
+                "from": "blocked",
+                "to": "pending",
+                "actor": actor,
+                "reason": reason.strip(),
+                "evidence_added": len(list(new_evidence or [])),
+                "at": datetime.now().isoformat(),
+            })
+            task.touch()
+            return self._transition(task, "pending", actor, reason.strip())
+
     def unblock_ready_dependencies(self) -> List[Task]:
         unblocked = []
         for task in self.get_blocked():
