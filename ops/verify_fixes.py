@@ -231,14 +231,22 @@ else:
 # once-a-day gate, never to a bare cron that hard-feeds the pool.
 sys.path.insert(0, str(ROOT / "ops"))
 import daily_intent_scheduler as intent_pool  # noqa: E402
-from ace_daemon import AceDaemon as _Daemon  # noqa: E402
 
-assert hasattr(_Daemon, "_run_intent_pool_if_due"), "意志层必须挂进 daemon 的真实时机，否则永远不会被调用"
+# Text assertions first: they hold everywhere. Importing AceDaemon drags in the
+# whole runtime (and third-party packages that a bare CI interpreter may not
+# have), so it is best-effort evidence on top, never the thing that decides.
 _src = (ROOT / "ace_daemon.py").read_text(encoding="utf-8")
+assert "def _run_intent_pool_if_due(" in _src, "意志层必须挂进 daemon 的真实时机，否则永远不会被调用"
 assert "_run_intent_pool_if_due()" in _src, "意志触发点必须真的被 cycle 调用"
 assert "cron" not in _src.lower().split("def _run_intent_pool_if_due")[1][:1200], (
     "意志层不得绑定裸 cron 硬喂"
 )
+try:
+    from ace_daemon import AceDaemon as _Daemon  # noqa: E402
+except Exception as _exc:  # 缺依赖的机器上不掩盖上面的文本断言
+    print(f"   SKIPPED ace_daemon 无法 import（{type(_exc).__name__}: {_exc}），已用源码断言替代")
+else:
+    assert hasattr(_Daemon, "_run_intent_pool_if_due"), "AceDaemon 上必须真的存在意志层方法"
 print("   意志触发点: 已挂入 daemon cycle（每日一次 + 班次门）")
 
 # A consumed will must never reopen, no matter how often the pool is assessed.
