@@ -1059,14 +1059,44 @@ class Researcher:
         # Empty search hits are not evidence.  Persisting them created the
         # illusion of a larger evidence set while Validator correctly counted
         # only meaningful independent records, causing avoidable rework loops.
-        evidence = [
+        candidates = [
             ev for ev in evidence
             if isinstance(ev, dict)
             and isinstance(ev.get("content"), str)
             and ev.get("content", "").strip()
             and isinstance(ev.get("source", ""), str)
             and ev.get("source", "").strip()
-        ][:max_evidence]
+        ]
+
+        # Duplicate records are not corroboration.  The enrichment above iterates
+        # keywords and can reach the same memory record through several of them,
+        # and research_task re-runs on every rework cycle, so the identical
+        # {source, content} was appended over and over.  Measured on
+        # RQ-20261004-044: 25 stored items collapsing to 2 unique, repeated over 4
+        # rework cycles until MAX_UNCHANGED_REVIEWS declared it non-convergent.
+        # The Validator signature is computed over the deduplicated set, so it never
+        # moved.  Researching the task harder guaranteed non-convergence: a
+        # fail-closed guard defeated by the input path that feeds it.
+        #
+        # Deduplicate before truncating, otherwise max_evidence buys repeats of the
+        # first record instead of distinct ones.  Records already carried by the
+        # task are skipped too, so a re-research that finds nothing new stores
+        # nothing rather than inflating the count.
+        already_present = {
+            (item.get("source", ""), item.get("content", ""))
+            for item in (task.evidence or [])
+            if isinstance(item, dict)
+        }
+        evidence = []
+        seen_in_batch = set()
+        for ev in candidates:
+            key = (ev.get("source", ""), ev.get("content", "")[:300])
+            if key in seen_in_batch or key in already_present:
+                continue
+            seen_in_batch.add(key)
+            evidence.append(ev)
+            if len(evidence) >= max_evidence:
+                break
 
         for ev in evidence:
             task.add_evidence(ev.get("content", "")[:300], source=ev.get("source", ""))
@@ -1452,9 +1482,23 @@ class Validator:
         task.outputs["evidence_signature_version"] = self.EVIDENCE_SIGNATURE_VERSION
         task.outputs["objections_signature"] = objections_signature
         task.outputs["validator_outcome_signature"] = validator_outcome_signature
+        stored_evidence_count = len(task.evidence or [])
+        distinct_evidence_count = len(self._unique_evidence(task))
         validator_result = {
             "review_count": task.review_count,
             "evidence_signature": evidence_signature,
+            # `len(task.evidence)` is what a reader sees, but it is not what this
+            # verdict was computed over. On RQ-20261004-044 the stored list held 25
+            # items while the signature covered 2 distinct records, and nothing in the
+            # record said so. Publishing both counts turns "the evidence set is
+            # duplicated" from a hidden condition into a measurable one.
+            "stored_evidence_count": stored_evidence_count,
+            "distinct_evidence_count": distinct_evidence_count,
+            "evidence_inflation_ratio": (
+                round(stored_evidence_count / distinct_evidence_count, 2)
+                if distinct_evidence_count
+                else None
+            ),
             "objections": list(genuine_objections),
             "hard_objections": list(hard_objections),
             "advisory_objections": list(advisory_objections),
