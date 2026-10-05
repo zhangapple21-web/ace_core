@@ -73,6 +73,25 @@ _REGISTRY: tuple[ConstitutionEntry, ...] = (
         "学习、超越、守护与责任完成",
     ),
     ConstitutionEntry(
+        "ace.root.calculus",
+        "L1",
+        "NORMATIVE",
+        "CURRENT",
+        "00_ROOT/STATE_CALCULUS.v1.md",
+        "跨领域坐标演算：状态->坐标->变化->融合->方向；固定六轴基底与参考系纪律。"
+        "【未接线】2026-10-05 AST 实测：core/state_calculus.py 除自身测试外零 importer，"
+        "无生产消费者；证据侧为自由文本，project() 返回 CALCULUS_BLOCKED。"
+        "接线需证据 schema 迁移，属独立 Task。见该文档 §0.0。",
+    ),
+    # 2026-10-05 revoked: ace.admission.operator (W=F*I*G admission operator).
+    # Its two implementations had zero production consumers -- only their own
+    # tests imported them. An L1/NORMATIVE spec backed by nothing is worse than
+    # no spec, because it makes the system look like it already owns an
+    # admission operator when no decision path uses one. The debt ledger it
+    # carried was preserved as REFERENCE in
+    # 00_ROOT/STATE_CALCULUS_ANNEX_MAGIC_LEDGER.md and is deliberately NOT
+    # registered: unregistered REFERENCE cannot grant authority.
+    ConstitutionEntry(
         "r2.root.axioms",
         "L0",
         "REFERENCE",
