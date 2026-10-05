@@ -569,6 +569,14 @@ class TaskPool:
         if new_status == "approved":
             record_event(task, "approved", actor=actor or "task_pool")
         elif new_status == "archived":
+            # The status this event sets is superseded by the generic `stop` recorded
+            # below, and that ordering is load-bearing. validate_execution_discipline
+            # recognises only "stopped" plus the in-flight set; an envelope left at
+            # "archived" matches neither branch, so the stopped-without-reason check
+            # would stop applying to archived tasks. The event is still recorded so
+            # the lifecycle stays auditable. Asserted by
+            # ops/test_execution_discipline_envelope_persistence.py
+            # ::test_archived_task_ends_stopped_with_a_reason_not_status_archived
             record_event(task, "archived", actor=actor or "task_pool")
         if new_status == "active":
             record_checkpoint(
@@ -761,7 +769,7 @@ class TaskPool:
                 break
 
         # 兜底：索引不全或 sort_by=reference_count 时全表扫描
-        if len(tasks) < limit and (sort_by == "reference_count" or not index.get("tasks")):
+        if len(tasks) < limit and (sort_by == "reference_count" or not index.get("tasks") or status is not None):
             for current_status in ([status] if status else TASK_STATUSES):
                 directory = self.pool_dir / STATUS_DIRS.get(current_status, current_status)
                 for path in directory.glob("RQ-*.json") if directory.exists() else []:

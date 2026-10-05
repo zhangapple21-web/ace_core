@@ -354,6 +354,15 @@ def record_event(task: Any, event: str, actor: str = "ace", **details: Any) -> N
     elif event in {"started", "researched", "validated", "reviewed", "guardian_reviewed"}:
         envelope.status = "in_progress"
 
+    # Persist the envelope.  _get_envelope rebuilds a dataclass from the stored dict
+    # and returns it detached, so the scalar assignments above -- status, last_event
+    # -- were silently discarded while nested containers survived, because from_dict
+    # keeps the live events/pipeline/stop objects.  That made the entire status
+    # machine a no-op: blocking a task left its envelope "prepared" forever, and
+    # last_event never advanced past the first event.  Every mutation of a detached
+    # envelope has to be written back.
+    _set_envelope(task, envelope)
+
 
 def record_checkpoint(
     task: Any,
