@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Dict, Iterable, List, Mapping, Optional
 
 
 PROTOCOL_VERSION = "ACE-EXECUTION-DISCIPLINE-1.1"
@@ -32,6 +32,11 @@ PIPELINE_STAGES = (
 )
 STAGE_ORDER = {stage: index for index, stage in enumerate(PIPELINE_STAGES)}
 
+# `validated` and `reviewed` are the validator acting on ONE pass: it reads the
+# task (`reviewed`) and then records an outcome (`validated`). The order between
+# them is an implementation detail of the validator, not a stage ordering, so
+# mapping them to different stages made every single validator pass look like a
+# backward step. `verified` stays the distinct verify stage.
 _EVENT_STAGE = {
     "prepared": "observe",
     "clarified": "clarify",
@@ -40,13 +45,37 @@ _EVENT_STAGE = {
     "started": "execute",
     "researched": "execute",
     "verified": "verify",
-    "validated": "verify",
+    "validated": "review",
     "reviewed": "review",
     "guardian_reviewed": "review",
     "approved": "review",
     "archived": "stop",
     "stop": "stop",
 }
+
+#: A validator returning `rework_pending` declares an intent to re-enter execute.
+#: That declaration is what makes the research->validate->rework cycle a loop
+#: rather than a regression. Without it the cycle is unrepresentable and every
+#: pass accumulates an unavoidable backward step.
+REWORK_OUTCOMES = frozenset({"rework_pending"})
+
+#: After an attempt has stopped, the envelope is closed. A review-stage verdict
+#: may still be appended -- that is how a terminal outcome gets recorded after
+#: the stop marker -- and it is epilogue rather than movement. An earlier stage
+#: reappearing after stop is still a genuine regression.
+POST_STOP_EPILOGUE = frozenset(
+    {"validated", "reviewed", "approved", "guardian_reviewed", "archived", "stop"}
+)
+
+
+def _is_rework_declaration(item: Any) -> bool:
+    """True when this event closes an attempt by declaring a rework."""
+
+    if not isinstance(item, Mapping):
+        return False
+    if item.get("event") != "validated":
+        return False
+    return str(item.get("outcome") or "").strip().lower() in REWORK_OUTCOMES
 
 
 @dataclass
@@ -516,18 +545,33 @@ def validate_execution_discipline(task: Any) -> Dict[str, Any]:
     if not isinstance(events, list):
         errors.append("invalid_events")
         events = []
+    # Monotonicity is required *within an attempt*. A declared rework closes the
+    # attempt it appears in, so it closes the watermark too rather than opening
+    # a new one: it is the last event of its own attempt, not the first of the
+    # next. Genuine disorder inside a single attempt is still reported, which is
+    # the property that must not be traded away to make the loop expressible.
     last_stage = -1
+    stopped = False
     for item in events:
         if not isinstance(item, dict):
             errors.append("invalid_event_record")
             continue
-        stage = _EVENT_STAGE.get(item.get("event"))
+        if _is_rework_declaration(item):
+            last_stage = -1
+            stopped = False
+            continue
+        name = item.get("event")
+        stage = _EVENT_STAGE.get(name)
         if not stage:
+            continue
+        if stopped and name in POST_STOP_EPILOGUE:
             continue
         index = STAGE_ORDER[stage]
         if index < last_stage:
             errors.append(f"stage_regression:{stage}")
         last_stage = max(last_stage, index)
+        if stage == "stop":
+            stopped = True
 
     status = envelope.status
     stop = envelope.stop
