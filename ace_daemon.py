@@ -2679,9 +2679,17 @@ class AceDaemon:
         try:
             all_tasks = self.task_pool.list_tasks(limit=100, sort_by="reference_count")
             for task in all_tasks[:20]:
-                self.task_pool.check_heat_upgrade(task)
-        except Exception:
-            pass
+                # check_heat_upgrade only persists when it actually upgrades a
+                # priority. Calling update_task unconditionally made every
+                # unmodified task pass through _save_task -> touch(), rewriting
+                # the file and refreshing mtime/updated_at with no audit or
+                # ledger row. That masked real modification times and cost
+                # ~20 atomic writes per cycle. The return value was the
+                # intended gate all along.
+                if self.task_pool.check_heat_upgrade(task):
+                    self._log_error("heat_upgrade", task.task_id)
+        except Exception as e:
+            self._log_error("heat_upgrade", str(e))
 
         try:
             if self.task_creator:
