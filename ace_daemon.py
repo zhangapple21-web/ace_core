@@ -2303,7 +2303,7 @@ class AceDaemon:
             actors = {str(item.get("actor", "")) for item in task.audit_log if isinstance(item, dict)}
             events = {str(item.get("event", "")) for item in task.audit_log if isinstance(item, dict)}
             lifecycle = external.setdefault("lifecycle", {})
-            lifecycle.update({
+            projection = {
                 "researcher": "COMPLETED" if "researched" in events or "researcher" in actors else "PENDING",
                 "validator": "COMPLETED" if "validated" in events or "validator" in actors else "PENDING",
                 "guardian": "COMPLETED" if task.guardian_decision else "PENDING",
@@ -2312,12 +2312,21 @@ class AceDaemon:
                 "guardian_decision": task.guardian_decision or "",
                 "outcome_receipt": (outputs.get("outcome_receipt") or {}).get("status", "PENDING"),
                 "production_integration": False,
-                "updated_at": datetime.now().isoformat(),
-            })
-            outputs["external_mining"] = external
-            task.outputs = outputs
-            if self.task_pool.update_task(task):
-                refreshed += 1
+            }
+            # A projection must converge. Stamping `updated_at` from the wall
+            # clock on every cycle made the value differ from the stored copy
+            # forever, so every external-mining task was rewritten every cycle
+            # (~20 atomic writes) and its real modification time became noise.
+            # Compare the semantic fields first; stamp the time only when one
+            # of them actually moved.
+            semantic_changed = any(lifecycle.get(name) != value for name, value in projection.items())
+            if semantic_changed:
+                lifecycle.update(projection)
+                lifecycle["updated_at"] = datetime.now().isoformat()
+                outputs["external_mining"] = external
+                task.outputs = outputs
+                if self.task_pool.update_task(task):
+                    refreshed += 1
             if latest_external is None or task.updated_at > latest_external.updated_at:
                 latest_external = task
         if latest_external is not None and self.governed_external_miner:
