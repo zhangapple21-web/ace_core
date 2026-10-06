@@ -4590,7 +4590,14 @@ class AceDaemon:
         if dry_run:
             return result
         from core.governance.mengpo import ForgettingCandidate, MengpoMemoryDecay
-        probe = ForgettingCandidate(id=f"cycle-probe-{datetime.now().strftime('%Y%m%d%H%M%S%f')}", artifact="ACE_CYCLE_GOVERNANCE_PROBE", artifact_type="research_probe", reason="isolated non-production archive verification", pollution_score=MengpoMemoryDecay.POLLUTION_THRESHOLD, age_days=0, references=0, alternatives_exist=True, is_core=False)
+        # The probe verifies that the archive path still works; it is a
+        # liveness receipt, not a per-cycle artifact. A timestamped id made
+        # Mengpo write a brand new graveyard file every cycle (~250/day,
+        # 1070 files in five days), which buried the governance signals that
+        # directory exists to hold. A stable id rewrites one file instead, so
+        # the probe keeps running, keeps its receipt, and stops accumulating.
+        # No history is deleted: the existing probe files stay as evidence.
+        probe = ForgettingCandidate(id="cycle-probe", artifact="ACE_CYCLE_GOVERNANCE_PROBE", artifact_type="research_probe", reason="isolated non-production archive verification", pollution_score=MengpoMemoryDecay.POLLUTION_THRESHOLD, age_days=0, references=0, alternatives_exist=True, is_core=False)
         mengpo = MengpoMemoryDecay(graveyard_path=str(self.base_dir / "08_GOVERNANCE" / "civilization" / "graveyard"), lines_path=str(self.base_dir / "08_GOVERNANCE" / "civilization" / "memory_lines.jsonl"), records_path=str(self.base_dir / "08_GOVERNANCE" / "decisions" / "mengpo_records.jsonl"))
         result["mengpo_candidates"] = 1
         if mengpo.forget(probe, reason=probe.reason):
