@@ -387,6 +387,10 @@ class CredentialManager:
             "github_models": ("GITHUB_PAT", "GITHUB_MODELS_BASE_URL", "https://models.inference.ai.azure.com"),
             "glm": ("ZHIPU_KEY", "GLM_BASE_URL", "https://open.bigmodel.cn/api/paas/v4"),
             "oneapi": ("ONEAPI_KEY", "ONEAPI_BASE_URL", "http://localhost:3000/v1"),
+            # Same operator key and gateway as "oneapi": no new secret, only a
+            # separate health identity so free-route failures cannot fence off
+            # the paid pool. See PROVIDER_FACTORY "oneapi_free".
+            "oneapi_free": ("ONEAPI_KEY", "ONEAPI_BASE_URL", "http://localhost:3000/v1"),
             "sambanova": ("SAMBANOVA_KEY", "SAMBANOVA_BASE_URL", "https://api.sambanova.ai/v1"),
             "shenwen": ("SHENWEN_API_KEY", "SHENWEN_BASE_URL", "https://api.shenwenai.com/v1"),
             "shenwen_grok": ("SHENWEN_GROK_API_KEY", "SHENWEN_GROK_BASE_URL", "https://api.shenwenai.com/v1"),
@@ -405,7 +409,7 @@ class CredentialManager:
             # fallback local-only and explicit so a missing ONEAPI_KEY does
             # not strand an otherwise live gateway.
             if (
-                provider == "oneapi"
+                provider in ("oneapi", "oneapi_free")
                 and not key
                 and os.environ.get("OPENAI_API_KEY")
                 and os.environ.get(base_env, default_base).startswith(("http://localhost:", "http://127.0.0.1:"))

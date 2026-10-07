@@ -55,6 +55,11 @@ PROVIDER_FACTORY = {
     "apiyi": APIYiProvider,
     "sambanova": SambaNovaProvider,
     "oneapi": OneAPIProvider,
+    # Free routes share the gateway address but not the fate: 3001 relay
+    # failures poisoned the whole "oneapi" health entry and fenced off paid
+    # models that were still served fine. A separate key gives free routes
+    # their own health ledger; paid oneapi recovers independently.
+    "oneapi_free": OneAPIProvider,
     "modelscope": OpenAICompatibleProvider,
     "huggingface": OpenAICompatibleProvider,
     "ace_proxy": OpenAICompatibleProvider,  # ACE 自己的 OpenAI 兼容代理
