@@ -4655,12 +4655,94 @@ class AceDaemon:
                 except Exception as e:
                     self._log_error("surprise_record", str(e))
         self.state["last_surprise_snapshot"] = current
+        tensions_stage = self._run_tension_check()
         self.state["last_surprise_check"] = {
             "at": __import__("datetime").datetime.now().isoformat(),
             "surprises": len(surprises),
             "recorded": recorded,
+            "tensions": tensions_stage.get("tensions", 0),
+            "tensions_recorded": tensions_stage.get("recorded", 0),
         }
-        return {"surprises": len(surprises), "recorded": recorded}
+        return {
+            "surprises": len(surprises),
+            "recorded": recorded,
+            "tensions": tensions_stage.get("tensions", 0),
+            "tensions_recorded": tensions_stage.get("recorded", 0),
+        }
+
+    def _run_tension_check(self) -> Dict[str, Any]:
+        """Ask from structure the system already owns.
+
+        Same contract as surprises: tensions become anomaly observations
+        with stable dedup identities, and the existing converter decides
+        worth. No new entity types, no statistics, no external calls.
+        """
+        from core.surprise import LEARN_WITHOUT_USE_DAYS, check_tensions
+
+        field: Dict[str, Any] = {}
+        curator_observation = self.state.get("last_curator_observation") or {}
+        if isinstance(curator_observation, dict) and curator_observation:
+            field["curator_observing"] = True
+            try:
+                field["curator_runs"] = int(curator_observation.get("run_count", 0))
+            except (TypeError, ValueError):
+                pass
+        try:
+            import time as _time
+
+            cutoff = _time.time() - LEARN_WITHOUT_USE_DAYS * 86400
+            recent = total = unreferenced = 0
+            knowledge_root = self.base_dir / "09_KNOWLEDGE"
+            if knowledge_root.is_dir():
+                for tier in ("pattern", "constraint", "lesson", "axiom", "observation"):
+                    tier_dir = knowledge_root / tier
+                    if not tier_dir.is_dir():
+                        continue
+                    for record in tier_dir.glob("EXP-*.json"):
+                        try:
+                            if record.stat().st_mtime < cutoff:
+                                continue
+                        except OSError:
+                            continue
+                        total += 1
+                        try:
+                            import json as _json
+
+                            payload = _json.loads(record.read_text(encoding="utf-8"))
+                        except (OSError, ValueError):
+                            continue
+                        recent += 1
+                        if int(payload.get("reference_count") or 0) <= 0:
+                            unreferenced += 1
+            if total:
+                field["recent_exp_total"] = recent
+                field["recent_exp_unreferenced"] = unreferenced
+        except OSError:
+            pass
+        tensions = check_tensions(field)
+        recorded = 0
+        observer = getattr(self, "runtime_observer", None)
+        if observer is not None:
+            for tension in tensions:
+                try:
+                    plan = list(tension.get("verification_plan") or [])
+                    observer.record(
+                        description=tension["question"]
+                        + (" Verify by: " + "; ".join(plan) if plan else ""),
+                        system_state={
+                            "tension_key": tension["key"],
+                            "evidence": tension.get("evidence", {}),
+                        },
+                        severity=tension.get("severity", "medium"),
+                        source="tension_check",
+                        category="anomaly",
+                        auto_generated=True,
+                        dedup_key=("tension", tension["key"]),
+                    )
+                    recorded += 1
+                except Exception as e:
+                    self._log_error("tension_record", str(e))
+        return {"tensions": len(tensions), "recorded": recorded}
 
     def _run_memory_governance_probe(self, *, dry_run: bool = False) -> Dict[str, Any]:
         from core.governance.entropy_monitor import EntropyMonitor

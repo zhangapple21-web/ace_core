@@ -124,3 +124,69 @@ def test_missing_fields_report_nothing_rather_than_all_clear():
     assert check_surprises({}, {}, now=_now()) == [] or True
     surprises = check_surprises({"last_beat": None}, {}, now=_now())
     assert any(s["key"] == "heartbeat_unreadable" for s in surprises)
+
+
+def _tension_field(**overrides):
+    base = {
+        "curator_observing": True,
+        "curator_runs": 4,
+        "recent_exp_total": 5,
+        "recent_exp_unreferenced": 1,
+    }
+    base.update(overrides)
+    return base
+
+
+def test_observing_curator_with_zero_runs_is_asked_about():
+    from core.surprise import check_tensions
+
+    questions = check_tensions(_tension_field(curator_runs=0))
+    assert [q["key"] for q in questions] == ["fa_duty_gap"]
+    assert questions[0]["verification_plan"], "a question must carry how to check it"
+
+
+def test_curator_with_runs_is_not_asked_about():
+    from core.surprise import check_tensions
+
+    assert check_tensions(_tension_field(curator_runs=2)) == []
+
+
+def test_curator_silence_is_not_evidence():
+    from core.surprise import check_tensions
+
+    assert check_tensions({}) == []
+    assert check_tensions({"curator_observing": False, "curator_runs": 0}) == []
+
+
+def test_all_young_experiments_unreferenced_is_asked_about():
+    from core.surprise import check_tensions
+
+    questions = check_tensions(
+        _tension_field(recent_exp_total=6, recent_exp_unreferenced=6)
+    )
+    assert [q["key"] for q in questions] == ["learn_without_use"]
+
+
+def test_partially_reused_knowledge_is_not_asked_about():
+    from core.surprise import check_tensions
+
+    assert check_tensions(_tension_field(recent_exp_total=6, recent_exp_unreferenced=2)) == []
+
+
+def test_no_recent_experiments_means_no_question():
+    from core.surprise import check_tensions
+
+    assert check_tensions(_tension_field(recent_exp_total=0, recent_exp_unreferenced=0)) == []
+
+
+def test_tension_questions_carry_verification_plans():
+    from core.surprise import check_tensions
+
+    field = _tension_field(
+        curator_runs=0, recent_exp_total=4, recent_exp_unreferenced=4
+    )
+    questions = check_tensions(field)
+    assert {q["key"] for q in questions} == {"fa_duty_gap", "learn_without_use"}
+    for question in questions:
+        assert len(question["verification_plan"]) >= 2
+        assert question["evidence"]

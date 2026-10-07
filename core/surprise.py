@@ -151,9 +151,101 @@ def check_surprises(
     return surprises
 
 
+# --- Question Forge v1: tensions, not thresholds ---------------------------
+#
+# Learned expectations are deliberately NOT the first eye. Field proof from
+# this machine: before the rolling-receipt fix, "+250 probe files a day"
+# was the stable history. A learner would have enshrined the disease as
+# normal. History-normal is not correct-state, so learned models arrive
+# only as enhancers, after questions already exist.
+#
+# These checks ask from structure the system already owns: a working FA
+# whose core duty never fires, and deposited experiences nobody reuses.
+# No statistics, no covariance, no new entity types: a tension becomes an
+# anomaly observation with a verification plan inside, and the existing
+# converter decides whether it is worth working on.
+
+# An FA that keeps observing while its core duty count stays here is asked
+# about, not alarmed on: the answer may legitimately be "by design".
+CURATOR_DUTY_ZERO_RUNS = 0
+
+# Experiences younger than this that nobody referenced are "learned but
+# unused" candidates. Older ones had their chance; counting only the young
+# keeps the question about the current loop, not archaeology.
+LEARN_WITHOUT_USE_DAYS = 7
+LEARN_WITHOUT_USE_MIN_COUNT = 3
+
+
+def check_tensions(field: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Ask from structure the system already owns.
+
+    ``field`` keys used: curator_observing (bool), curator_runs
+    (completed curation runs, int), recent_exp_unreferenced (int),
+    recent_exp_total (int). Missing keys mean "unknown": report nothing
+    rather than all-clear, same contract as check_surprises.
+    """
+    questions: List[Dict[str, Any]] = []
+
+    observing = field.get("curator_observing")
+    runs = field.get("curator_runs")
+    if observing is True and isinstance(runs, int) and runs <= CURATOR_DUTY_ZERO_RUNS:
+        questions.append(
+            {
+                "key": "fa_duty_gap",
+                "question": "The curator keeps observing every cycle, yet its "
+                "core duty count is zero. Is curation gated by design, broken "
+                "at the entry, or waiting on a decision nobody made?",
+                "severity": "medium",
+                "evidence": {
+                    "curator_observing": True,
+                    "curator_runs": runs,
+                },
+                "verification_plan": [
+                    "List who calls the curation entry besides tests.",
+                    "Check whether the sync gate is open or fail-closed.",
+                    "Conclude RESTORE, REWIRE, or RETIRE with receipts.",
+                ],
+            }
+        )
+
+    unreferenced = field.get("recent_exp_unreferenced")
+    total = field.get("recent_exp_total")
+    if (
+        isinstance(unreferenced, int)
+        and isinstance(total, int)
+        and total > 0
+        and unreferenced >= LEARN_WITHOUT_USE_MIN_COUNT
+        and unreferenced == total
+    ):
+        questions.append(
+            {
+                "key": "learn_without_use",
+                "question": f"{unreferenced} of {total} recent experiences were never "
+                "referenced. Did the loop learn without using, and if so, "
+                "is reuse broken or is there simply nothing worth reusing?",
+                "severity": "medium",
+                "evidence": {
+                    "recent_exp_unreferenced": unreferenced,
+                    "recent_exp_total": total,
+                    "window_days": LEARN_WITHOUT_USE_DAYS,
+                },
+                "verification_plan": [
+                    "Sample the unreferenced records for reuse value.",
+                    "Check whether the reuse stage ran and what it matched.",
+                    "Conclude BROKEN_REUSE, NOTHING_WORTH_REUSING, or TOO_EARLY.",
+                ],
+            }
+        )
+
+    return questions
+
+
 __all__ = [
     "BLOCKED_FLOOD_PER_CYCLE",
     "HEARTBEAT_STALE_MINUTES",
+    "LEARN_WITHOUT_USE_DAYS",
+    "LEARN_WITHOUT_USE_MIN_COUNT",
     "PROBE_JUMP_PER_CYCLE",
     "check_surprises",
+    "check_tensions",
 ]
