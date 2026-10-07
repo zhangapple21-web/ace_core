@@ -4499,6 +4499,14 @@ class AceDaemon:
         self._save_state()
         self._complete_cycle_stage("curator", curator_stage_started)
 
+        surprise_stage_started = self._start_cycle_stage("surprise")
+        try:
+            self._run_surprise_check()
+        except Exception as e:
+            self._log_error("surprise_check", str(e))
+        self._save_state()
+        self._complete_cycle_stage("surprise", surprise_stage_started)
+
         if self.repository_sync_enabled and self.core_syncer:
             try:
                 cs_result = self.core_syncer.sync()
@@ -4579,6 +4587,80 @@ class AceDaemon:
             self.shutdown_reason = "CONTINUE_GATE_CLOSED"
             self.shutdown_event.set()
         return boundary
+
+    def _run_surprise_check(self) -> Dict[str, Any]:
+        """Ask whether the world still matches expectations, and say so.
+
+        This is the curiosity half of the loop: see the field, feel that
+        something is off, and state it as a checkable question. A surprise
+        is recorded as an ``anomaly`` observation with a stable dedup
+        identity, and the existing observation-to-task converter decides
+        whether it is worth working on. The same incident never files
+        twice; a new incident always files once. Nothing here writes tasks,
+        touches the TaskPool lifecycle, or calls a model.
+        """
+        from core.surprise import check_surprises
+
+        stats = self.task_pool.get_stats() if self.task_pool else {}
+        by_status = stats.get("by_status", {}) if isinstance(stats, dict) else {}
+        heartbeat = {}
+        try:
+            heartbeat_path = (
+                self.base_dir / "06_RUNTIME" / "ace" / "data" / "memory" / "heartbeat.json"
+            )
+            if heartbeat_path.is_file():
+                import json
+
+                heartbeat = json.loads(heartbeat_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            heartbeat = {}
+        try:
+            probes = sum(
+                1 for _ in (self.base_dir / "08_GOVERNANCE" / "civilization" / "graveyard").glob(
+                    "research_probe_cycle-probe-*.json"
+                )
+            )
+        except OSError:
+            probes = None
+        current = {
+            "last_beat": heartbeat.get("last_beat"),
+            "pid": self.state.get("pid"),
+            "run_id": self.state.get("run_id"),
+            "pending": by_status.get("pending"),
+            "blocked": by_status.get("blocked"),
+            "archived": by_status.get("archived"),
+            "probes": probes,
+        }
+        previous = self.state.get("last_surprise_snapshot") or {}
+        surprises = check_surprises(current, previous if isinstance(previous, dict) else {})
+        recorded = 0
+        observer = getattr(self, "runtime_observer", None)
+        if observer is not None:
+            for surprise in surprises:
+                try:
+                    observer.record(
+                        description=surprise["question"],
+                        system_state={
+                            "surprise_key": surprise["key"],
+                            "evidence": surprise.get("evidence", {}),
+                            "snapshot": current,
+                        },
+                        severity=surprise.get("severity", "medium"),
+                        source="surprise_check",
+                        category="anomaly",
+                        auto_generated=True,
+                        dedup_key=("surprise", surprise["key"]),
+                    )
+                    recorded += 1
+                except Exception as e:
+                    self._log_error("surprise_record", str(e))
+        self.state["last_surprise_snapshot"] = current
+        self.state["last_surprise_check"] = {
+            "at": __import__("datetime").datetime.now().isoformat(),
+            "surprises": len(surprises),
+            "recorded": recorded,
+        }
+        return {"surprises": len(surprises), "recorded": recorded}
 
     def _run_memory_governance_probe(self, *, dry_run: bool = False) -> Dict[str, Any]:
         from core.governance.entropy_monitor import EntropyMonitor
