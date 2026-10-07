@@ -247,6 +247,20 @@ BUILTIN_RULES: List[ConversionRule] = [
                         "来源：{obs_id}",
     ),
     ConversionRule(
+        name="tension_question",
+        category="anomaly",
+        severity_min="medium",
+        condition_fn=lambda obs: isinstance(obs.system_state.get("tension_key"), str)
+        and len(obs.system_state.get("tension_key", "")) > 0,
+        task_title="验证系统自问 来源 {obs_id}：{description}",
+        task_priority="medium",
+        task_tags=["question_forge", "tension"],
+        task_hypothesis="系统在无人点名下提出了一个带 verification_plan 的问题"
+        "（见来源 observation 的 tension_key、evidence 与验证计划）。"
+        "按计划验证其真伪与价值，证实则推进，证伪则记录 counterexample。"
+        "来源 {obs_id}",
+    ),
+    ConversionRule(
         name="recent_errors",
         category="anomaly",
         severity_min="medium",
