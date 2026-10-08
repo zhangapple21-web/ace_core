@@ -48,6 +48,12 @@ OPENCODE_MUSE_FREE = "oneapi_free:muse-spark-1.3-contributor-free"
 OPENCODE_LONGCAT_FREE = "oneapi_free:longcat-2.5-preview-free"
 OPENCODE_NEMOTRON_LIGHTNING_FREE = "oneapi_free:nemotron-3.5-lightning-free"
 OPENCODE_NEMOTRON_ULTRA_FREE = "oneapi_free:nemotron-3-ultra-free"
+CLI_FLEDGE_FREE = 'opencode_cli:fledge-alpha-free'
+CLI_MIMO_FREE = 'opencode_cli:mimo-v2.6-flash-free'
+CLI_MUSE_FREE = 'opencode_cli:muse-spark-1.3-contributor-free'
+CLI_LING_31_FREE = 'opencode_cli:ling-3.1-flash-free'
+# CLI twins ride the local OpenCode service instead of the 3001 relay, so
+# free-tier thinking survives a dead relay. Same model, other transport.
 
 
 
@@ -99,7 +105,7 @@ TASK_PROFILES: Dict[str, Dict[str, Any]] = {
         "max_tokens": 3072,
         "timeout": 120,
         "preferred_models": [
-            OPENCODE_MUSE_FREE,
+            OPENCODE_MUSE_FREE, CLI_MUSE_FREE,
             GLM_FLASH,
             ACE_GPT4O,
             GITHUB_GPT4O,
@@ -119,7 +125,7 @@ TASK_PROFILES: Dict[str, Dict[str, Any]] = {
         "max_tokens": 256,
         "timeout": 30,
         "preferred_models": [
-            OPENCODE_MIMO_FREE,
+            OPENCODE_MIMO_FREE, CLI_MIMO_FREE,
             SHENWEN_DS41_FLASH,
             ONEAPI_DS41_FLASH,
             GLM_FLASH,
@@ -140,7 +146,7 @@ TASK_PROFILES: Dict[str, Dict[str, Any]] = {
         "max_tokens": 1024,
         "timeout": 60,
         "preferred_models": [
-            OPENCODE_LING_FREE,
+            OPENCODE_LING_FREE, CLI_LING_31_FREE,
             GLM_FLASH,
             ACE_GPT4O_MINI,
             GITHUB_GPT4O_MINI,
@@ -263,7 +269,7 @@ TASK_PROFILES: Dict[str, Dict[str, Any]] = {
         "max_tokens": 512,
         "timeout": 20,
         "preferred_models": [
-            OPENCODE_FLEDGE_FREE,
+            OPENCODE_FLEDGE_FREE, CLI_FLEDGE_FREE,
             SHENWEN_DS41_FLASH,
             ONEAPI_DS41_FLASH,
             GLM_FLASH,

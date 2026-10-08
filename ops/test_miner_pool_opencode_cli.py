@@ -36,6 +36,26 @@ def test_mapping_covers_the_free_tier_and_nothing_else():
     }
 
 
+def test_profiles_pair_each_free_entry_with_its_cli_twin():
+    from core.miner_pool import task_profiles as profiles
+
+    for profile in profiles.TASK_PROFILES.values():
+        preferred = list(profile.get("preferred_models", []))
+        for free, twin in [
+            ("OPENCODE_MUSE_FREE", "CLI_MUSE_FREE"),
+            ("OPENCODE_MIMO_FREE", "CLI_MIMO_FREE"),
+            ("OPENCODE_FLEDGE_FREE", "CLI_FLEDGE_FREE"),
+        ]:
+            free_id = getattr(profiles, free, None)
+            twin_id = getattr(profiles, twin, None)
+            assert twin_id is not None
+            if free_id in preferred:
+                assert twin_id in preferred
+                assert preferred.index(twin_id) == preferred.index(free_id) + 1, (
+                    "the CLI twin must ride directly behind its HTTP sibling"
+                )
+
+
 def test_factory_and_credentials_cover_the_cli_key():
     assert PROVIDER_FACTORY["opencode_cli"] is OpenCodeCliProvider
     manager = CredentialManager()
