@@ -126,6 +126,49 @@ def test_missing_fields_report_nothing_rather_than_all_clear():
     assert any(s["key"] == "heartbeat_unreadable" for s in surprises)
 
 
+def test_drought_needs_stillness_plus_waiting_work():
+    from core.surprise import DROUGHT_STILL_CYCLES, check_drought
+
+    assert check_drought(3, 2, 99) == [], "calls moving means no drought"
+    assert check_drought(0, 0, 99) == [], "nothing waiting means healthy idle"
+    assert check_drought(0, 2, DROUGHT_STILL_CYCLES - 1) == []
+    droughts = check_drought(0, 2, DROUGHT_STILL_CYCLES)
+    assert [d["key"] for d in droughts] == ["thinking_drought"]
+    assert droughts[0]["severity"] == "high"
+    assert droughts[0]["verification_plan"], "a drought question must say how to check it"
+
+
+def test_non_provider_errors_never_fence_a_provider():
+    from core.miner_pool.provider_watchdog import ProviderWatchdog
+
+    watchdog = ProviderWatchdog()
+    watchdog.register_provider(
+        name="probe-target",
+        base_url="http://localhost:3000/v1",
+        api_key="test-key",
+    )
+    for _ in range(5):
+        watchdog.record_failure("probe-target", error="model_unavailable")
+    providers = watchdog._providers["probe-target"]
+    assert providers.consecutive_failures == 0, "streaks must not grow on config misses"
+    assert providers.total_calls == 5, "calls stay counted; only the verdict is withheld"
+
+
+def test_real_failures_still_fence():
+    from core.miner_pool.provider_watchdog import ProviderWatchdog
+
+    watchdog = ProviderWatchdog()
+    watchdog.register_provider(
+        name="flaky-target",
+        base_url="http://localhost:3000/v1",
+        api_key="test-key",
+    )
+    for _ in range(5):
+        watchdog.record_failure("flaky-target", error="connection refused")
+    assert not watchdog.is_healthy("flaky-target")
+    assert watchdog.has_health_history("flaky-target")
+
+
 def _tension_field(**overrides):
     base = {
         "curator_observing": True,

@@ -176,6 +176,43 @@ LEARN_WITHOUT_USE_DAYS = 7
 LEARN_WITHOUT_USE_MIN_COUNT = 3
 
 
+def check_drought(calls_delta: int, routable_waiting: int, still_cycles: int) -> List[Dict[str, Any]]:
+    """Ask whether thinking itself has stopped while work waits.
+
+    ``calls_delta`` counts miner pool calls since the last snapshot,
+    ``routable_waiting`` counts non-terminal tasks whose profile routes to
+    a model, ``still_cycles`` counts consecutive snapshots with zero calls.
+    A quiet pool with nothing routable waiting is healthy idle, not drought:
+    only the combination asks. Thresholds stay next to their reasons.
+    """
+    if calls_delta != 0:
+        return []
+    if routable_waiting <= 0:
+        return []
+    if still_cycles < DROUGHT_STILL_CYCLES:
+        return []
+    return [
+        {
+            "key": "thinking_drought",
+            "question": f"No model call for {still_cycles} cycles while "
+            f"{routable_waiting} model-routable tasks wait. Are providers "
+            "fenced by stale health, is routing misconfigured, or is demand "
+            "genuinely absent?",
+            "severity": "high",
+            "evidence": {
+                "still_cycles": still_cycles,
+                "routable_waiting": routable_waiting,
+                "calls_delta": calls_delta,
+            },
+            "verification_plan": [
+                "Read the watchdog ledger for fenced providers and stale entries.",
+                "Run one bounded miner call and watch the counters move.",
+                "Conclude FENCED_HEALTH, MISROUTED_DEMAND, or GENUINELY_IDLE.",
+            ],
+        }
+    ]
+
+
 def check_tensions(field: Dict[str, Any]) -> List[Dict[str, Any]]:
     """Ask from structure the system already owns.
 
@@ -240,12 +277,17 @@ def check_tensions(field: Dict[str, Any]) -> List[Dict[str, Any]]:
     return questions
 
 
+# Consecutive still cycles with routable work waiting before drought is asked.
+DROUGHT_STILL_CYCLES = 3
+
 __all__ = [
     "BLOCKED_FLOOD_PER_CYCLE",
+    "DROUGHT_STILL_CYCLES",
     "HEARTBEAT_STALE_MINUTES",
     "LEARN_WITHOUT_USE_DAYS",
     "LEARN_WITHOUT_USE_MIN_COUNT",
     "PROBE_JUMP_PER_CYCLE",
+    "check_drought",
     "check_surprises",
     "check_tensions",
 ]

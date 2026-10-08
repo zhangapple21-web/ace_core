@@ -33,6 +33,18 @@ UNHEALTHY = "UNHEALTHY"
 OFFLINE = "OFFLINE"
 RECOVERING = "RECOVERING"
 
+#: Errors that prove the *model name* was wrong, never that the provider is
+#: down. A probe asking for a model the catalog does not carry (the pinned
+#: gpt-5.4-mini default is absent from the live gateway catalog) must not
+#: count toward provider health, or every probe re-poisons a provider that
+#: real traffic could still use.
+NON_PROVIDER_ERRORS = (
+    "model_unavailable",
+    "model_not_found",
+    "unknown model",
+    "invalid model",
+)
+
 
 @dataclass
 class ProviderHealth:
@@ -421,6 +433,17 @@ class ProviderWatchdog:
         """记录一次失败调用，触发自动切换判断"""
         p = self._providers.get(provider_name)
         if not p:
+            return
+
+        lowered = str(error or "").lower()
+        if any(marker in lowered for marker in NON_PROVIDER_ERRORS):
+            # Config-level miss, not provider evidence. Count the call so
+            # totals stay honest, but leave streaks and status untouched:
+            # demoting a provider for asking the wrong name would fence off
+            # models that are still served fine.
+            p.total_calls += 1
+            p.error_message = error
+            self._save_state()
             return
 
         p.total_calls += 1

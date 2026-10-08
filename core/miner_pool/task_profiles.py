@@ -189,6 +189,8 @@ TASK_PROFILES: Dict[str, Dict[str, Any]] = {
         "max_tokens": 4096,
         "timeout": 240,
         "preferred_models": [
+            CLI_MUSE_FREE,
+            CLI_MIMO_FREE,
             ONEAPI_ASTRA,
             ONEAPI_TERRA,
             SHENWEN_TERRA,
