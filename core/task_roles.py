@@ -199,7 +199,15 @@ def _record_model_execution(
                 routing_context["execution_feedback"] = dict(prior_feedback)
         think_gate = evaluate_cognitive_think_gate(
             actor_role=COGNITIVE_HUB,
-            think_rounds=len(prior_traces),
+            # Only attempts that actually reached a model consume think
+            # budget. Router-level failures (no provider, no model) never
+            # thought anything, so counting them sealed tasks shut: each
+            # blocked attempt raised think_rounds without producing the
+            # evidence that could ever release it.
+            think_rounds=sum(
+                1 for trace in prior_traces
+                if isinstance(trace, dict) and trace.get("api_called") is True
+            ),
             new_evidence_since_last_think=(
                 isinstance(prior_feedback, dict)
                 and prior_feedback.get("status") == "TEXT_UNSTRUCTURED"
