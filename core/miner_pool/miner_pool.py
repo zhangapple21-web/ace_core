@@ -44,6 +44,7 @@ from .providers.openai_compatible import (
     ShenwenDs41Provider,
     ShenwenImagesProvider,
 )
+from .providers.opencode_cli import OpenCodeCliProvider
 from ..execution_contract import ensure_execution_contract, normalize_untrusted_messages
 from ..mirror_constitution import validate_data_boundary
 
@@ -55,6 +56,10 @@ PROVIDER_FACTORY = {
     "apiyi": APIYiProvider,
     "sambanova": SambaNovaProvider,
     "oneapi": OneAPIProvider,
+    # Local CLI route for the free tier while the 3001 relay has no runnable
+    # artifact. Same operator, same machine, no new secret; the credential
+    # below carries no key on purpose.
+    "opencode_cli": OpenCodeCliProvider,
     # Free routes share the gateway address but not the fate: 3001 relay
     # failures poisoned the whole "oneapi" health entry and fenced off paid
     # models that were still served fine. A separate key gives free routes

@@ -387,6 +387,11 @@ class CredentialManager:
             "github_models": ("GITHUB_PAT", "GITHUB_MODELS_BASE_URL", "https://models.inference.ai.azure.com"),
             "glm": ("ZHIPU_KEY", "GLM_BASE_URL", "https://open.bigmodel.cn/api/paas/v4"),
             "oneapi": ("ONEAPI_KEY", "ONEAPI_BASE_URL", "http://localhost:3000/v1"),
+            # Local CLI route. No key exists or is needed: the worker runs on
+            # this machine under the operator account. An empty api_keys list
+            # would fail is_valid, so a local marker stands in; it is never
+            # sent anywhere.
+            "opencode_cli": (None, None, "local://opencode-cli"),
             # Same operator key and gateway as "oneapi": no new secret, only a
             # separate health identity so free-route failures cannot fence off
             # the paid pool. See PROVIDER_FACTORY "oneapi_free".
@@ -399,6 +404,14 @@ class CredentialManager:
         }
 
         for provider, (key_env, base_env, default_base) in provider_env_map.items():
+            if provider == "opencode_cli":
+                self._credentials[provider] = ProviderCredential(
+                    provider=provider,
+                    base_url=default_base,
+                    api_keys=["local-no-secret"],
+                    source="local",
+                )
+                continue
             key = os.environ.get(key_env)
             if provider == "shenwen_ds41" and not key:
                 key = os.environ.get("SWA_KEY_DS41")
