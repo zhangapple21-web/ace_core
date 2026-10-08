@@ -277,12 +277,26 @@ BUILTIN_RULES: List[ConversionRule] = [
         name="scheduled_task_inactive",
         category="improvement",
         severity_min="medium",
-        condition_fn=lambda obs: obs.system_state.get("task_never_run", False),
+        condition_fn=lambda obs: bool(obs.system_state.get("task_never_run", False))
+        or float(obs.system_state.get("hours_since", 0) or 0) > 48,
         task_title="激活自动化计划任务 — {obs_id}",
         task_priority="medium",
         task_tags=["ops", "automation"],
-        task_hypothesis="计划任务已安装但从未执行。"
+        task_hypothesis="计划任务已安装但从未执行，或上次执行已超过 48 小时。"
                         "系统失去了自动巡检和恢复能力。"
+                        "来源：{obs_id}",
+    ),
+    ConversionRule(
+        name="checkup_error",
+        category="health",
+        severity_min="medium",
+        condition_fn=lambda obs: isinstance(obs.system_state.get("checkup_snapshot"), dict)
+        and obs.system_state.get("checkup_snapshot", {}).get("overall") == "error",
+        task_title="巡检失败跟进 — {obs_id}",
+        task_priority="high",
+        task_tags=["ops", "patrol"],
+        task_hypothesis="定期巡检 overall=error，但失败明细只活在快照里。"
+                        "按快照逐条核对失败项，修好或降级误报项。"
                         "来源：{obs_id}",
     ),
     ConversionRule(
