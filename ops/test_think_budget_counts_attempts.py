@@ -88,3 +88,32 @@ def test_real_attempts_still_consume_think_budget(tmp_path):
     assert (
         task.outputs["model_execution"][-1].get("error") == "THINK_LOOP_BLOCKED"
     )
+
+
+def test_router_empty_handed_attempts_do_not_consume_budget(tmp_path):
+    """RQ-20261008-022 in production: the gate opened, selection found
+    nothing (empty tried_models, no selected model), and those traces then
+    sealed the task by themselves. Contact, not gate passage, counts."""
+    from core.task import TaskPool as Pool
+
+    pool = Pool(str(tmp_path / "pool"))
+    task = _task(pool, "router found nothing twice")
+    empty_handed = {
+        "task_id": task.task_id,
+        "api_called": True,
+        "api_result": "failed",
+        "result": "failed",
+        "error": "no available models for this task type",
+        "tried_models": [],
+        "selected_model": "",
+        "execution_feedback": {"status": "NONE"},
+    }
+    task.outputs.setdefault("model_execution", []).extend(
+        [dict(empty_handed), dict(empty_handed)]
+    )
+    assert pool.update_task(task)
+
+    router = _FakeRouter()
+    _record_model_execution(task, "researcher", router, "Third question?")
+    assert router.calls == 1, "empty-handed attempts must not seal the gate"
+    assert task.outputs["model_execution"][-1].get("api_called") is True

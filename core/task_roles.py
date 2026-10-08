@@ -200,13 +200,19 @@ def _record_model_execution(
         think_gate = evaluate_cognitive_think_gate(
             actor_role=COGNITIVE_HUB,
             # Only attempts that actually reached a model consume think
-            # budget. Router-level failures (no provider, no model) never
-            # thought anything, so counting them sealed tasks shut: each
-            # blocked attempt raised think_rounds without producing the
-            # evidence that could ever release it.
+            # budget. A trace with api_called but no tried model never left
+            # the router: the gate opened, selection found nothing, and no
+            # thinking happened. Counting those sealed RQ-20261008-022 shut
+            # even after the router-failure fix, because its two old traces
+            # show api_called with empty tried_models.
             think_rounds=sum(
                 1 for trace in prior_traces
-                if isinstance(trace, dict) and trace.get("api_called") is True
+                if isinstance(trace, dict)
+                and trace.get("api_called") is True
+                and (
+                    bool(trace.get("tried_models"))
+                    or bool(trace.get("selected_model"))
+                )
             ),
             new_evidence_since_last_think=(
                 isinstance(prior_feedback, dict)
