@@ -725,3 +725,31 @@ def test_a_corrupt_registry_reads_as_no_permission():
         "unclassified" in reason for reason in receipt["instruction_gate_blocked"]
     )
     assert probe.observation() is None
+
+
+def test_production_registry_keeps_the_runtime_manual_private():
+    """Relabelling the production AGENTS.md PUBLIC to unblock a call is forbidden.
+
+    The registry is a hand-edited JSON file, and the forbidden edit is exactly
+    the one that looks like a fix when delivery is blocked. Pinning it here
+    makes that edit fail a test instead of quietly unlocking egress.
+    """
+    root = Path(__file__).resolve().parents[1]
+    registry = root / "08_GOVERNANCE" / "instruction_data_classes.json"
+    assert registry.is_file(), "the classification registry went missing"
+
+    document = json.loads(registry.read_text(encoding="utf-8"))
+    entries = {
+        str(item.get("match", "")).replace("\\", "/").lower(): item
+        for item in document.get("entries", [])
+    }
+    key = next(
+        (name for name in entries if name.endswith("ace_core/agents.md")), None,
+    )
+
+    assert key is not None, "the production AGENTS.md lost its classification record"
+    assert entries[key]["data_class"] == "PRIVATE", (
+        "the runtime manual was relabelled; that unblocks egress by definition "
+        "and is not a change anyone may make to make a call pass"
+    )
+    assert (root / "AGENTS.md").is_file()
