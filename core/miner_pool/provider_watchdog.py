@@ -32,6 +32,17 @@ DEGRADED = "DEGRADED"
 UNHEALTHY = "UNHEALTHY"
 OFFLINE = "OFFLINE"
 RECOVERING = "RECOVERING"
+#: Reported instead of the stored rating when no traffic or probe has
+#: confirmed a provider within TTL. A stale rating is not re-presented as
+#: current health, but staleness alone never fences a provider off: an
+#: idle pool is not a fault, so routing only deprioritizes stale entries.
+STALE = "STALE"
+
+#: A stored rating older than this without any confirming call or probe is
+#: reported as STALE. One full day matches the idle rhythm: an overnight
+#: quiet pool must not flap, while a rating unconfirmed for longer than a
+#: day is honestly no longer current.
+STALE_TTL_SECONDS = 24 * 3600
 
 #: Errors that prove the *model name* was wrong, never that the provider is
 #: down. A probe asking for a model the catalog does not carry (the pinned
@@ -79,6 +90,47 @@ class ProviderHealth:
     @classmethod
     def from_dict(cls, d: Dict) -> "ProviderHealth":
         return cls(**{k: v for k, v in d.items() if k in cls.__dataclass_fields__})
+
+
+def _as_epoch(value: Any) -> float:
+    try:
+        result = float(value or 0)
+    except (TypeError, ValueError):
+        return 0.0
+    return result if result > 0 else 0.0
+
+
+def observation_age_hours(record: Dict[str, Any], now: Optional[float] = None) -> Optional[float]:
+    """Hours since the last confirming traffic or probe, or None if never."""
+    last = max(
+        _as_epoch(record.get("last_check")),
+        _as_epoch(record.get("last_success")),
+    )
+    if last <= 0:
+        return None
+    moment = now if now is not None else time.time()
+    return max(0.0, (moment - last) / 3600.0)
+
+
+def effective_status_for(
+    record: Dict[str, Any],
+    now: Optional[float] = None,
+    ttl_seconds: float = STALE_TTL_SECONDS,
+) -> str:
+    """Stored status, unless its evidence is older than TTL.
+
+    Anything past TTL — healthy or not, never-observed or long-idle —
+    reports STALE instead of letting an old rating pose as current health.
+    Fresh UNHEALTHY/OFFLINE stay exactly what they are: STALE never masks
+    a real, recent failure.
+    """
+    stored = str(record.get("status") or UNHEALTHY)
+    age = observation_age_hours(record, now=now)
+    if age is None:
+        return STALE
+    if age * 3600.0 > ttl_seconds:
+        return STALE
+    return stored
 
 
 @dataclass
@@ -212,6 +264,23 @@ class ProviderWatchdog:
             return False
         return p.status in (HEALTHY, RECOVERING, DEGRADED)
 
+    def effective_status(
+        self,
+        provider_name: str,
+        now: Optional[float] = None,
+        ttl_seconds: float = STALE_TTL_SECONDS,
+    ) -> str:
+        """Stored status, or STALE when its evidence is older than TTL.
+
+        Routing candidacy is unchanged (see is_healthy): staleness only
+        deprioritizes via _health_score, never fences. Unknown names report
+        STALE — never observed is never current.
+        """
+        p = self._providers.get(provider_name)
+        if not p:
+            return STALE
+        return effective_status_for(p.to_dict(), now=now, ttl_seconds=ttl_seconds)
+
     def has_health_history(self, provider_name: str) -> bool:
         """Whether a provider has already had a real call outcome recorded."""
         provider = self._providers.get(provider_name)
@@ -233,7 +302,12 @@ class ProviderWatchdog:
         return candidates[0][0]
 
     @staticmethod
-    def _health_score(p: ProviderHealth) -> float:
+    def _health_score(
+        p: ProviderHealth,
+        now: Optional[float] = None,
+        ttl_seconds: float = STALE_TTL_SECONDS,
+        stale_penalty: float = 30.0,
+    ) -> float:
         """计算健康分数（越高越好）"""
         status_scores = {
             HEALTHY: 100,
@@ -243,6 +317,11 @@ class ProviderWatchdog:
             OFFLINE: 0,
         }
         score = status_scores.get(p.status, 0)
+        # Prefer fresh evidence over stale memory. The penalty can flip the
+        # order between equal stored ratings but never promotes an excluded
+        # status: UNHEALTHY/OFFLINE stay out of routing either way.
+        if effective_status_for(p.to_dict(), now=now, ttl_seconds=ttl_seconds) == STALE:
+            score -= stale_penalty
         # 成功率加成
         if p.total_calls > 10:
             success_rate = (p.total_calls - p.failed_calls) / p.total_calls
@@ -501,6 +580,12 @@ class ProviderWatchdog:
                 "total_calls": p.total_calls,
                 "failed_calls": p.failed_calls,
                 "consecutive_failures": p.consecutive_failures,
+                # Honest read-time view: stored rating plus what it is
+                # worth right now, and how old its evidence is. Additive
+                # only; existing consumers keep reading "status" as before.
+                "effective_status": self.effective_status(name),
+                "stale": self.effective_status(name) == STALE,
+                "age_hours": observation_age_hours(p.to_dict()),
             }
             for name, p in self._providers.items()
         ]
@@ -531,6 +616,7 @@ class ProviderWatchdog:
         unhealthy = sum(1 for p in providers if p["status"] == UNHEALTHY)
         offline = sum(1 for p in providers if p["status"] == OFFLINE)
         recovering = sum(1 for p in providers if p["status"] == RECOVERING)
+        stale = sum(1 for p in providers if p.get("stale"))
 
         total_calls = sum(p["total_calls"] for p in providers)
         total_failed = sum(p["failed_calls"] for p in providers)
@@ -543,6 +629,7 @@ class ProviderWatchdog:
             "degraded": degraded,
             "unhealthy": unhealthy,
             "offline": offline,
+            "stale": stale,
             "total_calls": total_calls,
             "total_failed": total_failed,
             "success_rate": round(success_rate, 4),
