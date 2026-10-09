@@ -613,3 +613,53 @@ def test_chat_route_reports_a_gate_block_with_its_verdict(monkeypatch):
     # like from the outside, so the verdict is the only thing telling them apart.
     assert result["instruction_gate"] == "BLOCKED"
     assert result["instruction_gate_blocked"]
+
+
+# --- audit -------------------------------------------------------------------
+
+
+def test_survey_reports_an_unclassified_shipped_instruction_file():
+    """A file nobody classified is inert until a call happens to sit under it."""
+    from core.instruction_boundary import survey_instruction_egress
+
+    probe = Probe()
+    (probe.ace_root / "AGENTS.md").write_text("# shipped\n", encoding="utf-8")
+    (probe.ace_root / "nested").mkdir()
+    (probe.ace_root / "nested" / "AGENTS.md").write_text("# deeper\n", encoding="utf-8")
+
+    report = survey_instruction_egress(root=str(probe.ace_root), call_sites=[])
+
+    assert report["registry_present"] is False
+    assert len(report["unclassified"]) == 2
+    assert report["classified"] == []
+
+
+def test_survey_separates_allowed_and_blocked_call_sites():
+    from core.instruction_boundary import survey_instruction_egress
+
+    probe = Probe()
+    blocked_dir = probe.ace_root / "repo"
+    blocked_dir.mkdir()
+    (blocked_dir / "AGENTS.md").write_text("# private\n", encoding="utf-8")
+    probe.classify(probe.entry_for(blocked_dir / "AGENTS.md", "PRIVATE"))
+
+    open_dir = probe.ace_root / "public_repo"
+    open_dir.mkdir()
+    (open_dir / "AGENTS.md").write_text("# fine\n", encoding="utf-8")
+    probe.classify(probe.entry_for(open_dir / "AGENTS.md", "PUBLIC"))
+
+    clean = probe.ace_root / "clean"
+    clean.mkdir()
+
+    report = survey_instruction_egress(root=str(probe.ace_root), call_sites=[
+        {"label": "private", "workspace": str(blocked_dir)},
+        {"label": "public", "workspace": str(open_dir)},
+        {"label": "no instructions", "workspace": str(clean)},
+    ])
+
+    by_label = {site["label"]: site for site in report["call_sites"]}
+    assert by_label["private"]["gate"] == "BLOCKED"
+    assert by_label["public"]["gate"] == "ALLOWED"
+    assert by_label["no instructions"]["instruction_files"] == 0
+    assert by_label["no instructions"]["gate"] == "ALLOWED"
+    assert report["egress_blocked"] is True

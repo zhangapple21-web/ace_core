@@ -21,6 +21,7 @@ refused it. No subprocess starts.
 
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
@@ -29,6 +30,14 @@ from core.mirror_constitution import DATA_CLASSES, validate_data_boundary
 
 REGISTRY_RELATIVE = Path("08_GOVERNANCE") / "instruction_data_classes.json"
 RECEIPTS_RELATIVE = Path("08_GOVERNANCE") / "sanitizer_receipts.jsonl"
+
+# Mirrors core/delivery_execution.INSTRUCTION_EVIDENCE_KEYS, which is what
+# actually reaches a stored receipt. Listed here so an audit can tell when the
+# two have drifted.
+def instruction_evidence_keys() -> tuple:
+    from core.delivery_execution import INSTRUCTION_EVIDENCE_KEYS
+
+    return INSTRUCTION_EVIDENCE_KEYS
 
 # Classes that may reach a model only behind a sanitizer receipt.
 CONDITIONAL_CLASSES = {"CAPABILITY", "STRUCTURE"}
@@ -205,6 +214,96 @@ def evaluate_instruction_set(
     }
 
 
+def discover_repo_instruction_files(root: Optional[str] = None) -> List[Path]:
+    """Every AGENTS.md inside the checkout.
+
+    Used by the audit to answer "is every instruction file we ship actually
+    classified?", which is the question that a gate alone never surfaces: a file
+    nobody has classified is inert until some call happens to sit under it.
+    """
+    base = ace_root(root)
+    if not base.is_dir():
+        return []
+    return sorted(path for path in base.rglob("AGENTS.md") if path.is_file())
+
+
+def survey_instruction_egress(
+    *,
+    root: Optional[str] = None,
+    call_sites: Optional[Iterable[Dict[str, str]]] = None,
+) -> Dict[str, Any]:
+    """Report what instruction files exist and how each call site would fare.
+
+    Read-only and model-free on purpose: the point is to be able to answer
+    "what would leave if we called from here?" without making the call, which is
+    the only way to know the answer before paying for it.
+    """
+    base = ace_root(root)
+    registry = _read_registry(base)
+    files = discover_repo_instruction_files(base)
+
+    classified, unclassified = [], []
+    for path in files:
+        entry = classify_source(
+            {"path": str(path), "sha256": ""}, registry=registry, root=base,
+        )
+        # A repo file carries no bytes in the survey, so classify by the record
+        # only; content verification happens against the real file at call time.
+        resolved = classify_source(
+            {"path": str(path), "sha256": _sha256_of(path)}, registry=registry, root=base,
+        )
+        record = {
+            "path": str(path),
+            "data_class": entry["data_class"] or resolved["data_class"],
+            "basis": entry["basis"] if entry["basis"] != "unclassified" else resolved["basis"],
+        }
+        (classified if record["data_class"] else unclassified).append(record)
+
+    sites = []
+    for site in call_sites or []:
+        workspace = Path(str(site.get("workspace", ""))).expanduser()
+        sources: List[Dict[str, Any]] = []
+        if workspace.is_dir():
+            sources = [
+                {"path": str(item["path"]), "sha256": item["sha256"], "bytes": item["bytes"]}
+                for item in _instruction_files_for(workspace)
+            ]
+        verdict = evaluate_instruction_set(sources, root=str(base))
+        sites.append({
+            "label": str(site.get("label", "")),
+            "workspace": str(workspace),
+            "instruction_files": len(sources),
+            "gate": verdict["instruction_gate"],
+            "blocked": verdict["instruction_gate_blocked"],
+        })
+
+    blocked = any(item["gate"] == "BLOCKED" for item in sites)
+    return {
+        "root": str(base),
+        "registry": str(base / REGISTRY_RELATIVE),
+        "registry_present": (base / REGISTRY_RELATIVE).is_file(),
+        "repo_instruction_files": len(files),
+        "classified": classified,
+        "unclassified": unclassified,
+        "call_sites": sites,
+        "egress_blocked": blocked,
+    }
+
+
+def _sha256_of(path: Path) -> str:
+    try:
+        return hashlib.sha256(path.read_bytes()).hexdigest()
+    except OSError:
+        return ""
+
+
+def _instruction_files_for(workspace: Path) -> List[Dict[str, Any]]:
+    """The AGENTS.md set for a workspace, in the shape the gate consumes."""
+    from core.opencode_worker import OpenCodeWorker
+
+    return OpenCodeWorker._instruction_sources(workspace.resolve())
+
+
 __all__ = [
     "ACCEPTANCE",
     "CONDITIONAL_CLASSES",
@@ -213,5 +312,8 @@ __all__ = [
     "REGISTRY_RELATIVE",
     "ace_root",
     "classify_source",
+    "discover_repo_instruction_files",
     "evaluate_instruction_set",
+    "instruction_evidence_keys",
+    "survey_instruction_egress",
 ]
