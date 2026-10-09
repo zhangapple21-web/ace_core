@@ -298,15 +298,71 @@ OpenCode 会从工作目录向上把私有手册一起加载，于是门会以"�
 被拒调用不落产物、只复制声明路径、逃逸路径拒绝、暂存目录必删、交付验证仍在仓库
 根找到产物。相关回归 **90 passed**。
 
-## 13. 仍然开放
+## 13. 脱敏对模型可见内容的影响（实测）
+
+原开放项"内容差异对交付质量的影响未测"分两半测：删掉了什么、模型现在还能用什么。
+第二半无法用"对比两次交付产出"回答——那需要一个拿私有手册当对照组的实验，而
+对照组本身就是被禁止的外发。所以改为直接测可见性。
+
+### 13.1 静态：删掉了什么
+
+源 20255 B → 保留 5265 B，**移除 74%**；19 个 section 保留 3 个
+（Identity / Core Principles / Engineering Rules）。
+
+按"祈使句"统计（must / never / always / do not / should）：
+
+| | section 数 | 祈使句 |
+| --- | --- | --- |
+| 保留 | 3 | 2 |
+| 丢弃 | 16 | 6 |
+
+丢弃中仍带指令的 section 有 5 个：**search policy、daily self-loop、
+model strategy、autonomous acceptance is owned by the main steward、
+free zone to reality bridge**。其余 11 个（仓库地图、三层架构、运行时组件、
+已知缺口等）是描述性内容，没有祈使句。
+
+**这里有一个诚实的取舍值得记下**：`autonomous acceptance is owned by the main
+steward` 被丢弃了，而它带 2 条祈使句——它规定"谁有权验收"。这不是我判断为无用
+的内容，恰恰相反，它是最该保留的治理约束之一。目前的 `--keep` 白名单没有覆盖
+它。**如果交付链依赖该约束，当前配置是有缺陷的**；补进白名单是一行改动，但它会
+改变已签发的 receipt 哈希，需要重新签发。
+
+### 13.2 行为：模型还能用什么
+
+真实脱敏产物经门放行后暂存提问，8 题各半来自保留/丢弃 section，全程无工具兜底
+（工具会让模型读到私有手册，测出脱敏没挣来的命中）。
+
+```
+kept content available to the model    : 4/4
+dropped content available to the model : 0/4
+private repository name recovered      : False
+```
+
+被丢弃内容的实际表现：`Search Policy` 层序、`Model Strategy` provider 顺序均答
+`UNKNOWN`；私有仓名未出现，模型只说"private repo"。
+
+保留内容全部可得：`Identity`（用户角色）、`Continuity Principle`、`Recovery First`、
+`Engineering Rules` 的 reuse-first——注意模型是**意译**而非照抄（答
+"Never build what already exists in the repository" 而非 "reuse first"）。
+
+判读更正一处：`Architecture` 顶层一题我起初记为 MISS→命中"母亲版"，
+实为模型从**保留的 Core Principles** 里取的词，答的是保留内容，与被丢弃的架构
+章节无关。分离是干净的。
+
+**结论**：模型拿到的是完整的 ACE 职责与工作规则（Identity + Core Principles +
+Engineering Rules），丢掉的是描述性上下文与两段治理/路由细则。私有内容确实
+出不去。
+
+## 14. 仍然开放
 
 1. **交付链的指令上下文**：机制已在同形态仓库实测为可用（第 9 节）。未验证的
    只有"生产 `AGENTS.md` 的内容是否影响了产出"，为它跑生产工作区模型不可接受，
    不测。`docs/REAL_CLI_DELIVERY_PROOF.md` 已被删除，协议 231 行引用的证据在磁盘
    上已不可核验。
-2. **原始 `AGENTS.md` 仍不会被外发**，但它也不再是交付链的指令来源：模型看到的是
-   脱敏版本（约 5.5 KB / 15 个章节中的 3 个）。**内容差异对交付质量的实际影响未
-   测**——要测就得比较两次交付产出，属于新工作，未做。
+2. **交付产出的实际质量变化仍未测**，且现在也不容易测：可信的 A/B 需要一个持有
+   私有手册的对照组，而那正是裁决禁止的。13.2 的可见性测量能证明模型拿到的规则
+   集合是完整的、且不含私有内容，但不能替代"两次交付产出对比"那种质量证据。
+3. **`autonomous acceptance` 未进保留白名单**（见 13.1），是当前配置的已知缺陷。
 3. **跨目录读取**：需要读工作区之外文件的非交互调用会被 `ask` 挡下并自行拒绝。
    交付链不受影响；受影响的调用若存在，需要显式的权限策略，而不是加 `--auto`。
 4. **临时目录的祖先指令面**：聊天链的工作区在 home 之内，V2 会向 home 方向合并
