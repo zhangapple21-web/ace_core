@@ -3698,6 +3698,59 @@ class AceDaemon:
             "final_health": final_health,
         }
 
+    def _delivery_instruction_dir(self):
+        """The reduced instruction directory, or None when it is not usable.
+
+        The delivery stage runs with the repository root as its working
+        directory, which is exactly where the PRIVATE runtime manual sits. The
+        reduced artifact lives outside that tree, so the call cannot simply keep
+        pointing at the production workspace and expect compliant instructions:
+        the gate is right to refuse, and refusing is what it does.
+
+        Returning None means "do not run the delivery worker at all". A missing
+        or unreadable reduction must not degrade into calling the model with the
+        private manual still in scope.
+        """
+        candidate = Path(self.base_dir) / "model_instructions"
+        artifact = candidate / "AGENTS.md"
+        if not artifact.is_file():
+            self._log_error("delivery_instruction_missing", str(artifact))
+            return None
+        try:
+            import shutil
+            import tempfile
+
+            from core.instruction_boundary import evaluate_instruction_set
+            from core.opencode_worker import OpenCodeWorker
+
+            # Probe exactly what the model will see. The reduced file cannot be
+            # judged where it lives: model_instructions/ sits inside the
+            # repository, so OpenCode would also load the private manual from
+            # the ancestor chain and the gate would refuse for a reason that
+            # has nothing to do with the reduction. The staging directory is
+            # outside the repository, so the probe copies it there first.
+            probe_dir = Path(tempfile.mkdtemp(prefix="ace_instruction_probe_"))
+            try:
+                shutil.copy2(artifact, probe_dir / "AGENTS.md")
+                sources, _complete = OpenCodeWorker._instruction_sources(
+                    probe_dir.resolve(),
+                )
+                verdict = evaluate_instruction_set(
+                    sources, root=str(self.base_dir),
+                )
+            finally:
+                shutil.rmtree(probe_dir, ignore_errors=True)
+        except Exception as exc:
+            self._log_error("delivery_instruction_probe", str(exc))
+            return None
+        if verdict["instruction_gate"] != "ALLOWED" or not verdict.get("instruction_gate_allowed"):
+            self._log_error(
+                "delivery_instruction_blocked",
+                ";".join(verdict.get("instruction_gate_blocked", [])) or "unknown",
+            )
+            return None
+        return candidate
+
     def _delivery_worker_runner(self):
         """Build a bounded delivery worker, or None when none can run.
 
@@ -3708,6 +3761,14 @@ class AceDaemon:
         cannot be built or found, the executor reports NO_WORKER_AVAILABLE and
         the task stays honestly undelivered instead of receiving a fabricated
         receipt.
+
+        The CLI is invoked in a staging workspace carrying the reduced
+        instruction file, not in the repository root. OpenCode reads AGENTS.md
+        from its working directory upwards, so keeping the repository root here
+        would load the private runtime manual and the egress gate would refuse
+        the call. The staging directory is created per attempt and the produced
+        artifact is copied back to the declared path in the repository, because
+        that path is what delivery verification and the task receipt refer to.
         """
         cached = getattr(self, "_delivery_runner_cache", None)
         if cached is not None:
@@ -3718,26 +3779,84 @@ class AceDaemon:
 
             worker = OpenCodeWorker()
             self._ensure_worker_router(worker)
-            if Path(worker.executable).exists():
+            instruction_dir = self._delivery_instruction_dir()
+            if Path(worker.executable).exists() and instruction_dir is not None:
                 def runner(**kwargs):  # noqa: F811 - closed over worker on purpose
-                    return self.worker_router.run(
-                        "structured_readonly", worker,
-                        verify=lambda receipt: receipt.get("success") is True and bool(receipt.get("raw_output")),
-                        task=(
-                            f"Produce the deliverable at {kwargs['required_path']}. "
-                            f"Task: {kwargs['title']}. Hypothesis: {kwargs['hypothesis']}."
-                            + self._reuse_hint_for(kwargs.get("task_id", ""),
-                                                    kwargs.get("workspace", ""))
-                        ),
-                        workspace=kwargs["workspace"],
-                        expected_result=kwargs["required_path"],
-                        verification_method="file_exists_nonempty",
+                    return self._deliver_with_reduced_instructions(
+                        worker, instruction_dir, **kwargs
                     )
         except Exception as exc:
             self._log_error("delivery_worker_init", str(exc))
             runner = None
         self._delivery_runner_cache = runner if runner is not None else "unavailable"
         return runner
+
+    def _deliver_with_reduced_instructions(self, worker, instruction_dir, **kwargs):
+        """Run one delivery in a staging workspace, then place the artifact.
+
+        The model must not run with the repository root as its working
+        directory, because that is where the private runtime manual lives and the
+        egress gate would refuse the call. So each attempt gets a fresh staging
+        directory containing only the reduced instruction file, the model writes
+        there, and the declared path is copied back into the repository for
+        verification.
+
+        Copy-back is deliberately narrow: only the declared ``required_path``,
+        resolved against the repository root and refused if it escapes. The
+        staging directory is removed afterwards either way, so a model that
+        writes elsewhere leaves nothing behind and cannot influence the next
+        attempt.
+        """
+        import shutil
+        import tempfile
+
+        from core.delivery_execution import resolve_delivery_path
+
+        repo = Path(self.base_dir)
+        required_path = str(kwargs.get("required_path", "") or "")
+        target = resolve_delivery_path(repo, required_path) if required_path else None
+        if target is None:
+            return {"success": False, "error": "delivery_path_escapes_workspace"}
+
+        staging = Path(tempfile.mkdtemp(prefix="ace_delivery_stage_"))
+        try:
+            shutil.copy2(
+                instruction_dir / "AGENTS.md", staging / "AGENTS.md",
+            )
+            receipt = self.worker_router.run(
+                "structured_readonly", worker,
+                verify=lambda item: item.get("success") is True and bool(item.get("raw_output")),
+                task=(
+                    f"Produce the deliverable at {required_path}. "
+                    f"Task: {kwargs.get('title', '')}. "
+                    f"Hypothesis: {kwargs.get('hypothesis', '')}."
+                    + self._reuse_hint_for(kwargs.get("task_id", ""), str(staging))
+                ),
+                workspace=str(staging),
+                expected_result=required_path,
+                verification_method="file_exists_nonempty",
+            )
+            produced = resolve_delivery_path(staging, required_path)
+            if produced is None or not produced.is_file():
+                receipt["delivery_staging"] = {
+                    "staged_workspace": str(staging),
+                    "artifact_placed": False,
+                    "required_path": required_path,
+                }
+                return receipt
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(produced, target)
+            receipt["delivery_staging"] = {
+                "staged_workspace": str(staging),
+                "artifact_placed": True,
+                "placed_path": str(target),
+                "required_path": required_path,
+                "instruction_source": str(instruction_dir / "AGENTS.md"),
+                "instruction_sha256": receipt.get("instruction_context_sha256", ""),
+            }
+            return receipt
+        finally:
+            shutil.rmtree(staging, ignore_errors=True)
 
     def _ensure_worker_router(self, worker) -> None:
         """Register the CLI's models as capability workers, once.

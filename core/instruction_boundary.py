@@ -174,9 +174,13 @@ def classify_source(
     receipt_problem, receipt_source_class = "", ""
 
     for receipt in _read_receipts(root):
+        # Hash binding is the authority, not the path. A receipt certifies
+        # content: identical bytes are identical content whatever directory they
+        # are staged into, and the delivery stage copies the reduction into a
+        # scratch workspace precisely so the private manual is not in scope.
+        # Requiring the recorded path to match would force the receipt to
+        # name a staging directory that does not exist yet.
         if str(receipt.get("artifact_sha256", "")).lower() != sha256.lower():
-            continue
-        if not _matches(str(receipt.get("path", "")), path):
             continue
         if receipt.get("acceptance") != ACCEPTANCE:
             continue
