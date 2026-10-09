@@ -3843,13 +3843,38 @@ class AceDaemon:
             shutil.copy2(
                 instruction_dir / "AGENTS.md", staging / "AGENTS.md",
             )
+            # The model is being asked to document this repository, so it has to
+            # be able to read the repository. Staging the instructions in a
+            # scratch directory took that away: a probe that ran without them
+            # spent its whole budget globbing an empty room and never wrote a
+            # line. The permission is scoped to this one path -- read allowed,
+            # edit denied -- because the model writes into the staging directory
+            # and nowhere else.
+            repo_pattern = str(repo).replace("\\", "/").rstrip("/") + "/*"
+            (staging / "opencode.json").write_text(
+                json.dumps({
+                    "$schema": "https://opencode.ai/config.json",
+                    "permissions": [
+                        {"action": "external_directory",
+                         "resource": repo_pattern, "effect": "allow"},
+                        {"action": "read",
+                         "resource": repo_pattern, "effect": "allow"},
+                        {"action": "edit",
+                         "resource": repo_pattern, "effect": "deny"},
+                    ],
+                }, indent=2),
+                encoding="utf-8",
+            )
             receipt = self.worker_router.run(
                 "structured_readonly", worker,
                 verify=lambda item: item.get("success") is True and bool(item.get("raw_output")),
                 task=(
                     f"Produce the deliverable at {required_path}. "
                     f"Task: {kwargs.get('title', '')}. "
-                    f"Hypothesis: {kwargs.get('hypothesis', '')}."
+                    f"Hypothesis: {kwargs.get('hypothesis', '')}. "
+                    f"The code you are documenting is readable at {repo}; "
+                    f"read it before writing. Write the deliverable into "
+                    f"your own working directory."
                     + self._reuse_hint_for(kwargs.get("task_id", ""), str(staging))
                 ),
                 workspace=str(staging),
