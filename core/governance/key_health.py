@@ -157,7 +157,7 @@ class KeyHealthManager:
         """生成 Key 标识符（不存完整 key）"""
         import hashlib
         raw = f"{provider}:{api_key[:8]}:{len(api_key)}"
-        return hashlib.md5(raw.encode("utf-8")).hexdigest()[:10]
+        return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:10]
 
     def _update_health_score(self, record: KeyHealthRecord):
         """计算健康评分"""
