@@ -146,7 +146,45 @@ PRIVATE 文件溜出去的东西。
 
 不涉及该数据外发的免费模型工作未被波及，符合裁决第 4 条。
 
-## 8. 仍然开放
+**`ops/audit_instruction_egress.py`（新增）：只读审计**
+
+门只能在即将发起调用时给出判定，而"从这里发起会发出什么"原本只能靠真发一次来
+回答——恰恰是最需要预判的那种。该审计不调模型、不联网，只回答三件事：
+
+1. 本 checkout 出货了哪些 `AGENTS.md`，各自是否有分级记录（未分级 → FAIL；
+   未分级文件是门本身永远暴露不出来的那一类问题，它在有调用落到它头上之前是惰性的）；
+2. 从给定工作目录发起是否放行；
+3. 哪些调用点当前被挡、按哪条规则。
+
+任一调用点被挡或存在未分级出货文件即返回非零退出码，可直接用作门禁。
+
+本机实测：
+
+```
+shipped AGENTS.md: 1
+  PRIVATE  C:\tmp\ace_core\AGENTS.md
+BLOCKED  delivery stage cwd (production repository root)
+ALLOWED  chat route temp workspace (instruction_files=0)
+```
+
+`instruction_evidence_keys()` 经由 `core/delivery_execution` 解析而非复制清单，
+避免审计与落盘收据对"哪些字段承载判定"产生分歧。
+
+## 8. 拒绝必须可读（`d386634`）
+
+门挡住之后，拒绝原本会被逐层削弱成"worker 失败"：
+
+| 层 | 原本 | 现在 |
+| --- | --- | --- |
+| `worker_verdict()` | 收据压缩成 `{"ok","error"}`，丢掉文件/分级/规则 | 按白名单携带指令证据（不整份复制） |
+| `WorkerRouter.run()` | 门拒绝与模型无关，却走完整个 fallback 链 | 遇到 `BLOCKED` 立即停止 |
+| `classify_failure()` | 记成 `worker_failure`，像模型抖动 | 独立分类 `instruction_gate_blocked` |
+| 聊天 provider | 空回复被报成 `opencode_empty_reply` | 透传判定 |
+
+普通失败不受影响：非零退出仍会走完整个模型序，有测试钉住这条边界，防止捷径扩大
+成"一律不重试"。
+
+## 9. 仍然开放
 
 1. **交付链的指令上下文存在，但从未被证明**。cwd 即仓库根意味着真实
    `AGENTS.md` 在被加载；这来自 V2 机制的推论，未在生产工作区跑模型实测。
