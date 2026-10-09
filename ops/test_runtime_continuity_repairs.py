@@ -421,6 +421,64 @@ def test_checkup_error_without_determinable_identity_stays_visible():
         assert second["tasks_created"] == 1
 
 
+def test_compact_and_dump_snapshots_share_one_identity():
+    """The 026-class transition: same incident, two snapshot shapes, one task."""
+    import json as _json
+
+    from core.observation_to_task import BUILTIN_RULES, ObservationToTaskConverter
+    from core.observation import RuntimeObserver
+    from ops.test_support import FixtureTaskPool as TaskPool
+
+    rule = next(r for r in BUILTIN_RULES if r.name == "checkup_error")
+    failed = ["known_backlog", "stale_ratings"]
+
+    # Legacy shape: raw stdout dump nested in the snapshot.
+    inner = {"overall": "warning", "checks": [
+        {"name": "ok_probe", "passed": True, "severity": "error", "detail": "x"},
+        *[{"name": name, "passed": False, "severity": "warning", "detail": "d"} for name in failed],
+    ]}
+    dump_state = {
+        "checkup_path": "ops/logs/checkup_history.jsonl",
+        "checkup_snapshot": {
+            "timestamp": "2026-10-09T16:47:01",
+            "checks": {"health": {"returncode": 1, "stdout": _json.dumps(inner)}},
+            "overall": "error",
+        },
+    }
+    # Compact shape: run_checkup names the failing probes explicitly.
+    compact_state = {
+        "checkup_path": "ops/logs/checkup_history.jsonl",
+        "checkup_snapshot": {
+            "timestamp": "2026-10-09T17:47:01",
+            "checks": {"health": {
+                "overall": "warning", "passed": 18, "warnings": 2, "errors": 0,
+                "failed_checks": [{"name": n, "severity": "warning"} for n in failed],
+                "returncode": 1,
+            }},
+            "overall": "error",
+        },
+    }
+    assert (
+        ObservationToTaskConverter._semantic_signature(rule, dump_state)
+        == ObservationToTaskConverter._semantic_signature(rule, compact_state)
+    ) != ""
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        root = Path(temp_dir)
+        observer = RuntimeObserver(str(root / "observations"))
+        pool = TaskPool(str(root / "task_pool"))
+        observer.record("dump shape patrol", dump_state, severity="high",
+                        source="checkup_history", category="health")
+        first = ObservationToTaskConverter(observer, pool).convert()
+        observer.record("compact shape patrol", compact_state, severity="high",
+                        source="checkup_history", category="health")
+        second = ObservationToTaskConverter(observer, pool).convert()
+
+        assert first["tasks_created"] == 1
+        assert second["tasks_created"] == 0
+        assert second["details"][0]["status"] == "semantic_duplicate"
+
+
 def test_legacy_checkup_task_without_signature_still_dedups():
     """Tasks filed before signatures existed rejoin dedup via admission evidence."""
     from types import SimpleNamespace

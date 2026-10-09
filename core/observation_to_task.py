@@ -489,7 +489,23 @@ class ObservationToTaskConverter:
         snapshot = state.get("checkup_snapshot")
         if not isinstance(snapshot, dict):
             return ()
+        # run_checkup stores the failing probes explicitly (compact form).
+        # Same names the legacy stdout-dump parse finds, so an incident
+        # keeps one identity across both snapshot shapes.
         groups = snapshot.get("checks")
+        if isinstance(groups, dict):
+            health = groups.get("health")
+            if isinstance(health, dict) and isinstance(health.get("failed_checks"), list):
+                names = set()
+                for item in health["failed_checks"]:
+                    if isinstance(item, dict):
+                        name = cls._normal_text(item.get("name"))
+                    else:
+                        name = cls._normal_text(item)
+                    if name:
+                        names.add(name)
+                if names:
+                    return tuple(sorted(names))
         if isinstance(groups, dict):
             items = list(groups.items())
         elif isinstance(groups, list):

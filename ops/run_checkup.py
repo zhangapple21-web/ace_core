@@ -103,14 +103,35 @@ def main():
     if not args.quiet:
         print("【1/4】健康检查...")
     hc_result = run_script("health_check.py", ["--json"])
-    if hc_result["success"]:
+    # health_check exits 0/1/2 for ok/warning/error but prints valid JSON
+    # in all three cases. A warning (rc=1) is not a failure: discarding its
+    # JSON and forcing overall=error turned every warning-only patrol into
+    # an error observation downstream. Trust a parseable self-report.
+    hc_data = None
+    if hc_result.get("stdout"):
         try:
-            hc_data = json.loads(hc_result["stdout"])
+            parsed = json.loads(hc_result["stdout"])
+            if isinstance(parsed, dict) and isinstance(parsed.get("overall"), str):
+                hc_data = parsed
+        except Exception:
+            hc_data = None
+    if hc_data is not None:
+        try:
+            failed_checks = [
+                {"name": str(item.get("name", "")), "severity": str(item.get("severity", ""))}
+                for item in hc_data.get("checks", [])
+                if isinstance(item, dict) and not item.get("passed")
+            ]
             snapshot["checks"]["health"] = {
                 "overall": hc_data["overall"],
                 "passed": hc_data["passed"],
                 "warnings": hc_data["warnings"],
                 "errors": hc_data["errors"],
+                # Explicit failing-probe identity so downstream dedup does
+                # not depend on parsing nested raw output. Same names the
+                # legacy stdout-dump parse would find.
+                "failed_checks": failed_checks,
+                "returncode": hc_result.get("returncode", 0),
             }
             if hc_data["overall"] == "error":
                 snapshot["overall"] = "error"
