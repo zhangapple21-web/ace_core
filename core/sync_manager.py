@@ -33,6 +33,7 @@ from typing import Dict, List, Any, Optional
 from dataclasses import dataclass
 
 from .contracts import SyncExecutionContract, SyncPlanVerification, SyncStatus
+from . import sync_guardrails
 
 logger = logging.getLogger(__name__)
 
@@ -69,7 +70,15 @@ class SyncManager:
         curator_secret: Optional[str] = None,
         repo_map: Optional[Dict[str, str]] = None,
         repository_base: Optional[str] = None,
+        dry_run: bool = True,
+        push_enabled: bool = False,
     ):
+        # dry_run defaults True: this hand can copy, commit and push, so the
+        # safe state is the one where nothing is written until a caller opts
+        # in. push_enabled is a separate switch so a caller can allow a local
+        # commit without ever reaching a remote.
+        self.dry_run = bool(dry_run)
+        self.push_enabled = bool(push_enabled)
         if data_dir is None:
             base = Path(__file__).resolve().parent.parent
             data_dir = base / "06_RUNTIME" / "ace" / "data" / "sync_manager"
@@ -260,8 +269,48 @@ class SyncManager:
                 duration_ms=(time.time() - start) * 1000,
             )
 
+        # === Guardrails (S1-A) ===
+        # Repository-level refusal first: a wrong path must fail before any
+        # file is touched, and a repository that versions secrets must never be
+        # served even if the allowlist were widened by mistake.
+        try:
+            tracked = sync_guardrails.git_tracked_files(repo_dir)
+            sync_guardrails.check_repo_allowed(repo, tracked_files=tracked)
+        except sync_guardrails.SyncRefused as refusal:
+            logger.error(f"[Sync] REFUSED repo={repo}: {refusal}")
+            return SyncResult(
+                success=False, repo=repo, action="refused",
+                files=[], commit_hash=None, error=str(refusal),
+                duration_ms=(time.time() - start) * 1000,
+            )
+
+        # Validate every target path before copying anything. realpath first,
+        # so ../ and symlinks cannot land outside the allowed prefixes.
+        try:
+            for op in operations:
+                sync_guardrails.check_target_path(op.get("target_path", ""), repo_dir)
+        except sync_guardrails.SyncRefused as refusal:
+            logger.error(f"[Sync] REFUSED path repo={repo}: {refusal}")
+            return SyncResult(
+                success=False, repo=repo, action="refused",
+                files=[], commit_hash=None, error=str(refusal),
+                duration_ms=(time.time() - start) * 1000,
+            )
+
         files_to_add = []
         files_removed = []
+
+        # dry_run stops here: the plan is fully validated and would have been
+        # executed, but no file is copied, nothing is staged, nothing is
+        # committed and nothing is pushed.
+        if self.dry_run:
+            return SyncResult(
+                success=True, repo=repo, action="dry_run",
+                files=[op.get("target_path", "") for op in operations],
+                commit_hash=None,
+                error=None,
+                duration_ms=(time.time() - start) * 1000,
+            )
 
         for op in operations:
             action = op.get("action", "")
@@ -320,9 +369,22 @@ class SyncManager:
                 duration_ms=(time.time() - start) * 1000,
             )
 
-        # Git add
+        # Git add (explicit paths only, never -A)
         for f in files_to_add:
             self._run_git(str(repo_dir), "add", f)
+
+        # The staged index must be exactly what we added. git commit takes
+        # everything staged, so a pre-existing staged file would ride along
+        # unnoticed; a mismatch aborts instead of committing a surprise.
+        try:
+            sync_guardrails.check_staged_matches_intended(repo_dir, files_to_add)
+        except sync_guardrails.SyncRefused as refusal:
+            logger.error(f"[Sync] ABORT commit repo={repo}: {refusal}")
+            return SyncResult(
+                success=False, repo=repo, action="aborted",
+                files=files_to_add, commit_hash=None, error=str(refusal),
+                duration_ms=(time.time() - start) * 1000,
+            )
 
         # Git commit（批量合并为一次）
         commit_msg = self._build_commit_message(repo, operations)
@@ -340,8 +402,9 @@ class SyncManager:
         else:
             logger.warning(f"[Sync] COMMIT failed: {stderr[:200]}")
 
-        # Git push（如果配置了远程）
-        if commit_hash and self._has_remote(repo_dir):
+        # Git push, only when explicitly enabled. Default off: a local commit must
+        # never imply a remote write.
+        if commit_hash and self.push_enabled and self._has_remote(repo_dir):
             push_code, push_out, push_err = self._run_git(str(repo_dir), "push")
             if push_code != 0:
                 logger.warning(f"[Sync] PUSH failed: {push_err[:200]}")
