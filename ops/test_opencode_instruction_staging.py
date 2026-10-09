@@ -706,3 +706,22 @@ def test_refusal_survives_worker_then_router_then_verdict():
     assert verdict["ok"] is False
     assert verdict["instruction_gate"] == "BLOCKED"
     assert verdict["instruction_classes"][0]["data_class"] == "PRIVATE"
+
+
+def test_a_corrupt_registry_reads_as_no_permission():
+    """A governance record that cannot be parsed must not read as consent."""
+    probe = Probe()
+    (probe.workspace / "AGENTS.md").write_text("# text\n", encoding="utf-8")
+    (probe.ace_root / "08_GOVERNANCE" / "instruction_data_classes.json").write_text(
+        "{ this is not json", encoding="utf-8",
+    )
+
+    receipt = probe.worker().run(
+        task="ping", workspace=str(probe.workspace), model_order=[MODEL],
+    )
+
+    assert receipt["instruction_gate"] == "BLOCKED"
+    assert any(
+        "unclassified" in reason for reason in receipt["instruction_gate_blocked"]
+    )
+    assert probe.observation() is None
