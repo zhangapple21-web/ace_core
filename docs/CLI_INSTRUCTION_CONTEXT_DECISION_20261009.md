@@ -321,11 +321,11 @@ model strategy、autonomous acceptance is owned by the main steward、
 free zone to reality bridge**。其余 11 个（仓库地图、三层架构、运行时组件、
 已知缺口等）是描述性内容，没有祈使句。
 
-**这里有一个诚实的取舍值得记下**：`autonomous acceptance is owned by the main
-steward` 被丢弃了，而它带 2 条祈使句——它规定"谁有权验收"。这不是我判断为无用
-的内容，恰恰相反，它是最该保留的治理约束之一。目前的 `--keep` 白名单没有覆盖
-它。**如果交付链依赖该约束，当前配置是有缺陷的**；补进白名单是一行改动，但它会
-改变已签发的 receipt 哈希，需要重新签发。
+**取舍已修正**：`autonomous acceptance is owned by the main steward` 原本被丢弃，
+而它带 2 条祈使句——它规定"谁有权验收"。这是最该保留的治理约束之一，第一版白名单
+漏了它。现已并入 `DELIVERY_KEEP_SECTIONS`（`ops/sanitize_instruction_file.py`
+里的一个常量，避免白名单散落在命令行历史里），产物 5574 B → 6730 B，凭据
+`R-AGENTS-9f4ab4fe` → `R-AGENTS-3424d623`。两条 receipt 都在 append-only 台账里。
 
 ### 13.2 行为：模型还能用什么
 
@@ -362,7 +362,9 @@ Engineering Rules），丢掉的是描述性上下文与两段治理/路由细�
 2. **交付产出的实际质量变化仍未测**，且现在也不容易测：可信的 A/B 需要一个持有
    私有手册的对照组，而那正是裁决禁止的。13.2 的可见性测量能证明模型拿到的规则
    集合是完整的、且不含私有内容，但不能替代"两次交付产出对比"那种质量证据。
-3. **`autonomous acceptance` 未进保留白名单**（见 13.1），是当前配置的已知缺陷。
+3. **保留白名单的增删需要重签 receipt**。每次改动 `DELIVERY_KEEP_SECTIONS` 都会
+   改变产物哈希，旧 receipt 立即失效（这是按哈希绑定的设计意图）。`ops/verify_reduction.py`
+   用于在改动后确认新产物确实在模型上下文里、且私有内容仍出不去。
 3. **跨目录读取**：需要读工作区之外文件的非交互调用会被 `ask` 挡下并自行拒绝。
    交付链不受影响；受影响的调用若存在，需要显式的权限策略，而不是加 `--auto`。
 4. **临时目录的祖先指令面**：聊天链的工作区在 home 之内，V2 会向 home 方向合并

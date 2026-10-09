@@ -32,6 +32,17 @@ sys.path.insert(0, str(ROOT))
 
 from core.mirror_constitution import validate_data_boundary
 
+#: Sections the delivery stage needs. Recorded here rather than passed on the
+#: command line so the allowlist is one reviewable constant instead of whatever
+#: whoever last ran the tool typed. Every receipt records the list that was
+#: actually applied, so a receipt and this constant cannot disagree silently.
+DELIVERY_KEEP_SECTIONS = (
+    "Identity",
+    "Core Principles",
+    "Engineering Rules",
+    "Autonomous acceptance is owned by the main steward",
+)
+
 RECEIPTS = ROOT / "08_GOVERNANCE" / "sanitizer_receipts.jsonl"
 
 # The ledger holds one header line describing the file and then one JSON object
@@ -186,7 +197,11 @@ def main(argv=None) -> int:
     parser.add_argument("--source-class", required=True)
     parser.add_argument("--reduced-class", default="PUBLIC")
     parser.add_argument("--out", required=True)
-    parser.add_argument("--keep", action="append", default=[])
+    parser.add_argument(
+        "--keep", action="append", default=None,
+        help="section heading to retain; repeatable. Defaults to "
+             "DELIVERY_KEEP_SECTIONS.",
+    )
     parser.add_argument("--issued-by", required=True)
     parser.add_argument("--receipt-id", default="")
     parser.add_argument("--dry-run", action="store_true")
@@ -197,7 +212,8 @@ def main(argv=None) -> int:
     source_bytes = source_path.read_bytes()
     source_text = source_bytes.decode("utf-8")
 
-    reduced, dropped = build_reduced(source_text, args.keep)
+    keep = args.keep if args.keep else list(DELIVERY_KEEP_SECTIONS)
+    reduced, dropped = build_reduced(source_text, keep)
     leaks = scan_leaks(reduced)
     verdict = validate_data_boundary(
         {"data_class": args.reduced_class},
@@ -217,7 +233,7 @@ def main(argv=None) -> int:
         "reduced_class": args.reduced_class.upper(),
         "reduced_sha256": hashlib.sha256(reduced.encode()).hexdigest(),
         "reduced_bytes": len(reduced.encode("utf-8")),
-        "kept_sections": args.keep,
+        "kept_sections": keep,
         "dropped_sections": dropped,
         "leaks_detected": leaks,
         "boundary_valid": verdict["valid"],
@@ -250,7 +266,7 @@ def main(argv=None) -> int:
         "data_class": args.reduced_class.upper(),
         "sanitizer": "ops/sanitize_instruction_file.py",
         "reduction": {
-            "kept_sections": args.keep,
+            "kept_sections": keep,
             "dropped_sections": dropped,
             "removed_bytes": len(source_bytes) - report["reduced_bytes"],
         },
