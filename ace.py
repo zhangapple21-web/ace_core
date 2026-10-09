@@ -14,6 +14,7 @@ ACE Runtime 主入口
 """
 
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -76,13 +77,29 @@ def main(base_dir=None):
 
     if cmd == "start":
         raise SystemExit(handle_start(base_dir, sys.argv[2:]))
+    if cmd == "status" and __name__ == "__main__":
+        from core.task import TaskPool
+        pool = TaskPool(str(base_dir / "task_pool"))
+        state_path = base_dir / config.get("data", {}).get("memory_cache_dir", "06_RUNTIME/ace/data/memory") / "daemon_state.json"
+        try:
+            state = json.loads(state_path.read_text(encoding="utf-8")) if state_path.is_file() else {}
+        except (OSError, ValueError, TypeError):
+            state = {}
+        print(json.dumps({
+            "task_pool": pool.get_stats(),
+            "observations": state.get("observations", {}),
+            "last_run": state.get("last_run"),
+            "mining_progress": state.get("mining_progress", {}),
+            "status_mode": "read_only_canonical_runtime",
+        }, ensure_ascii=False, indent=2))
+        return
 
     from ace_daemon import AceDaemon
 
     if cmd == "status":
-        print(json.dumps(AceDaemon(base_dir, config).get_status(), ensure_ascii=False, indent=2))
+        daemon = AceDaemon(base_dir, config)
+        print(json.dumps(daemon.get_status(), ensure_ascii=False, indent=2))
         return
-
     if cmd in {"run", "once", "submit"}:
         from core.ace_start import run_runtime
 

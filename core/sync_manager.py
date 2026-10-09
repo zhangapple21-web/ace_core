@@ -158,6 +158,10 @@ class SyncManager:
                 cwd=cwd,
                 capture_output=True,
                 text=True,
+                # Git history routinely contains UTF-8 Chinese that is not
+                # valid in this host locale. Decoding must never take the
+                # sync down: replace, don't crash.
+                errors="replace",
                 timeout=120,
             )
             return result.returncode, result.stdout, result.stderr

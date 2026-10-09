@@ -9,10 +9,14 @@ research-only or production financial path.
 import json
 import hashlib
 import os
-from datetime import datetime, time
+from datetime import datetime, time, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
-from zoneinfo import ZoneInfo
+try:
+    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+except ImportError:  # pragma: no cover - Python versions without zoneinfo
+    ZoneInfo = None
+    ZoneInfoNotFoundError = KeyError
 
 from core.stock_data_reliability import MarketState, assess_market_state
 from core.data_admission_recovery import DataAdmissionRecovery
@@ -52,7 +56,11 @@ class FinanceWorkWindows:
         refresh_each_cycle: bool = False,
     ):
         self.data_dir = Path(data_dir)
-        self.timezone = ZoneInfo(timezone_name)
+        try:
+            self.timezone = ZoneInfo(timezone_name) if ZoneInfo is not None else timezone(timedelta(hours=8))
+        except (ZoneInfoNotFoundError, KeyError):
+            # Minimal runtimes may omit IANA tzdata; preserve China wall-clock semantics.
+            self.timezone = timezone(timedelta(hours=8))
         self.observer = observer
         self.data_refresh = data_refresh
         self.public_sentiment = public_sentiment

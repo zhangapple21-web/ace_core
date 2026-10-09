@@ -3717,6 +3717,7 @@ class AceDaemon:
             from core.opencode_worker import OpenCodeWorker
 
             worker = OpenCodeWorker()
+            self._ensure_worker_router(worker)
             if Path(worker.executable).exists():
                 def runner(**kwargs):  # noqa: F811 - closed over worker on purpose
                     return self.worker_router.run(
@@ -3737,6 +3738,35 @@ class AceDaemon:
             runner = None
         self._delivery_runner_cache = runner if runner is not None else "unavailable"
         return runner
+
+    def _ensure_worker_router(self, worker) -> None:
+        """Register the CLI's models as capability workers, once.
+
+        _delivery_worker_runner calls self.worker_router, but nothing ever
+        assigned that attribute: every CLI delivery raised AttributeError and
+        delivery_execution honestly recorded WORKER_FAILED. The registry is
+        built from the worker's own model table, so a model added upstream
+        becomes routable without editing this file.
+        """
+        existing = getattr(self, "worker_router", None)
+        if existing is not None:
+            return
+        try:
+            from core.worker_router import WorkerCapability, WorkerRouter
+
+            router = WorkerRouter()
+            for rank, (name, model) in enumerate(worker.models().items()):
+                router.register(WorkerCapability(
+                    worker_id=f"opencode_cli:{name}",
+                    runtime="opencode-cli",
+                    capabilities=frozenset({"structured_readonly", "document"}),
+                    metadata={"model": model, "fallback_rank": str(rank)},
+                ))
+            self.worker_router = router
+        except Exception as exc:
+            self._log_error("worker_router_init", str(exc))
+            self.worker_router = None
+
     def _reuse_hint_for(self, task_id: str, workspace: str) -> str:
         """Carry already-attached archived knowledge into the work itself.
 
@@ -4504,6 +4534,10 @@ class AceDaemon:
             self._run_surprise_check()
         except Exception as e:
             self._log_error("surprise_check", str(e))
+        try:
+            self._run_drought_check()
+        except Exception as e:
+            self._log_error("drought_check", str(e))
         self._save_state()
         self._complete_cycle_stage("surprise", surprise_stage_started)
 
@@ -4669,6 +4703,89 @@ class AceDaemon:
             "tensions": tensions_stage.get("tensions", 0),
             "tensions_recorded": tensions_stage.get("recorded", 0),
         }
+
+    def _run_drought_check(self) -> Dict[str, Any]:
+        """Page when thinking itself stops while routable work waits.
+
+        A quiet pool with nothing to think about is healthy idle. Only the
+        combination of zero calls plus waiting routable tasks, sustained
+        across cycles, asks. Same recording contract as tensions: anomaly
+        observation, stable dedup identity, converter decides worth.
+        """
+        from core.surprise import DROUGHT_STILL_CYCLES, check_drought
+
+        calls_total: Optional[int] = None
+        try:
+            import json as _json
+
+            ledger = self.base_dir / "06_RUNTIME" / "ace" / "data" / "miner_pool" / "provider_watchdog" / "watchdog_state.json"
+            if ledger.is_file():
+                providers = (_json.loads(ledger.read_text(encoding="utf-8")).get("providers") or {})
+                calls_total = sum(
+                    int(info.get("total_calls", 0) or 0)
+                    for info in providers.values()
+                    if isinstance(info, dict)
+                )
+        except (OSError, ValueError):
+            calls_total = None
+        routable = 0
+        try:
+            for status in ("pending", "review", "active"):
+                seen = 0
+                for path in (self.base_dir / "task_pool" / status).glob("*.json"):
+                    if seen >= 200:
+                        break
+                    seen += 1
+                    try:
+                        import json as _json
+
+                        payload = _json.loads(path.read_text(encoding="utf-8"))
+                    except (OSError, ValueError):
+                        continue
+                    tags = {str(tag).lower() for tag in payload.get("tags") or [] if isinstance(tag, str)}
+                    discovery = payload.get("outputs", {}).get("discovery", {})
+                    task_type = discovery.get("task_type", "") if isinstance(discovery, dict) else ""
+                    if task_type or any(tag.startswith("task_type:") for tag in tags):
+                        routable += 1
+        except OSError:
+            pass
+        previous = self.state.get("last_drought_snapshot") or {}
+        prev_total = previous.get("calls_total")
+        if calls_total is None or prev_total is None:
+            still = 0
+            delta = 0
+        elif calls_total > int(prev_total):
+            still = 0
+            delta = calls_total - int(prev_total)
+        elif calls_total == int(prev_total):
+            still = int(previous.get("still_cycles") or 0) + 1
+            delta = 0
+        else:
+            # Ledger totals never decrease; a drop means the ledger was
+            # reset or replaced, so the streak restarts instead of accusing.
+            still = 0
+            delta = 0
+        droughts = check_drought(delta, routable, still) if calls_total is not None else []
+        recorded = 0
+        observer = getattr(self, "runtime_observer", None)
+        if observer is not None:
+            for drought in droughts:
+                try:
+                    plan = list(drought.get("verification_plan") or [])
+                    observer.record(
+                        description=drought["question"] + (" Verify by: " + "; ".join(plan) if plan else ""),
+                        system_state={"tension_key": drought["key"], "evidence": drought.get("evidence", {})},
+                        severity=drought.get("severity", "medium"),
+                        source="drought_check",
+                        category="anomaly",
+                        auto_generated=True,
+                        dedup_key=("tension", drought["key"]),
+                    )
+                    recorded += 1
+                except Exception as e:
+                    self._log_error("drought_record", str(e))
+        self.state["last_drought_snapshot"] = {"calls_total": calls_total, "still_cycles": still}
+        return {"droughts": len(droughts), "recorded": recorded, "still_cycles": still}
 
     def _run_tension_check(self) -> Dict[str, Any]:
         """Ask from structure the system already owns.

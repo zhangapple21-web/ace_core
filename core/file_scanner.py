@@ -131,6 +131,12 @@ class FileScanner:
                 handled_paths.add(frag_path)
                 continue
 
+            if self._in_churn_cooloff(frag_path):
+                self.fragment_index.mark_seen(frag_path, status="churn_cooloff")
+                result["churn_cooled"] = result.get("churn_cooled", 0) + 1
+                handled_paths.add(frag_path)
+                continue
+
             task = self._create_archaeology_task(frag_path)
             if task:
                 result["tasks"].append(task)
@@ -149,6 +155,71 @@ class FileScanner:
                 self.fragment_index.mark_seen(frag_path, status="pending_scan")
 
         return result
+
+    CHURN_TERMINAL_STRIKES = 3
+    CHURN_COOLOFF_DAYS = 30
+
+    def _in_churn_cooloff(self, path: Path) -> bool:
+        """True when this source path keeps dying terminally.
+
+        A path whose last few filings all ended terminal_non_convergent is
+        churning runtime state, not yielding archaeology: state.json was
+        filed 141 times, each burning four validator reviews. After three
+        recent terminal strikes the path cools off for thirty days instead
+        of filing again. A path that ever produced an approved task is not
+        churn, no matter how many terminals surround it. Only terminal
+        records younger than the cool-off window count, so an old spree
+        cannot silence a path forever.
+        """
+        try:
+            resolved = str(path.resolve())
+        except OSError:
+            return False
+        try:
+            import time as _time
+
+            cutoff = _time.time() - self.CHURN_COOLOFF_DAYS * 86400
+        except Exception:
+            return False
+        strikes = 0
+        approved = False
+        for status_dir in ("archived", "blocked", "graveyard", "rejected"):
+            status_path = self.task_pool.pool_dir / status_dir
+            try:
+                candidates = sorted(
+                    status_path.glob("*.json"),
+                    key=lambda p: p.stat().st_mtime,
+                    reverse=True,
+                )
+            except OSError:
+                continue
+            for record in candidates[:400]:
+                try:
+                    import json as _json
+
+                    payload = _json.loads(record.read_text(encoding="utf-8"))
+                except (OSError, ValueError):
+                    continue
+                outputs = payload.get("outputs") or {}
+                if str(outputs.get("source_file", "")) != resolved:
+                    continue
+                try:
+                    fresh = record.stat().st_mtime >= cutoff
+                except OSError:
+                    continue
+                if not fresh:
+                    continue
+                if str(payload.get("status", "")) == "approved" or (
+                    status_dir == "archived"
+                    and not outputs.get("terminal_non_convergent")
+                ):
+                    approved = True
+                    break
+                if outputs.get("terminal_non_convergent"):
+                    strikes += 1
+            if approved:
+                break
+        return (not approved) and strikes >= self.CHURN_TERMINAL_STRIKES
 
     def _scan_new_fragments(self) -> Dict[str, Any]:
         new_files: List[Path] = []

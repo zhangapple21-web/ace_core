@@ -1,8 +1,17 @@
 """Governed OpenCode CLI worker adapter for ACE.
 
-This adapter is deliberately narrower than MinerPool: it invokes the existing
-OpenCode CLI in a caller-provided workspace, records a bounded execution
-receipt, and fails closed on unsafe workspace or model selection.
+This worker is the only OpenCode invocation face ACE has: the miner-pool
+provider and the daemon delivery stage both land here, so instruction policy
+belongs to the worker rather than being re-decided by each caller.
+
+Instruction staging (instruction_mode) is off by default. OpenCode V2
+recognises AGENTS.md only, so a file in the call workspace is the one supported
+way to give a run persistent guidance -- but that file is also a second,
+ungoverned instruction source beside the governed system contract built by
+govern_model_messages(), and ACE_OMX_ADAPTATION_DECISION_20260905.md records
+auto-injecting project AGENTS.md as rejected because it widens the implicit
+instruction surface. So a caller opts in per worker, and every receipt states
+which way it went.
 """
 from __future__ import annotations
 
@@ -33,15 +42,49 @@ DEFAULT_MODEL_ORDER = [
     OPENCODE_MODELS["heavy_agent"],
 ]
 
+# "off": no instruction file is written, behaviour unchanged. "workspace": the
+# authoritative file is copied into this call's workspace as AGENTS.md before
+# the CLI starts, which is the only shape OpenCode V2 loads as instructions.
+INSTRUCTION_MODES = ("off", "workspace")
+
 
 class OpenCodeWorker:
     """Run one bounded ACE task through the installed OpenCode CLI."""
 
-    def __init__(self, executable: Optional[str] = None, timeout_seconds: int = 900):
+    def __init__(
+        self,
+        executable: Optional[str] = None,
+        timeout_seconds: int = 900,
+        standalone: Optional[bool] = None,
+        instruction_mode: str = "off",
+        instruction_source: Optional[str] = None,
+    ):
         self.executable = executable or os.environ.get(
             "OPENCODE_EXECUTABLE", r"C:\Users\Administrator\.local\bin\opencode.exe"
         )
         self.timeout_seconds = max(1, int(timeout_seconds))
+        self.instruction_mode = str(instruction_mode or "off").strip().lower()
+        if self.instruction_mode not in INSTRUCTION_MODES:
+            raise ValueError("opencode_instruction_mode_unknown")
+        source = str(instruction_source or "").strip()
+        if self.instruction_mode == "off":
+            # A source without a mode reads as "instructions were staged" in the
+            # caller's head. Refuse it rather than silently dropping it.
+            if source:
+                raise ValueError("opencode_instruction_source_without_mode")
+            self.instruction_source: Optional[Path] = None
+        else:
+            if not source:
+                raise ValueError("opencode_instruction_source_required")
+            self.instruction_source = Path(source).expanduser().resolve()
+        self._version_cache: Optional[str] = None
+        # The interactive UI uses the background OpenCode service. Reuse it by
+        # default so CLI workers see the same auth/model/quota context. Set
+        # OPENCODE_STANDALONE=1 only when an isolated service is intentional.
+        self.standalone = (
+            os.environ.get("OPENCODE_STANDALONE", "").strip().lower() in {"1", "true", "yes"}
+            if standalone is None else bool(standalone)
+        )
 
     @staticmethod
     def _fingerprint(path: Path) -> str:
@@ -64,46 +107,209 @@ class OpenCodeWorker:
             raise ValueError("opencode_workspace_too_broad")
         return path
 
+    @staticmethod
+    def models() -> Dict[str, str]:
+        """The registry of routable models this worker can be asked for."""
+        return dict(OPENCODE_MODELS)
+
+    @staticmethod
+    def _parse_result(raw: str) -> Optional[Dict[str, Any]]:
+        texts: List[str] = []
+        for line in raw.splitlines():
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            part = event.get("part", {})
+            if event.get("type") == "text" and isinstance(part, dict):
+                text = part.get("text")
+                if isinstance(text, str):
+                    texts.append(text)
+        for text in reversed(texts):
+            try:
+                value = json.loads(text.strip())
+            except json.JSONDecodeError:
+                continue
+            if isinstance(value, dict):
+                return value
+        return None
+
+    def _run_command(
+        self, command: List[str], cwd: str, timeout: Optional[int] = None,
+    ) -> subprocess.CompletedProcess:
+        """Run the CLI, killing the whole process tree when time runs out.
+
+        subprocess.run(timeout=...) terminates only the direct child. The CLI
+        spawns helpers of its own, so a timeout used to strand those helpers
+        as orphans long after their workspace was cleaned (14 such python
+        orphans had accumulated). taskkill /T takes the tree; on POSIX the
+        process group is signalled instead.
+        """
+        popen_kwargs: Dict[str, Any] = {}
+        if os.name == "nt":
+            popen_kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+        else:
+            popen_kwargs["start_new_session"] = True
+        process = subprocess.Popen(
+            command, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            text=True, encoding="utf-8", errors="replace", **popen_kwargs,
+        )
+        budget = self.timeout_seconds if timeout is None else max(1, int(timeout))
+        try:
+            stdout, stderr = process.communicate(timeout=budget)
+        except subprocess.TimeoutExpired:
+            self._kill_tree(process)
+            try:
+                stdout, stderr = process.communicate(timeout=10)
+            except subprocess.TimeoutExpired:
+                stdout, stderr = "", ""
+            raise subprocess.TimeoutExpired(command, budget, stdout, stderr)
+        return subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
+
+    @staticmethod
+    def _kill_tree(process: "subprocess.Popen") -> None:
+        if os.name == "nt":
+            subprocess.run(
+                ["taskkill", "/F", "/T", "/PID", str(process.pid)],
+                capture_output=True, timeout=60, check=False,
+            )
+            return
+        try:
+            import signal
+
+            os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+        except (OSError, AttributeError):
+            try:
+                process.kill()
+            except OSError:
+                pass
+
+    def _cli_version(self, workspace: Path) -> str:
+        """Best-effort CLI version for the receipt.
+
+        Diagnostic only, so it fails soft rather than refusing a call: a receipt
+        must not hinge on a probe answering. It goes through _run_command so a
+        launcher that ignores --version has its helpers killed instead of
+        stranding them. Resolved once per worker.
+        """
+        if self._version_cache is not None:
+            return self._version_cache
+        version = "UNKNOWN"
+        try:
+            completed = self._run_command(
+                [self.executable, "--version"], cwd=str(workspace), timeout=30
+            )
+            text = (completed.stdout or "").strip()
+            if completed.returncode == 0 and text:
+                version = text.splitlines()[0].strip()
+        except (OSError, subprocess.SubprocessError):
+            version = "UNKNOWN"
+        self._version_cache = version
+        return version
+
+    def _stage_instruction(self, workspace: Path) -> Dict[str, Any]:
+        """Copy the authoritative instruction file into this call's workspace.
+
+        Staged before the pre-run fingerprint on purpose: this file is ours, so
+        it must not be reported as work the model did. The hash covers the
+        source bytes and the copy is read back, so the receipt proves the model
+        was handed this exact text rather than whatever the directory happened
+        to contain. Fails closed -- a workspace-mode run whose source is absent
+        raises instead of quietly calling without guidance.
+        """
+        if self.instruction_mode == "off":
+            return {"instruction_mode": "off", "instruction_staged": False}
+
+        source = self.instruction_source
+        if source is None or not source.is_file():
+            raise ValueError("opencode_instruction_source_missing")
+        payload = source.read_bytes()
+        target = workspace / "AGENTS.md"
+        target.write_bytes(payload)
+        if target.read_bytes() != payload:
+            raise ValueError("opencode_instruction_stage_incomplete")
+        return {
+            "instruction_mode": self.instruction_mode,
+            "instruction_source": str(source),
+            "instruction_sha256": hashlib.sha256(payload).hexdigest(),
+            "instruction_bytes": len(payload),
+            "instruction_staged": True,
+            "instruction_target": str(target),
+            "opencode_version": self._cli_version(workspace),
+        }
+
     def run(
-        self,
-        task: str,
-        workspace: str,
-        expected_result: str = "",
-        verification_method: str = "",
-        model_order: Optional[Iterable[str]] = None,
+        self, task: str, workspace: str, expected_result: str = "",
+        verification_method: str = "", model_order: Optional[Iterable[str]] = None,
     ) -> Dict[str, Any]:
         path = self._validate_workspace(workspace)
         if not task.strip():
             raise ValueError("opencode_task_missing")
         if not Path(self.executable).exists():
             raise FileNotFoundError(self.executable)
-        models = list(model_order or DEFAULT_MODEL_ORDER)
+        if model_order is None:
+            raise ValueError("opencode_model_required")
+        models = list(model_order)
         if not models or any(model not in OPENCODE_MODELS.values() for model in models):
             raise ValueError("opencode_model_not_registered")
+        instruction = self._stage_instruction(path)
         before = self._fingerprint(path)
         attempts: List[Dict[str, Any]] = []
+        last_raw_output = ""
+        last_stderr = ""
         for model in models:
-            command = [self.executable, "run", "--model", model, "--format", "json", task]
+            command = [self.executable, "run"]
+            if self.standalone:
+                command.append("--standalone")
+            command.extend(["--model", model, "--format", "json", task])
             try:
-                completed = subprocess.run(
-                    command, cwd=str(path), capture_output=True, text=True,
-                    encoding="utf-8", errors="replace", timeout=self.timeout_seconds,
-                    check=False,
-                )
+                completed = self._run_command(command, cwd=str(path))
                 raw = (completed.stdout or "").strip()
-                attempts.append({"model": model, "returncode": completed.returncode, "output_bytes": len(raw)})
+                stderr = (completed.stderr or "").strip()
+                last_raw_output = raw
+                last_stderr = stderr
+                parsed_result = self._parse_result(raw)
+                attempt = {
+                    "model": model,
+                    "returncode": completed.returncode,
+                    "output_bytes": len(raw),
+                    "stderr_bytes": len(stderr),
+                    "raw_output": raw,
+                    "stderr_output": stderr,
+                    "parsed_result": parsed_result,
+                }
+                if completed.returncode != 0:
+                    attempt["error"] = "opencode_nonzero_exit"
+                attempts.append(attempt)
                 if completed.returncode == 0 and raw:
                     after = self._fingerprint(path)
                     return {
-                        "success": True, "model": model, "workspace": str(path),
-                        "expected_result": expected_result, "verification_method": verification_method,
-                        "changed": before != after, "attempts": attempts, "raw_output": raw,
+                        "success": True,
+                        "model": model,
+                        "workspace": str(path),
+                        "expected_result": expected_result,
+                        "verification_method": verification_method,
+                        "changed": before != after,
+                        "attempts": attempts,
+                        "raw_output": raw,
+                        "stderr_output": stderr,
+                        "parsed_result": parsed_result,
+                        **instruction,
                     }
-            except subprocess.TimeoutExpired:
+            except subprocess.TimeoutExpired as timeout:
                 attempts.append({"model": model, "timeout": self.timeout_seconds})
+                last_raw_output = str(timeout.stdout or "")
+                last_stderr = str(timeout.stderr or "")
         return {
-            "success": False, "model": "", "workspace": str(path),
-            "expected_result": expected_result, "verification_method": verification_method,
-            "changed": before != self._fingerprint(path), "attempts": attempts,
+            "success": False,
+            "model": "",
+            "workspace": str(path),
+            "expected_result": expected_result,
+            "verification_method": verification_method,
+            "changed": before != self._fingerprint(path),
+            "attempts": attempts,
+            "raw_output": last_raw_output,
+            "stderr_output": last_stderr,
             "error": "opencode_all_models_failed",
+            **instruction,
         }

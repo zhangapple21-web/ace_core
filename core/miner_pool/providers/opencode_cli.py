@@ -194,7 +194,16 @@ class OpenCodeCliProvider(BaseProvider):
         try:
             workspace = Path(tempfile.mkdtemp(prefix="ace_opencode_cli_"))
             (workspace / "prompt.txt").write_text(prompt, encoding="utf-8")
-            worker = OpenCodeWorker(timeout_seconds=budget)
+            # Instruction staging stays off here on purpose. This route is
+            # chat-only and already carries a governed system contract from
+            # govern_model_messages(); adding ACE's ~20KB runtime manual to every
+            # free-tier call would be a second ungoverned instruction surface,
+            # most of it irrelevant to a question, and would push unclassified
+            # workspace content into MODEL_CONTEXT past the data boundary that
+            # validate_data_boundary() applies to messages only. Delivery-shaped
+            # work is the case that wants instructions; that caller's decision,
+            # not this one.
+            worker = OpenCodeWorker(timeout_seconds=budget, instruction_mode="off")
             receipt = worker.run(
                 task=prompt,
                 workspace=str(workspace),
