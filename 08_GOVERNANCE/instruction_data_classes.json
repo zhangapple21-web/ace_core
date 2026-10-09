@@ -1,0 +1,17 @@
+{
+  "version": "instruction-data-classes.v1",
+  "record_type": "append_only_classification",
+  "decided_at": "2026-10-09",
+  "note": "Instruction files OpenCode merges into every run's context. Absence of an entry is not permission: an unclassified instruction file blocks egress in core/instruction_boundary.py.",
+  "entries": [
+    {
+      "match": "ace_core/AGENTS.md",
+      "data_class": "PRIVATE",
+      "decided_by": "main_steward",
+      "decided_at": "2026-10-09",
+      "evidence": "Measured 2026-10-09: 20255 bytes / 449 lines. Contains private repository name 'coze-assets', external org name 'zhangapple21-web', and operational directives. No credential-shaped content. validate_data_boundary(target=MODEL_CONTEXT) rejects PRIVATE with sensitive_data_cannot_egress.",
+      "known_conflict": "This file has been reaching hosted models by ambient discovery: any CLI run whose cwd is the repository root loads it, which includes the delivery stage. Recorded honestly rather than backfilled; egress is blocked from 2026-10-09 onward.",
+      "must_not": "Relabelling this entry PUBLIC to make a call pass. It is private by content."
+    }
+  ]
+}

@@ -22,6 +22,8 @@ import subprocess
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 
+from core.instruction_boundary import evaluate_instruction_set
+
 OPENCODE_MODELS: Dict[str, str] = {
     "heavy_agent": "opencode/nemotron-3-ultra-free",
     "long_context": "opencode/fledge-alpha-free",
@@ -58,6 +60,7 @@ class OpenCodeWorker:
         standalone: Optional[bool] = None,
         instruction_mode: str = "off",
         instruction_source: Optional[str] = None,
+        ace_root: Optional[str] = None,
     ):
         self.executable = executable or os.environ.get(
             "OPENCODE_EXECUTABLE", r"C:\Users\Administrator\.local\bin\opencode.exe"
@@ -78,6 +81,9 @@ class OpenCodeWorker:
                 raise ValueError("opencode_instruction_source_required")
             self.instruction_source = Path(source).expanduser().resolve()
         self._version_cache: Optional[str] = None
+        # Where the instruction classification records live. None resolves to
+        # the checkout this module sits in; tests point it at a fixture root.
+        self.ace_root = str(ace_root).strip() if ace_root else None
         # The interactive UI uses the background OpenCode service. Reuse it by
         # default so CLI workers see the same auth/model/quota context. Set
         # OPENCODE_STANDALONE=1 only when an isolated service is intentional.
@@ -207,6 +213,73 @@ class OpenCodeWorker:
         self._version_cache = version
         return version
 
+    @staticmethod
+    def _project_root(workspace: Path) -> Optional[Path]:
+        for candidate in (workspace, *workspace.parents):
+            if (candidate / ".git").exists():
+                return candidate
+        return None
+
+    @staticmethod
+    def _instruction_sources(workspace: Path) -> List[Dict[str, Any]]:
+        """The AGENTS.md files OpenCode would combine for this workspace.
+
+        V2 loads the global file, then every AGENTS.md from the workspace
+        directory toward the home directory, stopping at the project root when
+        the workspace sits outside home. Enumerating that same set is the only
+        way a receipt can state what guidance a run actually had -- including
+        guidance nobody staged, and including a stray ancestor file that would
+        otherwise join the prompt silently.
+        """
+        home = Path(os.path.expanduser("~"))
+        root = OpenCodeWorker._project_root(workspace)
+        under_home = workspace == home or home in workspace.parents
+        candidates: List[Path] = []
+        if under_home:
+            for candidate in (workspace, *workspace.parents):
+                candidates.append(candidate)
+                if candidate == home:
+                    break
+        else:
+            stop = root or Path(workspace.anchor)
+            for candidate in (workspace, *workspace.parents):
+                candidates.append(candidate)
+                if candidate == stop:
+                    break
+
+        global_file = home / ".config" / "opencode" / "AGENTS.md"
+        found: List[Dict[str, Any]] = []
+        for path in [global_file, *[item / "AGENTS.md" for item in candidates]]:
+            if not path.is_file():
+                continue
+            payload = path.read_bytes()
+            found.append({
+                "path": str(path),
+                "origin": "global" if path == global_file else "workspace",
+                "sha256": hashlib.sha256(payload).hexdigest(),
+                "bytes": len(payload),
+            })
+        return found
+
+    def _instruction_context(self, workspace: Path) -> Dict[str, Any]:
+        """Record the instruction set this run really carries.
+
+        Separate from staging on purpose: a workspace-mode run also has an
+        effective set, and an off-mode run usually has one anyway when its cwd
+        is a repository. Without this, "the model had no ACE instructions"
+        and "the model had them but nobody wrote it down" look identical.
+        """
+        sources = self._instruction_sources(workspace)
+        digest = hashlib.sha256()
+        for entry in sources:
+            digest.update(f"{entry['path']}:{entry['sha256']}\n".encode("utf-8"))
+        return {
+            "instruction_context_sources": sources,
+            "instruction_context_count": len(sources),
+            "instruction_context_sha256": digest.hexdigest(),
+            "instruction_context_state": "present" if sources else "none",
+        }
+
     def _stage_instruction(self, workspace: Path) -> Dict[str, Any]:
         """Copy the authoritative instruction file into this call's workspace.
 
@@ -225,6 +298,20 @@ class OpenCodeWorker:
             raise ValueError("opencode_instruction_source_missing")
         payload = source.read_bytes()
         target = workspace / "AGENTS.md"
+        if target.exists() and target.resolve() == source:
+            # The workspace already *is* the source -- this is the delivery
+            # stage, whose cwd is the production repository root. Copying here
+            # would rewrite production instructions with themselves, so record
+            # the reuse instead of touching the file.
+            return {
+                "instruction_mode": self.instruction_mode,
+                "instruction_source": str(source),
+                "instruction_sha256": hashlib.sha256(payload).hexdigest(),
+                "instruction_bytes": len(payload),
+                "instruction_staged": False,
+                "instruction_reuse": "already_in_workspace",
+                "opencode_version": self._cli_version(workspace),
+            }
         target.write_bytes(payload)
         if target.read_bytes() != payload:
             raise ValueError("opencode_instruction_stage_incomplete")
@@ -253,6 +340,28 @@ class OpenCodeWorker:
         if not models or any(model not in OPENCODE_MODELS.values() for model in models):
             raise ValueError("opencode_model_not_registered")
         instruction = self._stage_instruction(path)
+        context = self._instruction_context(path)
+        gate = evaluate_instruction_set(
+            context["instruction_context_sources"], root=self.ace_root,
+        )
+        if not gate["instruction_gate_allowed"]:
+            # Before any subprocess. The verdict travels in the receipt so the
+            # refusal explains itself instead of looking like a model failure.
+            return {
+                "success": False,
+                "model": "",
+                "workspace": str(path),
+                "expected_result": expected_result,
+                "verification_method": verification_method,
+                "changed": False,
+                "attempts": [],
+                "raw_output": "",
+                "stderr_output": "",
+                "error": "opencode_instruction_gate_blocked",
+                **context,
+                **instruction,
+                **gate,
+            }
         before = self._fingerprint(path)
         attempts: List[Dict[str, Any]] = []
         last_raw_output = ""
@@ -294,7 +403,9 @@ class OpenCodeWorker:
                         "raw_output": raw,
                         "stderr_output": stderr,
                         "parsed_result": parsed_result,
+                        **context,
                         **instruction,
+                        **gate,
                     }
             except subprocess.TimeoutExpired as timeout:
                 attempts.append({"model": model, "timeout": self.timeout_seconds})
@@ -311,5 +422,7 @@ class OpenCodeWorker:
             "raw_output": last_raw_output,
             "stderr_output": last_stderr,
             "error": "opencode_all_models_failed",
+            **context,
             **instruction,
+            **gate,
         }
