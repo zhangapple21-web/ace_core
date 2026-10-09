@@ -49,6 +49,12 @@ DEFAULT_MODEL_ORDER = [
 # the CLI starts, which is the only shape OpenCode V2 loads as instructions.
 INSTRUCTION_MODES = ("off", "workspace")
 
+# Upper bound on directories walked when enumerating nested AGENTS.md files.
+# Exceeding it blocks the call rather than reporting a partial scan: an
+# incomplete enumeration is an unclassified instruction surface wearing a
+# receipt that says it was checked.
+NESTED_SCAN_LIMIT = 50000
+
 
 class OpenCodeWorker:
     """Run one bounded ACE task through the installed OpenCode CLI."""
@@ -230,6 +236,9 @@ class OpenCodeWorker:
         way a receipt can state what guidance a run actually had -- including
         guidance nobody staged, and including a stray ancestor file that would
         otherwise join the prompt silently.
+
+        Returns ``(sources, complete)``. ``complete`` is False when the nested
+        scan hit its bound, which callers must treat as a refusal.
         """
         home = Path(os.path.expanduser("~"))
         root = OpenCodeWorker._project_root(workspace)
@@ -249,17 +258,57 @@ class OpenCodeWorker:
 
         global_file = home / ".config" / "opencode" / "AGENTS.md"
         found: List[Dict[str, Any]] = []
+        seen = set()
         for path in [global_file, *[item / "AGENTS.md" for item in candidates]]:
-            if not path.is_file():
+            if not path.is_file() or path in seen:
                 continue
+            seen.add(path)
             payload = path.read_bytes()
+            origin = "global" if path == global_file else (
+                "workspace" if path.parent == workspace else "ancestor"
+            )
             found.append({
                 "path": str(path),
-                "origin": "global" if path == global_file else "workspace",
+                "origin": origin,
                 "sha256": hashlib.sha256(payload).hexdigest(),
                 "bytes": len(payload),
             })
-        return found
+
+        nested, complete = OpenCodeWorker._nested_instruction_files(workspace, seen)
+        found.extend(nested)
+        return found, complete
+
+    @staticmethod
+    def _nested_instruction_files(
+        workspace: Path, seen: set,
+    ) -> tuple:
+        """AGENTS.md files below the workspace, discovered by exploration.
+
+        OpenCode loads these when the agent reads a directory under its
+        workspace, so a call that stays away from a nested file still cannot be
+        proven clean of it in advance. Enumerating all of them is the only
+        fail-closed answer.
+        """
+        found: List[Dict[str, Any]] = []
+        visited = 0
+        complete = True
+        for dirpath, dirnames, filenames in os.walk(workspace):
+            dirnames[:] = [name for name in dirnames if name != ".git"]
+            target = Path(dirpath) / "AGENTS.md"
+            if "AGENTS.md" in filenames and target not in seen:
+                seen.add(target)
+                payload = target.read_bytes()
+                found.append({
+                    "path": str(target),
+                    "origin": "nested",
+                    "sha256": hashlib.sha256(payload).hexdigest(),
+                    "bytes": len(payload),
+                })
+            visited += 1
+            if visited >= NESTED_SCAN_LIMIT:
+                complete = False
+                break
+        return found, complete
 
     def _instruction_context(self, workspace: Path) -> Dict[str, Any]:
         """Record the instruction set this run really carries.
@@ -269,7 +318,7 @@ class OpenCodeWorker:
         is a repository. Without this, "the model had no ACE instructions"
         and "the model had them but nobody wrote it down" look identical.
         """
-        sources = self._instruction_sources(workspace)
+        sources, complete = self._instruction_sources(workspace)
         digest = hashlib.sha256()
         for entry in sources:
             digest.update(f"{entry['path']}:{entry['sha256']}\n".encode("utf-8"))
@@ -278,6 +327,7 @@ class OpenCodeWorker:
             "instruction_context_count": len(sources),
             "instruction_context_sha256": digest.hexdigest(),
             "instruction_context_state": "present" if sources else "none",
+            "instruction_nested_scan_complete": complete,
         }
 
     def _stage_instruction(self, workspace: Path) -> Dict[str, Any]:
@@ -342,7 +392,9 @@ class OpenCodeWorker:
         instruction = self._stage_instruction(path)
         context = self._instruction_context(path)
         gate = evaluate_instruction_set(
-            context["instruction_context_sources"], root=self.ace_root,
+            context["instruction_context_sources"],
+            root=self.ace_root,
+            scan_complete=context["instruction_nested_scan_complete"],
         )
         if not gate["instruction_gate_allowed"]:
             # Before any subprocess. The verdict travels in the receipt so the

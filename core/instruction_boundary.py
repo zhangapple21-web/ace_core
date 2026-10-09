@@ -162,12 +162,13 @@ def evaluate_instruction_set(
     sources: Iterable[Dict[str, Any]],
     *,
     root: Optional[str] = None,
+    scan_complete: bool = True,
 ) -> Dict[str, Any]:
     """Decide whether this instruction set may reach a hosted model.
 
-    Fail closed in three places: an unclassified file, a local-only class, and
-    a conditional class without a live receipt. The verdict names every file so
-    a blocked receipt explains itself.
+    Fail closed in four places: an unclassified file, a local-only class, a
+    conditional class without a live receipt, and an incomplete enumeration.
+    The verdict names every file so a blocked receipt explains itself.
     """
     base = ace_root(root)
     registry = _read_registry(base)
@@ -204,6 +205,12 @@ def evaluate_instruction_set(
         )
         if not verdict["valid"]:
             blocked.append(f"content_not_egressable:{path}:{','.join(verdict['errors'])}")
+
+    if not scan_complete:
+        # The nested scan stopped at its bound. Reporting the files it did find
+        # would read as a checked set when part of the surface is simply
+        # unexamined, which is the failure this whole gate exists to prevent.
+        blocked.append("instruction_scan_incomplete:nested_files_unenumerated")
 
     return {
         "instruction_gate": "BLOCKED" if blocked else "ALLOWED",
@@ -263,12 +270,16 @@ def survey_instruction_egress(
     for site in call_sites or []:
         workspace = Path(str(site.get("workspace", ""))).expanduser()
         sources: List[Dict[str, Any]] = []
+        complete = True
         if workspace.is_dir():
+            found, complete = _instruction_files_for(workspace)
             sources = [
                 {"path": str(item["path"]), "sha256": item["sha256"], "bytes": item["bytes"]}
-                for item in _instruction_files_for(workspace)
+                for item in found
             ]
-        verdict = evaluate_instruction_set(sources, root=str(base))
+        verdict = evaluate_instruction_set(
+            sources, root=str(base), scan_complete=complete,
+        )
         sites.append({
             "label": str(site.get("label", "")),
             "workspace": str(workspace),
@@ -297,7 +308,7 @@ def _sha256_of(path: Path) -> str:
         return ""
 
 
-def _instruction_files_for(workspace: Path) -> List[Dict[str, Any]]:
+def _instruction_files_for(workspace: Path):
     """The AGENTS.md set for a workspace, in the shape the gate consumes."""
     from core.opencode_worker import OpenCodeWorker
 

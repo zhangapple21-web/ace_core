@@ -424,13 +424,96 @@ def test_context_never_reports_a_file_the_workspace_does_not_have():
 
     paths = [entry["path"] for entry in receipt["instruction_context_sources"]]
     assert str(probe.staged_path()) not in paths
-    # Every reported path is either the global file or an ancestor-or-self of
-    # the workspace: no unrelated file can join a prompt unnoticed.
+    # Every reported path is the global file, or sits at, above, or below the
+    # workspace: no unrelated file can join a prompt unnoticed.
     for path in paths:
         candidate = Path(path)
-        assert candidate == probe.workspace or candidate in probe.workspace.parents or (
-            candidate.parent == Path.home() / ".config" / "opencode"
+        assert candidate.parent == Path.home() / ".config" / "opencode" or (
+            candidate == probe.workspace
+            or candidate in probe.workspace.parents
+            or probe.workspace in candidate.parents
         )
+
+
+def test_nested_instruction_files_are_enumerated():
+    """Exploration loads nested AGENTS.md, so the gate has to see them too."""
+    probe = Probe()
+    nested = probe.workspace / "notes"
+    nested.mkdir()
+    (nested / "AGENTS.md").write_text("# nested\n", encoding="utf-8")
+    deeper = nested / "deeper"
+    deeper.mkdir()
+    (deeper / "AGENTS.md").write_text("# deeper\n", encoding="utf-8")
+
+    receipt = probe.worker().run(
+        task="ping", workspace=str(probe.workspace), model_order=[MODEL],
+    )
+
+    origins = {
+        Path(entry["path"]).relative_to(probe.workspace).as_posix(): entry["origin"]
+        for entry in receipt["instruction_context_sources"]
+        if entry["path"].startswith(str(probe.workspace))
+    }
+    assert origins == {"notes/AGENTS.md": "nested", "notes/deeper/AGENTS.md": "nested"}
+    assert receipt["instruction_nested_scan_complete"] is True
+
+
+def test_an_unclassified_nested_file_blocks_before_any_subprocess():
+    """The hole this closes: nested guidance reaching a model unclassified."""
+    probe = Probe()
+    nested = probe.workspace / "notes"
+    nested.mkdir()
+    (nested / "AGENTS.md").write_text("# nested private\n", encoding="utf-8")
+
+    receipt = probe.worker().run(
+        task="ping", workspace=str(probe.workspace), model_order=[MODEL],
+    )
+
+    assert receipt["instruction_gate"] == "BLOCKED"
+    assert any("AGENTS.md" in reason for reason in receipt["instruction_gate_blocked"])
+    assert probe.observation() is None
+
+
+def test_a_classified_nested_file_passes():
+    probe = Probe()
+    nested = probe.workspace / "notes"
+    nested.mkdir()
+    (nested / "AGENTS.md").write_text("# nested public\n", encoding="utf-8")
+    probe.classify(probe.entry_for(nested / "AGENTS.md", "PUBLIC"))
+
+    receipt = probe.worker().run(
+        task="ping", workspace=str(probe.workspace), model_order=[MODEL],
+    )
+
+    assert receipt["instruction_gate"] == "ALLOWED"
+    assert receipt["success"] is True
+
+
+def test_an_incomplete_nested_scan_blocks():
+    """A bounded scan that ran out must not read as a checked set."""
+    probe = Probe()
+    nested = probe.workspace / "notes"
+    nested.mkdir()
+    (nested / "AGENTS.md").write_text("# nested public\n", encoding="utf-8")
+    probe.classify(probe.entry_for(nested / "AGENTS.md", "PUBLIC"))
+
+    import core.opencode_worker as worker_module
+
+    original = worker_module.NESTED_SCAN_LIMIT
+    worker_module.NESTED_SCAN_LIMIT = 1
+    try:
+        receipt = probe.worker().run(
+            task="ping", workspace=str(probe.workspace), model_order=[MODEL],
+        )
+    finally:
+        worker_module.NESTED_SCAN_LIMIT = original
+
+    assert receipt["instruction_gate"] == "BLOCKED"
+    assert any(
+        "instruction_scan_incomplete" in reason
+        for reason in receipt["instruction_gate_blocked"]
+    )
+    assert probe.observation() is None
 
 
 def test_context_hash_tracks_instruction_drift():
