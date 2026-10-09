@@ -285,6 +285,161 @@ def test_concept_extraction_does_not_run_when_only_cycle_summaries_exist():
     assert daemon.extract_new_concepts() == 0
 
 
+def _checkup_state(failed_names, timestamp="2026-10-09T14:47:01", stdout_ok=True):
+    """Mirror the production checkup snapshot shape (health probe nests JSON)."""
+    inner = {
+        "timestamp": timestamp,
+        "overall": "error",
+        "total_checks": 18,
+        "passed": 17,
+        "errors": 1,
+        "checks": [
+            {"name": "dir_core", "passed": True, "severity": "error", "detail": "C:/tmp/ace_core/core"},
+            *[
+                {"name": name, "passed": False, "severity": "error", "detail": "active=0, blocked=61"}
+                for name in failed_names
+            ],
+        ],
+    }
+    stdout = json.dumps(inner, ensure_ascii=False) if stdout_ok else "{truncated"
+    return {
+        "checkup_path": "ops/logs/checkup_history.jsonl",
+        "checkup_snapshot": {
+            "timestamp": timestamp,
+            "checks": {"health": {"returncode": 2, "stdout": stdout}},
+            "overall": "error",
+        },
+    }
+
+
+def _record_checkup(observer, state, description="patrol failed"):
+    observer.record(
+        description,
+        state,
+        severity="high",
+        source="checkup_history",
+        category="health",
+    )
+
+
+def test_recurring_checkup_error_does_not_recreate_after_non_convergent_block():
+    """The hourly patrol failure is one incident, not one task per hour."""
+    from core.observation import RuntimeObserver
+    from core.observation_to_task import ObservationToTaskConverter
+    from ops.test_support import FixtureTaskPool as TaskPool
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        root = Path(temp_dir)
+        observer = RuntimeObserver(str(root / "observations"))
+        pool = TaskPool(str(root / "task_pool"))
+        _record_checkup(observer, _checkup_state(["failing probe"]))
+        first = ObservationToTaskConverter(observer, pool).convert()
+        task = pool.list_tasks(status="pending", limit=1)[0]
+        pool.block_task(task.task_id, "same evidence reached the review limit", actor="test", block_type="manual_gate_blocked")
+
+        # Next hour: new observation id and timestamp, same red probe.
+        _record_checkup(
+            observer,
+            _checkup_state(["failing probe"], timestamp="2026-10-09T15:47:01"),
+            description="patrol failed again",
+        )
+        second = ObservationToTaskConverter(observer, pool).convert()
+
+        assert first["tasks_created"] == 1
+        assert second["tasks_created"] == 0
+        assert second["semantic_duplicates"] == 1
+        assert second["details"][0]["status"] == "semantic_duplicate"
+        assert second["details"][0]["existing_task_id"] == task.task_id
+        assert len(pool.list_tasks(status="blocked", limit=10)) == 1
+
+
+def test_checkup_error_with_new_failed_probe_creates_new_task():
+    """A different red probe is a different incident and stays visible."""
+    from core.observation import RuntimeObserver
+    from core.observation_to_task import ObservationToTaskConverter
+    from ops.test_support import FixtureTaskPool as TaskPool
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        root = Path(temp_dir)
+        observer = RuntimeObserver(str(root / "observations"))
+        pool = TaskPool(str(root / "task_pool"))
+        _record_checkup(observer, _checkup_state(["probe one"]))
+        first = ObservationToTaskConverter(observer, pool).convert()
+        _record_checkup(observer, _checkup_state(["probe two"], timestamp="2026-10-09T15:47:01"))
+        second = ObservationToTaskConverter(observer, pool).convert()
+
+        assert first["tasks_created"] == 1
+        assert second["tasks_created"] == 1
+        assert len(pool.list_tasks(status="pending", limit=10)) == 2
+
+
+def test_checkup_error_with_unreadable_detail_dedups_at_group_level():
+    """Truncated probe output still carries its group: one task, not a flood."""
+    from core.observation import RuntimeObserver
+    from core.observation_to_task import ObservationToTaskConverter
+    from ops.test_support import FixtureTaskPool as TaskPool
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        root = Path(temp_dir)
+        observer = RuntimeObserver(str(root / "observations"))
+        pool = TaskPool(str(root / "task_pool"))
+        _record_checkup(observer, _checkup_state(["probe one"], stdout_ok=False))
+        first = ObservationToTaskConverter(observer, pool).convert()
+        _record_checkup(
+            observer,
+            _checkup_state(["probe one"], timestamp="2026-10-09T15:47:01", stdout_ok=False),
+        )
+        second = ObservationToTaskConverter(observer, pool).convert()
+
+        assert first["tasks_created"] == 1
+        assert second["tasks_created"] == 0
+        assert second["details"][0]["status"] == "semantic_duplicate"
+
+
+def test_checkup_error_without_determinable_identity_stays_visible():
+    """No probe structure at all means no identity: fail open, stay visible."""
+    from core.observation import RuntimeObserver
+    from core.observation_to_task import ObservationToTaskConverter
+    from ops.test_support import FixtureTaskPool as TaskPool
+
+    def _structureless_state(timestamp):
+        return {
+            "checkup_path": "ops/logs/checkup_history.jsonl",
+            "checkup_snapshot": {"timestamp": timestamp, "overall": "error"},
+        }
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        root = Path(temp_dir)
+        observer = RuntimeObserver(str(root / "observations"))
+        pool = TaskPool(str(root / "task_pool"))
+        _record_checkup(observer, _structureless_state("2026-10-09T14:47:01"))
+        first = ObservationToTaskConverter(observer, pool).convert()
+        _record_checkup(observer, _structureless_state("2026-10-09T15:47:01"))
+        second = ObservationToTaskConverter(observer, pool).convert()
+
+        assert first["tasks_created"] == 1
+        assert second["tasks_created"] == 1
+
+
+def test_legacy_checkup_task_without_signature_still_dedups():
+    """Tasks filed before signatures existed rejoin dedup via admission evidence."""
+    from types import SimpleNamespace
+
+    from core.observation_to_task import BUILTIN_RULES, ObservationToTaskConverter
+
+    rule = next(r for r in BUILTIN_RULES if r.name == "checkup_error")
+    state = _checkup_state(["failing probe"])
+    legacy_task = SimpleNamespace(outputs={
+        "conversion_rule": "checkup_error",
+        "admission": {"evidence": [{"system_state": state}]},
+    })
+    assert (
+        ObservationToTaskConverter._task_semantic_signature(legacy_task, rule)
+        == ObservationToTaskConverter._semantic_signature(rule, state)
+    )
+    assert ObservationToTaskConverter._semantic_signature(rule, state) != ""
+
+
 def test_concept_miner_has_builtin_regex_tokenizer():
     from core.concept_miner import ConceptMiner
 

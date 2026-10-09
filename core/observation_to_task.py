@@ -477,6 +477,56 @@ class ObservationToTaskConverter:
         return re.sub(r"\s+", " ", str(value or "").strip().lower())
 
     @classmethod
+    def _checkup_failed_probes(cls, state: Dict[str, Any]) -> tuple:
+        """Return the stable identity of a failing patrol: failed probe names.
+
+        Rolling counters (blocked counts, timestamps) are excluded on
+        purpose: the same red probe an hour later is the same incident, not
+        new work. Returns () when no failed probe can be determined; the
+        caller then keeps the legacy behavior (no dedup) instead of
+        collapsing distinct unknown failures into one task.
+        """
+        snapshot = state.get("checkup_snapshot")
+        if not isinstance(snapshot, dict):
+            return ()
+        groups = snapshot.get("checks")
+        if isinstance(groups, dict):
+            items = list(groups.items())
+        elif isinstance(groups, list):
+            items = [(None, probe) for probe in groups]
+        else:
+            return ()
+        names = set()
+        for key, probe in items:
+            if not isinstance(probe, dict):
+                continue
+            inner_checks = None
+            stdout = probe.get("stdout")
+            if isinstance(stdout, str) and stdout.strip():
+                try:
+                    inner = json.loads(stdout)
+                except (ValueError, TypeError):
+                    inner = None
+                if isinstance(inner, dict) and isinstance(inner.get("checks"), list):
+                    inner_checks = inner["checks"]
+            if inner_checks is None and isinstance(probe.get("checks"), list):
+                inner_checks = probe["checks"]
+            for check in inner_checks or []:
+                if not isinstance(check, dict):
+                    continue
+                if check.get("passed") is False:
+                    name = cls._normal_text(check.get("name"))
+                    if name:
+                        names.add(name)
+            if inner_checks is None:
+                returncode = probe.get("returncode")
+                if isinstance(returncode, int) and returncode != 0:
+                    group = cls._normal_text(key)
+                    if group:
+                        names.add("group:" + group)
+        return tuple(sorted(names))
+
+    @classmethod
     def _semantic_signature(cls, rule: ConversionRule, state: Dict[str, Any]) -> str:
         """Return the stable identity of a recurring observation.
 
@@ -510,6 +560,11 @@ class ObservationToTaskConverter:
             payload = {"condition": bool((state.get("pending_scan", 0) or 0) > 500)}
         elif name == "scheduled_task_inactive":
             payload = {"condition": bool(state.get("task_never_run", False))}
+        elif name == "checkup_error":
+            failed = cls._checkup_failed_probes(state)
+            if not failed:
+                return ""
+            payload = {"failed_checks": list(failed)}
         elif name == "disk_space_low":
             try:
                 free_pct = float(state.get("disk_free_pct", 0) or 0)
@@ -554,6 +609,7 @@ class ObservationToTaskConverter:
             "fragment_backlog",
             "scheduled_task_inactive",
             "disk_space_low",
+            "checkup_error",
         }:
             return None
         signature = self._semantic_signature(rule, state)
