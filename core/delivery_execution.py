@@ -170,6 +170,31 @@ def verify_delivery(task: Any, workspace: Path) -> Dict[str, Any]:
     return receipt
 
 
+#: Instruction-governance evidence that must survive verdict reduction. A gate
+#: refusal is only auditable if the receipt still names the file, its class and
+#: the rule that refused -- ``{"ok": False, "error": "..."}`` cannot be acted on.
+INSTRUCTION_EVIDENCE_KEYS = (
+    "instruction_gate",
+    "instruction_gate_blocked",
+    "instruction_classes",
+    "instruction_context_sources",
+    "instruction_context_sha256",
+    "instruction_context_state",
+    "instruction_mode",
+    "instruction_staged",
+    "instruction_source",
+    "instruction_sha256",
+    "instruction_reuse",
+)
+
+
+def instruction_evidence(report: Any) -> Dict[str, Any]:
+    """Pull the instruction-governance verdict out of a worker receipt."""
+    if not isinstance(report, dict):
+        return {}
+    return {key: report[key] for key in INSTRUCTION_EVIDENCE_KEYS if key in report}
+
+
 def worker_verdict(report: Any) -> Dict[str, Any]:
     """Read what a worker *claimed*, without inflating it.
 
@@ -178,17 +203,23 @@ def worker_verdict(report: Any) -> Dict[str, Any]:
     ``bool({"success": False})`` is True.  Recording that as ``ok: true`` would
     write a false claim into a receipt that is supposed to be evidence, so the
     worker's own ``success``/``ok`` field decides, and its ``error`` rides along.
+
+    Instruction-governance evidence rides along too, for the same reason in the
+    other direction: dropping it would turn a recorded refusal into an
+    unexplained failure.
     """
+    evidence = instruction_evidence(report)
     if isinstance(report, dict):
         for key in ("success", "ok"):
             if key in report:
                 verdict: Dict[str, Any] = {"ok": bool(report[key])}
                 if not verdict["ok"] and report.get("error"):
                     verdict["error"] = str(report["error"])
+                verdict.update(evidence)
                 return verdict
         # A mapping with no verdict field cannot be trusted either way.
-        return {"ok": bool(report), "claim": "unverifiable_no_verdict_field"}
-    return {"ok": bool(report)}
+        return {"ok": bool(report), "claim": "unverifiable_no_verdict_field", **evidence}
+    return {"ok": bool(report), **evidence}
 
 
 class DeliveryExecutor:

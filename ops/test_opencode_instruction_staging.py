@@ -483,3 +483,133 @@ def test_miner_pool_route_stays_off(monkeypatch):
 
     assert result["success"] is True, result
     assert recorded["instruction_mode"] == "off"
+
+
+# --- a refusal has to stay readable through the production call chain ---------
+# The gate is decided by the instruction set, so a block is not a flaky model
+# and not an empty answer. These pin that it survives each layer that used to
+# reduce it into an unexplained failure.
+
+
+def _blocked_receipt():
+    return {
+        "success": False,
+        "error": "opencode_instruction_gate_blocked",
+        "attempts": [],
+        "instruction_gate": "BLOCKED",
+        "instruction_gate_blocked": ["local_only_class:/repo/AGENTS.md:PRIVATE"],
+        "instruction_classes": [
+            {
+                "path": "/repo/AGENTS.md",
+                "data_class": "PRIVATE",
+                "basis": "registry",
+            }
+        ],
+        "instruction_context_sources": [],
+        "instruction_context_sha256": "0" * 64,
+        "instruction_context_state": "present",
+        "instruction_mode": "off",
+        "instruction_staged": False,
+    }
+
+
+def test_gate_block_survives_the_delivery_verdict():
+    from core.delivery_execution import worker_verdict
+
+    verdict = worker_verdict(_blocked_receipt())
+
+    assert verdict["ok"] is False
+    assert verdict["error"] == "opencode_instruction_gate_blocked"
+    # Reduced to ok/error this refusal would be unactionable: the receipt would
+    # say a worker failed and not which file was refused or under which class.
+    assert verdict["instruction_gate"] == "BLOCKED"
+    assert verdict["instruction_gate_blocked"]
+    assert verdict["instruction_classes"][0]["data_class"] == "PRIVATE"
+
+
+def test_router_stops_at_a_gate_block_instead_of_falling_through():
+    from core.opencode_worker import OPENCODE_MODELS
+    from core.worker_router import WorkerCapability, WorkerRouter
+
+    models = list(OPENCODE_MODELS.values())[:3]
+    router = WorkerRouter([
+        WorkerCapability(
+            worker_id=f"w{index}", runtime="cli",
+            capabilities=frozenset({"structured_readonly"}),
+            metadata={"model": model, "fallback_rank": str(index)},
+        )
+        for index, model in enumerate(models)
+    ])
+
+    class BlockedWorker:
+        calls = 0
+
+        def run(self, **kwargs):
+            BlockedWorker.calls += 1
+            return dict(_blocked_receipt())
+
+    result = router.run(
+        "structured_readonly", BlockedWorker(),
+        task="ping", workspace="unused",
+    )
+
+    assert result["instruction_gate"] == "BLOCKED"
+    # One governance refusal, not three model failures wearing its name.
+    assert BlockedWorker.calls == 1
+    assert len(result["router_attempts"]) == 1
+    assert result["failure_class"] == "instruction_gate_blocked"
+
+
+def test_router_still_falls_through_for_an_ordinary_failure():
+    from core.opencode_worker import OPENCODE_MODELS
+    from core.worker_router import WorkerCapability, WorkerRouter
+
+    models = list(OPENCODE_MODELS.values())[:2]
+    router = WorkerRouter([
+        WorkerCapability(
+            worker_id=f"w{index}", runtime="cli",
+            capabilities=frozenset({"structured_readonly"}),
+            metadata={"model": model, "fallback_rank": str(index)},
+        )
+        for index, model in enumerate(models)
+    ])
+
+    class FailingWorker:
+        calls = 0
+
+        def run(self, **kwargs):
+            FailingWorker.calls += 1
+            return {"success": False, "error": "opencode_nonzero_exit", "attempts": []}
+
+    router.run("structured_readonly", FailingWorker(), task="ping", workspace="unused")
+
+    assert FailingWorker.calls == len(models)
+
+
+def test_chat_route_reports_a_gate_block_with_its_verdict(monkeypatch):
+    from core.miner_pool.providers.opencode_cli import OpenCodeCliProvider
+
+    class BlockedWorker:
+        def __init__(self, **kwargs):
+            pass
+
+        def run(self, **kwargs):
+            return _blocked_receipt()
+
+    import core.opencode_worker as worker_module
+
+    monkeypatch.setattr(worker_module, "OpenCodeWorker", BlockedWorker)
+
+    result = OpenCodeCliProvider().chat(
+        messages=[{"role": "user", "content": "Reply pong."}],
+        model="oneapi_free:mimo-v2.6-flash-free",
+        timeout=30,
+        data_boundary={"data_class": "PUBLIC"},
+    )
+
+    assert result["success"] is False
+    assert result["error"] == "opencode_instruction_gate_blocked"
+    # Not "opencode_empty_reply": an empty reply is what a blocked call looks
+    # like from the outside, so the verdict is the only thing telling them apart.
+    assert result["instruction_gate"] == "BLOCKED"
+    assert result["instruction_gate_blocked"]

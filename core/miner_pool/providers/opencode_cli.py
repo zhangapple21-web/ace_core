@@ -233,6 +233,11 @@ class OpenCodeCliProvider(BaseProvider):
             result["content"] = reply[: max_tokens * 4] if max_tokens else reply
         else:
             result["error"] = receipt.get("error", "") or "opencode_empty_reply"
+        # A gate refusal produces an empty reply too, so without the verdict it
+        # would be indistinguishable from a model that said nothing.
+        for key in ("instruction_gate", "instruction_gate_blocked", "instruction_classes"):
+            if key in receipt:
+                result[key] = receipt[key]
         return result
 
 

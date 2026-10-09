@@ -83,6 +83,11 @@ class WorkerRouter:
             last = receipt
             if passed or receipt.get("changed") is True:
                 break
+            if receipt.get("instruction_gate") == "BLOCKED":
+                # The gate is decided by the instruction set, not the model.
+                # Falling through the fallback order would file one governance
+                # refusal as N model failures and delay the evidence.
+                break
         result = dict(last)
         result.update(router_model_order=order, router_attempts=attempts,
                       fallback_used=len(attempts) > 1,
@@ -96,6 +101,8 @@ class WorkerRouter:
     def classify_failure(receipt: Dict[str, Any]) -> str:
         if receipt.get("success") is True:
             return "success"
+        if receipt.get("instruction_gate") == "BLOCKED":
+            return "instruction_gate_blocked"
         text = " ".join(str(receipt.get(key, "")) for key in ("error", "raw_output", "stderr_output")).lower()
         if "429" in text or "quota" in text or "rate limit" in text:
             return "quota"
