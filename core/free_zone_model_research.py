@@ -38,12 +38,18 @@ class FreeZoneModelResearch:
             "computed_locally": True,
         }
         local_baseline["baseline_hash"] = _digest(local_baseline)
+        # Sandbox research prompts carry hypotheses, never production corpus:
+        # fixed template plus a sandbox seed. Declared PUBLIC so the standing
+        # fail-closed boundary can judge the bytes (credential shapes still
+        # refuse regardless of label); without a declaration every turn dies
+        # at the gate and the shift starves while reporting healthy.
         response = self.miner_pool.chat(
             task_type="free_exploration",
             messages=[{"role": "user", "content": prompt}],
             system_prompt="Free Zone only. Treat all conclusions as hypotheses.",
             max_retries=1,
             max_tokens=max_tokens,
+            data_boundary={"data_class": "PUBLIC"},
         )
         content = str(response.get("content", ""))
         provider = str(response.get("provider", "")).strip().lower()

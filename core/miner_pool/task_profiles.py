@@ -245,13 +245,18 @@ TASK_PROFILES: Dict[str, Dict[str, Any]] = {
         "description": "Free Zone 探索",
         "expected_model": "free_zone",
         "model_enabled": True,
-        "allowed_providers": {"shenwen_ds41", "oneapi", "glm", "nim", "ollama"},
+        "allowed_providers": {"shenwen_ds41", "oneapi", "glm", "nim", "ollama", "opencode_cli"},
         "preferred_traits": ["breadth", "exploration", "cost_effective"],
         "avoid_traits": ["strategic", "paid_channel"],
         "temperature": 0.7,
         "max_tokens": 2048,
         "timeout": 120,
         "preferred_models": [
+            # Free-first: sandbox research must not depend on paid channels
+            # (see avoid_traits). CLI_MUSE_FREE carries a live production
+            # receipt; the paid entries below remain as fallback depth.
+            CLI_MUSE_FREE,
+            CLI_MIMO_FREE,
             SHENWEN_DS41_FLASH,
             ONEAPI_DS41_FLASH,
             GLM_FLASH,

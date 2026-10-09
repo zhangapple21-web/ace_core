@@ -293,7 +293,10 @@ def test_role_profiles_register_native_strategic_execution_and_free_boundaries()
         "shenwen:gpt-5.4-mini",
     ]
     assert execution["allowed_providers"] == {"shenwen_ds41", "shenwen", "oneapi"}
-    assert free["allowed_providers"] == {"shenwen_ds41", "oneapi", "glm", "nim", "ollama"}
+    # Owner-directed 2026-10-09: free CLI route serves the sandbox first.
+    # The exclusion intent below is unchanged: no paid strategic models.
+    assert free["allowed_providers"] == {"shenwen_ds41", "oneapi", "glm", "nim", "ollama", "opencode_cli"}
+    assert free["preferred_models"][0] == "opencode_cli:muse-spark-1.3-contributor-free"
     assert "shenwen:gpt-5.6-terra" not in free["preferred_models"]
     assert "shenwen:gpt-5.4-mini" not in free["preferred_models"]
 

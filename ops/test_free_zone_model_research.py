@@ -4,6 +4,9 @@
 class Pool:
     def chat(self, **kwargs):
         assert kwargs["task_type"] == "free_exploration"
+        # The adapter must declare the sandbox prompt egressable; without a
+        # declaration the standing boundary fails every turn closed.
+        assert kwargs.get("data_boundary") == {"data_class": "PUBLIC"}
         return {"success": True, "content": "hypothesis and counterexample", "provider": "nim", "model": "fixture-model", "usage": {"total_tokens": 3}, "latency_ms": 2, "attempts": [{"model": "fixture:model", "provider": "nim", "success": True, "retryable": False, "latency_ms": 2, "error": ""}]}
 
 
