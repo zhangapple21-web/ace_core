@@ -71,3 +71,9 @@ outputs/*.png
 07_SANDBOX/free_research/lazy_cat/
 agent_team/
 archaeology/legacy_runtime/
+
+# Reduced instruction artifacts for hosted models. Generated from a PRIVATE
+# source by ops/sanitize_instruction_file.py; the receipt in
+# 08_GOVERNANCE/sanitizer_receipts.jsonl binds both hashes, so versioning the
+# file would only version a copy of what was redacted.
+model_instructions/

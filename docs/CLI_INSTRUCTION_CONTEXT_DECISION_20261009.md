@@ -229,15 +229,52 @@ V2 对"工作区在 home 之外"的规则是停在 project root，这和先前�
 要证明它必须在生产工作区跑模型，而那会让模型有机会改动生产状态——为一份好奇心
 付这个代价不可接受。原开放项 1 就此降级：机制已实测，内容影响未测且不测。
 
-## 11. 仍然开放
+## 11. 脱敏路径已落地并实测（主 steward 裁决）
+
+裁决：原始 `AGENTS.md` 保持 `PRIVATE`，不批准外发，不允许改标 `PUBLIC`；但只要能
+证明实际发送的是合规脱敏版本，可沿现有交付链继续。
+
+**先补了一个洞。** 裁决要求"为脱敏结果提供有效 sanitizer receipt"，但当时门对
+receipt 的校验只检查 artifact 哈希匹配 + `data_class` 通过边界。这不足以支撑裁决：
+`validate_data_boundary` 检查的是**被告知的分级**，不是内容来源，所以一张
+`data_class: PUBLIC` 的 receipt 签在**未经删改的私有字节**上会顺利通过——门被开了，
+而一个字节都没删。
+
+现在 receipt 必须：`source_path` 指向台账中已注册的源；`source_sha256` 与
+`artifact_sha256` **不同**（否则说明没删任何东西）；源必须本身受限；降级方向只能是
+降低。违反时 receipt 被拒绝，但**不掩盖**台账已有的判定，理由记在
+`ignored_receipt` 字段里随行。
+
+**脱敏工具** `ops/sanitize_instruction_file.py`：按 section 白名单裁剪，脱敏前后
+各跑一次校验，写出产物 + 追加 receipt。私有仓名 / 组织名 / 本机路径即使在保留
+section 内部也会被替换成 `[private repo]`——section 级丢弃会连同工作规则一起丢掉。
+
+**实测结果**（原始文件哈希前后一致，未被改写）：
+
+| 项 | 值 |
+| --- | --- |
+| 源 | `AGENTS.md` 20703 B，`PRIVATE`，sha `857af1ac…` |
+| 产物 | `model_instructions/AGENTS.md` 5574 B（减少 15129 B） |
+| 产物分级 | `PUBLIC`，`basis: sanitizer_receipt`，`source_data_class: PRIVATE` |
+| receipt | `R-AGENTS-9f4ab4fe`，绑定源/产物双哈希 |
+
+裁决四项条件逐条实测通过（`_verify_e2e.py`，无模型调用，门在任何子进程之前判定）：
+
+1. 原始 `AGENTS.md` 仍 `PRIVATE`、仍 `BLOCKED`、`attempts=0`、文件哈希未变；
+2. 脱敏产物凭 receipt `ALLOWED`，`basis=sanitizer_receipt`；
+3. 实际发送集合中无 `PRIVATE`/`CORE` 文件；
+4. 篡改产物（追加伪 api_key）后重新 `BLOCKED`，`attempts=0`——门没有被放宽。
+
+## 12. 仍然开放
 
 1. **交付链的指令上下文**：机制已在同形态仓库实测为可用（第 9 节）。未验证的
    只有"生产 `AGENTS.md` 的内容是否影响了产出"，为它跑生产工作区模型不可接受，
    不测。`docs/REAL_CLI_DELIVERY_PROOF.md` 已被删除，协议 231 行引用的证据在磁盘
    上已不可核验。
-2. **分级冲突**：交付链按 cwd 一直在加载一份 `PRIVATE` 内容，现在被门挡住。这是
-   既有事实，不是本次引入。恢复交付需要 sanitizer + 凭据、换不含 PRIVATE
-   `AGENTS.md` 的工作目录、或一次显式分级裁决。
+2. **交付链的工作目录仍是 `C:\tmp\ace_core`**，其中那份 `PRIVATE` 的原始
+   `AGENTS.md` 仍会被 cwd 加载，因此交付链依旧 `BLOCKED`。脱敏产物已就位并通过
+   验证，但交付链的 cwd 要指向它才生效——改 `ace_daemon.py` 的工作目录属于改变
+   交付语义，未在本次裁决范围内，未动。
 3. **跨目录读取**：需要读工作区之外文件的非交互调用会被 `ask` 挡下并自行拒绝。
    交付链不受影响；受影响的调用若存在，需要显式的权限策略，而不是加 `--auto`。
 4. **临时目录的祖先指令面**：聊天链的工作区在 home 之内，V2 会向 home 方向合并

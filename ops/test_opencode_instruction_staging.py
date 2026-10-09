@@ -110,15 +110,35 @@ class Probe:
             "decided_at": "2026-10-09",
         }
 
-    def receipt_for(self, path, payload, data_class="PUBLIC"):
-        # A sanitizer receipt asserts the *reduced* artifact, so the class it
-        # carries must itself be egressable. Declaring the original
-        # conditional class would re-trip the very rule the receipt exists to
-        # satisfy.
+    def reduction(self, source, artifact, reduced_class="PUBLIC"):
+        """A registry record plus a receipt describing a real reduction."""
+        source_payload = source.read_bytes() if isinstance(source, Path) else source
+        artifact_payload = (
+            artifact.read_bytes() if isinstance(artifact, Path) else artifact
+        )
+        return (
+            self.entry_for(source, "PRIVATE"),
+            self.receipt_for(
+                artifact if isinstance(artifact, Path) else Path(str(artifact)),
+                artifact_payload,
+                data_class=reduced_class,
+                source_path=source if isinstance(source, Path) else Path(str(source)),
+                source_payload=source_payload,
+            ),
+        )
+
+    def receipt_for(
+        self, path, payload, data_class="PUBLIC", source_path=None, source_payload=b"",
+    ):
+        # A sanitizer receipt asserts a *reduction*: it must name a registered
+        # source and bind a source hash that differs from the artifact's, or
+        # the gate refuses it as "nothing was removed".
         return {
             "receipt_id": "R-TEST-1",
             "acceptance": "ACCEPTANCE_VERIFIED",
             "path": path.as_posix(),
+            "source_path": (source_path or path).as_posix(),
+            "source_sha256": hashlib.sha256(source_payload).hexdigest(),
             "artifact_sha256": hashlib.sha256(payload).hexdigest(),
             "data_class": data_class,
             "sanitizer": "test",
@@ -334,11 +354,17 @@ def test_conditional_classes_need_a_live_sanitizer_receipt():
 
 
 def test_a_valid_sanitizer_receipt_allows_a_conditional_class():
+    """A receipt unlocks a conditional class by proving content was removed."""
     probe = Probe()
-    body = "reduced instruction text\n"
-    (probe.workspace / "AGENTS.md").write_text(body, encoding="utf-8")
+    original = b"kettle: 3mugs; ladder: secret/place; passphrase: hunter2\n"
+    reduced = b"reduced instruction text\n"
+    (probe.workspace / "AGENTS.md").write_bytes(reduced)
     probe.classify(
-        receipts=[probe.receipt_for(probe.staged_path(), probe.staged_path().read_bytes())],
+        probe.entry_for(probe.staged_path(), "STRUCTURE"),
+        receipts=[probe.receipt_for(
+            probe.staged_path(), reduced, data_class="PUBLIC",
+            source_payload=original,
+        )],
     )
 
     receipt = probe.worker().run(
@@ -347,16 +373,122 @@ def test_a_valid_sanitizer_receipt_allows_a_conditional_class():
 
     assert receipt["instruction_gate"] == "ALLOWED"
     assert receipt["success"] is True
-    basis = receipt["instruction_classes"][0]["basis"]
-    assert basis == "sanitizer_receipt"
+    entry = receipt["instruction_classes"][0]
+    assert entry["basis"] == "sanitizer_receipt"
+    assert entry["data_class"] == "PUBLIC"
+    assert entry["source_data_class"] == "STRUCTURE"
+
+
+def test_a_receipt_cannot_relabel_the_private_original():
+    """The forbidden shortcut: sign PUBLIC against the unredacted bytes.
+
+    validate_data_boundary would pass this happily -- it checks the class it is
+    told, not where the content came from. The gate has to refuse it, or the
+    whole reduction requirement is decorative.
+    """
+    probe = Probe()
+    private = probe.workspace / "AGENTS.md"
+    body = b"private: coze-assets holds every secret; see C:\\tmp\\ace_core\n"
+    private.write_bytes(body)
+    probe.classify(
+        probe.entry_for(private, "PRIVATE"),
+        receipts=[{
+            "receipt_id": "R-BAD-1",
+            "acceptance": "ACCEPTANCE_VERIFIED",
+            "path": private.as_posix(),
+            "source_path": private.as_posix(),
+            "source_sha256": hashlib.sha256(body).hexdigest(),
+            "artifact_sha256": hashlib.sha256(body).hexdigest(),
+            "data_class": "PUBLIC",
+            "sanitizer": "none",
+        }],
+    )
+
+    receipt = probe.worker().run(
+        task="ping", workspace=str(probe.workspace), model_order=[MODEL],
+    )
+
+    assert receipt["instruction_gate"] == "BLOCKED"
+    assert probe.observation() is None
+    entry = receipt["instruction_classes"][0]
+    # The refused receipt does not relabel anything: the file stays PRIVATE on
+    # the registry's authority, and the reason it was refused rides along.
+    assert entry["data_class"] == "PRIVATE"
+    assert entry["basis"] == "registry"
+    assert entry["ignored_receipt"] in (
+        "receipt_cannot_relabel_local_only", "receipt_claims_unaltered_source",
+    )
+
+
+def test_a_receipt_signing_unaltered_bytes_is_refused():
+    """Same artifact hash as the source means nothing was removed."""
+    probe = Probe()
+    target = probe.workspace / "AGENTS.md"
+    body = b"unchanged conditional content\n"
+    target.write_bytes(body)
+    probe.classify(
+        probe.entry_for(target, "STRUCTURE"),
+        receipts=[{
+            "receipt_id": "R-BAD-2",
+            "acceptance": "ACCEPTANCE_VERIFIED",
+            "path": target.as_posix(),
+            "source_path": target.as_posix(),
+            "source_sha256": hashlib.sha256(body).hexdigest(),
+            "artifact_sha256": hashlib.sha256(body).hexdigest(),
+            "data_class": "PUBLIC",
+        }],
+    )
+
+    receipt = probe.worker().run(
+        task="ping", workspace=str(probe.workspace), model_order=[MODEL],
+    )
+
+    assert receipt["instruction_gate"] == "BLOCKED"
+    entry = receipt["instruction_classes"][0]
+    assert entry["data_class"] == "STRUCTURE"
+    assert entry["ignored_receipt"] in (
+        "receipt_claims_unaltered_source", "receipt_without_registered_source",
+    )
+
+
+def test_a_receipt_without_a_registered_source_is_refused():
+    probe = Probe()
+    target = probe.workspace / "AGENTS.md"
+    reduced = b"reduced\n"
+    target.write_bytes(reduced)
+    probe.classify(
+        receipts=[{
+            "receipt_id": "R-BAD-3",
+            "acceptance": "ACCEPTANCE_VERIFIED",
+            "path": target.as_posix(),
+            "source_path": (probe.root / "nowhere" / "AGENTS.md").as_posix(),
+            "source_sha256": "0" * 64,
+            "artifact_sha256": hashlib.sha256(reduced).hexdigest(),
+            "data_class": "PUBLIC",
+        }],
+    )
+
+    receipt = probe.worker().run(
+        task="ping", workspace=str(probe.workspace), model_order=[MODEL],
+    )
+
+    assert receipt["instruction_gate"] == "BLOCKED"
+    entry = receipt["instruction_classes"][0]
+    assert entry["basis"] == "unclassified"
+    assert entry["ignored_receipt"] == "receipt_without_registered_source"
 
 
 def test_sanitizer_receipt_goes_stale_when_the_file_changes():
     probe = Probe()
     target = probe.workspace / "AGENTS.md"
-    target.write_text("version one\n", encoding="utf-8")
+    original = b"kettle: 3mugs; passphrase: hunter2\n"
+    target.write_bytes(original)
     probe.classify(
-        receipts=[probe.receipt_for(target, target.read_bytes())],
+        probe.entry_for(target, "STRUCTURE"),
+        receipts=[probe.receipt_for(
+            target, original, data_class="PUBLIC",
+            source_payload=b"an even longer original body\n",
+        )],
     )
 
     target.write_text("version two, edited after the receipt\n", encoding="utf-8")
@@ -366,8 +498,13 @@ def test_sanitizer_receipt_goes_stale_when_the_file_changes():
     )
 
     assert receipt["instruction_gate"] == "BLOCKED"
+    # The stale receipt no longer matches the file, so classification falls back
+    # to the registry record -- and STRUCTURE still needs a live receipt. Either
+    # way the honest reason is that the reduction is no longer proven.
     assert any(
-        "unclassified" in reason for reason in receipt["instruction_gate_blocked"]
+        "sanitizer_receipt_required" in reason
+        or "unclassified" in reason
+        for reason in receipt["instruction_gate_blocked"]
     )
     assert probe.observation() is None
 
@@ -808,6 +945,103 @@ def test_a_corrupt_registry_reads_as_no_permission():
         "unclassified" in reason for reason in receipt["instruction_gate_blocked"]
     )
     assert probe.observation() is None
+
+
+def test_a_registered_private_source_unlocks_its_reduced_artifact():
+    """The sanctioned path: PRIVATE original stays blocked, reduction egresses.
+
+    Mirrors the production case end to end -- a PRIVATE registered source, a
+    separate reduced file, and a receipt binding both hashes. The original must
+    remain blocked even with the receipt on disk, because the receipt names the
+    artifact, not the source.
+    """
+    probe = Probe()
+    private = probe.root / "AGENTS.private.md"
+    original = (
+        b"private runtime manual: coze-assets holds every secret\n"
+        b"verify passphrase: hunter2\n"
+    )
+    reduced = b"# reduced\n\nRecover before bootstrapping. Reuse before building.\n"
+    private.write_bytes(original)
+
+    artifact = probe.workspace / "AGENTS.md"
+    artifact.write_bytes(reduced)
+
+    entry, receipt = probe.reduction(private, artifact)
+    probe.classify(entry, receipts=[receipt])
+
+    allowed = probe.worker().run(
+        task="ping", workspace=str(probe.workspace), model_order=[MODEL],
+    )
+    assert allowed["instruction_gate"] == "ALLOWED"
+    assert allowed["success"] is True
+    found = allowed["instruction_classes"][0]
+    assert found["basis"] == "sanitizer_receipt"
+    assert found["data_class"] == "PUBLIC"
+    assert found["source_data_class"] == "PRIVATE"
+
+    # The original is still PRIVATE and still refused, even though a receipt
+    # derived from it exists.
+    holder = probe.root / "holder"
+    holder.mkdir()
+    (holder / "AGENTS.md").write_bytes(original)
+    probe.classify(probe.entry_for(holder / "AGENTS.md", "PRIVATE"), receipts=[receipt])
+
+    blocked = OpenCodeWorker(
+        executable=probe.executable, timeout_seconds=60, ace_root=probe.ace_root,
+    ).run(task="ping", workspace=str(holder), model_order=[MODEL])
+
+    assert blocked["instruction_gate"] == "BLOCKED"
+    assert blocked["instruction_classes"][0]["data_class"] == "PRIVATE"
+
+
+def test_a_receipt_over_an_already_public_source_is_not_a_sanitisation():
+    """Otherwise a bare-name registry entry could manufacture egress."""
+    probe = Probe()
+    target = probe.workspace / "AGENTS.md"
+    body = b"harmless\n"
+    target.write_bytes(body)
+    probe.classify(
+        probe.entry_for(target, "PUBLIC"),
+        receipts=[probe.receipt_for(
+            target, body, data_class="PUBLIC", source_payload=b"a longer body\n",
+        )],
+    )
+
+    receipt = probe.worker().run(
+        task="ping", workspace=str(probe.workspace), model_order=[MODEL],
+    )
+
+    # Allowed, but on the registry's authority, not the receipt's: the source
+    # was already PUBLIC so there was nothing to sanitise.
+    assert receipt["instruction_gate"] == "ALLOWED"
+    assert receipt["instruction_classes"][0]["basis"] == "registry"
+
+
+def test_a_receipt_may_not_raise_a_data_class():
+    probe = Probe()
+    source = probe.root / "AGENTS.source.md"
+    original = b"public-ish source\n"
+    source.write_bytes(original)
+    reduced = probe.workspace / "AGENTS.md"
+    reduced.write_bytes(b"different bytes entirely\n")
+
+    probe.classify(
+        probe.entry_for(source, "CAPABILITY"),
+        receipts=[probe.receipt_for(
+            reduced, reduced.read_bytes(), data_class="CORE",
+            source_path=source, source_payload=original,
+        )],
+    )
+
+    receipt = probe.worker().run(
+        task="ping", workspace=str(probe.workspace), model_order=[MODEL],
+    )
+
+    assert receipt["instruction_gate"] == "BLOCKED"
+    entry = receipt["instruction_classes"][0]
+    assert entry["basis"] == "unclassified"
+    assert entry["ignored_receipt"] == "receipt_raises_data_class"
 
 
 def test_production_registry_keeps_the_runtime_manual_private():

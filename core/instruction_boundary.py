@@ -43,6 +43,8 @@ def instruction_evidence_keys() -> tuple:
 CONDITIONAL_CLASSES = {"CAPABILITY", "STRUCTURE"}
 # Classes no receipt can unlock.
 LOCAL_ONLY_CLASSES = {"PRIVATE", "CORE"}
+# Classes a sanitizer receipt may legitimately reduce from.
+RESTRICTED_CLASSES = CONDITIONAL_CLASSES | LOCAL_ONLY_CLASSES
 
 ACCEPTANCE = "ACCEPTANCE_VERIFIED"
 
@@ -98,6 +100,64 @@ def _matches(entry_match: str, source_path: Path) -> bool:
     return normalized.endswith(entry_match.lower().replace("\\", "/"))
 
 
+def _registry_entry_for(registry: Dict[str, Dict[str, Any]], path: Path):
+    """The most specific registry record covering a path.
+
+    Registry entries match on path suffixes, so a record for the bare filename
+    would otherwise shadow the specific one for the private source and let a
+    reduced artifact inherit a class nobody assigned to it.
+    """
+    best, best_length = None, -1
+    for item in registry.values():
+        candidate = str(item.get("match", "")).replace("\\", "/").lower()
+        if candidate and _matches(candidate, path) and len(candidate) > best_length:
+            best, best_length = item, len(candidate)
+    return best
+
+
+def _receipt_source_problem(
+    receipt: Dict[str, Any],
+    registry: Dict[str, Dict[str, Any]],
+    artifact_path: Path,
+) -> tuple:
+    """Check that a receipt describes a real reduction of a registered source.
+
+    Returns ``(source_data_class, problem)``; ``problem`` is empty when the
+    receipt is structurally sound. A receipt naming no known source, or signing
+    bytes identical to its source, is refused rather than believed.
+    """
+    declared_source = str(receipt.get("source_path", "")).strip()
+    if not declared_source:
+        return "", "receipt_without_registered_source"
+
+    source_record = _registry_entry_for(registry, Path(declared_source))
+    if source_record is None:
+        return "", "receipt_without_registered_source"
+
+    source_class = str(source_record.get("data_class", "")).upper()
+    if source_class not in RESTRICTED_CLASSES:
+        return source_class, "receipt_source_not_restricted"
+
+    artifact_class = str(receipt.get("data_class", "")).upper()
+    if artifact_class not in DATA_CLASSES:
+        return source_class, "receipt_unknown_class"
+
+    source_sha = str(receipt.get("source_sha256", "")).lower()
+    if not source_sha:
+        return source_class, "receipt_without_source_hash"
+    if source_sha == str(receipt.get("artifact_sha256", "")).lower():
+        # Nothing was removed. The artifact is the source, and signing it a
+        # lower class would move a label rather than remove a byte.
+        return source_class, "receipt_claims_unaltered_source"
+
+    # Only ever a reduction.
+    if artifact_class == source_class:
+        return source_class, "receipt_class_unchanged"
+    if artifact_class in LOCAL_ONLY_CLASSES:
+        return source_class, "receipt_raises_data_class"
+    return source_class, ""
+
+
 def classify_source(
     source: Dict[str, Any],
     *,
@@ -108,6 +168,11 @@ def classify_source(
     path = Path(str(source.get("path", "")))
     sha256 = str(source.get("sha256", ""))
 
+    # Set by the first receipt that covers this file but does not hold up. The
+    # reason rides along on the registry record so a refused receipt is visible
+    # rather than silently bypassed.
+    receipt_problem, receipt_source_class = "", ""
+
     for receipt in _read_receipts(root):
         if str(receipt.get("artifact_sha256", "")).lower() != sha256.lower():
             continue
@@ -115,9 +180,29 @@ def classify_source(
             continue
         if receipt.get("acceptance") != ACCEPTANCE:
             continue
-        data_class = str(receipt.get("data_class", "")).upper()
+
+        # A receipt lowers a class by removing content. It may never raise one,
+        # and it may never sign the source's own bytes: handing the gate PUBLIC
+        # alongside the original private bytes removes nothing at all, and
+        # validate_data_boundary cannot catch that because it inspects the class
+        # it is told rather than where the content came from.
+        source_class, problem = _receipt_source_problem(receipt, registry, path)
+        if problem == "receipt_source_not_restricted":
+            # Malformed rather than useless: someone signed a "sanitisation"
+            # over a source that was never restricted. Refuse rather than let a
+            # bare-name registry entry manufacture egress.
+            receipt_problem = receipt_source_class = problem
+            continue
+        if problem:
+            # A refused receipt must not shadow a legitimate classification.
+            # Fall through to the registry below and carry the reason.
+            receipt_problem = problem
+            receipt_source_class = source_class
+            continue
+
+        artifact_class = str(receipt.get("data_class", "")).upper()
         verdict = validate_data_boundary(
-            {"data_class": data_class},
+            {"data_class": artifact_class},
             target="MODEL_CONTEXT",
             payload=path.read_text(encoding="utf-8", errors="replace")
             if path.is_file() else "",
@@ -126,35 +211,43 @@ def classify_source(
             return {
                 "path": str(path),
                 "sha256": sha256,
-                "data_class": data_class,
+                "data_class": artifact_class,
                 "basis": "sanitizer_receipt",
                 "receipt_id": str(receipt.get("receipt_id", "")),
+                "source_data_class": source_class,
+                "source_sha256": str(receipt.get("source_sha256", "")),
             }
         return {
             "path": str(path),
             "sha256": sha256,
-            "data_class": data_class,
+            "data_class": artifact_class,
             "basis": "sanitizer_receipt_rejected",
             "errors": list(verdict["errors"]),
         }
 
-    for entry_match, entry in registry.items():
-        if _matches(entry_match, path):
-            return {
-                "path": str(path),
-                "sha256": sha256,
-                "data_class": str(entry.get("data_class", "")).upper(),
-                "basis": "registry",
-                "decided_by": str(entry.get("decided_by", "")),
-                "decided_at": str(entry.get("decided_at", "")),
-                "evidence": str(entry.get("evidence", "")),
-            }
+    record = _registry_entry_for(registry, path)
+    if record is not None:
+        classified = {
+            "path": str(path),
+            "sha256": sha256,
+            "data_class": str(record.get("data_class", "")).upper(),
+            "basis": "registry",
+            "decided_by": str(record.get("decided_by", "")),
+            "decided_at": str(record.get("decided_at", "")),
+            "evidence": str(record.get("evidence", "")),
+        }
+        if receipt_problem:
+            classified["ignored_receipt"] = receipt_problem
+            classified["source_data_class"] = receipt_source_class
+        return classified
 
     return {
         "path": str(path),
         "sha256": sha256,
         "data_class": "",
         "basis": "unclassified",
+        "ignored_receipt": receipt_problem,
+        "source_data_class": receipt_source_class,
     }
 
 
