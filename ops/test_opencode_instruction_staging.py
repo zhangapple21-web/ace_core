@@ -663,3 +663,46 @@ def test_survey_separates_allowed_and_blocked_call_sites():
     assert by_label["no instructions"]["instruction_files"] == 0
     assert by_label["no instructions"]["gate"] == "ALLOWED"
     assert report["egress_blocked"] is True
+
+
+def test_refusal_survives_worker_then_router_then_verdict():
+    """The real classes, end to end. Only the executable is a stand-in.
+
+    Unit tests cover each layer; this is the one that would catch a new layer
+    quietly reducing the refusal back into an unexplained failure.
+    """
+    from core.delivery_execution import worker_verdict
+    from core.opencode_worker import OPENCODE_MODELS
+    from core.worker_router import WorkerCapability, WorkerRouter
+
+    probe = Probe()
+    (probe.workspace / "AGENTS.md").write_text("# private runtime\n", encoding="utf-8")
+    probe.classify(probe.entry_for(probe.staged_path(), "PRIVATE"))
+
+    router = WorkerRouter([
+        WorkerCapability(
+            worker_id=f"w{index}", runtime="cli",
+            capabilities=frozenset({"structured_readonly"}),
+            metadata={"model": model, "fallback_rank": str(index)},
+        )
+        for index, model in enumerate(list(OPENCODE_MODELS.values())[:3])
+    ])
+    worker = probe.worker()
+
+    receipt = router.run(
+        "structured_readonly", worker,
+        task="ping", workspace=str(probe.workspace),
+        expected_result=str(probe.staged_path()),
+        verification_method="file_exists_nonempty",
+    )
+
+    assert receipt["success"] is False
+    assert receipt["instruction_gate"] == "BLOCKED"
+    assert receipt["failure_class"] == "instruction_gate_blocked"
+    assert len(receipt["router_attempts"]) == 1
+    assert probe.observation() is None, "the CLI was started despite the block"
+
+    verdict = worker_verdict(receipt)
+    assert verdict["ok"] is False
+    assert verdict["instruction_gate"] == "BLOCKED"
+    assert verdict["instruction_classes"][0]["data_class"] == "PRIVATE"
