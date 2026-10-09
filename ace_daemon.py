@@ -2869,26 +2869,46 @@ class AceDaemon:
             self._log_error("experience_deposition", str(exc), task.task_id)
 
     def _run_free_zone_model_shift_if_due(self) -> Dict[str, Any]:
+        # Due-cause telemetry: the shift silently not firing is
+        # indistinguishable from "not due" without it. Read-only bookkeeping;
+        # the cycle persists state each round, so no extra writes here.
         cfg = self.config.get("runtime", {}).get("free_zone_model_shift", {})
-        if not isinstance(cfg, dict) or not cfg.get("enabled"):
-            return {"status": "DISABLED"}
         now = datetime.now()
-        if (now.hour, now.minute) < (18, 30):
-            return {"status": "WAITING_FOR_DEDICATED_SHIFT"}
         day = now.strftime("%Y-%m-%d")
+        due = {
+            "at": now.isoformat(),
+            "enabled": bool(isinstance(cfg, dict) and cfg.get("enabled")),
+            "in_window": (now.hour, now.minute) >= (18, 30),
+            "miner_pool_present": self.miner_pool is not None,
+            "state_date": self.state.get("free_zone_model_shift_date"),
+            "today": day,
+        }
+        if not isinstance(cfg, dict) or not cfg.get("enabled"):
+            self.state["free_zone_model_shift_due"] = {**due, "status": "DISABLED"}
+            return {"status": "DISABLED"}
+        if (now.hour, now.minute) < (18, 30):
+            self.state["free_zone_model_shift_due"] = {**due, "status": "WAITING_FOR_DEDICATED_SHIFT"}
+            return {"status": "WAITING_FOR_DEDICATED_SHIFT"}
         if not self.miner_pool:
+            self.state["free_zone_model_shift_due"] = {**due, "status": "NO_EXISTING_MINER_POOL"}
             return {"status": "NO_EXISTING_MINER_POOL"}
         shift = FreeZoneModelShift(
             self.base_dir / "07_SANDBOX" / "free_research", self.miner_pool
         )
         inbox_fingerprint = shift.inbox_fingerprint()
         previous = self.state.get("free_zone_model_shift_last", {})
+        due["fingerprint_match"] = (
+            isinstance(previous, dict)
+            and previous.get("inbox_fingerprint") == inbox_fingerprint
+        )
         if (
             self.state.get("free_zone_model_shift_date") == day
             and isinstance(previous, dict)
             and previous.get("inbox_fingerprint") == inbox_fingerprint
         ):
+            self.state["free_zone_model_shift_due"] = {**due, "status": "ALREADY_OBSERVED_CURRENT_INVITATION_SET"}
             return {"status": "ALREADY_OBSERVED_CURRENT_INVITATION_SET"}
+        self.state["free_zone_model_shift_due"] = {**due, "status": "RUNNING_SHIFT"}
         result = shift.run_once(max_tokens=int(cfg.get("max_tokens", 1024)))
         self.state["free_zone_model_shift_date"] = day
         self.state["free_zone_model_shift_last"] = {

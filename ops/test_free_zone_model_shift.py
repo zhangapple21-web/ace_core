@@ -38,6 +38,67 @@ def test_daemon_waits_for_the_dedicated_free_zone_shift():
     assert daemon._run_free_zone_model_shift_if_due()['status'] in {'WAITING_FOR_DEDICATED_SHIFT','NO_EXISTING_MINER_POOL'}
 
 
+def test_due_telemetry_names_its_branch(monkeypatch):
+    """A silently-skipped shift must still say which gate held it."""
+    from datetime import datetime
+
+    from ace_daemon import AceDaemon
+
+    class Evening:
+        @classmethod
+        def now(cls):
+            return datetime(2026, 9, 1, 19, 5)
+
+    monkeypatch.setattr("ace_daemon.datetime", Evening)
+
+    daemon = AceDaemon.__new__(AceDaemon)
+    daemon.config = {"runtime": {"free_zone_model_shift": {"enabled": False}}}
+    daemon.state = {}
+    daemon.miner_pool = None
+    assert daemon._run_free_zone_model_shift_if_due()["status"] == "DISABLED"
+    due = daemon.state["free_zone_model_shift_due"]
+    assert due["status"] == "DISABLED" and due["enabled"] is False
+
+    daemon.config = {"runtime": {"free_zone_model_shift": {"enabled": True}}}
+    daemon.state = {}
+    assert daemon._run_free_zone_model_shift_if_due()["status"] == "NO_EXISTING_MINER_POOL"
+    due = daemon.state["free_zone_model_shift_due"]
+    assert due["status"] == "NO_EXISTING_MINER_POOL"
+    assert due["miner_pool_present"] is False and due["in_window"] is True
+
+
+def test_due_telemetry_marks_running_shift(monkeypatch, tmp_path):
+    from datetime import datetime
+
+    from ace_daemon import AceDaemon
+
+    class Evening:
+        @classmethod
+        def now(cls):
+            return datetime(2026, 9, 1, 19, 5)
+
+    inbox = tmp_path / "07_SANDBOX" / "free_research" / "inbox"
+    inbox.mkdir(parents=True)
+    inbox.joinpath("seed.json").write_text(json.dumps({
+        "contract_version": "ace.semantic_seed.v1", "food_kind": "semantic_seed",
+        "source_ref": "x", "source_snapshot_hash": "a" * 64, "source_kind": "fixture",
+        "extracted_mechanism": "m", "ace_symptom": "s", "transfer_hypothesis": "h",
+        "counterexample_question": "q", "next_verification": "v",
+        "local_evidence_refs": [], "external_evidence_refs": [], "lineage": ["x"],
+    }), encoding="utf-8")
+    monkeypatch.setattr("ace_daemon.datetime", Evening)
+    daemon = AceDaemon.__new__(AceDaemon)
+    daemon.base_dir = tmp_path
+    daemon.config = {"runtime": {"free_zone_model_shift": {"enabled": True, "max_tokens": 64}}}
+    daemon.state = {}
+    daemon.miner_pool = Pool()
+    daemon._save_state = lambda: None
+    result = daemon._run_free_zone_model_shift_if_due()
+    assert result["status"] == "MODEL_SHIFT_RECORDED"
+    assert daemon.state["free_zone_model_shift_due"]["status"] == "RUNNING_SHIFT"
+    assert daemon.state["free_zone_model_shift_date"] == "2026-09-01"
+
+
 def test_daemon_runs_one_bounded_free_zone_turn_in_the_existing_evening_cycle(monkeypatch, tmp_path):
     from datetime import datetime
     from ace_daemon import AceDaemon
