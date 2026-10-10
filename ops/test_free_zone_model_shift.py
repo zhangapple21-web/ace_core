@@ -32,6 +32,46 @@ def test_shift_fingerprint_changes_when_a_late_research_invitation_arrives(tmp_p
     shift.inbox.joinpath('late.json').write_text('{}', encoding='utf-8')
     assert shift.inbox_fingerprint() != empty
 
+def _distillation(path, status="OPEN_QUESTION", pattern="When X is recorded nightly, Y becomes explainable without new code.", exp_id="EXP-D1"):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({
+        "experiment_id": exp_id, "status": status,
+        "outcome": "INCONCLUSIVE", "pattern": pattern,
+        "reason": "inconclusive_result_requires_new_observation",
+    }), encoding="utf-8")
+
+
+def test_empty_inbox_falls_back_to_distillation_seed(tmp_path):
+    _distillation(tmp_path / "distillations" / "EXP-D1.json")
+    (tmp_path / "inbox").mkdir(parents=True)
+    result = FreeZoneModelShift(tmp_path, Pool()).run_once()
+    assert result["status"] == "MODEL_SHIFT_RECORDED"
+    state = json.loads((tmp_path / "model_shift_state.json").read_text(encoding="utf-8"))
+    assert len(state["completed_seed_hashes"]) == 1
+    # Ephemeral: derivation writes no inbox file.
+    assert list((tmp_path / "inbox").glob("*.json")) == []
+    again = FreeZoneModelShift(tmp_path, Pool()).run_once()
+    assert again["status"] == "NO_UNCONSUMED_SEMANTIC_SEED"
+
+
+def test_fresh_human_distillation_rearms_the_fallback(tmp_path):
+    _distillation(tmp_path / "distillations" / "EXP-D1.json")
+    (tmp_path / "inbox").mkdir(parents=True)
+    assert FreeZoneModelShift(tmp_path, Pool()).run_once()["status"] == "MODEL_SHIFT_RECORDED"
+    assert FreeZoneModelShift(tmp_path, Pool()).run_once()["status"] == "NO_UNCONSUMED_SEMANTIC_SEED"
+    _distillation(tmp_path / "distillations" / "EXP-D2.json", exp_id="EXP-D2")
+    third = FreeZoneModelShift(tmp_path, Pool()).run_once()
+    assert third["status"] == "MODEL_SHIFT_RECORDED"
+
+
+def test_thin_distillation_does_not_qualify(tmp_path):
+    _distillation(tmp_path / "distillations" / "EXP-D1.json",
+                  status="FAIL", pattern="  ")
+    (tmp_path / "inbox").mkdir(parents=True)
+    result = FreeZoneModelShift(tmp_path, Pool()).run_once()
+    assert result["status"] == "NO_UNCONSUMED_SEMANTIC_SEED"
+
+
 def test_daemon_waits_for_the_dedicated_free_zone_shift():
     from ace_daemon import AceDaemon
     daemon=AceDaemon.__new__(AceDaemon); daemon.config={"runtime":{"free_zone_model_shift":{"enabled":True}}}; daemon.state={}; daemon.miner_pool=None
