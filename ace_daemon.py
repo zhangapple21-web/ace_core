@@ -2869,46 +2869,65 @@ class AceDaemon:
             self._log_error("experience_deposition", str(exc), task.task_id)
 
     def _run_free_zone_model_shift_if_due(self) -> Dict[str, Any]:
-        # Due-cause telemetry: the shift silently not firing is
-        # indistinguishable from "not due" without it. Read-only bookkeeping;
-        # the cycle persists state each round, so no extra writes here.
+        # Due-cause telemetry via the shared gate vocabulary: a stage that
+        # silently skips is indistinguishable from "not due" without it.
+        # Read-only bookkeeping; the cycle persists state each round.
+        from core.stage_gates import evaluate_gates, record_gate
+
         cfg = self.config.get("runtime", {}).get("free_zone_model_shift", {})
         now = datetime.now()
         day = now.strftime("%Y-%m-%d")
+        enabled = bool(isinstance(cfg, dict) and cfg.get("enabled"))
+        in_window = (now.hour, now.minute) >= (18, 30)
+        pool_present = self.miner_pool is not None
         due = {
             "at": now.isoformat(),
-            "enabled": bool(isinstance(cfg, dict) and cfg.get("enabled")),
-            "in_window": (now.hour, now.minute) >= (18, 30),
-            "miner_pool_present": self.miner_pool is not None,
+            "enabled": enabled,
+            "in_window": in_window,
+            "miner_pool_present": pool_present,
             "state_date": self.state.get("free_zone_model_shift_date"),
             "today": day,
         }
-        if not isinstance(cfg, dict) or not cfg.get("enabled"):
-            self.state["free_zone_model_shift_due"] = {**due, "status": "DISABLED"}
-            return {"status": "DISABLED"}
-        if (now.hour, now.minute) < (18, 30):
-            self.state["free_zone_model_shift_due"] = {**due, "status": "WAITING_FOR_DEDICATED_SHIFT"}
-            return {"status": "WAITING_FOR_DEDICATED_SHIFT"}
-        if not self.miner_pool:
-            self.state["free_zone_model_shift_due"] = {**due, "status": "NO_EXISTING_MINER_POOL"}
-            return {"status": "NO_EXISTING_MINER_POOL"}
+        gates = {
+            "config_enabled": (enabled, "free_zone_model_shift.enabled"),
+            "dedicated_window": (in_window, "evening shift window from 18:30"),
+            "miner_pool_ready": (pool_present, "existing miner pool instance"),
+        }
+        _, blocker = evaluate_gates(gates)
+        if blocker != "GO":
+            status = {
+                "config_enabled": "DISABLED",
+                "dedicated_window": "WAITING_FOR_DEDICATED_SHIFT",
+                "miner_pool_ready": "NO_EXISTING_MINER_POOL",
+            }[blocker]
+            self.state["free_zone_model_shift_due"] = {**due, "status": status}
+            record_gate(self.state, "free_zone_model_shift", gates, status)
+            return {"status": status}
         shift = FreeZoneModelShift(
             self.base_dir / "07_SANDBOX" / "free_research", self.miner_pool
         )
         inbox_fingerprint = shift.inbox_fingerprint()
         previous = self.state.get("free_zone_model_shift_last", {})
-        due["fingerprint_match"] = (
+        fingerprint_fresh = not (
             isinstance(previous, dict)
             and previous.get("inbox_fingerprint") == inbox_fingerprint
         )
+        gates["new_invitation_set"] = (
+            fingerprint_fresh or self.state.get("free_zone_model_shift_date") != day,
+            "unconsumed invitation set for today",
+        )
+        due["fingerprint_match"] = not fingerprint_fresh
         if (
             self.state.get("free_zone_model_shift_date") == day
             and isinstance(previous, dict)
             and previous.get("inbox_fingerprint") == inbox_fingerprint
         ):
             self.state["free_zone_model_shift_due"] = {**due, "status": "ALREADY_OBSERVED_CURRENT_INVITATION_SET"}
+            record_gate(self.state, "free_zone_model_shift", gates,
+                        "ALREADY_OBSERVED_CURRENT_INVITATION_SET")
             return {"status": "ALREADY_OBSERVED_CURRENT_INVITATION_SET"}
         self.state["free_zone_model_shift_due"] = {**due, "status": "RUNNING_SHIFT"}
+        record_gate(self.state, "free_zone_model_shift", gates, "RUNNING_SHIFT")
         result = shift.run_once(max_tokens=int(cfg.get("max_tokens", 1024)))
         self.state["free_zone_model_shift_date"] = day
         self.state["free_zone_model_shift_last"] = {
