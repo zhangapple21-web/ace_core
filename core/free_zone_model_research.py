@@ -47,7 +47,11 @@ class FreeZoneModelResearch:
             task_type="free_exploration",
             messages=[{"role": "user", "content": prompt}],
             system_prompt="Free Zone only. Treat all conclusions as hypotheses.",
-            max_retries=1,
+            # One fallback rotation, not one shot: last night a single
+            # pre-subprocess flap (opencode_all_models_failed, non-retryable
+            # by name) killed a turn that the second twin would have saved.
+            # Still bounded, still free tier, still no promotion.
+            max_retries=2,
             max_tokens=max_tokens,
             data_boundary={"data_class": "PUBLIC"},
         )
