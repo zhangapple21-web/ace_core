@@ -33,12 +33,12 @@ NIM_QWEN_397B = "nim:qwen/qwen3.5-397b-a17b"
 # profiles until Provider Registry verification and billing A/B are complete.
 SHENWEN_GROK_45 = "shenwen_grok:grok-4.5"
 SHENWEN_GROK_46 = "shenwen_grok:grok-4.6"
-SHENWEN_TERRA = "shenwen:gpt-6.1-sol"
-SHENWEN_ASTRA = "shenwen:gpt-6.1-sol"
+SHENWEN_TERRA = "shenwen:gpt-5.6-terra"
+SHENWEN_ASTRA = "shenwen:gpt-6-astra"
 SHENWEN_GPT54_MINI = "shenwen:gpt-5.4-mini"
 ONEAPI_GPT54_MINI = "oneapi:gpt-5.4-mini"
-ONEAPI_TERRA = "oneapi:gpt-6.1-sol"
-ONEAPI_ASTRA = "oneapi:gpt-6.1-sol"
+ONEAPI_TERRA = "oneapi:gpt-5.6-terra"
+ONEAPI_ASTRA = "oneapi:gpt-6-astra"
 SHENWEN_DS41_FLASH = "shenwen_ds41:deepseek-v4.1-flash"
 ONEAPI_DS41_FLASH = "oneapi:deepseek-v4.1-flash"
 OPENCODE_FLEDGE_FREE = "oneapi_free:fledge-alpha-free"
@@ -211,16 +211,18 @@ TASK_PROFILES: Dict[str, Dict[str, Any]] = {
     },
     "strategic": {
         "description": "战略推理",
-        "expected_model": "gpt-6.1-sol",
+        "expected_model": "gpt-5.6-terra",
         "model_enabled": True,
         "allowed_providers": {"shenwen", "oneapi", "glm", "nim"},
-        "allowed_models": {"shenwen:gpt-6.1-sol", "oneapi:gpt-6.1-sol", SHENWEN_TERRA, SHENWEN_ASTRA, ONEAPI_TERRA, ONEAPI_ASTRA, GLM_FLASH, NIM_QWEN_397B},
+        # Keep Terra as the historical baseline while allowing the governed
+        # complex-task escalation path to use Astra.
+        "allowed_models": {SHENWEN_TERRA, SHENWEN_ASTRA, ONEAPI_TERRA, ONEAPI_ASTRA, GLM_FLASH, NIM_QWEN_397B},
         "preferred_traits": ["strategic", "logical", "thorough"],
         "avoid_traits": ["fast_but_wrong", "superficial"],
         "temperature": 0.5,
         "max_tokens": 4096,
         "timeout": 240,
-        "preferred_models": ["oneapi:gpt-6.1-sol", "shenwen:gpt-6.1-sol"],
+        "preferred_models": [ONEAPI_TERRA, SHENWEN_TERRA],
         "fallback_models": [GLM_FLASH, NIM_QWEN_397B],
         "strategy": "quality_first",
         "escalation_models": [ONEAPI_ASTRA, SHENWEN_ASTRA],
