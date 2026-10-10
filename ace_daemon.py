@@ -4721,6 +4721,10 @@ class AceDaemon:
             self._run_drought_check()
         except Exception as e:
             self._log_error("drought_check", str(e))
+        try:
+            self._run_needs_check()
+        except Exception as e:
+            self._log_error("needs_check", str(e))
         self._save_state()
         self._complete_cycle_stage("surprise", surprise_stage_started)
 
@@ -4969,6 +4973,88 @@ class AceDaemon:
                     self._log_error("drought_record", str(e))
         self.state["last_drought_snapshot"] = {"calls_total": calls_total, "still_cycles": still}
         return {"droughts": len(droughts), "recorded": recorded, "still_cycles": still}
+
+    def _run_needs_check(self) -> Dict[str, Any]:
+        """Say what gated work is missing, so silence becomes a named need.
+
+        Same recording contract as tensions and droughts: anomaly-category
+        observations with stable dedup keys, converter decides worth. Today
+        no conversion rule matches category "need", so these stay visible
+        without manufacturing tasks. Recovery resolves the signature.
+        Only proven needs are emitted; a new need type is a design decision.
+        """
+        from core.semantic_seed import normalize_semantic_seed
+
+        recorded = 0
+        observer = getattr(self, "runtime_observer", None)
+        if observer is None:
+            return {"recorded": 0}
+        try:
+            cfg = self.config.get("runtime", {}).get("free_zone_model_shift", {})
+            enabled = bool(isinstance(cfg, dict) and cfg.get("enabled"))
+            consumed: set = set()
+            try:
+                import json as _json
+
+                shift_state_path = (
+                    self.base_dir / "07_SANDBOX" / "free_research" / "model_shift_state.json"
+                )
+                if shift_state_path.is_file():
+                    consumed = set(
+                        _json.loads(shift_state_path.read_text(encoding="utf-8")).get(
+                            "completed_seed_hashes", []
+                        )
+                    )
+            except (OSError, ValueError):
+                consumed = set()
+            valid_unconsumed = 0
+            try:
+                inbox = self.base_dir / "07_SANDBOX" / "free_research" / "inbox"
+                if inbox.is_dir():
+                    import json as _json
+
+                    for path in sorted(inbox.glob("*.json")):
+                        try:
+                            seed = normalize_semantic_seed(
+                                _json.loads(path.read_text(encoding="utf-8"))
+                            )
+                        except Exception:
+                            continue
+                        if seed.get("seed_hash") not in consumed:
+                            valid_unconsumed += 1
+            except OSError:
+                pass
+            if enabled and valid_unconsumed == 0:
+                try:
+                    observer.record(
+                        description=(
+                            "Free-zone model shift is enabled but has no unconsumed "
+                            "semantic seed: the evening turn will report NO_SEED. "
+                            "Planting a seed is the unblock."
+                        ),
+                        system_state={"need": "free_zone_seed_supply",
+                                      "evidence": {"valid_unconsumed": 0}},
+                        severity="medium",
+                        source="needs_check",
+                        category="need",
+                        auto_generated=True,
+                        dedup_key=("need", "free_zone_seed_supply"),
+                    )
+                    recorded += 1
+                except Exception as e:
+                    self._log_error("needs_record", str(e))
+            else:
+                try:
+                    observer.resolve_signature(
+                        observer._dedup_signature(
+                            ("need", "free_zone_seed_supply"), "needs_check", "need"
+                        )
+                    )
+                except Exception:
+                    pass
+        except Exception as e:
+            self._log_error("needs_check", str(e))
+        return {"recorded": recorded}
 
     def _run_tension_check(self) -> Dict[str, Any]:
         """Ask from structure the system already owns.
