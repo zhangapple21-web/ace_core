@@ -64,6 +64,62 @@ def test_fresh_human_distillation_rearms_the_fallback(tmp_path):
     assert third["status"] == "MODEL_SHIFT_RECORDED"
 
 
+class StrategicPool:
+    """Fake pool answering the foundry call with strict JSON."""
+
+    def __init__(self, content):
+        self.content = content
+        self.calls = []
+
+    def chat(self, **kwargs):
+        assert kwargs["task_type"] == "strategic"
+        assert kwargs.get("data_boundary") == {"data_class": "PUBLIC"}
+        self.calls.append(kwargs)
+        return {"success": True, "content": self.content, "provider": "oneapi",
+                "model": "gpt-5.6-terra", "usage": {}, "latency_ms": 3, "attempts": []}
+
+
+def test_foundry_mints_one_paid_seed_per_day(tmp_path):
+    from core.free_zone_model_shift import FreeZoneModelShift
+
+    (tmp_path / "inbox").mkdir(parents=True)
+    (tmp_path / "distillations").mkdir(parents=True)
+    (tmp_path / "distillations" / "OLD.json").write_text(json.dumps({
+        "experiment_id": "EXP-OLD", "status": "FAIL", "outcome": "FAIL",
+        "pattern": "", "reason": "x",
+    }), encoding="utf-8")
+    pool = StrategicPool(json.dumps({
+        "transfer_hypothesis": "H", "counterexample_question": "Q", "next_verification": "V",
+    }))
+    shift = FreeZoneModelShift(tmp_path, pool)
+    state = {}
+    foundry, seed = shift._foundry_seed(state)
+    assert seed["transfer_hypothesis"] == "H"
+    assert seed["foundry_model"] == "oneapi:gpt-5.6-terra"
+    assert state["foundry_spend"]["count"] == 1
+    assert len(pool.calls) == 1
+    # Same day: cap holds, no second paid call.
+    assert shift._foundry_seed(state) is None
+    assert len(pool.calls) == 1
+
+
+def test_foundry_refuses_garbage_and_needs_context(tmp_path):
+    from core.free_zone_model_shift import FreeZoneModelShift
+
+    (tmp_path / "inbox").mkdir(parents=True)
+    (tmp_path / "distillations").mkdir(parents=True)
+    pool = StrategicPool("not json at all {{{")
+    shift = FreeZoneModelShift(tmp_path, pool)
+    assert shift._foundry_seed({}) is None
+    (tmp_path / "distillations" / "D.json").write_text(json.dumps({
+        "experiment_id": "EXP-D", "status": "FAIL", "outcome": "FAIL",
+        "pattern": "Something failed loudly and honestly.",
+        "reason": "x",
+    }), encoding="utf-8")
+    assert shift._foundry_seed({}) is None
+    assert len(pool.calls) == 1
+
+
 def test_thin_distillation_does_not_qualify(tmp_path):
     _distillation(tmp_path / "distillations" / "EXP-D1.json",
                   status="FAIL", pattern="  ")
