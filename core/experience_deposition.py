@@ -80,6 +80,7 @@ class Experience:
         self.created_at = created_at or datetime.now().isoformat()
         self.reference_count = 0
         self.last_used_at = self.created_at
+        self.last_used_by = "unspecified"
         self.epistemic_status = epistemic_status or EPISTEMIC_STATUS.get(self.experience_type, "OBSERVATION")
         self.verification = dict(verification or {})
         self.downgrade_reason = downgrade_reason
@@ -99,6 +100,7 @@ class Experience:
             "created_at": self.created_at,
             "reference_count": self.reference_count,
             "last_used_at": self.last_used_at,
+            "last_used_by": self.last_used_by,
             "verification": self.verification,
             "downgrade_reason": self.downgrade_reason,
         }
@@ -108,14 +110,17 @@ class Experience:
         value = dict(data)
         reference_count = int(value.pop("reference_count", 0) or 0)
         last_used_at = value.pop("last_used_at", None)
+        last_used_by = value.pop("last_used_by", None)
         experience = cls(**value)
         experience.reference_count = reference_count
         experience.last_used_at = last_used_at or experience.created_at
+        experience.last_used_by = last_used_by or "unspecified"
         return experience
 
-    def touch(self):
+    def touch(self, actor: str = "unspecified"):
         self.last_used_at = datetime.now().isoformat()
         self.reference_count += 1
+        self.last_used_by = actor or "unspecified"
 
 
 class ExperienceDeposition:
@@ -411,8 +416,9 @@ class ExperienceDeposition:
         experiences.sort(key=lambda e: e.reference_count, reverse=True)
         return experiences[:limit]
 
-    def find_related(self, keyword: str, limit: int = 10) -> List[Experience]:
-        """根据关键词查找相关经验"""
+    def find_related(self, keyword: str, limit: int = 10,
+                     actor: str = "unspecified") -> List[Experience]:
+        """根据关键词查找相关经验；调用方具名，复用可审计归属。"""
         all_exp = self.get_all(limit=200)
         results = []
         kw = keyword.lower()
@@ -426,7 +432,7 @@ class ExperienceDeposition:
                 if kw in tag.lower():
                     score += 1
             if score > 0:
-                exp.touch()
+                exp.touch(actor=actor)
                 results.append((score, exp))
         results.sort(key=lambda x: -x[0])
         selected = [e for _, e in results[:limit]]

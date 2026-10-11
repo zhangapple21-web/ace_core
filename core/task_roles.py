@@ -921,7 +921,8 @@ class Researcher:
         # 7. 闭环反馈：从经验库生成经验驱动假设
         if self.experience_deposition and title_keywords:
             for kw in title_keywords[:2]:
-                related = self.experience_deposition.find_related(kw, limit=2)
+                related = self.experience_deposition.find_related(
+                    kw, limit=2, actor="researcher")
                 if related:
                     top_exp = related[0]
                     candidates.append({
@@ -1061,7 +1062,8 @@ class Researcher:
         # 闭环反馈：从经验库检索历史经验作为证据
         if self.experience_deposition:
             for kw in keywords[:3]:
-                related_exp = self.experience_deposition.find_related(kw, limit=3)
+                related_exp = self.experience_deposition.find_related(
+                    kw, limit=3, actor="researcher")
                 for exp in related_exp[:2]:
                     evidence.append({
                         "content": f"[历史经验-{exp.experience_type}] {exp.conclusion[:200]}",
@@ -1900,7 +1902,8 @@ class Guardian:
             conflict_found = False
             if self.experience_deposition:
                 title_kw = task.title[:20].lower()
-                related_lessons = self.experience_deposition.find_related(task.title[:20], limit=5)
+                related_lessons = self.experience_deposition.find_related(
+                    task.title[:20], limit=5, actor="guardian")
                 for exp in related_lessons:
                     if exp.experience_type == "lesson":
                         conflict_found = True

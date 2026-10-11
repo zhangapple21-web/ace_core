@@ -147,3 +147,27 @@ def test_archived_experience_failure_is_counted_and_logged():
     assert daemon.state["errors"][0]["error"] == "simulated retention failure"
 
 
+
+def test_reuse_records_its_actor_and_defaults_unspecified(tmp_path):
+    from core.experience_deposition import Experience
+
+    target = tmp_path / "pattern" / "EXP-t1.json"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    dep = ExperienceDeposition(str(tmp_path))
+    exp = Experience(
+        experience_id="EXP-t1", source_task_id="RQ-x",
+        experience_type="pattern", conclusion="reuse must name its reader",
+        evidence=[], tags=["audit"],
+        constraints_updated=[], related_concepts=[],
+    )
+    dep._persist_experience(exp, target)
+    found = dep.find_related("reuse", actor="researcher")
+    assert [e.experience_id for e in found] == ["EXP-t1"]
+    stored = json.loads(target.read_text(encoding="utf-8"))
+    assert stored["last_used_by"] == "researcher"
+    assert stored["reference_count"] == 1
+    # Old records without the field load cleanly.
+    del stored["last_used_by"]
+    target.write_text(json.dumps(stored), encoding="utf-8")
+    reloaded = dep.find_related("reuse")
+    assert reloaded[0].last_used_by in {"researcher", "unspecified"}
