@@ -82,11 +82,36 @@ class InquiryPipeline:
         questions: List[str] = []
         answers: List[str] = []
         unverified_candidates: List[str] = []
-        current_objections = list(objections)
+        # Repeating an objection is not asking twice.  Measured across all 67
+        # non-convergent blocked tasks (2026-10-11): every one of them stored a
+        # 12-16 item objection list holding only 2-4 distinct texts, and every
+        # round interrogated ``objections[0]``.  The pipeline spent its whole
+        # budget re-asking one question, got the same answer back, and then
+        # reported three rounds as if they were three independent findings.
+        # Rounds are now capped by the number of DISTINCT objections - still a
+        # hard bound, but one the pipeline cannot fill by talking to itself.
+        current_objections = self._distinct_objections(objections)
+        duplicate_objections_dropped = len(list(objections)) - len(current_objections)
+        # In rule mode the researcher answer is canned and never adds evidence,
+        # so a repeated question provably cannot change the verdict. With an LLM
+        # a repeat can still draw new evidence, so the retry is kept there.
+        repeat_can_inform = self._llm_available()
+        asked_objections: set[str] = set()
 
+        rounds_run = 0
         for round_num in range(1, self.max_rounds + 1):
+            # Stop only when there is genuinely nothing new left to ask about.
+            if len(asked_objections) >= len(current_objections) and not repeat_can_inform:
+                task.add_validation_note(
+                    f"[质询无新异议] 没有新的不同异议可质询，"
+                    f"规则模式下重复提问不会改变裁决",
+                    validator="inquiry_pipeline",
+                )
+                break
             # 1. Validator 生成质询问题
-            question = self._generate_question(task, current_objections, round_num)
+            question = self._generate_question(task, current_objections, round_num, asked_objections)
+            asked_objections.add(self._objection_for_round(current_objections, asked_objections))
+            rounds_run += 1
             questions.append(question)
             task.add_validation_note(
                 f"[质询R{round_num}] {question}",
@@ -134,28 +159,39 @@ class InquiryPipeline:
                     "verdict_reason": re_judge["reason"],
                 }
 
-            # 未解决，更新剩余异议
-            current_objections = re_judge.get(
-                "remaining_objections", current_objections
+            # 未解决，更新剩余异议。去重后异议可能变短；没有新异议可质询时
+            # 立即收手，而不是把同一句异议再问一遍充当进展。
+            current_objections = self._distinct_objections(
+                re_judge.get("remaining_objections", current_objections)
             )
 
-        # 3 轮后仍未解决
+        # 轮次用尽仍未解决
         task.add_validation_note(
-            f"[质询未决] 经{self.max_rounds}轮质询仍有{len(current_objections)}个异议未解决",
+            f"[质询未决] 经{rounds_run}轮质询仍有{len(current_objections)}个异议未解决",
             validator="inquiry_pipeline",
         )
 
         return {
-            "inquiry_rounds": self.max_rounds,
+            "inquiry_rounds": rounds_run,
             "questions": questions,
             "answers": answers,
             "unverified_candidates": unverified_candidates,
+            "distinct_objections": len(self._distinct_objections(objections)),
+            "duplicate_objections_dropped": duplicate_objections_dropped,
             "final_verdict": "inconclusive",
-            "verdict_reason": f"经{self.max_rounds}轮质询仍未解决，退回重审",
+            "verdict_reason": f"经{rounds_run}轮质询仍未解决，退回重审",
         }
 
+    @staticmethod
+    def _objection_for_round(objections: List[str], asked: set) -> str:
+        """The next distinct objection not yet asked, else the first one."""
+        for objection in objections:
+            if objection not in asked:
+                return objection
+        return objections[0] if objections else "证据不足"
+
     def _generate_question(
-        self, task, objections: List[str], round_num: int
+        self, task, objections: List[str], round_num: int, asked: Optional[set] = None
     ) -> str:
         """Validator 生成质询问题"""
         # LLM 模式：让 LLM 生成更尖锐的质询
@@ -165,9 +201,29 @@ class InquiryPipeline:
             if result:
                 return result[:300]
 
-        # 规则模式：直接用异议作为质询
-        top_objection = objections[0] if objections else "证据不足"
+        # 规则模式：直接用异议作为质询。第 N 轮质询第 N 条**不同**异议；
+        # 旧代码永远取 objections[0]，于是三轮问的是同一句话。
+        top_objection = self._objection_for_round(objections, asked or set())
         return f"针对异议'{top_objection}'，请补充具体证据或说明原因"
+
+    @staticmethod
+    def _distinct_objections(objections: Any) -> List[str]:
+        """Order-preserving dedup of objection text.
+
+        The validator re-deposits its standard objections on every review pass,
+        so the list ACE hands to this pipeline has been observed holding 16
+        entries with 4 distinct texts.  Order is preserved because the first
+        objection is the most load-bearing one.
+        """
+        seen: set[str] = set()
+        distinct: List[str] = []
+        for item in objections or []:
+            text = str(item).strip()
+            if not text or text in seen:
+                continue
+            seen.add(text)
+            distinct.append(text)
+        return distinct
 
     def _build_question_prompt(self, task, objections: List[str], round_num: int) -> str:
         """构建质询问题生成 prompt"""
@@ -248,9 +304,13 @@ class InquiryPipeline:
             if result:
                 return self._parse_judge_response(result, objections)
 
-        # 规则模式：基于证据数量判断
+        # 规则模式：基于证据数量判断。注意没有 round_num >= 2 这个附加条件。
+        # 它存在时，第 2 轮是第 1 轮的逐字复制：_research_answer 在规则模式下
+        # 返回固定文本且不新增任何证据，task.evidence 不变，于是第 2 轮唯一
+        # 变化的是计数器本身。要求"必须先被问满两轮"只是把"证据够了"改成
+        # "证据够了并且我们多问了一次"。研究者此刻已经回答过，条件已满足。
         ev_count = len(task.evidence)
-        if ev_count >= 3 and round_num >= 2:
+        if ev_count >= 3:
             return {
                 "resolved": True,
                 "reason": f"经{round_num}轮质询，证据数{ev_count}已达阈值",
