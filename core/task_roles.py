@@ -1243,6 +1243,24 @@ class Validator:
             if not _is_reuse_pointer(item)
         }
 
+    @staticmethod
+    def _unique_counter_examples(task: Task) -> set:
+        """Distinct counter-example texts.
+
+        The validator re-deposits its standard objections on every review pass,
+        so ``len(task.counter_examples)`` grows by the same handful of texts on
+        each round. Measured over all 67 non-convergent blocked tasks (2026-10-11)
+        the stored list held 14.4 entries for 3.7 distinct ones - a record that
+        reads like fourteen objections and is really four. This mirrors
+        ``_unique_evidence``: the stored list stays untouched, and the reader is
+        given the count that actually means something.
+        """
+        return {
+            str(item.get("content", "")) if isinstance(item, dict) else str(item)
+            for item in task.counter_examples
+            if str(item.get("content", "") if isinstance(item, dict) else item).strip()
+        }
+
     @classmethod
     def evidence_signature(cls, task: Task) -> str:
         return hashlib.sha256(
@@ -1500,6 +1518,8 @@ class Validator:
         task.outputs["validator_outcome_signature"] = validator_outcome_signature
         stored_evidence_count = len(task.evidence or [])
         distinct_evidence_count = len(self._unique_evidence(task))
+        stored_counter_example_count = len(task.counter_examples or [])
+        distinct_counter_example_count = len(self._unique_counter_examples(task))
         validator_result = {
             "review_count": task.review_count,
             "evidence_signature": evidence_signature,
@@ -1513,6 +1533,18 @@ class Validator:
             "evidence_inflation_ratio": (
                 round(stored_evidence_count / distinct_evidence_count, 2)
                 if distinct_evidence_count
+                else None
+            ),
+            # Same treatment for counter-examples: ``len(task.counter_examples)``
+            # is what a reader sees, and it is re-deposited on every review pass.
+            # Without both counts, "14 objections" is indistinguishable from
+            # "4 objections heard four times", which is how a one-objection
+            # review could present itself as three rounds of deliberation.
+            "stored_counter_example_count": stored_counter_example_count,
+            "distinct_counter_example_count": distinct_counter_example_count,
+            "counter_example_inflation_ratio": (
+                round(stored_counter_example_count / distinct_counter_example_count, 2)
+                if distinct_counter_example_count
                 else None
             ),
             "objections": list(genuine_objections),
