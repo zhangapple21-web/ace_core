@@ -40,6 +40,7 @@ SEATS: tuple[tuple[str, str], ...] = (
     ("muse", "opencode_cli:muse-spark-1.3-contributor-free"),
     ("mimo", "opencode_cli:mimo-v2.6-flash-free"),
     ("ling", "opencode_cli:ling-3.1-flash-free"),
+    ("radeon", "amd_radeon:DeepSeek-V4.1-Flash"),
 )
 
 MAX_CALLS_PER_SESSION = 8

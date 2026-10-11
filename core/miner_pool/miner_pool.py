@@ -44,6 +44,7 @@ from .providers.openai_compatible import (
     ShenwenDs41Provider,
     ShenwenImagesProvider,
 )
+from .providers.amd_radeon import AMDRadeonProvider
 from .providers.opencode_cli import OpenCodeCliProvider
 from ..execution_contract import ensure_execution_contract, normalize_untrusted_messages
 from ..mirror_constitution import validate_data_boundary
@@ -72,6 +73,8 @@ PROVIDER_FACTORY = {
     "shenwen_grok": ShenwenGrokProvider,
     "shenwen_ds41": ShenwenDs41Provider,
     "shenwen_images": ShenwenImagesProvider,
+    # AMD Radeon Token Factory — free preview models (DeepSeek, Gemma, GLM, MiMo, Qwen)
+    "amd_radeon": AMDRadeonProvider,
 }
 
 

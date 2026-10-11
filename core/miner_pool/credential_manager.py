@@ -401,6 +401,8 @@ class CredentialManager:
             "shenwen_grok": ("SHENWEN_GROK_API_KEY", "SHENWEN_GROK_BASE_URL", "https://api.shenwenai.com/v1"),
             "shenwen_ds41": ("SHENWEN_DS41_API_KEY", "SHENWEN_DS41_BASE_URL", "https://api.shenwenai.com/v1"),
             "shenwen_images": ("SHENWEN_IMAGE_API_KEY", "SHENWEN_IMAGE_BASE_URL", "https://api.shenwenai.com/v1"),
+            # AMD Radeon Token Factory — free preview (DeepSeek, Gemma, GLM, MiMo, Qwen)
+            "amd_radeon": ("AMD_RADEON_TOKEN", None, "https://developer.amd.com.cn/radeon/v1"),
         }
 
         for provider, (key_env, base_env, default_base) in provider_env_map.items():
@@ -429,7 +431,7 @@ class CredentialManager:
             ):
                 key = os.environ.get("OPENAI_API_KEY")
             if key:
-                base = os.environ.get(base_env, default_base)
+                base = os.environ.get(base_env) if base_env else default_base
                 if provider == "shenwen_ds41" and not os.environ.get(base_env):
                     base = self._windows_user_env(base_env) or default_base
                 self._credentials[provider] = ProviderCredential(
