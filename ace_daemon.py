@@ -74,6 +74,7 @@ from core.hourly_service import HourlyTaskService
 from core.continuity_audit import ContinuityAuditor
 from core.free_zone_model_shift import FreeZoneModelShift
 from core.free_zone_autonomy import FreeZoneAutonomy
+from core.free_zone_roundtable import FreeZoneRoundtable
 from core.sandbox_society import SandboxSociety
 from core.reality_gap_relay import RealityGapRelay
 from core.free_zone_loop_status import FreeZoneLoopStatus
@@ -2733,6 +2734,10 @@ class AceDaemon:
         except Exception as e:
             self._log_error("free_zone_model_shift", str(e))
         try:
+            result["free_zone_roundtable"] = self._run_free_zone_roundtable_if_due()
+        except Exception as e:
+            self._log_error("free_zone_roundtable", str(e))
+        try:
             result["video_kingdom_dispatch"] = self._dispatch_video_kingdom()
         except Exception as e:
             self._log_error("video_kingdom_dispatch", str(e))
@@ -2936,6 +2941,62 @@ class AceDaemon:
             "invitation": result.get("invitation"),
             "inbox_fingerprint": result.get("inbox_fingerprint", inbox_fingerprint),
             "at": now.isoformat(),
+        }
+        self._save_state()
+        return result
+
+    def _run_free_zone_roundtable_if_due(self) -> Dict[str, Any]:
+        """Let the free twins talk to each other about an open question.
+
+        Not a second scheduler: it reuses the existing evening free-zone window
+        and the same 07_SANDBOX root as the shift and the society. It creates no
+        TaskPool task, promotes nothing, and writes only inside the sandbox.
+        Its own cooldown and daily call cap live in the roundtable state, so a
+        quiet shift never turns into a silent skip.
+        """
+        from core.stage_gates import evaluate_gates, record_gate
+
+        cfg = self.config.get("runtime", {}).get("free_zone_roundtable", {})
+        now = datetime.now()
+        enabled = bool(isinstance(cfg, dict) and cfg.get("enabled", True))
+        in_window = (now.hour, now.minute) >= (18, 30)
+        pool_present = self.miner_pool is not None
+        gates = {
+            "config_enabled": (enabled, "free_zone_roundtable.enabled (default on)"),
+            "dedicated_window": (in_window, "evening free-zone window from 18:30"),
+            "miner_pool_ready": (pool_present, "existing miner pool instance"),
+        }
+        _, blocker = evaluate_gates(gates)
+        if blocker != "GO":
+            status = {
+                "config_enabled": "DISABLED",
+                "dedicated_window": "WAITING_FOR_DEDICATED_SHIFT",
+                "miner_pool_ready": "NO_EXISTING_MINER_POOL",
+            }[blocker]
+            record_gate(self.state, "free_zone_roundtable", gates, status)
+            return {"status": status}
+        roundtable = FreeZoneRoundtable(
+            self.base_dir / "07_SANDBOX" / "free_research", self.miner_pool
+        )
+        result = roundtable.run_once(max_tokens=int(cfg.get("max_tokens", 512)))
+        if result.get("status") == "ROUNDTABLE_RECORDED":
+            gates["ran_this_cycle"] = (True, "session recorded in sandbox")
+        record_gate(
+            self.state,
+            "free_zone_roundtable",
+            gates,
+            str(result.get("status")),
+            {"session_id": result.get("session_id", ""), "at": now.isoformat()},
+        )
+        self.state["free_zone_roundtable_last"] = {
+            "status": result.get("status"),
+            "reason": result.get("reason"),
+            "session_id": result.get("session_id"),
+            "seats_spoken": result.get("seats_spoken", 0),
+            "model_calls": result.get("model_calls", 0),
+            "distillation_status": result.get("distillation_status"),
+            "at": now.isoformat(),
+            "production_integration": False,
         }
         self._save_state()
         return result

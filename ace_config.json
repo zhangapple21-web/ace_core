@@ -54,6 +54,7 @@
     },
     "provider_usage_reconciliation_enabled": true,
     "free_zone_model_shift": {"enabled": true, "max_tokens": 1024},
+    "free_zone_roundtable": {"enabled": true, "max_tokens": 512},
     "external_learning": {
       "sources": [
         {"id": "github_ace_research", "type": "github_search", "query": "ACE agent runtime evidence governance", "max_results": 3}
