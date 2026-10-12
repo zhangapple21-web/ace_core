@@ -595,12 +595,19 @@ class TaskPool:
                 actor=actor or "task_pool",
                 reason=reason or new_status,
             )
-        self._ledger_close(
-            task,
-            kind="consume",
-            actor=actor or "task_pool",
-            reason=f"transition:{old_status}->{new_status}",
-        )
+        # 不在 _transition 内登记 consume 行：本方法只改 status/audit_log/执行纪律
+        # envelope，从不改任何账本计数器（record_event/record_checkpoint 只写
+        # outputs.execution_discipline）。真正改计数器的调用方（claim_task/fail_task/
+        # move_task）都已在调用本方法之前用自己的 kind+ref 显式入账。
+        #
+        # 曾经这里无条件调 _ledger_close(consume, "transition:...")，它把"账本重放 vs
+        # 实值"的全部差值——含调用方在 update_task 之前手改的 rework_count/
+        # starvation_age——吸收成一条 self-ref consume 行；等下面 write_port_gate →
+        # reconcile 时 replay==counter_values，drift 恒空，导致 shadow 永不记 drift 行、
+        # enforce 永不抛错，写门从 TaskPool 写入路径永远不可达（见
+        # ops/test_task_ledger.py::test_enforce_mode_blocks_unregistered_change）。
+        # 登记是改计数器的人的职责；此处删掉后，手改在 enforce 下被拒、在 shadow 下被
+        # gate 记成 kind="drift" 行。
         self._ledger_open(task)
         task.touch()
         new_path = self._task_path(task.task_id, new_status)

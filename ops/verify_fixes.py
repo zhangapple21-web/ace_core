@@ -22,11 +22,15 @@ FREEZONE = ROOT / "task_pool_freezone"
 
 print("=== 自动化验证开始 ===")
 
-# 1. 账本漂移修复：代码层面 _transition 内包裹 _ledger_open/_ledger_close
-print("\n1. 检查账本漂移修复代码...")
+# 1. 账本漂移写门可达性：_transition 不得吸收未登记的手改，必须让写门看见漂移。
+#    曾经的实现无条件调 _ledger_close(consume, "transition:...")，把手改吸收成合法
+#    consume 行，使 write_port_gate→reconcile 恒看到 drift={}，写门不可达。现已移除。
+print("\n1. 检查账本漂移写门可达性...")
 task_py = (ROOT / "core" / "task.py").read_text(encoding="utf-8")
-assert "_ledger_open(task)" in task_py and "_ledger_close(" in task_py and "transition:" in task_py
-print("   _transition 中已包裹 _ledger_open/_ledger_close: PASSED")
+assert "_transition 内登记 consume 行" in task_py, "core/task.py 写门可达性说明缺失"
+assert 'reason=f"transition:{old_status}->{new_status}"' not in task_py, (
+    "_transition 仍吸收未登记手改为 consume 行，写门不可达")
+print("   _transition 不再吸收漂移，写门可达: PASSED")
 
 # 2. hold 计数器
 print("\n2. 检查 hold 计数器...")
