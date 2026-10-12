@@ -419,6 +419,13 @@ class CredentialManager:
                 key = os.environ.get("SWA_KEY_DS41")
             if provider == "shenwen_ds41" and not key:
                 key = self._windows_user_env("SHENWEN_DS41_API_KEY") or self._windows_user_env("SWA_KEY_DS41")
+            # The daemon is a separate process: it inherits the environment that
+            # existed when it was launched, not the one the operator exports in
+            # whatever shell set it up. A User-scope var is therefore invisible
+            # to the process env and the seat silently degrades to UNAVAILABLE
+            # at the evening window - a two-vendor room quietly becoming one.
+            if provider == "amd_radeon" and not key:
+                key = self._windows_user_env("AMD_RADEON_TOKEN")
             # The local OneAPI/LiteLLM gateway deliberately accepts the same
             # operator key as the OpenAI-compatible client.  Keep this
             # fallback local-only and explicit so a missing ONEAPI_KEY does
