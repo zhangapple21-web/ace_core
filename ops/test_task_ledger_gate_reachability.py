@@ -59,6 +59,34 @@ What is NOT asserted here is which layer should be fixed. Two defensible answers
 Choosing between them is a governance decision about who may mutate counters. This
 file pins the observable behaviour that the decision has to preserve, and refuses to
 pick a side. It does not assert that the current behaviour is correct.
+
+SUPERSEDED 2026-10-12 - the decision was made and this file's premise is now closed.
+
+Those tests are inverted in place below, with the original measurements preserved in
+each docstring. The author of this file left the instruction at what was lines
+119-121:
+
+    This asserts the CURRENT behaviour on purpose, so that anyone who changes
+    the ordering sees this test flip and has to look at it. If the gate is
+    made reachable, delete or invert this test -- do not let it quietly keep
+    passing.
+
+The gate is reachable now, so they are inverted rather than deleted.
+
+Root cause, for the archaeology: ``_ledger_close`` computed the difference between the
+replayed ledger and the live counters and absorbed ALL of it under the row's own actor
+and reason. Every caller except ``_transition`` had just made those changes knowingly.
+``_transition`` had changed no counter at all, so its row absorbed whatever
+unregistered bump was already sitting on the task and labelled it
+``transition:pending->pending``. By the time ``write_port_gate`` ran, replay equalled
+counter_values and reconcile() returned {} - the one component meant to prove "no
+counter changed without a registered source" silently certified every unregistered
+change.
+
+The fix is one keyword: ``_ledger_close`` takes an explicit ``counters`` allowlist and
+``_transition`` passes ``()``, because a transition moves no counter. No legitimate
+producer is affected - the lease and failure paths still register their own counters
+with their own actor.
 """
 from __future__ import annotations
 
@@ -114,15 +142,15 @@ def test_drift_is_visible_before_the_pool_write(monkeypatch):
 
 
 def test_pool_write_lets_an_unregistered_change_through_in_enforce_mode(monkeypatch):
-    """enforce mode is documented to refuse the write. It does not.
+    """enforce mode now refuses the write. It used to sail through.
 
-    This asserts the CURRENT behaviour on purpose, so that anyone who changes the
-    ordering sees this test flip and has to look at it. If the gate is made
-    reachable, delete or invert this test -- do not let it quietly keep passing.
+    Previously measured: ``update_task raised: None``, ``update_task returned: True``
+    and ``on-disk rework_count: 2`` - an unregistered change landing in enforce mode,
+    which is the mode documented to refuse exactly this.
     """
     monkeypatch.setenv("ACE_TASK_LEDGER_MODE", "enforce")
     with tempfile.TemporaryDirectory() as td:
-        pool, loaded = _claimed(td, "enforce unreachable")
+        pool, loaded = _claimed(td, "enforce reaches the gate")
         loaded.rework_count += 2
         raised = None
         try:
@@ -132,48 +160,60 @@ def test_pool_write_lets_an_unregistered_change_through_in_enforce_mode(monkeypa
         on_disk = json.loads(
             (Path(td) / "active" / (loaded.task_id + ".json")).read_text(encoding="utf-8")
         )
-    assert raised is None, "enforce mode now blocks; revisit this file's premise"
-    assert on_disk.get("rework_count") == 2, "expected the change to land unchecked"
+    assert raised is not None, "enforce mode must refuse an unregistered counter change"
+    assert "rework_count" in raised
+    assert on_disk.get("rework_count") == 0, "a refused write must not land"
 
 
 def test_the_absorbed_change_is_recorded_as_a_self_referenced_consume_row(monkeypatch):
-    """Why the gate sees nothing: the delta is written into the ledger citing the
-    task itself as its own source, which is exactly what rule 1 forbids.
+    """The self-referenced absorb row is gone; a drift row cites the write port.
 
-    Rule 1: 禁止"只写值不写来源" -- a public accounting entry must carry a resolvable
-    ref. Here the ref resolves, but to the task being modified, so it explains
-    nothing about who changed the counter.
+    Previously the delta landed in a ``consume`` row whose ref resolved to the task
+    being modified - rule 1 says a public accounting entry must carry a resolvable
+    source, and citing yourself explains nothing about who changed the counter.
     """
-    monkeypatch.setenv("ACE_TASK_LEDGER_MODE", "enforce")
+    monkeypatch.setenv("ACE_TASK_LEDGER_MODE", "shadow")
     with tempfile.TemporaryDirectory() as td:
-        pool, loaded = _claimed(td, "self reference")
+        pool, loaded = _claimed(td, "drift cites the write port")
         loaded.starvation_age += 3
         pool.update_task(loaded)
         stored = pool.load_task(loaded.task_id)
-        rows = [r for r in (stored.ledger or []) if r.get("kind") == "consume"]
-    assert rows, "expected a consume row to have absorbed the change"
-    last = rows[-1]
+        drift_rows = [r for r in (stored.ledger or []) if r.get("kind") == "drift"]
+        consume_rows = [r for r in (stored.ledger or []) if r.get("kind") == "consume"]
+    assert drift_rows, "an unregistered counter change must become a drift row"
+    last = drift_rows[-1]
     assert last.get("deltas", {}).get("starvation_age") == 3, last.get("deltas")
-    assert last.get("ref", {}).get("type") == "self", last.get("ref")
-    assert last.get("ref", {}).get("task_id") == stored.task_id, last.get("ref")
+    assert last.get("actor") == "write_port", last.get("actor")
+    assert last.get("reason") == "unregistered_counter_change", last.get("reason")
+    assert not consume_rows, "no transition row may absorb an unregistered change"
 
 
 def test_after_the_write_the_ledger_replays_the_unregistered_value(monkeypatch):
-    """The end state: the ledger now certifies a change nobody authorised."""
+    """The end state: a refused write must not be certified by the ledger.
+
+    Previously ``reconcile(stored) == {}`` and the ledger replayed the unregistered
+    value - the ledger had laundered a change nobody authorised into a settled row.
+    """
     monkeypatch.setenv("ACE_TASK_LEDGER_MODE", "enforce")
     with tempfile.TemporaryDirectory() as td:
-        pool, loaded = _claimed(td, "certified drift")
+        pool, loaded = _claimed(td, "refused drift")
         loaded.rework_count += 2
-        pool.update_task(loaded)
+        try:
+            pool.update_task(loaded)
+        except LedgerDriftError:
+            pass
         stored = pool.load_task(loaded.task_id)
-        assert reconcile(stored) == {}, reconcile(stored)
-        assert replay(stored)["rework_count"] == 2
-        assert counter_values(stored)["rework_count"] == 2
+    assert replay(stored)["rework_count"] == 0, "a refused change must not replay"
+    assert counter_values(stored)["rework_count"] == 0
+    assert reconcile(stored) == {}, reconcile(stored)
 
 
-def test_shadow_mode_never_records_a_drift_row_either(monkeypatch):
-    """shadow mode's documented behaviour is to append kind="drift". It cannot,
-    for the same reason: the delta is already absorbed before the gate runs."""
+def test_shadow_mode_records_the_drift_row_it_always_documented(monkeypatch):
+    """shadow mode's documented behaviour is to append kind="drift". It now does.
+
+    Previously the delta was absorbed before the gate ran, so shadow mode behaved
+    exactly like enforce-plus-ignore: it wrote the change down and said nothing.
+    """
     monkeypatch.setenv("ACE_TASK_LEDGER_MODE", "shadow")
     with tempfile.TemporaryDirectory() as td:
         pool, loaded = _claimed(td, "shadow drift")
@@ -181,7 +221,7 @@ def test_shadow_mode_never_records_a_drift_row_either(monkeypatch):
         pool.update_task(loaded)
         stored = pool.load_task(loaded.task_id)
         kinds = [r.get("kind") for r in (stored.ledger or [])]
-    assert "drift" not in kinds, kinds
+    assert "drift" in kinds, kinds
 
 
 if __name__ == "__main__":

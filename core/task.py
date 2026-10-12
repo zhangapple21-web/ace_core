@@ -15,7 +15,7 @@ import uuid
 from contextlib import contextmanager
 from pathlib import Path
 from datetime import datetime, timedelta
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any, Iterable, Optional
 
 from core.task_admission import duplicate_task, validate_admission
 from core.civilization_map_reference import admission_envelope, same_admission_intent, same_canonical_object
@@ -487,14 +487,33 @@ class TaskPool:
         actor: str,
         reason: str,
         ref: Optional[Dict[str, Any]] = None,
+        counters: Optional[Iterable[str]] = None,
     ) -> Dict[str, int]:
-        """变更结束后调用：把本次实际发生的计数差登记成一行，带来源。"""
+        """变更结束后调用：把本次实际发生的计数差登记成一行，带来源。
+
+        ``counters`` names the counters this caller is responsible for. Omit it,
+        or pass None, and every current difference is absorbed under this row's
+        actor and reason.
+
+        Leaving it out of a caller that changed nothing is how a guard defeats
+        itself: ``_transition`` used to close the ledger like the lease and
+        failure paths do, but a transition moves no counter, so its row absorbed
+        whatever unregistered bump was already sitting on the task and labelled it
+        ``transition:pending->pending``. The write port then compared ledger to
+        reality, found them equal, and reported "clean" — so the one component
+        meant to prove "no counter changed without a registered source" silently
+        certified every unregistered change. Pass an empty ``counters`` to absorb
+        nothing, which is what an operation that caused no counter change should do.
+        """
         expected = replay(task)
         actual = counter_values(task)
+        allowed = None if counters is None else {str(name) for name in counters}
         deltas = {
             name: actual[name] - expected[name]
             for name in actual
-            if name in expected and actual[name] != expected[name]
+            if name in expected
+            and actual[name] != expected[name]
+            and (allowed is None or name in allowed)
         }
         if deltas:
             append_entry(
@@ -600,6 +619,11 @@ class TaskPool:
             kind="consume",
             actor=actor or "task_pool",
             reason=f"transition:{old_status}->{new_status}",
+            # A transition moves no counter. Absorbing nothing here is what lets
+            # the write port below see a counter change nobody registered, which
+            # is the entire reason the ledger exists. ops/test_task_ledger.py
+            # pins this: an unregistered bump must become a drift row.
+            counters=(),
         )
         self._ledger_open(task)
         task.touch()
