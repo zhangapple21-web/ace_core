@@ -42,6 +42,12 @@ def _blocked_task(tmp_path, task_id="RQ-TEST-001", waiting=True):
     return directory
 
 
+# Providers a reviewer seat may sit on. Every one is free; none is a paid route.
+# Two vendors on purpose - a single-vendor roster fails as a unit whenever that
+# one provider rate-limits.
+FREE_PROVIDERS = {"opencode_cli", "amd_radeon"}
+
+
 class ScriptedPool:
     def __init__(self, reply="INDEPENDENT: the evidence supports only a narrower claim.\nGAP: nobody checked the baseline.\nVERDICT: CANNOT_ASSESS"):
         self.reply = reply
@@ -81,11 +87,22 @@ def test_reviewers_are_pinned_and_cannot_fall_back_to_a_paid_route(tmp_path):
         spec = call["model"]
         assert call["retries"] == 1
         assert call["boundary"] == {"data_class": "PUBLIC"}
-        assert spec.provider == "amd_radeon", f"seat escaped its provider: {spec}"
+        assert spec.provider in FREE_PROVIDERS, f"seat escaped its provider: {spec}"
         assert spec.production_eligible is False
     # every reviewer is a different model, so the reads are not interchangeable
     models = {c["model"].full_id for c in pool.calls}
     assert len(models) == len(REVIEWERS)
+
+
+def test_reviewer_roster_spans_more_than_one_vendor():
+    """An all-AMD roster fails whenever AMD rate-limits.
+
+    The first live sweep of this job produced UNAVAILABLE for the only reviewer
+    that mattered and DEGENERATE for another; both were on one vendor. ``不能只靠
+    AMD`` is not a preference here, it is the reason the roster is split.
+    """
+    vendors = {m["model"].split(":", 1)[0] for m in REVIEWERS}
+    assert len(vendors) > 1, f"reviewer roster is single-vendor: {vendors}"
 
 
 def test_no_waiting_task_is_named_not_crashed(tmp_path):
@@ -169,6 +186,30 @@ def test_already_reviewed_tasks_are_not_reviewed_again_without_force(tmp_path):
     assert first["reviews_written"] == len(REVIEWERS)
     second = reviewer.run_once(limit=1)
     assert second["status"] == "NO_TASK_WAITING", "a repeated review is not new evidence"
+
+
+def test_a_second_sweep_of_the_same_task_does_not_collide(tmp_path):
+    """The sandbox refuses a duplicate experiment id; experiments are append-only.
+
+    An id derived from the task ids alone collides on any re-run, so sweeping the
+    same task again crashed instead of recording. Retrying an independent read is
+    how the sweep is supposed to work.
+    """
+    _blocked_task(tmp_path)
+    reviewer = FreeZoneExternalReviewer(tmp_path, tmp_path / "sandbox", ScriptedPool())
+    first = reviewer.run_once(force=True, limit=1)
+    assert first["status"] == "EXTERNAL_REVIEW_RECORDED"
+
+    # fresh reviewer: the in-memory "already reviewed" filter resets, but the
+    # sandbox does not. The second sweep must still record.
+    again = FreeZoneExternalReviewer(tmp_path, tmp_path / "sandbox", ScriptedPool())
+    second = again.run_once(force=True, limit=1)
+    assert second["status"] == "EXTERNAL_REVIEW_RECORDED"
+    assert second["experiment_id"] != first["experiment_id"], (
+        "a re-run of the same tasks must be a new experiment, not a collision"
+    )
+    experiments = list((tmp_path / "sandbox" / "experiments").glob("*.json"))
+    assert len(experiments) == 2, "both sweeps are kept; append-only means kept"
 
 
 def test_experiment_is_recorded_as_inconclusive(tmp_path):

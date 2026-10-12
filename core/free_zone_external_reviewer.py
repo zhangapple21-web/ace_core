@@ -31,6 +31,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping
@@ -48,24 +49,39 @@ CONTRACT_VERSION = "ace.free_zone_external_review.v1"
 #: That is why it is derived from the live pool, not from reading one file.
 EXTERNAL_EVIDENCE_MARKER = "外部新证据"
 
-#: Reviewers are pinned to free models on an unrelated provider. AMD preview
-#: models are genuinely independent of ACE's own CLI twins: different vendor,
-#: different weights, different account, no shared failure mode.
+# Reviewers. Independence is the whole point of this job, so the roster must
+# NOT be one vendor: the original lineup was all AMD, which made the sweep fail
+# whenever that provider was rate-limited and made "independent" mean something
+# narrower than it needs to.
+#
+# Chosen from a live probe on 2026-10-12 (ops_probe_twins.py for the CLI twins,
+# ops_seat_probe.py for the AMD seats), not from a roster. Qwen3.8-27B answered
+# with empty content and was cut; DeepSeek-V4.1 was returning 429 and is
+# replaced by DeepSeek-V4-Flash which served every probe.
+#
+# Two vendors on purpose. A CLI twin reading ACE's stuck task from outside is
+# not the same failure mode as an unrelated vendor's model, and "unrelated
+# provider" is the only property that matters for external evidence.
 REVIEWERS: tuple[dict[str, str], ...] = (
     {
         "name": "deepseek",
-        "model": "amd_radeon:DeepSeek-V4.1-Flash",
+        "model": "amd_radeon:DeepSeek-V4-Flash",
         "stance": "independent re-derivation from the evidence as given",
     },
     {
-        "name": "qwen",
-        "model": "amd_radeon:Qwen3.8-27B",
-        "stance": "looks for what the evidence cannot support",
+        "name": "minicpm",
+        "model": "amd_radeon:MiniCPM5-2B",
+        "stance": "checks whether the question itself is well posed",
     },
     {
-        "name": "gemma",
-        "model": "amd_radeon:Gemma-4-31B-IT",
-        "stance": "checks whether the question itself is well posed",
+        "name": "muse",
+        "model": "opencode_cli:muse-spark-1.3-contributor-free",
+        "stance": "ACE's own twin reading the task from outside its own reviewers",
+    },
+    {
+        "name": "longcat",
+        "model": "opencode_cli:longcat-2.5-preview-free",
+        "stance": "asks what would count as settling the claim at all",
     },
 )
 
@@ -290,8 +306,18 @@ class FreeZoneExternalReviewer:
         from .free_research_sandbox import FreeResearchSandbox, _digest
 
         task_ids = sorted({str(t.get("task_id")) for t in tasks})
+        # The id must distinguish one sweep of the same tasks from another. An
+        # id derived from the task ids alone collides on any re-run, and the
+        # sandbox refuses a duplicate id - so the second sweep of the same two
+        # tasks crashed instead of recording. Sweeping a task again is not an
+        # error, it is how an independent read gets retried.
+        #
+        # Microseconds plus a random suffix, not seconds: a sweep completes in
+        # well under a second, so a second-resolution stamp re-collides on the
+        # very next run and recreates the bug it is here to prevent.
+        sweep_seed = "|".join(task_ids) + "@" + _now().isoformat() + ":" + uuid.uuid4().hex[:8]
         experiment_id = "EXP-EXTREVIEW-" + hashlib.sha256(
-            "|".join(task_ids).encode("utf-8")
+            sweep_seed.encode("utf-8")
         ).hexdigest()[:16].upper()
         sandbox = FreeResearchSandbox(self.sandbox_root)
         receipt = {

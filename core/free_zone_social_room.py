@@ -54,13 +54,21 @@ CONTRACT_VERSION = "ace.free_zone_social_room.v1"
 #
 # The lineup is chosen from a live probe, not from a spec sheet. On 2026-10-12
 # every seat below answered the real speech prompt with a substantive, distinct
-# position. Two candidates were cut for cause: ``Qwen3.8-27B`` returns empty
-# content on every call (same family as the original dead gate seat), and
-# ``GLM-5.3-Flash`` was timing out. A seat that cannot answer is worth less
-# than no seat, because it makes the room look like it spoke when it did not.
+# position (ops_probe_twins.py for the CLI twins, ops_seat_probe.py for AMD).
 #
-# Two providers on purpose: ACE's own free twins plus an unrelated vendor, so
-# the room is not one model agreeing with itself.
+# Four seats were cut for cause: ``fledge-alpha-free`` and ``ling-3.0-flash-fin-
+# free`` failed outright, ``Qwen3.8-27B`` returns empty content on every call
+# (same family as the original dead gate seat), and ``GLM-5.3-Flash`` was
+# timing out. ``nemotron-3.5-lightning-free`` answers PASS to everything, which
+# is legal but useless as a member: it can only ever subtract a turn. A seat that
+# cannot answer is worth less than no seat, because it makes the room look like
+# it spoke when it did not.
+#
+# Six members across two vendors. The owner's point that it cannot rely on AMD
+# applies here too: the CLI twins are labour, not decoration, and a room with
+# only two of six seats able to fail independently is a room that stalls.
+# The gate decides who speaks among them, so a bigger roster costs nothing per
+# turn and makes the gate's decision meaningful.
 MEMBERS: tuple[dict[str, str], ...] = (
     {
         "name": "muse",
@@ -68,9 +76,19 @@ MEMBERS: tuple[dict[str, str], ...] = (
         "persona": "curious generalist; asks what the claim actually rests on",
     },
     {
-        "name": "mimo",
-        "model": "opencode_cli:mimo-v2.6-flash-free",
+        "name": "ling",
+        "model": "opencode_cli:ling-3.1-flash-free",
+        "persona": "careful logician; separates what is claimed from what is evidenced",
+    },
+    {
+        "name": "longcat",
+        "model": "opencode_cli:longcat-2.5-preview-free",
         "persona": "pragmatist; wants to know what we would do differently",
+    },
+    {
+        "name": "nemotron",
+        "model": "opencode_cli:nemotron-3-ultra-free",
+        "persona": "contrarian; states plainly when the premise itself is wrong",
     },
     {
         "name": "radeon",
@@ -78,9 +96,9 @@ MEMBERS: tuple[dict[str, str], ...] = (
         "persona": "sceptical reasoner; hunts for the counterexample",
     },
     {
-        "name": "gemma",
-        "model": "amd_radeon:Gemma-4-31B-IT",
-        "persona": "synthesizer; separates what is claimed from what is evidenced",
+        "name": "minicpm",
+        "model": "amd_radeon:MiniCPM5-2B",
+        "persona": "synthesizer; looks for what the others are both missing",
     },
 )
 

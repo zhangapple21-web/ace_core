@@ -44,12 +44,17 @@ CONTRACT_VERSION = "ace.free_zone_roundtable.v1"
 # cannot answer is worse than no seat - it makes the report look like it ran.
 SEATS: tuple[tuple[str, str], ...] = (
     ("muse", "opencode_cli:muse-spark-1.3-contributor-free"),
-    ("mimo", "opencode_cli:mimo-v2.6-flash-free"),
     ("ling", "opencode_cli:ling-3.1-flash-free"),
+    ("longcat", "opencode_cli:longcat-2.5-preview-free"),
+    ("nemotron", "opencode_cli:nemotron-3-ultra-free"),
     ("radeon", "amd_radeon:DeepSeek-V4-Flash"),
+    ("minicpm", "amd_radeon:MiniCPM5-2B"),
 )
 
-MAX_CALLS_PER_SESSION = 8
+# Two rounds of every seat, so the budget is the roster size doubled. It was 8
+# for four seats; raising the roster without raising the budget would silently
+# truncate the cross-examination round, which is the whole point of the room.
+MAX_CALLS_PER_SESSION = len(SEATS) * 2
 MIN_INTERVAL_HOURS = 4
 MAX_SEAT_CHARS = 800
 

@@ -81,7 +81,11 @@ def test_seats_are_free_cli_only_and_pinned(tmp_path):
 
 def test_a_failing_seat_does_not_stop_the_session_or_fall_back_to_paid(tmp_path):
     _seed_open_question(tmp_path)
-    pool = StubPool(fail_models={"mimo-v2.6-flash-free"})
+    # The seat under test is the first CLI twin in the roster, so this does not
+    # depend on a specific model id surviving a roster change. StubPool matches
+    # on the short model id, so strip the provider prefix.
+    dead = SEATS[0][1].split(":", 1)[-1]
+    pool = StubPool(fail_models={dead})
     rt = FreeZoneRoundtable(tmp_path, pool)
     result = rt.run_once(force=True)
     assert result["status"] == "ROUNDTABLE_RECORDED"
@@ -91,8 +95,8 @@ def test_a_failing_seat_does_not_stop_the_session_or_fall_back_to_paid(tmp_path)
     # dead seat recorded honestly as UNAVAILABLE
     session = json.loads((tmp_path / "reports" / "roundtable" / f"{result['session_id']}.json").read_text(encoding="utf-8"))
     statuses = {s["seat"]: s["status"] for s in session["seats"] if s["round"] == 1}
-    assert statuses["mimo"] == "UNAVAILABLE"
-    assert statuses["muse"] == "SPOKEN"
+    assert statuses[SEATS[0][0]] == "UNAVAILABLE", "the dead seat must say so"
+    assert statuses[SEATS[1][0]] == "SPOKEN", "a neighbour must still speak"
 
 
 def test_calls_stay_within_budget_and_run_two_bounded_rounds(tmp_path):
@@ -102,7 +106,10 @@ def test_calls_stay_within_budget_and_run_two_bounded_rounds(tmp_path):
     result = rt.run_once(force=True)
     assert result["model_calls"] <= MAX_CALLS_PER_SESSION
     assert result["model_calls"] == len(SEATS) * 2, "every seat, two bounded rounds"
-    assert len(SEATS) == 4, "roster is shared with the AMD preview seat"
+    assert len(SEATS) >= 2, "roster must hold at least one seat per vendor"
+    assert {m.split(":", 1)[0] for _, m in SEATS} == FREE_PROVIDERS, (
+        "both free vendors must hold seats"
+    )
     session = json.loads((tmp_path / "reports" / "roundtable" / f"{result['session_id']}.json").read_text(encoding="utf-8"))
     rounds = {s["round"] for s in session["seats"]}
     assert rounds == {1, 2}, "second round cross-examines the first"
