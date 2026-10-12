@@ -399,11 +399,52 @@ zhangapple21-web (GitHub org)
 │     Role: Unknown, likely test repo
 │
 └── 🔑 coze-assets            ← Civilization Assets (PRIVATE)
-      Private · Unknown
+      Private · Confirmed present 2026-10-12
+      Location: github.com/ACEE0011/coze-assets
+      IMPORTANT: it lives under the **ACEE0011** org, NOT under
+      zhangapple21-web.  `gh api repos/zhangapple21-web/coze-assets`
+      returns 404 even when the key repository is healthy — always check
+      ACEE0011 before concluding the key is missing.
       Role: The key. All secrets, all configs.
             Without it nothing recovers. With it, 30min rebuild.
+      Last commit: 2026-07-16 (SEC-001 provider consistency check).
       ABSOLUTELY NEVER PUBLIC.
+
 ```
+
+### Registered districts not yet in the map above
+
+Verified against `gh repo list zhangapple21-web` on 2026-10-12.  The account
+holds **23 repositories**, not the 7 above, so the observation rule "a stale
+repository is a civilization health problem" cannot fire accurately until these
+are recorded.  Two of them (`-`, `r1-open-source-seed`) are **archived**.
+
+| Repository | Private | Archived | Last push | District role (to be confirmed) |
+|---|---|---|---|---|
+| ace-video-corpus | yes | no | 2026-10-05 | video research corpus |
+| ace-video-history-backup | yes | no | 2026-10-05 | video history snapshot |
+| ace-video-kingdom | no | no | 2026-10-05 | Free Zone video kingdom research |
+| ace-host-adapter-lab | no | no | 2026-10-04 | read-only host bridge |
+| ace-video-assets | no | no | 2026-09-29 | licensed reference frames/tracks |
+| ace-civilization-backup | yes | no | 2026-09-30 | civilization snapshot |
+| mine-seed-credentials | yes | no | 2026-09-30 | credential mirror (never public) |
+| ace-skill-vault | yes | no | 2026-09-30 | skills |
+| ace-knowledge-forge | yes | no | 2026-09-29 | knowledge |
+| ace-task-queue | yes | no | 2026-09-29 | task queue |
+| ace-structure-steward | yes | no | 2026-09-29 | structure stewardship |
+| ace-capability-registry | yes | no | 2026-09-29 | capability registry |
+| ace-salvage | yes | no | 2026-09-27 | salvage |
+| claw-soul | yes | no | 2026-09-08 | unknown |
+| R1_continuity_archive | no | no | 2026-08-19 | cross-civilization observation log |
+| r1-continuity-backup | yes | no | 2026-08-19 | continuity snapshot |
+| aum-protocol | no | no | 2026-07-14 | AUM Mission Protocol |
+| `-` | no | **yes** | 2026-09-01 | archived; superseded by ace-video-assets |
+| r1-open-source-seed | no | **yes** | 2026-07-08 | archived; superseded by r1-archaeology |
+
+`R1_continuity_archive` continues the same `cross_civilization_observation_YYYYMMDD.md`
+series that starts in `R1` on 0719 and moves across on 0721 — they are one log
+split across two repositories, and `R1` is therefore **not** a manifesto/website
+district as the map above still claims.
 
 ### Data Flow Between Repos
 
