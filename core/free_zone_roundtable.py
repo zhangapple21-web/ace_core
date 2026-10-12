@@ -33,14 +33,20 @@ from .miner_pool.model_router import ModelSpec
 
 CONTRACT_VERSION = "ace.free_zone_roundtable.v1"
 
-# Free CLI twins only.  A pinned seat is a governance boundary as much as a
-# routing choice: with selected_spec the pool retries the same seat and never
-# selects a paid route, so "free by default" is structural, not a preference.
+# Free seats only. A pinned seat is a governance boundary as much as a routing
+# choice: with selected_spec the pool retries the same seat and never selects a
+# paid route, so "free by default" is structural, not a preference.
+#
+# The fourth seat comes from an unrelated vendor on purpose: a room made of one
+# provider's twins is an echo chamber. It is pinned to DeepSeek-V4-Flash rather
+# than V4.1 because a live probe (2026-10-12, ops_seat_probe.py) showed V4.1
+# returning 429 repeatedly while V4-Flash served every request. A seat that
+# cannot answer is worse than no seat - it makes the report look like it ran.
 SEATS: tuple[tuple[str, str], ...] = (
     ("muse", "opencode_cli:muse-spark-1.3-contributor-free"),
     ("mimo", "opencode_cli:mimo-v2.6-flash-free"),
     ("ling", "opencode_cli:ling-3.1-flash-free"),
-    ("radeon", "amd_radeon:DeepSeek-V4.1-Flash"),
+    ("radeon", "amd_radeon:DeepSeek-V4-Flash"),
 )
 
 MAX_CALLS_PER_SESSION = 8
