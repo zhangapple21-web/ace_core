@@ -165,8 +165,18 @@ def test_model_call_is_think_not_execute_and_loop_skips_model():
     assert router.calls == 2
     assert task.outputs["model_execution"][1]["cognitive_think"]["think_rounds"] == 1
 
+    # Only attempts that reached a model consume think budget (see the
+    # think_rounds comment in core.task_roles._record_model_execution and the
+    # RQ-20261008-022 incident: counting router-nothing traces sealed tasks
+    # shut). Budget exhaustion therefore has to be staged with traces that
+    # actually carried a model call, not bare feedback markers.
     task.outputs["model_execution"] = [
-        {"execution_feedback": {"status": "STRUCTURED"}}
+        {
+            "api_called": True,
+            "tried_models": ["test:test-model"],
+            "selected_model": "test-model",
+            "execution_feedback": {"status": "STRUCTURED"},
+        }
         for _ in range(dynamic_think_budget(0, "medium"))
     ]
     blocked = _record_model_execution(task, "researcher", router, "should-not-call")

@@ -157,6 +157,11 @@ def main() -> int:
     parser.add_argument("--skip-tests", action="store_true", help="只做 clone/bootstrap，不运行测试")
     parser.add_argument("--state-url", default=STATE_URL, help="私有状态仓库；传空字符串可仅恢复代码")
     parser.add_argument("--state-ref", default="main", help="状态仓库分支")
+    parser.add_argument(
+        "--core-ref",
+        default=CORE_REF,
+        help="核心仓库分支/标签（默认 canonical 恢复基线，可指向待发布分支做隔离演练）",
+    )
     args = parser.parse_args()
     root = args.workspace_root.expanduser().resolve()
     if root.exists() and any(root.iterdir()):
@@ -185,7 +190,7 @@ def main() -> int:
         if args.state_url:
             receipt["state_private_verification"] = verify_private(args.state_url)
         core = resolve(root, "restore_core")
-        clone_step("clone_core", CORE_URL, CORE_REF, core)
+        clone_step("clone_core", CORE_URL, args.core_ref, core)
         if args.state_url:
             state = root / "ace-state"
             clone_step("clone_state", args.state_url, args.state_ref, state)

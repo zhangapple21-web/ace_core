@@ -3977,8 +3977,8 @@ class AceDaemon:
         """Build a bounded delivery worker, or None when none can run.
 
         Fail closed on purpose. OpenCodeWorker resolves the CLI by absolute
-        default (C:\\Users\\Administrator\\.local\\bin\\opencode.exe, verified
-        opencode v2.0.6) and only then falls back to OPENCODE_EXECUTABLE -- so
+        default ($HOME/.local/bin/opencode.exe, verified opencode v2.0.6) and
+        only then falls back to OPENCODE_EXECUTABLE -- so
         absence from PATH is not absence of a worker. When the worker genuinely
         cannot be built or found, the executor reports NO_WORKER_AVAILABLE and
         the task stays honestly undelivered instead of receiving a fabricated
