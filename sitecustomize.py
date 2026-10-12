@@ -4,7 +4,9 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-_workspace = Path(__file__).resolve().parents[1]
+# This file sits at the repository root, so ``parents[0]`` *is* the workspace
+# to put on ``sys.path``.  ``parents[1]`` would be a directory above the repo.
+_workspace = Path(__file__).resolve().parents[0]
 if str(_workspace) not in sys.path:
     sys.path.insert(0, str(_workspace))
 try:
