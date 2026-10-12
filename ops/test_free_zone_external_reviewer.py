@@ -258,3 +258,36 @@ def test_experiment_is_recorded_as_inconclusive(tmp_path):
     assert payload["outcome"] == "INCONCLUSIVE"
     assert payload["metadata"]["source_kind"] == "free_zone_external_review"
     assert payload["metadata"]["taskpool_read_only"] is True
+
+
+def test_a_sweep_files_a_mapped_shadow_receipt_not_a_promotion(tmp_path):
+    """The loop is closed by the existing gate, not by a new one.
+
+    The reviewer produces free-zone material only. Its one legal door into ACE
+    reality is FreeZoneRealityBridge, and ACCEPT_FOR_RESEARCH needs a fresh
+    main-steward review this module must not fabricate. So a sweep files a
+    HOLD_FOR_EVIDENCE receipt: MAPPED_SHADOW, no authority granted, next gate
+    stays the existing ACE Admission or Experience review.
+    """
+    directory = _blocked_task(tmp_path)
+    task_file = directory / "RQ-TEST-001.json"
+    task_before = task_file.read_bytes()
+
+    reviewer = FreeZoneExternalReviewer(tmp_path, tmp_path / "sandbox", ScriptedPool())
+    result = reviewer.run_once(force=True, limit=1)
+    assert result["status"] == "EXTERNAL_REVIEW_RECORDED"
+    assert result["bridge_receipt"], "a sweep must file a bridge receipt"
+
+    receipts = list(tmp_path.glob("08_GOVERNANCE/free_zone_bridge/receipts/BRIDGE-*.json"))
+    assert len(receipts) == 1, "exactly one receipt per sweep"
+    receipt = json.loads(receipts[0].read_text(encoding="utf-8"))
+    assert receipt["disposition"]["status"] == "MAPPED_SHADOW"
+    assert receipt["disposition"]["task_created"] is False
+    assert receipt["disposition"]["model_call"] is False
+    assert receipt["disposition"]["admission_bypassed"] is False
+    assert receipt["ace_review"]["decision"] == "HOLD_FOR_EVIDENCE"
+    assert receipt["ace_review"]["reviewer"] != "main_steward", (
+        "the reviewer must not sign an acceptance it is not authorised to"
+    )
+    # and the loop is closed without touching the task pool
+    assert task_file.read_bytes() == task_before

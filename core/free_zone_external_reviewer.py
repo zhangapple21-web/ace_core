@@ -156,6 +156,7 @@ class FreeZoneExternalReviewer:
             done.add(task["task_id"])
 
         experiment_id = self._record(fresh[:limit], reviews)
+        bridge = self._bridge(fresh[:limit], reviews, experiment_id)
         result = {
             "status": "EXTERNAL_REVIEW_RECORDED",
             "contract_version": CONTRACT_VERSION,
@@ -164,11 +165,83 @@ class FreeZoneExternalReviewer:
             "reviews_written": len(reviews),
             "model_calls": calls,
             "verdict_histogram": self._histogram(reviews),
+            "bridge_receipt": bridge.get("bridge_id", "") if bridge else "",
             "production_integration": False,
             "taskpool_mutated": False,
         }
         self._write_state(state, result, done)
         return result
+
+    # ----------------------------------------------------------- bridging
+
+    def _bridge(self, tasks: list[Mapping[str, Any]],
+                reviews: list[Mapping[str, Any]],
+                experiment_id: str) -> dict[str, Any] | None:
+        """Route this sweep into ACE reality through the existing gate.
+
+        The reviewer produces free-zone material only. The one legal door into
+        ACE reality is FreeZoneRealityBridge, and its ACCEPT_FOR_RESEARCH arm
+        requires a fresh main-steward review that this module is not allowed to
+        fabricate. So the sweep files a HOLD_FOR_EVIDENCE receipt - MAPPED_SHADOW,
+        no authority granted, next gate is the existing ACE Admission or
+        Experience review. That is the closed loop: a later sweep or a steward
+        may promote it; this module never can.
+        """
+        from .free_zone_reality_bridge import FreeZoneRealityBridge
+
+        try:
+            bridge = FreeZoneRealityBridge(
+                self.workspace_root,
+                sandbox_root=self.sandbox_root,
+            )
+            distillation = self.sandbox_root / "distillations" / f"{experiment_id}.json"
+            if not distillation.exists():
+                return None
+            task_ids = sorted({str(t.get("task_id")) for t in tasks})
+            mapping = {
+                "mapping_id": f"EXTREVIEW-{experiment_id[-12:]}",
+                "epistemic_status": "HYPOTHESIS",
+                "observation": " ".join(
+                    f"stuck task {tid} was read once by models on an unrelated provider."
+                    for tid in task_ids
+                )[:400],
+                "learning": " ".join(
+                    str(r.get("detail", ""))[:200] for r in reviews if r.get("status") == "REVIEWED"
+                )[:800],
+                "reality_scope": "whether an independent reader can name the missing evidence for these stuck tasks",
+                "research_question": " ".join(
+                    f"what does a fresh verifier need to check for {tid}?" for tid in task_ids
+                )[:300],
+                "expected_result": "an actionable check a verifier can run against the task's actual record",
+                "verification_method": "run the named check on the real task files and compare",
+                "constraints": [
+                    "candidate evidence only; no task is reopened by this receipt",
+                    "no production mutation; the next gate is existing ACE Admission or Experience review",
+                ],
+                "evidence_refs": [
+                    {
+                        "ref": (self.sandbox_root.relative_to(self.workspace_root)
+                                / "reports" / "external_review" / f"{experiment_id}.json").as_posix(),
+                        "independence_group": f"external_review_{r.get('reviewer')}",
+                        "kind": "external_model_read",
+                    }
+                    for r in reviews
+                ],
+                "ace_review": {
+                    "decision": "HOLD_FOR_EVIDENCE",
+                    "reviewer": "free_zone_external_reviewer",
+                    "review_basis": [
+                        "preserved free-zone boundary",
+                        "no task pool mutation",
+                        "independent model read, not ACE fact",
+                    ],
+                },
+            }
+            return bridge.build(distillation, mapping)
+        except Exception:
+            # A bridge failure must not sink the sweep: the review is already
+            # recorded, and an unbridged sweep is still honest free-zone material.
+            return None
 
     # ------------------------------------------------------------ reviewers
 
