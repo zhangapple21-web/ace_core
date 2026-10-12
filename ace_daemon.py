@@ -75,6 +75,8 @@ from core.continuity_audit import ContinuityAuditor
 from core.free_zone_model_shift import FreeZoneModelShift
 from core.free_zone_autonomy import FreeZoneAutonomy
 from core.free_zone_roundtable import FreeZoneRoundtable
+from core.free_zone_social_room import FreeZoneSocialRoom
+from core.free_zone_external_reviewer import FreeZoneExternalReviewer
 from core.sandbox_society import SandboxSociety
 from core.reality_gap_relay import RealityGapRelay
 from core.free_zone_loop_status import FreeZoneLoopStatus
@@ -2735,6 +2737,8 @@ class AceDaemon:
             self._log_error("free_zone_model_shift", str(e))
         try:
             result["free_zone_roundtable"] = self._run_free_zone_roundtable_if_due()
+            result["free_zone_social_room"] = self._run_free_zone_social_room_if_due()
+            result["free_zone_external_review"] = self._run_free_zone_external_review_if_due()
         except Exception as e:
             self._log_error("free_zone_roundtable", str(e))
         try:
@@ -2995,6 +2999,124 @@ class AceDaemon:
             "seats_spoken": result.get("seats_spoken", 0),
             "model_calls": result.get("model_calls", 0),
             "distillation_status": result.get("distillation_status"),
+            "at": now.isoformat(),
+            "production_integration": False,
+        }
+        self._save_state()
+        return result
+
+    def _run_free_zone_social_room_if_due(self) -> Dict[str, Any]:
+        """Let the free models run their own conversation under a gate.
+
+        The roundtable asks two structured rounds of every seat. This room does
+        not: a gate seat decides who speaks next, a member may PASS, and a rolling
+        room memory survives across sessions. Same sandbox, same window, same
+        one-way production boundary as the roundtable and the shift - no second
+        scheduler and no TaskPool producer.
+        """
+        from core.stage_gates import evaluate_gates, record_gate
+
+        cfg = self.config.get("runtime", {}).get("free_zone_social_room", {})
+        now = datetime.now()
+        enabled = bool(isinstance(cfg, dict) and cfg.get("enabled", True))
+        in_window = (now.hour, now.minute) >= (18, 30)
+        pool_present = self.miner_pool is not None
+        gates = {
+            "config_enabled": (enabled, "free_zone_social_room.enabled (default on)"),
+            "dedicated_window": (in_window, "evening free-zone window from 18:30"),
+            "miner_pool_ready": (pool_present, "existing miner pool instance"),
+        }
+        _, blocker = evaluate_gates(gates)
+        if blocker != "GO":
+            status = {
+                "config_enabled": "DISABLED",
+                "dedicated_window": "WAITING_FOR_DEDICATED_SHIFT",
+                "miner_pool_ready": "NO_EXISTING_MINER_POOL",
+            }[blocker]
+            record_gate(self.state, "free_zone_social_room", gates, status)
+            return {"status": status}
+        room = FreeZoneSocialRoom(
+            self.base_dir / "07_SANDBOX" / "free_research", self.miner_pool
+        )
+        result = room.run_once(max_tokens=int(cfg.get("max_tokens", 512)))
+        if result.get("status") == "SOCIAL_ROOM_RECORDED":
+            gates["ran_this_cycle"] = (True, "session recorded in sandbox")
+        record_gate(
+            self.state,
+            "free_zone_social_room",
+            gates,
+            str(result.get("status")),
+            {"session_id": result.get("session_id", ""), "at": now.isoformat()},
+        )
+        self.state["free_zone_social_room_last"] = {
+            "status": result.get("status"),
+            "reason": result.get("reason"),
+            "session_id": result.get("session_id"),
+            "speeches": result.get("speeches", 0),
+            "passes": result.get("passes", 0),
+            "distinct_speakers": result.get("distinct_speakers", 0),
+            "model_calls": result.get("model_calls", 0),
+            "distillation_status": result.get("distillation_status"),
+            "at": now.isoformat(),
+            "production_integration": False,
+        }
+        self._save_state()
+        return result
+
+    def _run_free_zone_external_review_if_due(self) -> Dict[str, Any]:
+        """Give the 67 tasks waiting on outside evidence an outside reader.
+
+        Their own verdict is ``等待人工或外部新证据``. ACE's researcher cannot supply
+        that: re-reading its own memory is what the cap was counting. An unrelated
+        free model can read the task once, from outside, and name what a fresh
+        verifier should check. That answer is free-zone material - it never
+        reopens a task, never writes to TaskPool, and never becomes a fact here.
+        The steward decides through the existing bridge, which is the only door.
+        """
+        from core.stage_gates import evaluate_gates, record_gate
+
+        cfg = self.config.get("runtime", {}).get("free_zone_external_review", {})
+        now = datetime.now()
+        enabled = bool(isinstance(cfg, dict) and cfg.get("enabled", True))
+        in_window = (now.hour, now.minute) >= (18, 30)
+        pool_present = self.miner_pool is not None
+        gates = {
+            "config_enabled": (enabled, "free_zone_external_review.enabled (default on)"),
+            "dedicated_window": (in_window, "evening free-zone window from 18:30"),
+            "miner_pool_ready": (pool_present, "existing miner pool instance"),
+        }
+        _, blocker = evaluate_gates(gates)
+        if blocker != "GO":
+            status = {
+                "config_enabled": "DISABLED",
+                "dedicated_window": "WAITING_FOR_DEDICATED_SHIFT",
+                "miner_pool_ready": "NO_EXISTING_MINER_POOL",
+            }[blocker]
+            record_gate(self.state, "free_zone_external_review", gates, status)
+            return {"status": status}
+        reviewer = FreeZoneExternalReviewer(
+            self.base_dir,
+            self.base_dir / "07_SANDBOX" / "free_research",
+            self.miner_pool,
+        )
+        result = reviewer.run_once(
+            limit=int(cfg.get("per_cycle", 2)),
+            max_tokens=int(cfg.get("max_tokens", 512)),
+        )
+        record_gate(
+            self.state,
+            "free_zone_external_review",
+            gates,
+            str(result.get("status")),
+            {"experiment_id": result.get("experiment_id", ""), "at": now.isoformat()},
+        )
+        self.state["free_zone_external_review_last"] = {
+            "status": result.get("status"),
+            "reason": result.get("reason"),
+            "experiment_id": result.get("experiment_id"),
+            "tasks_reviewed": result.get("tasks_reviewed", 0),
+            "reviews_written": result.get("reviews_written", 0),
+            "verdict_histogram": result.get("verdict_histogram"),
             "at": now.isoformat(),
             "production_integration": False,
         }

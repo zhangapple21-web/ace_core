@@ -9,8 +9,14 @@ from core.free_research_sandbox import FreeResearchSandbox
 from core.free_zone_roundtable import (
     CONTRACT_VERSION,
     MAX_CALLS_PER_SESSION,
+    SEATS,
     FreeZoneRoundtable,
 )
+
+#: Providers a roundtable seat may sit on. Every one of them is free, and
+#: none of them is a paid route. Two of them on purpose: the room should not
+#: be one vendor agreeing with itself.
+FREE_PROVIDERS = {"opencode_cli", "amd_radeon"}
 
 
 class StubPool:
@@ -65,7 +71,9 @@ def test_seats_are_free_cli_only_and_pinned(tmp_path):
     assert pool.calls, "expected at least one seat to speak"
     for call in pool.calls:
         assert call["selected_spec"], "seat must pin its model, not fall to the router"
-        assert call["provider"] == "opencode_cli", "free CLI provider only"
+        assert call["provider"] in FREE_PROVIDERS, (
+            f"seat escaped to a paid provider: {call['provider']}"
+        )
         assert "paid" not in call["model"]
         assert call["max_retries"] == 1, "a pinned seat must not spend budget retrying"
         assert call["boundary"] == {"data_class": "PUBLIC"}
@@ -78,7 +86,7 @@ def test_a_failing_seat_does_not_stop_the_session_or_fall_back_to_paid(tmp_path)
     result = rt.run_once(force=True)
     assert result["status"] == "ROUNDTABLE_RECORDED"
     assert result["seats_spoken"] >= 2, "other seats still spoke"
-    assert all(call["provider"] == "opencode_cli" for call in pool.calls), \
+    assert all(call["provider"] in FREE_PROVIDERS for call in pool.calls), \
         "a dead seat must not be replaced by a paid provider"
     # dead seat recorded honestly as UNAVAILABLE
     session = json.loads((tmp_path / "reports" / "roundtable" / f"{result['session_id']}.json").read_text(encoding="utf-8"))
@@ -93,7 +101,8 @@ def test_calls_stay_within_budget_and_run_two_bounded_rounds(tmp_path):
     rt = FreeZoneRoundtable(tmp_path, pool)
     result = rt.run_once(force=True)
     assert result["model_calls"] <= MAX_CALLS_PER_SESSION
-    assert result["model_calls"] == 6, "3 seats x 2 rounds"
+    assert result["model_calls"] == len(SEATS) * 2, "every seat, two bounded rounds"
+    assert len(SEATS) == 4, "roster is shared with the AMD preview seat"
     session = json.loads((tmp_path / "reports" / "roundtable" / f"{result['session_id']}.json").read_text(encoding="utf-8"))
     rounds = {s["round"] for s in session["seats"]}
     assert rounds == {1, 2}, "second round cross-examines the first"
