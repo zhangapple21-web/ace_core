@@ -35,11 +35,21 @@ import os, sys, json, argparse
 from pathlib import Path
 from datetime import datetime
 
-sys.path.insert(0, str(Path(__file__).parent))
-
-from environment_sensor import EnvironmentSensor, SituationBuilder, Observation
-from local_miner import call_model, health, list_capabilities, CAPABILITY_GRAPH
-from roundtable import roundtable
+# Dual-mode import: this module is reachable both as ``core.awareness_loop`` and
+# as a directly-executed script (``python core/awareness_loop.py``).  Prefer the
+# package-qualified names so the ``core`` copies are used deterministically, and
+# fall back to bare names for direct execution where ``core`` is not a package
+# on the path.  Previously this relied on the side effect of ``core/`` happening
+# to be on ``sys.path``, which resolved against the wrong copy when it was not.
+try:
+    from core.environment_sensor import EnvironmentSensor, SituationBuilder, Observation
+    from core.local_miner import call_model, health, list_capabilities, CAPABILITY_GRAPH
+    from core.roundtable import roundtable
+except ImportError:
+    sys.path.insert(0, str(Path(__file__).parent))
+    from environment_sensor import EnvironmentSensor, SituationBuilder, Observation
+    from local_miner import call_model, health, list_capabilities, CAPABILITY_GRAPH
+    from roundtable import roundtable
 
 WORKSPACE = Path(__file__).parent.parent
 EXPERIENCE_DIR = WORKSPACE / "02_MEMORY" / "experience"

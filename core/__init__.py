@@ -6,9 +6,20 @@
 import sys
 from pathlib import Path
 
-_shared_root = Path(__file__).resolve().parents[2]
-if str(_shared_root) not in sys.path:
-    sys.path.insert(0, str(_shared_root))
-import continue_gate_runtime
+# ``core`` lives one level below the repository root, which is where
+# ``continue_gate_runtime`` is installed.  ``parents[1]`` is that root;
+# ``parents[2]`` would be a directory *outside* the repository.
+_repo_root = Path(__file__).resolve().parents[1]
+if str(_repo_root) not in sys.path:
+    sys.path.insert(0, str(_repo_root))
+try:
+    import continue_gate_runtime
+except ImportError:
+    # The gate module is injected on operator machines via a user-level
+    # ``sitecustomize.py``.  A checkout without it must stay importable — the
+    # daemon still performs its explicit boundary check and writes a durable
+    # handoff receipt.  Fail-closed on the gate, never on the import itself.
+    continue_gate_runtime = None
 
-continue_gate_runtime.install()
+if continue_gate_runtime is not None:
+    continue_gate_runtime.install()

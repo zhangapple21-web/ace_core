@@ -1,0 +1,36 @@
+# ACE Runtime dependencies.
+#
+# The production entrypoint (ace.py / ace_daemon.py) is standard-library only;
+# everything below is grouped by the capability that actually imports it, so an
+# operator can install a subset without breaking the daemon.
+
+# --- Core: LLM gateway / provider health / AMD + provider watchdog -----------
+# Imported by core/llm/client.py, core/provider_health_boundary.py,
+# core/miner_pool/provider_watchdog.py, core/miner_pool/providers/amd_radeon.py
+requests>=2.28
+
+# --- Config parsing (local_oneapi_*.yaml gateway surface) -------------------
+PyYAML>=6.0
+
+# --- Markdown front-matter parsing (knowledge / memory notes) ---------------
+python-frontmatter>=1.0
+
+# --- Market data providers (optional; imported lazily by the stock surfaces) --
+# ops/stock_query.py, ops/daily_intent_scheduler.py and friends degrade with a
+# clear error when these are absent, so the daemon starts fine without them.
+akshare>=1.12
+baostock>=0.8
+pytdx>=1.67
+pandas>=1.5
+finshare
+
+# --- Windows desktop notifications (optional) ------------------------------
+# core/companion/desktop_pet.py uses this only when toast support is requested.
+win10toast; sys_platform == "win32"
+
+# --- Tests -----------------------------------------------------------------
+pytest>=7.0
+
+# NOTE: tkinter is imported by core/companion/desktop_pet.py but ships with
+# CPython on Windows/macOS. On Debian/Ubuntu install it with:
+#   apt-get install python3-tk
