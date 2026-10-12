@@ -83,3 +83,24 @@
 | 交付 | ✅ 通过 | 本收据 + 2 提交 + 2 份演练收据路径 |
 
 **总判定：本轮可执行项全部完成；4 项受阻/未执行均有最小阻塞证据与解除条件，未以跳过验收宣告完成。**
+
+---
+
+## 9. 第二轮收尾（同日追加，一次性闭环）
+
+1. **私有状态凭据解锁**：`git ls-remote https://github.com/zhangapple21-web/ace-civilization-backup.git` → `main=a40340bf`，exit=0（既有凭据可访问私有状态仓）——§7.2 "受阻·凭据"作废。
+2. **canonical 拓扑澄清**：canonical=`9020d7e←ab7b836←5ee18ee`；`055d09c` 与 `ab7b836` 是同一漂移门修复的双胞胎提交（两条线各落了一次）；canonical 未触碰本轮 9 个修复文件。
+3. **canonical 修复分支 + PR**：`fix/canonical-recovery-drill-20261012`（= canonical `5ee18ee` + cherry-pick `68961b9`→`74eb6f6`、`c5a12d6`→`0e61f7d`，零冲突）已推送（ls-remote 实证 `0e61f7dc`）并创建 **PR #10**（base=canonical）。分支内验证：认知门禁 8 passed、observer 1 passed+1 skipped、path_audit PASS/0 findings。**未直接推 canonical**（生产分支；PR 待评审即授权边界）。
+4. **演练 r3（PR 分支 + 私有状态 + 视频域）**：overall=PARTIAL（唯一非 PASS = health WARN，即 daemon 未启动的预期门槛）。逐步：`clone_core PASS`、**`clone_state PASS`/`restore_state PASS`（状态恢复端到端打通）**、bootstrap 中 path_audit/compileall/pytest/ace_status_smoke 全 PASS、**`clone_video PASS`、`video_offline_tests PASS`（36 passed）、`video_dry_run PASS`（DRY_RUN，未外部提交）**。收据：`C:\tmp\ace_drill_20261012_r3\ACE_REMOTE_RESTORE_RECEIPT.json`。
+5. **health errors=0 终验（§7.3 解除）**：r3 沙箱内起 `ace.py daemon --serve --interval 300`（PID 7772，有界、验证后 taskkill 确认停止）→ `ops/health_check.py --json`：**errors=0**，18 passed / 2 warnings / 20 total，`overall=warning`。仅剩 2 个文档预期告警：①已知治理闩（4x 证据同步重复计数，等待人工外部证据复核）；②13 个模型 STALE（无 provider 凭据，`MISSING_HUMAN_REQUIRED.md` 人工补回项）。
+
+### 更新后的剩余项（终态）
+
+1. canonical 直接合并 → **PR #10 待评审**（已从"受阻"转为"已提审"；最后一步是所有者点击合并，属授权动作非技术动作）
+2. provider 凭据/模型权重 → 人工补回（r3 实证即 2 个 warning 的来源，非代码缺陷）
+3. ops 全量 222 文件中 175 个未执行（长跑/守护进程类，声明范围外，不冒充通过）
+4. github.com 间歇抖动（风险记录；所有重试均最终成功）
+
+### 终态完成判定（更新）
+
+六项全通过；恢复项从"代码级 PARTIAL"升级为"**代码+私有状态+视频域全链恢复，且 daemon 启动后 health errors=0 终验通过**"；唯一未完成动作为 canonical 直接合并（PR #10 待审，属授权动作）。
