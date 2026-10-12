@@ -188,6 +188,42 @@ def test_already_reviewed_tasks_are_not_reviewed_again_without_force(tmp_path):
     assert second["status"] == "NO_TASK_WAITING", "a repeated review is not new evidence"
 
 
+def test_reviewing_the_newest_tasks_does_not_starve_the_older_backlog(tmp_path):
+    """Live fire on 2026-10-12: the natural sweep reported NO_TASK_WAITING
+    while 65 un-reviewed tasks were still blocked.
+
+    Cause: _waiting_tasks returned the newest `limit` tasks, and run_once
+    filtered the "already reviewed" set inside that slice. The two newest tasks
+    had been reviewed, so the slice was all-done and the sweep concluded the
+    backlog was empty. The reviewer must skip done tasks and move on to the
+    next, not stop because its favourites are finished.
+    """
+    _blocked_task(tmp_path, task_id="RQ-OLD-001", waiting=True)
+    # two tasks with different mtimes; the second one is the "newest"
+    import time
+    time.sleep(0.02)
+    _blocked_task(tmp_path, task_id="RQ-NEW-001", waiting=True)
+
+    reviewer = FreeZoneExternalReviewer(tmp_path, tmp_path / "sandbox", ScriptedPool())
+    first = reviewer.run_once(force=True, limit=1)
+    assert first["status"] == "EXTERNAL_REVIEW_RECORDED"
+    assert first["tasks_reviewed"] == 1
+
+    # second sweep: newest is done, so it must review the older one, not quit
+    second = reviewer.run_once(limit=1)
+    assert second["status"] == "EXTERNAL_REVIEW_RECORDED", (
+        "the backlog is not empty when older tasks are still unreviewed"
+    )
+    assert second["tasks_reviewed"] == 1
+    # and the review receipt names the older task, not a repeat of the newer one
+    import json
+    receipt = json.loads(
+        (tmp_path / "sandbox" / "reports" / "external_review"
+         / f"{second['experiment_id']}.json").read_text(encoding="utf-8")
+    )
+    assert receipt["tasks"] == ["RQ-OLD-001"], receipt["tasks"]
+
+
 def test_a_second_sweep_of_the_same_task_does_not_collide(tmp_path):
     """The sandbox refuses a duplicate experiment id; experiments are append-only.
 

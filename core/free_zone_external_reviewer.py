@@ -122,9 +122,14 @@ class FreeZoneExternalReviewer:
                  max_tokens: int = 512) -> dict[str, Any]:
         state = self._read(self.state_path)
         done = {str(t) for t in state.get("reviewed_task_ids", [])}
-        candidates = self._waiting_tasks(limit)
-        fresh = [t for t in candidates if t["task_id"] not in done] or (
-            candidates if force else []
+        candidates = self._waiting_tasks()
+        # Pick the newest tasks that have not been reviewed yet. The earlier
+        # version asked _waiting_tasks for `limit` and filtered inside that
+        # slice, so once the newest few were reviewed the sweep reported
+        # NO_TASK_WAITING while the rest of the backlog sat untouched - a
+        # reviewer that stops as soon as its favourite tasks are done.
+        fresh = [t for t in candidates if t["task_id"] not in done][:limit] or (
+            candidates[:limit] if force else []
         )
         if not fresh:
             result = {
@@ -244,8 +249,15 @@ class FreeZoneExternalReviewer:
 
     # ----------------------------------------------------------- task intake
 
-    def _waiting_tasks(self, limit: int) -> list[dict[str, Any]]:
-        """Blocked tasks whose own verdict says: waiting for external evidence."""
+    def _waiting_tasks(self, limit: int | None = None) -> list[dict[str, Any]]:
+        """Blocked tasks whose own verdict says: waiting for external evidence.
+
+        Returns newest-first. ``limit`` is an optional cap on how many to
+        return; run_once passes none and picks the first unreviewed ones itself,
+        because capping here is what starved the sweep: the newest few were
+        already reviewed, so a capped list contained only done tasks and the
+        backlog was reported as empty.
+        """
         directory = self.workspace_root / BLOCKED_DIR
         if not directory.is_dir():
             return []
@@ -264,7 +276,7 @@ class FreeZoneExternalReviewer:
             if "重复验证达到上限" not in reason:
                 continue
             waiting.append(task)
-            if len(waiting) >= limit:
+            if limit is not None and len(waiting) >= limit:
                 break
         return waiting
 
