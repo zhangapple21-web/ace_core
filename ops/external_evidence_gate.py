@@ -232,6 +232,7 @@ def assess(task: Mapping[str, Any], review: TaskReview | None) -> dict[str, Any]
             "cannot_assess": review.cannot_assess,
             "unparsed": review.unparsed,
             "unavailable": review.unavailable,
+            "evidence_flags": len(review.evidence_flags),
         },
         "pollution": pollution,
     }
