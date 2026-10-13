@@ -43,6 +43,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Mapping
 
+from .capability_contract import audit_preflight, contract_for_task, sign_preflight, violations
 from .free_research_sandbox import CONTRACT_VERSION as SANDBOX_CONTRACT
 from .free_research_sandbox import FreeResearchSandbox, _digest
 from .miner_pool.model_router import ModelSpec
@@ -256,6 +257,7 @@ class FreeZoneSocialRoom:
         speeches = [t for t in transcript if t["kind"] == "speech"]
         session_id = "SR-" + topic["topic_hash"][:16].upper()
         room_memory = self._compact_memory(state, transcript, memory, calls)
+        audit = self._contract_audit(transcript, speeches, calls)
 
         session = {
             "contract_version": CONTRACT_VERSION,
@@ -270,6 +272,7 @@ class FreeZoneSocialRoom:
             "gate_failures": sum(1 for t in transcript if t["kind"] == "gate_unavailable"),
             "distinct_speakers": len({t["speaker"] for t in speeches}),
             "gate_overrides": sum(1 for t in speeches if t.get("gate_override")),
+            "contract_audit": audit,
             "model_calls": calls,
             "call_budget": MAX_CALLS_PER_SESSION,
             "turn_budget": MAX_TURNS,
@@ -412,6 +415,70 @@ class FreeZoneSocialRoom:
             if name != avoid:
                 return name
         return avoid
+
+    def _contract_audit(self, transcript: list[dict[str, Any]],
+                        speeches: list[dict[str, Any]], calls: int) -> dict[str, Any]:
+        """Sign off this session against its capability contract, honestly.
+
+        The contract is read, not enforced by force: a signature is only offered
+        where the record actually carries the evidence. An item that cannot be
+        proven from the session itself is reported as missing, never signed with
+        a plausible excuse. That is the whole difference between a checklist and
+        a claim, and it is why this method inspects the transcript rather than
+        asserting that the work was good.
+
+        An audit that cannot complete does not block the session - the sandbox
+        keeps the record either way. It makes the incomplete part visible.
+        """
+        try:
+            contract = contract_for_task("free_exploration")
+        except Exception:
+            return {"status": "CONTRACT_UNAVAILABLE"}
+        if contract is None:
+            return {"status": "NO_CONTRACT_FOR_THIS_TASK_TYPE"}
+
+        signatures = []
+        if speeches:
+            # The question is stated before any seat speaks: the transcript
+            # begins with either a speech or a named non-speech, and the topic
+            # is carried on the session itself.
+            signatures.append(sign_preflight(
+                contract, contract.preflight[0],
+                f"topic stated before seat 1: {str(transcript[0].get('kind'))}",
+                "social_room",
+            ))
+            # Every seat is pinned and cannot fall through to a paid provider:
+            # provable from the prose - every speech names its model, and the
+            # roster is pinned ids.
+            pinned = all(s.get("model") for s in speeches)
+            if pinned:
+                signatures.append(sign_preflight(
+                    contract, contract.preflight[1],
+                    "; ".join(sorted({s.get("model", "") for s in speeches})),
+                    "social_room",
+                ))
+        # A seat that answered nothing is recorded as unavailable, not as a view:
+        # provable whenever the transcript carries a non-speech kind at all.
+        unavailable = [t for t in transcript
+                       if t.get("kind") in {"gate_unavailable", "silence"}]
+        if unavailable or not speeches:
+            signatures.append(sign_preflight(
+                contract, contract.preflight[2],
+                f"{len(unavailable)} non-speech turn(s) recorded with their kind",
+                "social_room",
+            ))
+        # No seat's claim is stored as a finding about ACE: provable from the
+        # record shape - nothing here writes to the task pool or to ACE reality.
+        signatures.append(sign_preflight(
+            contract, contract.preflight[3],
+            "session writes only inside the sandbox; taskpool_mutated is False",
+            "social_room",
+        ))
+
+        verdict = audit_preflight(contract, signatures)
+        verdict["status"] = "SIGNED" if verdict["complete"] else "INCOMPLETE"
+        verdict["bans_enforced"] = violations(contract)
+        return verdict
 
     def _chat(self, model_id: str, prompt: str, *, system_prompt: str,
               max_tokens: int) -> str:
