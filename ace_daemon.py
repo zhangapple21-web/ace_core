@@ -377,10 +377,18 @@ class AceDaemon:
             # Free Zone 独立 TaskPool，隔离实验任务与生产任务
             freezone_pool_dir = self.base_dir / "task_pool_freezone"
             self.freezone_task_pool = TaskPool(str(freezone_pool_dir))
+            # The relay writes ACE-side verification tasks, so its target must be
+            # a pool the lifecycle actually serves. It was pointed at
+            # freezone_task_pool, which no Researcher, Validator, or Archivist
+            # reads: 67 tasks landed in pending and were never touched again,
+            # while the same creator's 16 earlier tasks in the MAIN pool had gone
+            # through the full lifecycle. Isolation for free-zone work is carried
+            # by the admission metadata (production_integration False, next gate
+            # EXISTING_ACE_ADMISSION), never by an unserved pool.
             self.free_zone_reflection_relay = FreeZoneReflectionRelay(
                 self.base_dir,
                 sandbox_root=self.base_dir / "07_SANDBOX" / "free_research",
-                task_pool=self.freezone_task_pool,
+                task_pool=self.task_pool,
             )
             # Canonical Knowledge writer.  Constructed before the Guardian so
             # the promotion gate can consult historical lessons.  Observer and
