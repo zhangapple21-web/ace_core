@@ -709,9 +709,11 @@ def adjudicate_task(task_id: str, pool: Any, root: Path,
 
     action, detail = _decide(task, packet, performed, material, deliberation,
                              deliberations)
+    envelope_check = _envelope_check(action, detail)
     receipt = _write_receipt(root, task, packet, performed, deliberation,
-                             action, detail)
-    _apply(task_pool, task, action, detail, performed, deliberation, receipt, pool)
+                             action, detail, envelope_check)
+    _apply(task_pool, task, action, detail, performed, deliberation, receipt, pool,
+           envelope_check)
     return {"task_id": task_id, "action": action, "detail": detail,
             "receipt": receipt.get("receipt_id", "")}
 
@@ -749,7 +751,8 @@ def _decide(task: Any, packet: Mapping[str, Any],
 def _write_receipt(root: Path, task: Any, packet: Mapping[str, Any],
                    performed: list[dict[str, Any]],
                    deliberation: Mapping[str, Any] | None,
-                   action: str, detail: str) -> dict[str, Any]:
+                   action: str, detail: str,
+                   envelope_check: Mapping[str, Any] | None = None) -> dict[str, Any]:
     task_id = str(task.task_id)
     receipt = {
         "contract_version": CONTRACT_VERSION,
@@ -766,6 +769,7 @@ def _write_receipt(root: Path, task: Any, packet: Mapping[str, Any],
         } if deliberation else None),
         "action": action,
         "detail": detail,
+        "intent_envelope_check": envelope_check,
         "production_integration": False,
     }
     receipt["receipt_hash"] = _digest(receipt)
@@ -776,14 +780,58 @@ def _write_receipt(root: Path, task: Any, packet: Mapping[str, Any],
     return receipt
 
 
+def _envelope_check(action: str, detail: str) -> dict[str, Any] | None:
+    """Build and validate the intent envelope for an action the system takes.
+
+    The CAN vs MAY gate, wired where judgment becomes a state transition.
+
+    An autonomous ruling is CAN - a demonstrated reading of the record. The
+    state transition it drives is MAY - authority granted by the existing
+    lifecycle entry point and its audit trail, not by the ruling. Keeping those
+    apart is the whole point of core/mirror_constitution's envelope: the ruling
+    is recorded as a candidate whose execution authority is structurally False,
+    and the act it justifies is authorised separately by reopen_task's own
+    actor + reason + audit event.
+
+    Without this wiring the gate exists and reads well, and the boundary it
+    names is only ever asserted in a test.
+    """
+    from .mirror_constitution import build_intent_envelope, validate_intent_envelope
+
+    if action == "HOLD":
+        return None
+    envelope = build_intent_envelope(
+        intent_kind="OBSERVATION",
+        claim=f"{action}: {detail}"[:400],
+        source_scope="VERIFIED_EVIDENCE",
+        source_refs=[f"contract:{CONTRACT_VERSION}"],
+        data_class="STRUCTURE",
+    )
+    check = validate_intent_envelope(envelope)
+    check["envelope_claim"] = envelope["claim"][:200]
+    # fail-closed: an envelope that arrived carrying authority is a defect, and
+    # the caller refuses rather than proceeds on a judgment that booked a right
+    if not check["valid"]:
+        check["refused"] = True
+    return check
+
+
 def _apply(task_pool: Any, task: Any, action: str, detail: str,
            performed: list[dict[str, Any]],
            deliberation: Mapping[str, Any] | None,
-           receipt: Mapping[str, Any], pool: Any) -> None:
+           receipt: Mapping[str, Any], pool: Any,
+           envelope_check: Mapping[str, Any] | None = None) -> None:
     """Carry out the ruling through existing entries only."""
     from core.experience_deposition import ExperienceDeposition
 
     task_id = str(task.task_id)
+    if envelope_check is not None and not envelope_check["valid"]:
+        # An envelope that books execution authority cannot act. Refusing here
+        # is fail-closed; the task stays blocked and the receipt says why.
+        reloaded = task_pool.load_task(task_id)
+        if reloaded is not None:
+            _note(reloaded, task_pool, deliberation, receipt)
+        return
     if action == "EXECUTE":
         evidence = [{
             "source": f"autonomous_adjudication:{r.get('action')}",
