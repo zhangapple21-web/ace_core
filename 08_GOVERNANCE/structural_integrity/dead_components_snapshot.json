@@ -1,0 +1,411 @@
+{
+  "at": "2026-10-14T03:10:55+00:00",
+  "contract_version": "ace.dead_component_watch.v1",
+  "counts": {
+    "dead_definitions": 99,
+    "escalated": 3,
+    "orphaned_intent": 38,
+    "total_files_scanned": 607
+  },
+  "dead": {
+    "ActivePerceptionLayer": {
+      "file": "core/active_perception.py",
+      "has_tests": false
+    },
+    "DataQualityProtocol": {
+      "file": "core/stock_data_reliability.py",
+      "has_tests": false
+    },
+    "EventBus": {
+      "file": "core/event_bus.py",
+      "has_tests": false
+    },
+    "EvidenceLevel": {
+      "file": "core/governance/contracts.py",
+      "has_tests": false
+    },
+    "HypothesisTree": {
+      "file": "core/hypothesis_tree.py",
+      "has_tests": false
+    },
+    "LineageSystem": {
+      "file": "core/lineage.py",
+      "has_tests": false
+    },
+    "LineageType": {
+      "file": "core/lineage.py",
+      "has_tests": false
+    },
+    "MapRelation": {
+      "escalated": true,
+      "file": "core/civilization_map_reference.py",
+      "has_tests": true
+    },
+    "Memory": {
+      "file": "core/memory.py",
+      "has_tests": false
+    },
+    "MengpoAutoTrigger": {
+      "file": "core/governance/mengpo_auto.py",
+      "has_tests": false
+    },
+    "MengpoRuntime": {
+      "escalated": true,
+      "file": "core/governance/mengpo_runtime.py",
+      "has_tests": true
+    },
+    "MiniStateMachine": {
+      "escalated": true,
+      "file": "core/persona_matrix_router.py",
+      "has_tests": true
+    },
+    "MuseumArchaeologyInventory": {
+      "file": "core/museum_archaeology_inventory.py",
+      "has_tests": false
+    },
+    "PermissionMatrix": {
+      "file": "core/contracts/authority_contract.py",
+      "has_tests": false
+    },
+    "RuntimeClaimStore": {
+      "file": "core/runtime_claim.py",
+      "has_tests": false
+    },
+    "RuntimeFitnessSuite": {
+      "file": "core/governance/runtime_fitness.py",
+      "has_tests": false
+    },
+    "ScanPartition": {
+      "file": "core/scan_partition.py",
+      "has_tests": false
+    },
+    "ShadowRoutingTeam": {
+      "file": "core/miner_pool/shadow_routing_team.py",
+      "has_tests": false
+    },
+    "SyncContract": {
+      "file": "core/contracts/sync_contract.py",
+      "has_tests": false
+    },
+    "WorkConservationGate": {
+      "file": "core/coordinate_dynamics.py",
+      "has_tests": true
+    },
+    "_has_tests": {
+      "file": "ops/dead_component_watch.py",
+      "has_tests": true
+    },
+    "annotate_candidate_with_prior": {
+      "file": "core/tn6_experience_fusion.py",
+      "has_tests": true
+    },
+    "append_research_event": {
+      "file": "core/research_companion.py",
+      "has_tests": false
+    },
+    "arbitrate": {
+      "file": "core/persona_matrix_router.py",
+      "has_tests": true
+    },
+    "assess_risk_reward": {
+      "file": "core/ultrashort_playbook.py",
+      "has_tests": true
+    },
+    "assess_trade_window": {
+      "file": "core/trade_timing.py",
+      "has_tests": true
+    },
+    "assess_volume_price": {
+      "file": "core/ultrashort_playbook.py",
+      "has_tests": true
+    },
+    "attach_company_view": {
+      "file": "core/company_view.py",
+      "has_tests": false
+    },
+    "attach_decision_discipline": {
+      "file": "core/decision_discipline.py",
+      "has_tests": true
+    },
+    "audit_stock_data_paths": {
+      "file": "core/stock_data_reliability.py",
+      "has_tests": false
+    },
+    "benchmark_operations": {
+      "file": "core/stock_data_reliability.py",
+      "has_tests": false
+    },
+    "build_daily_research_brief": {
+      "file": "core/daily_research_brief.py",
+      "has_tests": false
+    },
+    "build_declaration": {
+      "file": "core/historical_integrity.py",
+      "has_tests": false
+    },
+    "build_early_session_research_record": {
+      "file": "core/early_session_research_protocol.py",
+      "has_tests": false
+    },
+    "build_factor_experiment": {
+      "file": "core/factor_experiment_contract.py",
+      "has_tests": false
+    },
+    "build_indicator_bridge_record": {
+      "file": "core/indicator_archive.py",
+      "has_tests": true
+    },
+    "build_intent_envelope": {
+      "file": "core/mirror_constitution.py",
+      "has_tests": true
+    },
+    "build_market_context_research": {
+      "file": "core/market_context_research.py",
+      "has_tests": false
+    },
+    "build_micro_observation": {
+      "file": "core/micro_observation.py",
+      "has_tests": false
+    },
+    "build_mirror_context": {
+      "file": "core/mirror_constitution.py",
+      "has_tests": false
+    },
+    "build_research_question_card": {
+      "file": "core/research_companion.py",
+      "has_tests": false
+    },
+    "build_shadow_candidate": {
+      "file": "core/environment_context.py",
+      "has_tests": false
+    },
+    "build_teacher_review_packet": {
+      "file": "core/teacher_review_packet.py",
+      "has_tests": false
+    },
+    "build_technical_feature_set": {
+      "file": "core/financial_technical_features.py",
+      "has_tests": false
+    },
+    "classify_artifact": {
+      "file": "core/constitution_hierarchy.py",
+      "has_tests": true
+    },
+    "classify_candidate": {
+      "file": "core/ultrashort_factor_profile.py",
+      "has_tests": true
+    },
+    "classify_setup": {
+      "file": "core/ultrashort_playbook.py",
+      "has_tests": true
+    },
+    "collect_resident_atlas": {
+      "file": "core/miner_pool/resident_atlas.py",
+      "has_tests": false
+    },
+    "create_research_thread": {
+      "file": "core/research_companion.py",
+      "has_tests": false
+    },
+    "create_worker": {
+      "file": "core/base_worker.py",
+      "has_tests": false
+    },
+    "decision_from_dict": {
+      "file": "core/curation_target.py",
+      "has_tests": false
+    },
+    "deshell": {
+      "file": "core/persona_matrix_router.py",
+      "has_tests": true
+    },
+    "freeze_opportunity_snapshot": {
+      "file": "core/ultrashort_review.py",
+      "has_tests": true
+    },
+    "get_provider_watchdog": {
+      "file": "core/miner_pool/provider_watchdog.py",
+      "has_tests": false
+    },
+    "handle_lexicon": {
+      "file": "ace.py",
+      "has_tests": false
+    },
+    "handle_memory": {
+      "file": "ace.py",
+      "has_tests": false
+    },
+    "handle_scan": {
+      "file": "ace.py",
+      "has_tests": false
+    },
+    "handle_scan_fragments": {
+      "file": "ace.py",
+      "has_tests": false
+    },
+    "ingest_symbol_snapshot": {
+      "file": "core/research_ingest.py",
+      "has_tests": true
+    },
+    "instruction_evidence_keys": {
+      "file": "core/instruction_boundary.py",
+      "has_tests": false
+    },
+    "is_ace_daemon_argv": {
+      "file": "core/silent_windows.py",
+      "has_tests": true
+    },
+    "is_zip_encrypted": {
+      "file": "core/recovery_protocol.py",
+      "has_tests": false
+    },
+    "list_contracted_types": {
+      "file": "core/capability_contract.py",
+      "has_tests": true
+    },
+    "load_declarations": {
+      "file": "core/historical_integrity.py",
+      "has_tests": false
+    },
+    "load_receipt": {
+      "file": "ops/audit_receipt.py",
+      "has_tests": false
+    },
+    "make_frame": {
+      "file": "core/state_calculus.py",
+      "has_tests": true
+    },
+    "memory_envelope": {
+      "file": "core/persona_matrix_router.py",
+      "has_tests": true
+    },
+    "memory_envelope_compat": {
+      "file": "core/ruin_smelter.py",
+      "has_tests": true
+    },
+    "observe_workspace_identity": {
+      "file": "core/environment_context.py",
+      "has_tests": false
+    },
+    "pareto_frontier": {
+      "file": "core/factor_experiment_contract.py",
+      "has_tests": false
+    },
+    "probe_provider_ports": {
+      "file": "core/provider_health_boundary.py",
+      "has_tests": false
+    },
+    "profile_metadata": {
+      "file": "core/ultrashort_factor_profile.py",
+      "has_tests": true
+    },
+    "project_knowledge_page": {
+      "file": "core/hindsight_memory_adapter.py",
+      "has_tests": true
+    },
+    "record_opportunity_outcome": {
+      "file": "core/ultrashort_review.py",
+      "has_tests": true
+    },
+    "record_teacher_decision": {
+      "file": "core/daily_research_brief.py",
+      "has_tests": true
+    },
+    "research_position_ceiling": {
+      "file": "core/ultrashort_playbook.py",
+      "has_tests": true
+    },
+    "resolve_mine_seed": {
+      "file": "core/repository_config.py",
+      "has_tests": false
+    },
+    "route_to_capability": {
+      "file": "core/persona_matrix_router.py",
+      "has_tests": true
+    },
+    "run_e2e_test": {
+      "file": "ace.py",
+      "has_tests": false
+    },
+    "run_replay": {
+      "file": "core/historical_factor_replay.py",
+      "has_tests": false
+    },
+    "scan_staged_for_secrets": {
+      "file": "core/sync_guardrails.py",
+      "has_tests": false
+    },
+    "shadow_audit": {
+      "file": "core/evidence_relevance_shadow.py",
+      "has_tests": false
+    },
+    "shadow_report": {
+      "file": "core/evidence_admission_compat.py",
+      "has_tests": false
+    },
+    "should_retrieve": {
+      "file": "core/ruin_smelter.py",
+      "has_tests": true
+    },
+    "split_prefix": {
+      "file": "core/curation_target.py",
+      "has_tests": false
+    },
+    "summarize_walk_forward": {
+      "file": "core/research_pipeline.py",
+      "has_tests": true
+    },
+    "ungoverned_task_types": {
+      "file": "core/capability_contract.py",
+      "has_tests": true
+    },
+    "validate_intent_envelope": {
+      "file": "core/mirror_constitution.py",
+      "has_tests": true
+    },
+    "validate_meaning_line_batch": {
+      "file": "core/meaning_line.py",
+      "has_tests": false
+    },
+    "validate_projection": {
+      "file": "core/civilization_map_reference.py",
+      "has_tests": true
+    },
+    "validate_research_card": {
+      "file": "core/research_companion.py",
+      "has_tests": false
+    },
+    "validate_research_thread": {
+      "file": "core/research_companion.py",
+      "has_tests": false
+    },
+    "verify_receipt": {
+      "file": "ops/audit_receipt.py",
+      "has_tests": true
+    },
+    "walk_forward_validate": {
+      "file": "core/factor_replay.py",
+      "has_tests": true
+    },
+    "watch_once": {
+      "file": "core/historical_snapshot_watcher.py",
+      "has_tests": false
+    },
+    "worker_capabilities": {
+      "file": "core/persona_matrix_router.py",
+      "has_tests": true
+    },
+    "write_brief": {
+      "file": "core/daily_research_brief.py",
+      "has_tests": false
+    },
+    "write_indicator_bridge_record": {
+      "file": "core/indicator_archive.py",
+      "has_tests": false
+    },
+    "write_market_context_research": {
+      "file": "core/market_context_research.py",
+      "has_tests": false
+    }
+  }
+}

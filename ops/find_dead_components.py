@@ -44,7 +44,13 @@ def defined_names(path: Path) -> set[str]:
 
 
 def referenced_names(path: Path) -> set[str]:
-    """Every Name/Attribute load in this file, i.e. what it uses."""
+    """Every Name/Attribute load in this file, i.e. what it uses.
+
+    Import aliases are included because `from x import Y` is an ``ast.alias``,
+    not an ``ast.Name``: walking only Name and Attribute misses the most common
+    way a component is referenced, and reports nearly every importable component
+    as unreferenced.
+    """
     try:
         tree = ast.parse(path.read_text(encoding="utf-8"))
     except (OSError, SyntaxError, UnicodeDecodeError):
@@ -55,7 +61,26 @@ def referenced_names(path: Path) -> set[str]:
             names.add(node.id)
         elif isinstance(node, ast.Attribute):
             names.add(node.attr)
+        elif isinstance(node, ast.Import):
+            for alias in node.names:
+                names.add((alias.asname or alias.name).split(".")[0])
+        elif isinstance(node, ast.ImportFrom):
+            for alias in node.names:
+                names.add(alias.asname or alias.name)
     return names
+
+
+def _is_test_file(path: Path) -> bool:
+    """A test file is not a production component.
+
+    Scanning test files as source turns every test class into a phantom dead
+    component: pytest instantiates them by discovery, so no ``Name`` node ever
+    references ``class SomethingTests`` and the scan reports it as unreferenced
+    forever. Test files still contribute usage - a test that calls a component
+    is real evidence it is wired.
+    """
+    name = path.name
+    return name.startswith("test_") and name.endswith(".py")
 
 
 def main() -> int:
@@ -69,6 +94,8 @@ def main() -> int:
 
     definitions: dict[str, list[Path]] = {}
     for path in files:
+        if _is_test_file(path):
+            continue
         for name in defined_names(path):
             definitions.setdefault(name, []).append(path)
 
