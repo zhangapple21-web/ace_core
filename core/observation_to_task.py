@@ -34,6 +34,32 @@ from .task import TaskPool
 from .model_task_admission import ModelTaskAdmission
 
 
+def persona_hint_for(title: str, hypothesis: str = "") -> Dict[str, str]:
+    """生产接线点：R1人格矩阵进入调用链的唯一入口（无新调度器）.
+
+    优先 semantic_route（上下文感知），歧义/冲突交冥界，失败回落 keyword route，
+    再失败回落 assistant/customer_dialog，不阻断任务创建。
+    """
+    try:
+        from core.persona_matrix_router import PERSONA_DEFS, route as persona_route, semantic_route
+        text = f"{title or ''} {hypothesis or ''}"
+        try:
+            sem = semantic_route(text)
+            selected = str(sem.get("selected") or "")
+            # 语义明确单选则直接用；模糊/冲突的 judge 交给 keyword 仲裁复核
+            if selected and selected != "underworld_judge":
+                capability = str(PERSONA_DEFS.get(selected, {}).get("capability") or "customer_dialog")
+                return {"persona": selected, "capability": capability, "method": "semantic"}
+        except Exception:
+            pass
+        routed = persona_route(text)
+        selected = str(routed.get("selected") or "assistant")
+        capability = str(PERSONA_DEFS.get(selected, {}).get("capability") or "customer_dialog")
+        return {"persona": selected, "capability": capability, "method": "keyword"}
+    except Exception:
+        return {"persona": "assistant", "capability": "customer_dialog", "method": "fallback"}
+
+
 @dataclass
 class ConversionRule:
     """
@@ -685,6 +711,9 @@ class ObservationToTaskConverter:
         ]
         if learning is not None:
             tags.append("learning")
+        # R1人格矩阵生产接线：标题映射为 persona/capability 标签
+        _hint = persona_hint_for(str(discovery.get("title", "")), str(discovery.get("objective", "")))
+        tags = list(tags) + [f"persona:{_hint['persona']}", f"capability:{_hint['capability']}"]
         source_type = "learning" if learning is not None else "maintenance"
         if discovery.get("candidate_source") == "archaeology":
             source_type = "archaeology"
@@ -740,6 +769,7 @@ class ObservationToTaskConverter:
                 "discovery": dict(discovery),
                 "autonomous_maintenance": dict(contract),
                 "model_task_admission": decision,
+                "persona_hint": _hint,
                 **({"learning": dict(learning)} if learning is not None else {}),
             },
         )
@@ -900,18 +930,22 @@ class ObservationToTaskConverter:
                 }
 
                 try:
+                    # R1人格矩阵生产接线：规则任务同样打标 persona/capability
+                    _hint2 = persona_hint_for(str(task_params.get("title", "")), str(task_params.get("hypothesis", "")))
+                    _tags2 = list(task_params.get("tags", [])) + [f"persona:{_hint2['persona']}", f"capability:{_hint2['capability']}"]
                     task = self.task_pool.create_task(
                         title=task_params["title"],
                         hypothesis=task_params["hypothesis"],
                         creator=task_params["creator"],
                         priority=task_params["priority"],
-                        tags=task_params["tags"],
+                        tags=_tags2,
                         admission=admission,
                         outputs={
                             "source_obs_id": task_params["source_obs_id"],
                             "source_obs_description": obs.description,
                             "conversion_rule": rule.name,
                             "semantic_signature": self._semantic_signature(rule, state),
+                            "persona_hint": _hint2,
                         },
                     )
                     self.observer.mark_consumed(obs.obs_id, task.task_id)
