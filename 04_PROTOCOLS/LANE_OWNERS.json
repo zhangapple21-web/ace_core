@@ -1,0 +1,24 @@
+{
+  "contract_version": "ace.lane_owners.v1",
+  "note": "Hotspot ownership as data, not as convention. A lane may claim only regions it owns or that are listed shared. An unowned region is anyone's; an owned region is exactly one lane's.",
+  "regions": {
+    "core/miner_pool/miner_pool.py": "nim-lane",
+    "core/miner_pool/credential_manager.py": "nim-lane",
+    "core/miner_pool/providers/openai_compatible.py": "nim-lane",
+    "core/miner_pool/registry": "nim-lane",
+    "ace_config.json": "nim-lane",
+    "core/governance": "governance-lane",
+    "08_GOVERNANCE": "governance-lane",
+    "00_ROOT": "governance-lane",
+    "AGENTS.md": "governance-lane",
+    "04_PROTOCOLS/LANE_OWNERS.json": "governance-lane"
+  },
+  "shared": [
+    "core/window_lane.py",
+    "ops/test_window_lane.py",
+    "07_SANDBOX/free_research"
+  ],
+  "addendum": "registry.json is API-only - ProviderRegistry writes it, no hand edits. A rule a single process enforces beats a rule a human remembers.",
+  "recorded_at": "2026-10-14",
+  "ratified_by": "main steward (steward window)"
+}
