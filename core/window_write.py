@@ -117,3 +117,24 @@ def _render(content: Any) -> str:
     if isinstance(content, str):
         return content
     return json.dumps(content, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
+
+
+def write_window_artifact(root: str | Path, region: str, content: Any, *,
+                          lane: str = "governance-lane",
+                          registry: LaneRegistry | None = None,
+                          observer: Any = None,
+                          actor: str = "",
+                          allow_unclaimed: bool = False) -> dict[str, Any]:
+    """The write every governance surface uses: JSON in, audited out.
+
+    Surfaced as a helper because the writes it covers are the ones a window does
+    on its own behalf - a receipt, a snapshot, a knowledge deposit - and each of
+    them was previously a bare `path.write_text`. Nothing about those writes was
+    wrong; they simply answered to nobody. Routing them here makes the claim and
+    the refusal real, and keeps the default lane explicit so a caller has to say
+    which lane it is rather than defaulting into governance by accident.
+    """
+    payload = content if isinstance(content, str) else _render(content)
+    return window_write(root, region, payload, lane=lane, registry=registry,
+                        observer=observer, actor=actor,
+                        allow_unclaimed=allow_unclaimed)

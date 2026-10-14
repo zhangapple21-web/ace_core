@@ -17,6 +17,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -83,14 +84,26 @@ def test_the_gate_is_wired_not_merely_defined():
 
 
 def test_a_receipt_records_the_envelope_check(tmp_path):
-    """The boundary has to be auditable, not merely asserted."""
+    """The boundary has to be auditable, not merely asserted.
+
+    The receipt lands in 08_GOVERNANCE, so the fixture must load the real OWNERS
+    table: an invented empty one would refuse the write for the wrong reason and
+    pin the wrong defect.
+    """
+    import shutil
+
     from core.autonomous_adjudication import _write_receipt
+
+    root = tmp_path / "repo"
+    shutil.copytree(
+        Path(__file__).resolve().parent.parent / "04_PROTOCOLS", root / "04_PROTOCOLS",
+        ignore=shutil.ignore_patterns("*.pyc"))
 
     class _Task:
         task_id = "RQ-X"
 
     check = _envelope_check("RULE", "converged")
-    receipt = _write_receipt(tmp_path, _Task(), {"task_id": "RQ-X"}, [],
+    receipt = _write_receipt(root, _Task(), {"task_id": "RQ-X"}, [],
                              None, "RULE", "converged", check)
 
     stored = receipt["intent_envelope_check"]
@@ -99,6 +112,6 @@ def test_a_receipt_records_the_envelope_check(tmp_path):
     assert stored["side_effects"]["persistent_write"] is False
     # and it survives a round trip to disk, because that is what a reader sees
     on_disk = json.loads(
-        (tmp_path / "08_GOVERNANCE" / "autonomous_adjudication" / "receipts"
+        (root / "08_GOVERNANCE" / "autonomous_adjudication" / "receipts"
          / f"{receipt['receipt_id']}.json").read_text(encoding="utf-8"))
     assert on_disk["intent_envelope_check"]["valid"] is True

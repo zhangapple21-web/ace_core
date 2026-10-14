@@ -170,14 +170,30 @@ class LaneRegistry:
         }
 
     def owner_of(self, region: str) -> str | None:
-        """Which lane owns this region, by the table, or None when unowned."""
+        """Which lane owns this region, by the table, or None when unowned.
+
+        A registered directory covers everything beneath it, so
+        ``08_GOVERNANCE`` owning the whole governance tree is what lets a
+        specific receipt file answer to a lane without every file being
+        registered by name. The lookup walks from the most specific entry
+        down, so a file registered explicitly still wins over its directory.
+        """
         target = _normalise_region(region)
-        for candidate in self._owners.get("shared", []):
-            if regions_overlap(target, candidate):
-                return "*shared*"
-        for path, lane in self._owners.get("regions", {}).items():
-            if regions_overlap(target, path):
-                return lane
+        candidates = [target]
+        # prefixes of the target, most specific first
+        parts = target.split("/")
+        for index in range(len(parts) - 1, 0, -1):
+            candidates.append("/".join(parts[:index]))
+
+        for candidate in candidates:
+            for shared in self._owners.get("shared", []):
+                if regions_overlap(target, shared):
+                    return "*shared*"
+
+        for candidate in candidates:
+            for path, lane in self._owners.get("regions", {}).items():
+                if regions_overlap(target, path):
+                    return lane
         return None
 
     def is_shared(self, region: str) -> bool:

@@ -36,6 +36,7 @@ CATEGORY_ROUTING = {
     'provider_missing': "unrouted",
     'provider_ok': "unrouted",
     'sensor_error': "unrouted",
+    'structural_gap': ['window_lane_refusal', 'unclaimed_region_write'],
     'trending_repo': "unrouted",
     '任务归档': "unrouted",
     '切片考古': "unrouted",
