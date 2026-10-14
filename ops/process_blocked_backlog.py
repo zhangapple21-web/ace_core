@@ -42,6 +42,8 @@ from typing import Any, Mapping
 BASE_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(BASE_DIR))
 
+from core.free_zone_external_reviewer import parse_review_verdict  # noqa: E402
+
 CONTRACT_VERSION = "ace.blocked_backlog_disposition.v1"
 
 BLOCKED_DIR = "task_pool/blocked"
@@ -89,14 +91,13 @@ def _outside_readers(root: Path) -> dict[str, dict[str, Any]]:
         for entry in report.get("reviews") or []:
             if not isinstance(entry, Mapping):
                 continue
-            detail = str(entry.get("detail", "")).upper()
-            verdict = "UNPARSED"
-            for candidate in ("SUPPORTED", "CONTRADICTED", "CANNOT_ASSESS"):
-                if candidate in detail:
-                    verdict = candidate
-                    break
-            if str(entry.get("status")) in {"UNAVAILABLE", "DEGENERATE"}:
-                verdict = str(entry["status"])
+            status = str(entry.get("status") or "")
+            if status in {"UNAVAILABLE", "DEGENERATE"}:
+                verdict = status
+            else:
+                # Same rule as the admissibility gate: parse the VERDICT line,
+                # never scan the prose.
+                verdict = parse_review_verdict(str(entry.get("detail", ""))) or "UNPARSED"
             for task_id in task_ids:
                 record = collected.setdefault(task_id, {
                     "contradicted": set(), "cannot_assess": 0,
@@ -216,6 +217,7 @@ def process(root: Path, *, apply: bool = False) -> dict[str, Any]:
                     f"disposition: research_exhausted ({CONTRACT_VERSION})",
                 ],
                 related_concepts=[],
+                lane="tombstoning",
             )
             entry["deposited_experience"] = getattr(scheduled, "experience_id", "")
         disposed.append(entry)

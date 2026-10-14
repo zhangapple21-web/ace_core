@@ -66,7 +66,12 @@ class Experience:
         epistemic_status: Optional[str] = None,
         verification: Optional[Dict] = None,
         downgrade_reason: str = "",
+        depositing_lane: Optional[str] = None,
     ):
+        # Defaulted, not required: records written before this field existed
+        # load clean, and a default of "unattributed" says so rather than
+        # inventing a window that did the depositing.
+        self.depositing_lane = depositing_lane or "unattributed"
         self.experience_id = experience_id
         self.source_task_id = source_task_id
         self.experience_type = experience_type if experience_type in self.EXPERIENCE_TYPES else "observation"
@@ -84,6 +89,11 @@ class Experience:
         self.epistemic_status = epistemic_status or EPISTEMIC_STATUS.get(self.experience_type, "OBSERVATION")
         self.verification = dict(verification or {})
         self.downgrade_reason = downgrade_reason
+        # Which window deposited this. The shared substrate is where windows
+        # meet; without provenance a steward reading a lesson cannot tell which
+        # window learned it, and "who taught this" is the difference between a
+        # shared result and an anonymous pile.
+        self.depositing_lane = depositing_lane or "unattributed"
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -103,6 +113,7 @@ class Experience:
             "last_used_by": self.last_used_by,
             "verification": self.verification,
             "downgrade_reason": self.downgrade_reason,
+            "depositing_lane": self.depositing_lane,
         }
 
     @classmethod
@@ -270,12 +281,21 @@ class ExperienceDeposition:
         conclusion: Optional[str] = None,
         constraints_updated: Optional[List[str]] = None,
         related_concepts: Optional[List[str]] = None,
+        lane: Optional[str] = None,
     ) -> Experience:
         """
         将任务转化为经验记录并沉积
 
         未经独立验证的执行结果不会成为长期规则：``axiom``/``constraint``
         会降到 ``pattern``，并在记录里留下降级原因与验证缺口。
+
+        ``lane`` is the depositing window's claim on the ``09_KNOWLEDGE``
+        area. It is recorded on the experience itself so the shared verified
+        substrate says who put what in it, instead of a flat pile where a
+        steward reading a lesson cannot tell which window learned it. It does
+        not gate the write: 09_KNOWLEDGE is the shared substrate every window
+        is meant to reach, and a refusal here would close the very door this
+        closes. The lane is provenance, not permission.
         """
         if experience_type is None:
             if task.guardian_decision in Experience.EXPERIENCE_TYPES:
@@ -321,6 +341,7 @@ class ExperienceDeposition:
             data_class=getattr(task, "data_class", "PRIVATE"),
             verification=verification,
             downgrade_reason=downgrade_reason,
+            depositing_lane=lane or "unattributed",
         )
 
         boundary = validate_data_boundary({"data_class": exp.data_class}, target="INTERNAL")
