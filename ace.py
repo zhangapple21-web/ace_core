@@ -9,6 +9,7 @@ ACE Runtime 主入口
   python ace.py submit "标题" "内容"  # 手动提交一个观察
   python ace.py protocol <任务ID>        # 查看任务开工协议回执（只读）
   python ace.py start <任务ID> <owner>    # 通过唯一 ACE 开工入口领取任务
+  python ace.py start <任务ID> <owner> [lease_seconds] [--region core/a.py ...]
   python ace.py test         # 运行端到端测试
   python ace.py daemon       # 运行一次自动考古主循环
 """
@@ -148,20 +149,39 @@ def handle_protocol(base_dir: Path, args) -> int:
 
 
 def handle_start(base_dir: Path, args) -> int:
-    """Start exactly one task through TaskPool owner/lease/fencing authority."""
+    """Start exactly one task through TaskPool owner/lease/fencing authority.
 
-    if len(args) not in {2, 3}:
-        print("用法: python ace.py start <任务ID> <owner> [lease_seconds]")
+    Optional trailing ``--region core/file.py`` declares which files this window
+    intends to touch. A region held by another lane refuses the start.
+    """
+
+    if len(args) < 2:
+        print("用法: python ace.py start <任务ID> <owner> [lease_seconds] [--region core/a.py] ...")
         return 2
-    try:
-        lease_seconds = int(args[2]) if len(args) == 3 else 300
-    except ValueError:
-        print(json.dumps({"status": "REJECTED", "reason": "invalid_lease_seconds"}, ensure_ascii=False))
-        return 2
+    rest = list(args[2:])
+    lease_seconds = 300
+    regions: list[str] = []
+    index = 0
+    while index < len(rest):
+        if rest[index] == "--region":
+            if index + 1 >= len(rest):
+                print(json.dumps({"status": "REJECTED", "reason": "region_value_missing"}, ensure_ascii=False))
+                return 2
+            regions.append(rest[index + 1])
+            index += 2
+            continue
+        try:
+            lease_seconds = int(rest[index])
+        except ValueError:
+            print(json.dumps({"status": "REJECTED", "reason": "invalid_lease_seconds"}, ensure_ascii=False))
+            return 2
+        index += 1
+
     from core.ace_start import ace_start
     from core.task import TaskPool
 
-    result = ace_start(TaskPool(str(base_dir / "task_pool")), args[0], args[1], lease_seconds)
+    result = ace_start(TaskPool(str(base_dir / "task_pool")), args[0], args[1], lease_seconds,
+                       regions=regions, base_dir=str(base_dir))
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0 if result.get("status") == "STARTED" else 1
 
