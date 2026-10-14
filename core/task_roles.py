@@ -493,6 +493,66 @@ class Observer:
                     "tags": ["experience", "pattern_promotion", "feedback_loop"],
                 })
 
+        # 自主缺口发现（后台自发现，不走窗口对话）：
+        # 以下检查均为确定性、 bounded、无模型调用；标题保持稳定以借 _task_exists 去重，
+        # 同一缺口只建一次，归档后不再重建——复发需新证据另起任务。
+        try:
+            blocked_all = self.task_pool.list_tasks(status="blocked", limit=200)
+            missing_fuse = sum(
+                1 for t in blocked_all
+                if isinstance(getattr(t, "outputs", None), dict)
+                and "ruin_fuse" not in (t.outputs or {})
+            )
+            if missing_fuse > 0:
+                candidates.append({
+                    "title": "存量非收敛任务缺熔断方向待补",
+                    "hypothesis": f"blocked中{missing_fuse}个任务无ruin_fuse熔断方向（接线前存量），需批量补方向或确认外部证据已到",
+                    "priority": "high" if missing_fuse >= 10 else "medium",
+                    "tags": ["gap", "ruin-smelter", "backfill"],
+                })
+        except Exception:
+            pass
+        try:
+            pend_all = self.task_pool.list_tasks(status="pending", limit=200)
+            low_flood = sum(1 for t in pend_all if getattr(t, "priority", "") == "low")
+            if low_flood >= 15:
+                candidates.append({
+                    "title": "低优先级碎沫堆积需批量分诊",
+                    "hypothesis": f"pending中{low_flood}个low任务（多为EXTREVIEW碎沫），需批量去重/归并而非逐个领取",
+                    "priority": "medium",
+                    "tags": ["gap", "triage", "low-flood"],
+                })
+        except Exception:
+            pass
+        try:
+            arch_all = self.task_pool.list_tasks(status="archived", limit=20)
+            with_lineage = sum(
+                1 for t in arch_all
+                if isinstance(getattr(t, "outputs", None), dict)
+                and isinstance((t.outputs or {}).get("state_lineage"), list)
+            )
+            if arch_all and with_lineage == 0:
+                candidates.append({
+                    "title": "状态谱系缺TURIYA闭环验证待补",
+                    "hypothesis": "近20个归档任务无state_lineage，接线后新任务应带A-U-M谱系，需验证闭环是否真实流转",
+                    "priority": "medium",
+                    "tags": ["gap", "state-machine", "lineage"],
+                })
+        except Exception:
+            pass
+        try:
+            deaths = self.daemon_state.get("death_count", 0)
+            misses = self.daemon_state.get("consecutive_misses", 0)
+            if isinstance(deaths, int) and deaths >= 100:
+                candidates.append({
+                    "title": "daemon死亡计数过百需根因复盘",
+                    "hypothesis": f"death_count={deaths}，consecutive_misses={misses}，需从healing_log提炼约束而非只拉起",
+                    "priority": "high" if misses else "medium",
+                    "tags": ["gap", "resilience", "daemon"],
+                })
+        except Exception:
+            pass
+
         for cand in candidates:
             evidence = {
                 "source": "observer_internal_state",
