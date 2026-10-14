@@ -183,6 +183,14 @@ class MemoryIndex:
                 text = (entry.get("title", "") + " " + entry.get("summary", "")).lower()
                 if kw not in text:
                     continue
+            # MLP保留策略：过期临时错误不再参与常规检索，治理审计永可查
+            # 旧条目无retention字段时视为未过期（向后兼容），未知永不升事实在写入侧保证
+            try:
+                from core.ruin_smelter import should_retrieve as _should_retrieve
+                if not _should_retrieve(entry):
+                    continue
+            except Exception:
+                pass
 
             results.append(entry)
 

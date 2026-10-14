@@ -770,6 +770,10 @@ class ObservationToTaskConverter:
                 "autonomous_maintenance": dict(contract),
                 "model_task_admission": decision,
                 "persona_hint": _hint,
+                "state_lineage": [
+                    {"state": "A", "reason": "observe"},
+                    {"state": "U", "reason": "discovery_candidate"},
+                ],
                 **({"learning": dict(learning)} if learning is not None else {}),
             },
         )
@@ -946,6 +950,10 @@ class ObservationToTaskConverter:
                             "conversion_rule": rule.name,
                             "semantic_signature": self._semantic_signature(rule, state),
                             "persona_hint": _hint2,
+                            "state_lineage": [
+                                {"state": "A", "reason": "observe"},
+                                {"state": "U", "reason": rule.name},
+                            ],
                         },
                     )
                     self.observer.mark_consumed(obs.obs_id, task.task_id)

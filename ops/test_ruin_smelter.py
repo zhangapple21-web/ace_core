@@ -70,7 +70,48 @@ def test_real_007_shape():
     assert fuse(t)["action"] == "circuit_break"
 
 
+def test_wiring_validator_memory_obs_are_connected():
+    import ast, io
+    tr = io.open("C:/tmp/ace_core/core/task_roles.py", encoding="utf-8", errors="replace").read()
+    assert "from core.ruin_smelter import fuse" in tr
+    assert '"state_lineage"' in tr and "smelt_non_convergent" in tr
+    mi = io.open("C:/tmp/ace_core/core/memory_index.py", encoding="utf-8", errors="replace").read()
+    assert "should_retrieve" in mi
+    ot = io.open("C:/tmp/ace_core/core/observation_to_task.py", encoding="utf-8", errors="replace").read()
+    assert "state_lineage" in ot and "persona_hint" in ot
+
+
+def test_memory_search_honors_retention_and_audit():
+    import tempfile
+    from pathlib import Path
+    from core.identity import Identity
+    from core.lexicon import Lexicon
+    from core.memory_index import MemoryIndex
+    with tempfile.TemporaryDirectory() as td:
+        base = Path(td)
+        ident = Identity(base, {"name": "test-ace"})
+        lex = Lexicon(base, ident)
+        idx = MemoryIndex(base / "mem", ident, lex)
+        idx.add(title="过期临时错误", content="timeout重试", memory_type="note", category="error",
+                source="test", tags=["transient"])
+        # 手工把第一条改成过期且非审计
+        idx._index[0]["created_at"] = "2020-01-01T00:00:00+00:00"
+        idx._index[0]["retention_days"] = 7
+        idx._index[0]["audit_preserve"] = False
+        idx.add(title="过期治理复盘", content="熔断复盘记录", memory_type="lesson", category="review",
+                source="validator", tags=["lesson", "复盘"])
+        idx._index[1]["created_at"] = "2020-01-01T00:00:00+00:00"
+        idx._index[1]["retention_days"] = 7
+        idx._index[1]["audit_preserve"] = True
+        got = idx.search(limit=20)
+        titles = [e.get("title", "") for e in got]
+        assert "过期临时错误" not in titles
+        assert "过期治理复盘" in titles
+
+
 if __name__ == "__main__":
+    test_wiring_validator_memory_obs_are_connected()
+    test_memory_search_honors_retention_and_audit()
     test_classify_repeaters()
     test_no_reenter_without_substantive_change()
     test_no_counter_reset_or_id_change()

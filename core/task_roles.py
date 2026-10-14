@@ -1557,6 +1557,24 @@ class Validator:
             task.retry_after = ""
             task.assignee = None
             task.outputs["terminal_non_convergent"] = True
+            try:
+                from core.ruin_smelter import fuse as _ruin_fuse
+                _fuse = _ruin_fuse(task)
+                task.outputs["ruin_fuse"] = {
+                    "action": _fuse.get("action", ""),
+                    "reason": _fuse.get("reason", "")[:300],
+                    "repair_direction": _fuse.get("repair_direction", _fuse.get("next_verify", ""))[:300],
+                    "need_judge": bool(_fuse.get("need_judge", False)),
+                    "class": (_fuse.get("class", {}) or {}).get("class", "") if isinstance(_fuse.get("class"), dict) else "",
+                    "at": _fuse.get("at", ""),
+                    "state_lineage": [
+                        {"state": "A", "reason": "observe"},
+                        {"state": "U", "reason": "research"},
+                        {"state": "M", "reason": "smelt_non_convergent"},
+                    ],
+                }
+            except Exception:
+                pass
             disposition = self.non_convergent_disposition(task)
             result["passed"] = False
             if disposition == "graveyard":
