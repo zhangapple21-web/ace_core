@@ -63,6 +63,20 @@ def test_qualified_gap_can_make_the_full_nonproduction_round_trip(tmp_path):
     assert reflection["reflections"][0]["status"] == "MAPPED_SHADOW"
     assert reflection["task_created"] is False
     assert reflection["production_runtime_mutation"] is False
+    # no pool means coverage cannot be assessed, so the relay refuses to admit -
+    # and the refusal is recorded rather than silently dropped
+    refusals = [
+        item for item in reflection["reflections"]
+        if item.get("admission") == "REFUSED"
+    ]
+    assert refusals, "an unadmittable reflection must be recorded as refused"
+    import json as _json
+    log = tmp_path / "08_GOVERNANCE" / "free_zone_exchange" / \
+        "relay_admission_refusals.jsonl"
+    assert log.exists(), "the refusal must be on disk"
+    recorded = [_json.loads(line) for line in
+                log.read_text(encoding="utf-8").splitlines() if line.strip()]
+    assert recorded and recorded[-1]["experiment_id"] == "EXP-FULL-ROUND-TRIP"
     status = FreeZoneLoopStatus(tmp_path).build(relay_result={"status": "RELEASED_TO_FREE_ZONE"})
     assert status["counts"] == {"released": 1, "consumed": 1, "distilled": 1, "reflected": 1}
     assert status["exchanges"][0]["state"] == "REFLECTED"
@@ -114,6 +128,7 @@ def test_four_round_replay_is_idempotent_and_exposes_each_real_breakpoint(tmp_pa
     _write(root / "distillations" / "EXP-BROKEN.json", {
         "experiment_id": "EXP-BROKEN", "origin": {"exchange_id": "EXCHANGE-MISSING", "receipt_sha256": "x"}
     })
+    from core.task import TaskPool
     reflector = FreeZoneReflectionRelay(tmp_path, sandbox_root=root)
     first_reflection = reflector.reflect_available()
     second_reflection = reflector.reflect_available()

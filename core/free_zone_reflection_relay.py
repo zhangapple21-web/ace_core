@@ -5,6 +5,11 @@ Free Zone distillation carrying an ACE-origin receipt into ``MAPPED_SHADOW``.
     ACE's independent reviewer must still decide whether any reflection is usable.
     A daemon may additionally create one admission-bound verification task per
     hash-identified reflection; the task is never production promotion.
+
+Admission is gated, not automatic. See ``core/free_zone_admission_gate.py``: a
+per-distillation hash makes duplicate tasks impossible while saying nothing
+about whether the distillation merits ACE-side work, and the linked path
+admitted one task per distillation forever until that gate existed.
 """
 
 from __future__ import annotations
@@ -16,6 +21,7 @@ import os
 from pathlib import Path
 from typing import Any
 
+from . import free_zone_admission_gate as admission_gate
 from .free_zone_reality_bridge import FreeZoneRealityBridge
 
 
@@ -60,9 +66,49 @@ class FreeZoneReflectionRelay:
                 # later valid reflections in the same Free Zone turn.
                 skipped += 1
                 continue
+            # Admission gate: a Free Zone conclusion is not automatically an
+            # ACE-side task. Without this, the linked path admitted one task
+            # per distillation forever - the per-distillation hash made
+            # duplicates structurally impossible and said nothing about merit,
+            # and the pool grew by a hundred tasks a day, all of which ran the
+            # same mould to the validator's non-convergence ceiling.
+            experiment_id = str(value.get("experiment_id") or "UNKNOWN")
+            if self.task_pool is None:
+                # No pool: the relay cannot assess coverage, so it refuses to
+                # admit. Fail-closed, and the receipt is still written.
+                skipped += 1
+                admission_gate.record_refusal(
+                    self.workspace_root, experiment_id,
+                    "no task pool: coverage cannot be assessed, so nothing is admitted")
+                reflected.append({"experiment_id": experiment_id,
+                                  "bridge_id": None,
+                                  "status": "MAPPED_SHADOW",
+                                  "admission": "REFUSED",
+                                  "reason": "no task pool",
+                                  "origin_exchange_id": exchange_id,
+                                  "task_id": None})
+                continue
+            admit, why, _ = admission_gate.should_admit(
+                self.workspace_root, value,
+                live_tasks=[t.to_dict() for t in
+                            self.task_pool.list_tasks(limit=10000, sort_by="created")],
+            )
+            if not admit:
+                skipped += 1
+                admission_gate.record_refusal(self.workspace_root, experiment_id, why)
+                reflected.append({"experiment_id": experiment_id,
+                                 "bridge_id": receipt.get("bridge_id"),
+                                 "status": receipt.get("disposition", {}).get("status"),
+                                 "admission": "REFUSED",
+                                 "reason": why,
+                                 "origin_exchange_id": exchange_id,
+                                 "task_id": None})
+                continue
             task = self._create_followup_task(source, value, incoming, receipt)
+            if getattr(task, "task_id", ""):
+                admission_gate.record_admission(self.workspace_root, experiment_id)
             reflected.append({
-                "experiment_id": value.get("experiment_id"),
+                "experiment_id": experiment_id,
                 "bridge_id": receipt.get("bridge_id"),
                 "status": receipt.get("disposition", {}).get("status"),
                 "origin_exchange_id": exchange_id,

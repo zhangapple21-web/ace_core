@@ -44,29 +44,32 @@ from core.governance.mengpo import (  # noqa: E402
 def test_the_auto_trigger_has_no_call_sites():
     """MengpoAutoTrigger was written and never wired into anything.
 
-    Only code counts. Archaeological notes mention the class by name; a mention
-    is documentation, not an invocation, and treating one as the other is how a
-    dead component stays invisible.
+    The check is for invocation syntax, not for a mention: a docstring
+    explaining what the trigger is good evidence *about* the finding without
+    being an invocation, and a grep that counts prose as a call site would
+    report a live component the moment anyone wrote about it.
     """
+    import re
     import subprocess
 
     repo = Path(__file__).resolve().parent.parent
     result = subprocess.run(
-        ["git", "-C", str(repo), "grep", "-l", "MengpoAutoTrigger",
-         "--", "*.py"],
+        ["git", "-C", str(repo), "grep", "-n", "MengpoAutoTrigger", "--", "*.py"],
         capture_output=True, text=True, cwd=str(repo),
     )
-    files = [line for line in result.stdout.splitlines()
-             if line.strip().endswith(".py")]
-    # its own definition is the only hit: nothing imports or constructs it
-    assert files, "the trigger vanished; this test needs a new diagnostic"
-    for hit in files:
-        assert hit.endswith("core/governance/mengpo_auto.py"), (
-            f"MengpoAutoTrigger is invoked from {hit}"
-        )
-    non_defining = [f for f in files
-                    if not f.endswith("core/governance/mengpo_auto.py")]
-    assert not non_defining, f"the trigger is wired somewhere: {non_defining}"
+    invocations = []
+    for line in result.stdout.splitlines():
+        if "class MengpoAutoTrigger" in line:
+            continue  # the definition itself
+        path, _, body = line.partition(":")
+        lineno, _, body = body.partition(":")
+        body = body.strip()
+        # an import, a constructor call, or a subclass reference
+        if re.search(r"\bMengpoAutoTrigger\s*\(", body) or \
+                re.search(r"\bfrom\s+[\w.]+\s+import\s+.*MengpoAutoTrigger", body) or \
+                re.search(r"\bimport\s+.*MengpoAutoTrigger", body):
+            invocations.append(f"{path}:{lineno}: {body}")
+    assert not invocations, f"the trigger is invoked from: {invocations}"
 
 
 # ------------------------------------------------------------------ finding 2
