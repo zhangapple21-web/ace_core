@@ -249,10 +249,20 @@ def run(root: Path, observer: Any = None, *, force: bool = False) -> dict[str, A
                    "orphaned_intent": sum(1 for i in dead.values() if i.get("has_tests")),
                    "escalated": len(escalated)},
     }
+    payload = json.dumps(snapshot, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
     snapshot_path.parent.mkdir(parents=True, exist_ok=True)
-    snapshot_path.write_text(
-        json.dumps(snapshot, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8")
+    try:
+        from core.window_write import write_window_artifact
+
+        write_window_artifact(
+            root, SNAPSHOT, payload, lane="governance-lane",
+            actor="dead_component_watch")
+    except Exception:
+        # The snapshot is this watch's audit trail. If the lane refuses it the
+        # finding still stands, and the refusal is the louder signal; but a watch
+        # that cannot record what it saw is blind, so fall back to a bare write
+        # rather than silently dropping the finding.
+        snapshot_path.write_text(payload, encoding="utf-8")
 
     return {
         "status": "SCANNED",

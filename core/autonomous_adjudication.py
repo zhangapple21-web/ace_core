@@ -773,10 +773,11 @@ def _write_receipt(root: Path, task: Any, packet: Mapping[str, Any],
         "production_integration": False,
     }
     receipt["receipt_hash"] = _digest(receipt)
-    target = root / RECEIPTS_DIR / f"{receipt['receipt_id']}.json"
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(json.dumps(receipt, ensure_ascii=False, indent=2,
-                                 sort_keys=True) + "\n", encoding="utf-8")
+    region = f"{RECEIPTS_DIR}/{receipt['receipt_id']}.json"
+    from .window_write import write_window_artifact
+
+    write_window_artifact(root, region, receipt, lane="governance-lane",
+                          actor="autonomous_adjudication")
     return receipt
 
 

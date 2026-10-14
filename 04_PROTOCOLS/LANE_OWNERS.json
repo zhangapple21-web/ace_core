@@ -11,7 +11,10 @@
     "08_GOVERNANCE": "governance-lane",
     "00_ROOT": "governance-lane",
     "AGENTS.md": "governance-lane",
-    "04_PROTOCOLS/LANE_OWNERS.json": "governance-lane"
+    "04_PROTOCOLS/LANE_OWNERS.json": "governance-lane",
+    "core/autonomous_adjudication.py": "governance-lane",
+    "core/window_lane.py": "governance-lane",
+    "core/window_write.py": "governance-lane"
   },
   "shared": [
     "core/window_lane.py",
