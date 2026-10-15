@@ -435,11 +435,38 @@ class ExperienceDeposition:
                     pass
 
         experiences.sort(key=lambda e: e.reference_count, reverse=True)
-        return experiences[:limit]
+
+        # Sort by reuse, but do not let age hide a freshly written record: a
+        # deposit made moments ago has reference_count 0 and would be pushed
+        # outside any limit by the 900 records that predate it, which makes a
+        # window unable to read back what it just learned - the loop closing
+        # nowhere. Recent records are therefore always in the window; the
+        # remaining budget goes to the most reused, as before.
+        newest_first = sorted(experiences, key=lambda e: e.created_at, reverse=True)
+        keep = min(len(newest_first), max(limit // 2, 25))
+        recent_ids = {e.experience_id for e in newest_first[:keep]}
+
+        head = [e for e in experiences if e.experience_id in recent_ids]
+        tail = [e for e in experiences if e.experience_id not in recent_ids]
+        return (head + tail)[:limit]
 
     def find_related(self, keyword: str, limit: int = 10,
-                     actor: str = "unspecified") -> List[Experience]:
-        """根据关键词查找相关经验；调用方具名，复用可审计归属。"""
+                     actor: str = "unspecified",
+                     from_lane: Optional[str] = None) -> List[Experience]:
+        """根据关键词查找相关经验；调用方具名，复用可审计归属。
+
+        ``from_lane`` scopes the search to what one window deposited. Without it
+        the store is one undifferentiated pile, and a window asking about its own
+        subject gets everybody else's answers mixed in - which is how the shared
+        substrate becomes noise again. The default stays open: lineage may weight
+        a retrieval, but it must never seal off what another window learned.
+
+        A reading of what another window deposited is *not* reuse. A lesson rises
+        to a shared result only when the window that deposited it reads it back,
+        so cross-lane hits are still shown but are not counted as provenance for
+        the reader - otherwise "the same words appeared somewhere" would launder
+        itself into "this window learned".
+        """
         all_exp = self.get_all(limit=200)
         results = []
         kw = keyword.lower()
@@ -457,6 +484,13 @@ class ExperienceDeposition:
                 results.append((score, exp))
         results.sort(key=lambda x: -x[0])
         selected = [e for _, e in results[:limit]]
+        if from_lane:
+            wanted = [e for e in selected if e.depositing_lane == from_lane]
+            others = [e for e in selected if e.depositing_lane != from_lane]
+            # same lane first, then everything else, so scoping is a preference
+            # and not a wall
+            selected = wanted + others
+        selected = selected[:limit]
         # Reuse is the only thing that turns a stored record into knowledge ACE
         # actually kept.  Persist the reference so a later audit can prove the
         # loop closed instead of inferring it from a file count.
