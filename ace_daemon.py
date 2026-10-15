@@ -30,6 +30,12 @@ from threading import Event, Thread
 base_dir = Path(__file__).parent
 sys.path.insert(0, str(base_dir))
 
+# The archivist window's name in the shared substrate. Every record the
+# lifecycle deposits says this window put it there; before this, all of them
+# were anonymous and a reader could not tell the daemon's own learning from a
+# helper's.
+DEPOSITING_LANE = "daemon-archivist"
+
 from core.identity import Identity
 from core.lexicon import Lexicon
 from core.memory_index import MemoryIndex
@@ -2869,7 +2875,7 @@ class AceDaemon:
             return
         try:
             exp = self.experience_deposition.deposit_from_task(
-                task, lexicon=self.lexicon
+                task, lexicon=self.lexicon, lane=DEPOSITING_LANE
             )
             if exp:
                 result["experiences_deposited"] += 1

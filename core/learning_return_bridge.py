@@ -13,6 +13,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict
 
+DEPOSITING_LANE = "learning-return-bridge"
+
+
 from .video_kingdom_dispatch import VideoKingdomDispatch
 
 
@@ -27,8 +30,15 @@ def _sha(value: Any) -> str:
 
 
 def _card_sha(card: Dict[str, Any]) -> str:
-    """Hash semantic card content, excluding volatile creation metadata."""
-    stable = {key: value for key, value in card.items() if key not in {"card_sha256", "created_at"}}
+    """Hash semantic card content, excluding volatile creation metadata.
+
+    ``depositing_lane`` is excluded for the same reason as ``created_at``:
+    it names the window that wrote the card and never varies for a given
+    window, so it is not part of what the card asserts. Including it would
+    make every replay of an unchanged card hash differently and rewrite it.
+    """
+    stable = {key: value for key, value in card.items()
+              if key not in {"card_sha256", "created_at", "depositing_lane"}}
     return _sha(stable)
 
 
@@ -218,6 +228,12 @@ class LearningReturnBridge:
         # The task is immutable, so the capability identity must remain stable
         # across daemon replays.  ``created_at`` is metadata and must not make
         # an unchanged learning result look like a new capability.
+        # Set after the hash and outside it: the lane is provenance for a
+        # reader, not part of the card's identity. Before this, a card said
+        # what a task learned but never which window learned it, so a reader
+        # holding 167 cards could not tell one window's judgement from
+        # another's.
+        card["depositing_lane"] = DEPOSITING_LANE
         card["card_sha256"] = _card_sha(card)
         path = self.cards_dir / f"{card['card_id']}.json"
         existing_hash = None

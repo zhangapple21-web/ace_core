@@ -426,7 +426,7 @@ class ExperienceDeposition:
 
         return exp
 
-    def deposit_from_task(self, task, lexicon=None) -> Optional[Experience]:
+    def deposit_from_task(self, task, lexicon=None, lane: Optional[str] = None) -> Optional[Experience]:
         """
         根据 Guardian 判决自动选择经验类型并沉积
 
@@ -435,6 +435,12 @@ class ExperienceDeposition:
           constraint → constraint
           experience → pattern
           discard → lesson
+
+        ``lane`` names the depositing window. The daemon's archivist calls this,
+        and before the parameter existed every record the production lifecycle
+        wrote was anonymous - 9 patterns created on 2026-10-15 alone, and the
+        whole historical population before that. Optional so callers that have
+        no window to name still work; they simply deposit unattributed.
         """
         decision = task.guardian_decision or "observation"
 
@@ -466,6 +472,7 @@ class ExperienceDeposition:
             experience_type=exp_type,
             constraints_updated=constraints,
             related_concepts=related,
+            lane=lane,
         )
 
     def get_all(self, experience_type: Optional[str] = None, limit: int = 50) -> List[Experience]:

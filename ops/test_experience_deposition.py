@@ -121,10 +121,15 @@ def test_persisted_experience_round_trips_through_get_all(tmp_path):
 
 
 def test_archived_experience_failure_is_counted_and_logged():
-    from ace_daemon import AceDaemon
+    from ace_daemon import AceDaemon, DEPOSITING_LANE
+
+    seen = {}
 
     class FailingDeposition:
-        def deposit_from_task(self, source, lexicon=None):
+        def deposit_from_task(self, source, lexicon=None, lane=None):
+            # Mirror the real signature, and record the lane so the test can
+            # say the daemon attributed its deposit rather than assuming it.
+            seen["lane"] = lane
             raise RuntimeError("simulated retention failure")
 
     daemon = AceDaemon.__new__(AceDaemon)
@@ -145,6 +150,10 @@ def test_archived_experience_failure_is_counted_and_logged():
     assert daemon.state["errors"][0]["module"] == "experience_deposition"
     assert daemon.state["errors"][0]["context"] == "RQ-deposition-failure"
     assert daemon.state["errors"][0]["error"] == "simulated retention failure"
+    assert seen["lane"] == DEPOSITING_LANE, (
+        "the daemon's own deposits must name their window; an anonymous "
+        "production record is what left 9 patterns unattributed"
+    )
 
 
 

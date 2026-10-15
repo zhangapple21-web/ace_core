@@ -47,6 +47,11 @@ MISSION = "STATE_CALCULUS_LONG_TERM_EVOLUTION"
 EVIDENCE_DIR = os.path.join(ACE_ROOT, "09_KNOWLEDGE", "mission_rounds")
 CAPSULE_DIR = os.path.join(ACE_ROOT, "06_RUNTIME", "ace", "data", "mission_capsules")
 OWNER = "steward_window_A"
+# The substrate's vocabulary for "who put this here". Same value as
+# OWNER, which is also the task-claim token; recording it under both
+# names is deliberate so the round is not anonymous to a reader that
+# only knows depositing_lane.
+DEPOSITING_LANE = OWNER
 MAX_DISPATCH = 2
 
 sys.path.insert(0, ACE_ROOT)
@@ -193,6 +198,7 @@ def main() -> int:
         "pool_path": POOL,
         "owner": OWNER,
         "max_dispatch": MAX_DISPATCH,
+        "depositing_lane": DEPOSITING_LANE,
         "observed": {
             "mission_task_count": len(tasks),
             "dispositions": {k: sum(1 for j in judged if j["disposition"] == k)
