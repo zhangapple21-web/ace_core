@@ -92,9 +92,19 @@ class LaneClaim:
 
     def is_live(self, now: datetime | None = None) -> bool:
         try:
-            expiry = datetime.fromisoformat(self.lease_expires_at)
-        except (TypeError, ValueError):
+            # Same idiom as core/task.py:453 - a stored timestamp may carry the
+            # ISO "Z" designator instead of +00:00.
+            expiry = datetime.fromisoformat(
+                self.lease_expires_at.replace("Z", "+00:00"))
+        except (TypeError, ValueError, AttributeError):
             return False
+        # This record is also deserialised from disk (list_claims, claim,
+        # release, expire_stale), so it can be naive. Comparing naive to the
+        # aware _now() raises TypeError out of this method - past every caller's
+        # `except (TypeError, ValueError)` around construction - so a naive
+        # value is read as UTC instead of becoming a crash in a read path.
+        if expiry.tzinfo is None:
+            expiry = expiry.replace(tzinfo=timezone.utc)
         return (now or _now()) <= expiry
 
     def to_dict(self) -> dict[str, Any]:
@@ -151,7 +161,10 @@ class LaneRegistry:
         self.root = Path(root)
         self.state_path = Path(state_path or
                               self.root / "08_GOVERNANCE" / "lanes" / "lane_claims.json")
-        self.state_path.parent.mkdir(parents=True, exist_ok=True)
+        # The state directory is created when a claim is first written, not
+        # here. Building a registry is a read-only act - `may_write`, `owner_of`
+        # and the CLI's `--who` all construct one - and a question must not
+        # leave a directory behind. See `_save_state`.
         self._owners = owners_table if owners_table is not None else self._load_owners()
 
     # ------------------------------------------------------------------ owners
@@ -167,34 +180,60 @@ class LaneRegistry:
         return {
             "regions": {str(k): str(v) for k, v in (owners.get("regions") or {}).items()},
             "shared": [str(p) for p in (owners.get("shared") or [])],
+            "aliases": {str(k): str(v) for k, v in (owners.get("aliases") or {}).items()},
         }
 
-    def owner_of(self, region: str) -> str | None:
-        """Which lane owns this region, by the table, or None when unowned.
+    def _owner_of(self, region: str) -> str | None:
+        """The single ownership rule, shared by `owner_of` and `may_write`.
+
+        Kept in one place so the answer a caller gets from asking (`may_write`)
+        can never drift from the answer the table gives (`owner_of`).
 
         A registered directory covers everything beneath it, so
         ``08_GOVERNANCE`` owning the whole governance tree is what lets a
         specific receipt file answer to a lane without every file being
         registered by name. The lookup walks from the most specific entry
         down, so a file registered explicitly still wins over its directory.
+
+        ``regions_overlap`` cannot express that walk: it is symmetric (it
+        answers "do these two touch?"), so it returns True in both directions
+        and the winner becomes whichever key the table happened to list first.
+        Ownership is therefore decided by a directional test plus an explicit
+        most-specific-first ordering, so the answer does not depend on the
+        order of the JSON object.
+
+        Alias resolution: a lane may be known by more than one name in the
+        project's prose (the convention table said `nim-pool`, the ownership
+        table said `nim-lane`). The table's `aliases` map is applied to the
+        region's owner, so whoever writes the convention cannot accidentally
+        hand a region to a lane the registry has never heard of.
         """
         target = _normalise_region(region)
-        candidates = [target]
-        # prefixes of the target, most specific first
-        parts = target.split("/")
-        for index in range(len(parts) - 1, 0, -1):
-            candidates.append("/".join(parts[:index]))
 
-        for candidate in candidates:
-            for shared in self._owners.get("shared", []):
-                if regions_overlap(target, shared):
-                    return "*shared*"
+        def _covers(path: str, candidate: str) -> bool:
+            """Is `candidate` the registered path or something beneath it?"""
+            path = _normalise_region(path)
+            return candidate == path or candidate.startswith(path + "/")
 
-        for candidate in candidates:
-            for path, lane in self._owners.get("regions", {}).items():
-                if regions_overlap(target, path):
-                    return lane
+        # Most specific shared entry wins, for the same reason as below: a
+        # narrow shared surface must not swallow a wider owned directory.
+        for candidate in sorted(self._owners.get("shared", []),
+                                key=lambda p: len(_normalise_region(p)),
+                                reverse=True):
+            if _covers(candidate, target):
+                return "*shared*"
+
+        ordered = sorted(self._owners.get("regions", {}).items(),
+                         key=lambda item: len(_normalise_region(item[0])),
+                         reverse=True)
+        for path, lane in ordered:
+            if _covers(path, target):
+                return self._owners.get("aliases", {}).get(lane, lane)
         return None
+
+    def owner_of(self, region: str) -> str | None:
+        """Which lane owns this region, by the table, or None when unowned."""
+        return self._owner_of(region)
 
     def is_shared(self, region: str) -> bool:
         return self.owner_of(region) == "*shared*"
@@ -209,6 +248,7 @@ class LaneRegistry:
             return {"claims": []}
 
     def _save_state(self, state: dict[str, Any]) -> None:
+        self.state_path.parent.mkdir(parents=True, exist_ok=True)
         temporary = self.state_path.with_suffix(".json.tmp")
         temporary.write_text(json.dumps(state, ensure_ascii=False, indent=2,
                                         sort_keys=True) + "\n", encoding="utf-8")
@@ -243,6 +283,41 @@ class LaneRegistry:
                   if isinstance(c, Mapping)]
         return (max(tokens) + 1) if tokens else 1
 
+    def record_unclaimed_declaration(self, lane: str, *, task_id: str = "",
+                                     actor: str = "", reason: str = "") -> dict[str, Any]:
+        """Record that a window started work while naming no file region.
+
+        This is the observable half of the lane convention, and it is
+        deliberately not a refusal. `ace.py start` takes `--region` as an
+        optional argument, so a start with no region is legitimate and common;
+        refusing it would break every in-flight window and every existing task
+        claim to enforce a rule the caller never agreed to. What was missing was
+        not a gate, it was a record: with one, "this window never declared a
+        region" becomes a fact somebody can count, instead of an absence nobody
+        can see.
+
+        Returns a value rather than raising, for the same reason `claim` does:
+        the caller is a start path that must still succeed.
+        """
+        lane_name = str(lane or "").strip()
+        if not lane_name:
+            return {"status": "REFUSED", "reason": "lane is required"}
+        lane_name = self._owners.get("aliases", {}).get(lane_name, lane_name)
+        state = self._load_state()
+        state.setdefault("audit", []).append({
+            "event": "unclaimed_start",
+            "at": _iso(_now()),
+            "lane": lane_name,
+            "regions": [],
+            "task_id": str(task_id or ""),
+            "actor": str(actor or ""),
+            "reason": str(reason or "no --region declared at task start"),
+        })
+        state["audit"] = state["audit"][-200:]
+        self._save_state(state)
+        return {"status": "UNCLAIMED_RECORDED", "lane": lane_name,
+                "task_id": str(task_id or "")}
+
     def claim(self, lane: str, region: str, *, actor: str = "", reason: str = "",
               lease_seconds: int = DEFAULT_LEASE_SECONDS,
               owner_override: str | None = None) -> LaneClaim | dict[str, Any]:
@@ -256,6 +331,7 @@ class LaneRegistry:
         region_name = _normalise_region(region)
         if not lane_name or not region_name:
             return {"status": "REFUSED", "reason": "lane and region are both required"}
+        lane_name = self._owners.get("aliases", {}).get(lane_name, lane_name)
 
         owner = self.owner_of(region_name)
         if owner and owner != "*shared*" and owner != lane_name and not owner_override:
@@ -417,6 +493,10 @@ class LaneRegistry:
     def may_write(self, lane: str, region: str) -> dict[str, Any]:
         """The question a window asks before it writes. Read-only."""
         lane_name, region_name = str(lane or "").strip(), _normalise_region(region)
+        # A lane that spells itself the way the convention table does is the
+        # same lane. Refusing `nim-pool` on a region owned by `nim-lane` would
+        # be the registry enforcing a spelling, not an ownership rule.
+        lane_name = self._owners.get("aliases", {}).get(lane_name, lane_name)
         owner = self.owner_of(region_name)
         if owner and owner != "*shared*" and owner != lane_name:
             return {"allowed": False, "allowed_because": None, "owner": owner,
