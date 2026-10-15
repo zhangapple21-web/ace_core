@@ -59,7 +59,7 @@ import os
 import re
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Mapping, Optional
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -713,7 +713,7 @@ def adjudicate_task(task_id: str, pool: Any, root: Path,
     receipt = _write_receipt(root, task, packet, performed, deliberation,
                              action, detail, envelope_check)
     _apply(task_pool, task, action, detail, performed, deliberation, receipt, pool,
-           envelope_check)
+           envelope_check, root=root)
     return {"task_id": task_id, "action": action, "detail": detail,
             "receipt": receipt.get("receipt_id", "")}
 
@@ -821,7 +821,8 @@ def _apply(task_pool: Any, task: Any, action: str, detail: str,
            performed: list[dict[str, Any]],
            deliberation: Mapping[str, Any] | None,
            receipt: Mapping[str, Any], pool: Any,
-           envelope_check: Mapping[str, Any] | None = None) -> None:
+           envelope_check: Mapping[str, Any] | None = None,
+           root: Any = None) -> None:
     """Carry out the ruling through existing entries only."""
     from core.experience_deposition import ExperienceDeposition
 
@@ -849,6 +850,8 @@ def _apply(task_pool: Any, task: Any, action: str, detail: str,
         reloaded = task_pool.load_task(task_id)
         if reloaded is not None and deliberation:
             _note(reloaded, task_pool, deliberation, receipt)
+        if root is not None:
+            _deposit_ruling(root, task, action, detail, deliberation, receipt)
     elif action == "RULE":
         ruling = ((deliberation or {}).get("aggregation") or {}).get("ruling", "")
         task_pool.reopen_task(
@@ -861,10 +864,69 @@ def _apply(task_pool: Any, task: Any, action: str, detail: str,
         reloaded = task_pool.load_task(task_id)
         if reloaded is not None:
             _note(reloaded, task_pool, deliberation, receipt)
+        if root is not None:
+            _deposit_ruling(root, task, action, detail, deliberation, receipt,
+                            ruling=ruling)
     else:
         reloaded = task_pool.load_task(task_id)
         if reloaded is not None:
             _note(reloaded, task_pool, deliberation, receipt)
+        if root is not None:
+            _deposit_ruling(root, task, action, detail, deliberation, receipt)
+
+def _deposit_ruling(root: Path, task: Any, action: str, detail: str,
+                        deliberation: Mapping[str, Any] | None,
+                        receipt: Mapping[str, Any], ruling: str = "") -> None:
+        """Put what this ruling learned into the shared substrate.
+
+        Two things are recorded, and they are different kinds:
+
+          a convergence assertion - how many independent readers agreed, under
+            what rule, so a later window can see whether this ruling carries
+            corroboration or one voice repeated.
+          a non-convergence assertion - that the question survived its whole
+            deliberation budget, which is a finding about the question and not
+            a failure of the run.
+
+        Model prose never enters directly. The transcript is quoted in the
+        deposit as evidence with its own hashes, and the *conclusion* is the
+        aggregate shape, not what any seat said.
+        """
+        try:
+            from .experience_deposition import ExperienceDeposition
+
+            aggregation = (deliberation or {}).get("aggregation") or {}
+            if action == "RULE" and ruling:
+                conclusion = (
+                    f"Ruling {ruling} reached on {task.task_id} by "
+                    f"{aggregation.get('seats_heard', 0)} independent seat(s) "
+                    f"across providers; rule {CONTRACT_VERSION}")
+            elif action == "HOLD" and aggregation:
+                conclusion = (
+                    f"Task {task.task_id} did not converge within its deliberation "
+                    f"budget: {detail}. Recorded as an open question, not a failure.")
+            else:
+                return
+
+            deposition = ExperienceDeposition(str(root / "09_KNOWLEDGE"))
+            staged = type("RuledTask", (), {
+                "task_id": f"{task.task_id}:{action}",
+                "title": f"ruling {task.task_id}",
+                "hypothesis": conclusion,
+                "evidence": [{
+                    "source": f"adjudication:{receipt.get('receipt_id', '')}",
+                    "content": (
+                        f"aggregate={json.dumps(aggregation, ensure_ascii=False)[:300]} "
+                        f"detail={detail[:200]}"),
+                }],
+                "tags": ["adjudication", action.lower()],
+                "data_class": "STRUCTURE",
+            })()
+            deposition.deposit(task=staged, experience_type="observation",
+                               conclusion=conclusion, lane="adjudication")
+        except Exception:
+            # a failed deposit must not undo the ruling that already happened
+            pass
 
 
 def _note(task: Any, task_pool: Any, deliberation: Mapping[str, Any] | None,

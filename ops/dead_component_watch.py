@@ -264,6 +264,7 @@ def run(root: Path, observer: Any = None, *, force: bool = False) -> dict[str, A
         # rather than silently dropping the finding.
         snapshot_path.write_text(payload, encoding="utf-8")
 
+    _deposit_watch_finding(root, dead)
     return {
         "status": "SCANNED",
         "contract_version": CONTRACT_VERSION,
@@ -272,6 +273,41 @@ def run(root: Path, observer: Any = None, *, force: bool = False) -> dict[str, A
         "escalated": escalated,
         "snapshot": str(snapshot_path.relative_to(root)).replace("\\", "/"),
     }
+
+
+def _deposit_watch_finding(root: Path, dead: dict[str, dict[str, Any]]) -> None:
+    """Record what this watch found in the shared substrate, under its own lane.
+
+    A finding that lives only in a snapshot file is a finding the next window
+    cannot ask about. Depositing it as an observation keeps it small - the count
+    and the shape, not the whole list - because the snapshot already holds the
+    detail, and the substrate is for what other windows should be able to find.
+    """
+    try:
+        from core.experience_deposition import ExperienceDeposition
+
+        orphaned = sorted(n for n, i in dead.items() if i.get("has_tests"))
+        conclusion = (
+            f"dead-component watch found {len(dead)} production definitions with no "
+            f"production reference, {len(orphaned)} of which are referenced only by "
+            f"tests - components someone wrote tests for and never wired.")
+        deposition = ExperienceDeposition(str(root / "09_KNOWLEDGE"))
+        staged = type("WatchFinding", (), {
+            "task_id": "STRUCTURAL:dead-components",
+            "title": "dead component finding",
+            "hypothesis": conclusion,
+            "evidence": [{
+                "source": "dead_component_watch:snapshot",
+                "content": f"orphaned={orphaned[:12]}",
+            }],
+            "tags": ["structural_gap", "dead_components"],
+            "data_class": "STRUCTURE",
+        })()
+        deposition.deposit(task=staged, experience_type="observation",
+                           conclusion=conclusion, lane="watcher")
+    except Exception:
+        # a finding that cannot be recorded is still visible in the snapshot
+        pass
 
 
 def _count_files(root: Path) -> int:

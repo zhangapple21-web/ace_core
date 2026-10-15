@@ -108,6 +108,71 @@ def test_a_real_legacy_record_on_disk_still_loads():
     assert loaded, "no loadable records were checked"
 
 
+def test_a_redeposited_record_gains_its_lane(tmp_path):
+    """The bug that made last week's work look done when it was not.
+
+    deposit() early-returns when a record already exists, and the first
+    implementation returned the stored record untouched - so a lane passed on
+    any later attempt was silently dropped. All 67 tombstoning lessons came back
+    unattributed because every one of them hit that branch.
+    """
+    from core.experience_deposition import ExperienceDeposition
+
+    deposition = ExperienceDeposition(str(tmp_path))
+    task = Task(task_id="RQ-REDEP-1", title="t", hypothesis="h")
+    first = deposition.deposit(task=task, experience_type="lesson")
+    assert first.depositing_lane == "unattributed"
+
+    second = deposition.deposit(task=task, experience_type="lesson",
+                                conclusion="a sharper reading of the same task",
+                                lane="adjudication")
+    assert second.experience_id == first.experience_id, "still the same record"
+    assert second.depositing_lane == "adjudication", (
+        "a later depositor must be visible, not silently dropped"
+    )
+    on_disk = json.loads(
+        (tmp_path / "lesson" / f"{first.experience_id}.json").read_text(encoding="utf-8"))
+    assert on_disk["depositing_lane"] == "adjudication", (
+        "and the store must agree, not just the returned object"
+    )
+
+
+def test_relabelling_never_changes_the_stored_conclusion(tmp_path):
+    """Attributing a lane must not quietly rewrite what the record says."""
+    from core.experience_deposition import ExperienceDeposition
+
+    deposition = ExperienceDeposition(str(tmp_path))
+    task = Task(task_id="RQ-REDEP-2", title="t", hypothesis="h")
+    first = deposition.deposit(task=task, experience_type="lesson",
+                               conclusion="the conclusion as first written")
+    before = (tmp_path / "lesson" / f"{first.experience_id}.json").read_text(encoding="utf-8")
+
+    deposition.deposit(task=task, experience_type="lesson",
+                       conclusion="a different conclusion someone now prefers",
+                       lane="other-lane")
+    after = (tmp_path / "lesson" / f"{first.experience_id}.json").read_text(encoding="utf-8")
+
+    before_data, after_data = json.loads(before), json.loads(after)
+    assert before_data["conclusion"] == after_data["conclusion"], (
+        "a lane rewrite must leave the record's meaning alone"
+    )
+    assert after_data["depositing_lane"] == "other-lane"
+
+
+def test_a_lane_never_overwrites_one_already_recorded(tmp_path):
+    """First writer wins: re-attribution fills a gap, it does not revise history."""
+    from core.experience_deposition import ExperienceDeposition
+
+    deposition = ExperienceDeposition(str(tmp_path))
+    task = Task(task_id="RQ-REDEP-3", title="t", hypothesis="h")
+    deposition.deposit(task=task, experience_type="lesson", lane="first-lane")
+    again = deposition.deposit(task=task, experience_type="lesson", lane="second-lane")
+    assert again.depositing_lane == "first-lane", (
+        "provenance records who put it there first; a later writer cannot "
+        "take credit for a record already attributed"
+    )
+
+
 def test_the_lane_is_provenance_not_permission():
     """The field must not become a gate: this substrate is shared by design."""
     import inspect
@@ -115,8 +180,6 @@ def test_the_lane_is_provenance_not_permission():
     from core.experience_deposition import ExperienceDeposition
 
     source = inspect.getsource(ExperienceDeposition.deposit)
-    # the lane is recorded, never used to refuse; any raise in deposit concerns
-    # the data boundary, not the lane
     for line in source.splitlines():
         stripped = line.strip()
         if stripped.startswith("raise") and "lane" in stripped:

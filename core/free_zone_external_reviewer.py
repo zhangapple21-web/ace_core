@@ -106,6 +106,34 @@ def _iso(moment: datetime) -> str:
     return moment.replace(microsecond=0).isoformat()
 
 
+#: The verdict block the reviewer is asked to write. Parse it, do not scan
+#: for it: on 2026-10-13 a sweep's "CONTRADICTED" count turned out to be reviews
+#: *discussing* the word ("应为CANNOT_ASSESS而非CONTRADICTED") while concluding
+#: CANNOT_ASSESS. Substring matching counted the discussion as the verdict.
+REVIEW_VERDICTS = ("SUPPORTED", "CONTRADICTED", "CANNOT_ASSESS")
+
+
+def parse_review_verdict(detail: str) -> str | None:
+    """The verdict a review actually reached, or None when it reached none.
+
+    Reads the ``VERDICT: <word>`` line the prompt requests and takes the last
+    one, because a review reasons before it concludes and the conclusion is
+    what counts. A review that never writes the line is UNPARSED downstream -
+    not CANNOT_ASSESS, not SUPPORTED, and never whatever word happens to appear
+    in its reasoning.
+    """
+    import re
+
+    matches = re.findall(
+        r"VERDICT\s*:\s*(SUPPORTED|CONTRADICTED|CANNOT_ASSESS)",
+        str(detail or ""),
+        flags=re.IGNORECASE,
+    )
+    if not matches:
+        return None
+    return matches[-1].upper()
+
+
 class FreeZoneExternalReviewer:
     """Ask unrelated free models to read a stuck task, as free-zone material."""
 
@@ -169,6 +197,7 @@ class FreeZoneExternalReviewer:
             "production_integration": False,
             "taskpool_mutated": False,
         }
+        self._deposit_sweep(result)
         self._write_state(state, result, done)
         return result
 
@@ -373,18 +402,57 @@ class FreeZoneExternalReviewer:
             if status in {"UNAVAILABLE", "DEGENERATE"}:
                 histogram[status] = histogram.get(status, 0) + 1
                 continue
-            detail = str(review.get("detail", "")).upper()
-            for verdict in ("SUPPORTED", "CONTRADICTED", "CANNOT_ASSESS"):
-                if verdict in detail:
-                    histogram[verdict] = histogram.get(verdict, 0) + 1
-                    break
-            else:
+            verdict = parse_review_verdict(str(review.get("detail", "")))
+            if verdict is None:
                 histogram["REVIEWED_WITHOUT_VERDICT"] = (
                     histogram.get("REVIEWED_WITHOUT_VERDICT", 0) + 1
                 )
+            else:
+                histogram[verdict] = histogram.get(verdict, 0) + 1
         return histogram
 
     # ------------------------------------------------------------- recording
+
+    def _deposit_sweep(self, result: Mapping[str, Any]) -> None:
+        """Record the sweep's aggregate into the shared substrate, under its lane.
+
+        Individual reviews live in the sweep report. What belongs in the
+        substrate is the shape of this sweep, because that is what another window
+        would ask about: did outside readers corroborate anything this run, and
+        at what rate. Verbatim model prose is never deposited - the histogram is
+        the record, and the report holds the rest.
+        """
+        try:
+            from .experience_deposition import ExperienceDeposition
+
+            histogram = result.get("verdict_histogram") or {}
+            verdict = ("outside readers could not verify"
+                       if not histogram.get("SUPPORTED")
+                       else "outside readers corroborated at least one task")
+            conclusion = (
+                f"External review sweep {result.get('experiment_id', '')}: "
+                f"{result.get('tasks_reviewed', 0)} task(s), "
+                f"{result.get('reviews_written', 0)} review(s); {verdict}. "
+                f"histogram={json.dumps(histogram, ensure_ascii=False)}")
+            knowledge = Path(self.workspace_root) / "09_KNOWLEDGE"
+            deposition = ExperienceDeposition(
+                str(knowledge) if knowledge.is_dir() else str(self.sandbox_root))
+            staged = type("SweepFinding", (), {
+                "task_id": f"STRUCTURE:external-review:{result.get('experiment_id', '')}",
+                "title": "external review sweep",
+                "hypothesis": conclusion,
+                "evidence": [{
+                    "source": f"external_reviewer:{result.get('experiment_id', '')}",
+                    "content": f"histogram={json.dumps(histogram, ensure_ascii=False)[:300]}",
+                }],
+                "tags": ["external_review"],
+                "data_class": "STRUCTURE",
+            })()
+            deposition.deposit(task=staged, experience_type="observation",
+                               conclusion=conclusion, lane="external-reviewer")
+        except Exception:
+            # an unrecorded sweep is still in its report; do not fail the run
+            pass
 
     def _record(self, tasks: list[Mapping[str, Any]],
                 reviews: list[Mapping[str, Any]]) -> str:

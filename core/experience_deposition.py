@@ -274,6 +274,48 @@ class ExperienceDeposition:
         }
         self._save_index(index)
 
+    def _persist_lane_only(self, experience: "Experience") -> None:
+        """Attach a depositing lane to a record already on disk, nothing else.
+
+        Deliberately narrow: it rewrites the lane field and leaves the rest of
+        the record byte-identical, so re-attribution can never quietly change a
+        stored conclusion. Refuses when the record is not on disk rather than
+        writing a new file.
+        """
+        index = self._load_index()
+        record = None
+        for entry in index.values():
+            if isinstance(entry, dict) and str(entry.get("source_task")) == experience.source_task_id:
+                if str(entry.get("type")) == experience.experience_type:
+                    record = entry
+                    break
+        if record is None:
+            subdir = self.EXPERIENCE_DIRS.get(experience.experience_type, "observation")
+            candidate = self.knowledge_dir / subdir / f"{experience.experience_id}.json"
+            if not candidate.is_file():
+                return
+            record = {"path": str(candidate), "source_task": experience.source_task_id,
+                      "type": experience.experience_type}
+        path_text = str(record.get("path", ""))
+        if not path_text:
+            return
+        path = Path(path_text)
+        if not path.is_file():
+            return
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return
+        if data.get("depositing_lane") == experience.depositing_lane:
+            return
+        data["depositing_lane"] = experience.depositing_lane
+        temporary = path.with_suffix(".json.tmp")
+        with open(temporary, "w", encoding="utf-8") as handle:
+            json.dump(data, handle, ensure_ascii=False, indent=2)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+
     def deposit(
         self,
         task,
@@ -309,6 +351,16 @@ class ExperienceDeposition:
 
         existing = self._find_existing(task.task_id, experience_type)
         if existing is not None:
+            # A re-deposit of something already on file must still carry its
+            # provenance. Before this the early return handed back the stored
+            # record untouched, so a depositing lane passed on the second and
+            # later attempts was silently dropped - 67 lessons written by
+            # tombstoning all came back unattributed because every one of them
+            # hit this branch. Claiming the substrate records its authors is
+            # worthless if the second writer is invisible.
+            if lane and existing.depositing_lane in ("", "unattributed"):
+                existing.depositing_lane = lane
+                self._persist_lane_only(existing)
             return existing
 
         verification = self._verification_state(task)
