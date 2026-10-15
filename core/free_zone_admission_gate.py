@@ -60,6 +60,18 @@ DAILY_ADMISSION_CAP = 2
 REFUSAL_LOG = "08_GOVERNANCE/free_zone_exchange/relay_admission_refusals.jsonl"
 STATE_FILE = "08_GOVERNANCE/free_zone_exchange/relay_admission_state.json"
 
+#: The set of refusals already written, so the log stays a record of distinct
+#: facts. Measured on 2026-10-14: 183 lines held 3 experiments, each repeated 61
+#: times, because the relay re-scans the same distillations every cycle and every
+#: scan re-refused the same ones. Unbounded repetition is not more evidence; it
+#: buries the refusals that are new. The `.jsonl` stays append-only and readable;
+#: this file is what makes "already said" cheap to ask.
+#:
+#: Keyed by experiment, holding the normalised reasons already recorded for it,
+#: because "the same experiment was refused for a new reason" is a new fact and
+#: must still be written.
+REFUSAL_SEEN_FILE = "08_GOVERNANCE/free_zone_exchange/relay_admission_refusals_seen.json"
+
 #: A pattern shorter than this carries no checkable claim.
 MIN_PATTERN_CHARS = 40
 
@@ -128,8 +140,78 @@ def within_cap(state: Mapping[str, Any], today: str) -> tuple[bool, str]:
     return True, f"{count}/{DAILY_ADMISSION_CAP} admitted today"
 
 
-def record_refusal(root: Path, experiment_id: str, reason: str) -> None:
+def _load_refusal_seen(path: Path) -> dict[str, list[str]]:
+    """The refusals already on record, or an empty map when there is no file."""
+    try:
+        state = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    seen = state.get("reasons") if isinstance(state, dict) else None
+    if not isinstance(seen, dict):
+        return {}
+    return {str(k): [str(r) for r in v] for k, v in seen.items()
+            if isinstance(v, list)}
+
+
+def _bootstrap_refusal_seen(log: Path) -> dict[str, list[str]]:
+    """Adopt the refusals already in the log, so history is never re-appended.
+
+    Without this the first run after the dedup lands would treat every existing
+    line as new and write the whole backlog a second time - the exact growth the
+    change exists to stop.
+    """
+    seen: dict[str, list[str]] = {}
+    try:
+        text = log.read_text(encoding="utf-8")
+    except OSError:
+        return seen
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            entry = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(entry, dict):
+            continue
+        experiment_id = str(entry.get("experiment_id") or "").strip()
+        reason = _normalise(entry.get("reason"))
+        if experiment_id and reason and reason not in seen.setdefault(experiment_id, []):
+            seen[experiment_id].append(reason)
+    return seen
+
+
+def record_refusal(root: Path, experiment_id: str, reason: str) -> bool:
+    """Write one refusal, once per (experiment, reason).
+
+    Returns True when a line was appended and False when this refusal was
+    already on record. The caller does not have to branch on it; the return
+    value exists so a test can tell the two cases apart without reading files.
+
+    A refusal is a fact about one experiment, so repeating it does not add
+    information - the same experiment re-scanned each cycle would otherwise
+    write the same line forever. An empty experiment id is still written every
+    time, because "something was refused and we cannot name it" is not a fact
+    that can be deduplicated without losing the occurrence count.
+    """
     path = root / REFUSAL_LOG
+    seen_path = root / REFUSAL_SEEN_FILE
+    experiment_id = str(experiment_id or "").strip()
+    normalised = _normalise(reason)
+
+    seen = _load_refusal_seen(seen_path)
+    if not seen:
+        # Either there is no memory file yet, or it is unreadable. Both mean the
+        # same thing: we do not know what has been said, so the log is asked.
+        # Keying this on `not seen` rather than on the file's existence matters -
+        # a truncated or corrupt memory file must not turn the whole backlog into
+        # "new" and write it again.
+        seen = _bootstrap_refusal_seen(path)
+
+    if experiment_id and normalised and normalised in seen.get(experiment_id, []):
+        return False
+
     path.parent.mkdir(parents=True, exist_ok=True)
     entry = {
         "at": datetime.now(timezone.utc).isoformat(),
@@ -139,6 +221,15 @@ def record_refusal(root: Path, experiment_id: str, reason: str) -> None:
     }
     with path.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(entry, ensure_ascii=False) + "\n")
+
+    if experiment_id and normalised:
+        seen.setdefault(experiment_id, []).append(normalised)
+        seen_path.parent.mkdir(parents=True, exist_ok=True)
+        seen_path.write_text(
+            json.dumps({"contract_version": CONTRACT_VERSION, "reasons": seen},
+                       ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8")
+    return True
 
 
 def record_admission(root: Path, experiment_id: str) -> None:

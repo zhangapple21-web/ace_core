@@ -53,9 +53,10 @@ def ace_start(task_pool: Any, task_id: str, owner: str, lease_seconds: int = 300
         }
 
     lane_result = None
+    lane_declaration = "NONE"
     declared = [str(r).strip() for r in (regions or []) if str(r).strip()]
+    registry = lane_registry
     if declared:
-        registry = lane_registry
         if registry is None:
             if not base_dir:
                 return {
@@ -66,6 +67,7 @@ def ace_start(task_pool: Any, task_id: str, owner: str, lease_seconds: int = 300
             from .window_lane import LaneRegistry
             registry = LaneRegistry(base_dir)
         lane_result = _claim_lanes(registry, declared, owner)
+        lane_declaration = "CLAIMED"
         if lane_result.get("status") == "REFUSED":
             return {
                 "status": "REJECTED",
@@ -73,6 +75,7 @@ def ace_start(task_pool: Any, task_id: str, owner: str, lease_seconds: int = 300
                 "lane_detail": lane_result,
                 "task_id": task_id,
                 "owner": owner,
+                "lane_declaration": lane_declaration,
                 "runtime_mutation": True,
                 "release_note": (
                     "taskpool_claim stands; the caller must release the task claim "
@@ -80,6 +83,22 @@ def ace_start(task_pool: Any, task_id: str, owner: str, lease_seconds: int = 300
                     "un-claim a claim it did not make"
                 ),
             }
+    else:
+        # No region named. That stays a successful start - `--region` is an
+        # optional argument and refusing here would break every in-flight
+        # window - but it is recorded, because "a window started work holding
+        # no file region" is the fact the lane convention exists to make
+        # visible. See LaneRegistry.record_unclaimed_declaration.
+        if registry is None and base_dir:
+            from .window_lane import LaneRegistry
+            registry = LaneRegistry(base_dir)
+        if registry is not None:
+            unclaimed = registry.record_unclaimed_declaration(
+                owner, task_id=task_id, actor="ace_start",
+                reason="no --region declared at task start",
+            )
+            lane_declaration = "UNCLAIMED_RECORDED" if isinstance(unclaimed, dict) and \
+                unclaimed.get("status") == "UNCLAIMED_RECORDED" else "NONE"
 
     return {
         "status": "STARTED",
@@ -89,6 +108,7 @@ def ace_start(task_pool: Any, task_id: str, owner: str, lease_seconds: int = 300
         "claim_id": claimed.claim_id,
         "fencing_token": claimed.fencing_token,
         "lease_expires_at": claimed.lease_expires_at,
+        "lane_declaration": lane_declaration,
         "lane_claims": (lane_result or {}).get("claims", []) if lane_result else [],
         "runtime_mutation": True,
     }

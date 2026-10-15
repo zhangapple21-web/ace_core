@@ -155,6 +155,69 @@ def test_a_refusal_is_recorded_not_dropped(workspace):
     assert entries[-1]["reason"] == "too short to verify"
 
 
+# --- a refusal is a fact about one experiment, so it is written once ---------
+#
+# Measured on the real log on 2026-10-14: 1028 lines held 4 experiments, the
+# worst repeated 277 times, because the relay re-scans the same distillations
+# every cycle and every scan re-refused the same ones. Unbounded repetition is
+# not more evidence - it buries the refusals that are new. The log stays
+# append-only; the dedup only decides whether this line is a new fact.
+
+
+def _refusal_lines(root):
+    log = root / gate.REFUSAL_LOG
+    if not log.exists():
+        return []
+    return [json.loads(line) for line in
+            log.read_text(encoding="utf-8").splitlines() if line.strip()]
+
+
+def test_the_same_refusal_twice_is_written_once(workspace):
+    first = gate.record_refusal(workspace, "EXP-DUP", "not independently checkable")
+    second = gate.record_refusal(workspace, "EXP-DUP", "not independently checkable")
+    assert first is True
+    assert second is False, "the second write adds no fact"
+    assert len(_refusal_lines(workspace)) == 1
+
+
+def test_a_new_reason_for_the_same_experiment_is_still_a_new_fact(workspace):
+    gate.record_refusal(workspace, "EXP-NEW", "too short to verify")
+    again = gate.record_refusal(workspace, "EXP-NEW", "proxy bypassed")
+    assert again is True, (
+        "the same experiment refused for a different reason is new information"
+    )
+    assert len(_refusal_lines(workspace)) == 2
+
+
+def test_existing_log_history_is_adopted_not_reappended(workspace):
+    """The first run after the dedup must not write the whole backlog again.
+
+    Without the bootstrap this is exactly what would happen: no memory file
+    exists, so every line already in the log would look new and be appended a
+    second time - the growth the change exists to stop.
+    """
+    log = workspace / gate.REFUSAL_LOG
+    log.parent.mkdir(parents=True, exist_ok=True)
+    log.write_text(
+        "".join(
+            json.dumps({"at": "2026-10-14T00:00:00+00:00",
+                        "experiment_id": "EXP-OLD",
+                        "reason": "already verified by a live task"}) + "\n"
+            for _ in range(5)),
+        encoding="utf-8")
+
+    wrote = gate.record_refusal(workspace, "EXP-OLD", "already verified by a live task")
+    assert wrote is False, "history must be adopted, not re-appended"
+    assert len(_refusal_lines(workspace)) == 5, "the backlog must not grow"
+
+
+def test_an_unnamed_refusal_is_never_deduplicated(workspace):
+    """"Something was refused and we cannot name it" keeps its occurrence count."""
+    assert gate.record_refusal(workspace, "", "unnameable") is True
+    assert gate.record_refusal(workspace, "", "unnameable") is True
+    assert len(_refusal_lines(workspace)) == 2
+
+
 def test_admissions_are_counted_per_day(workspace):
     gate.record_admission(workspace, "EXP-F")
     gate.record_admission(workspace, "EXP-G")

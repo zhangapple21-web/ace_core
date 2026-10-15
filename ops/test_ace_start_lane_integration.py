@@ -143,3 +143,70 @@ def test_partial_lane_claims_are_not_left_behind(workspace):
                         lane_registry=registry)
     assert refused["status"] == "REJECTED"
     assert registry.list_claims() == [], "half a lane claim is an unowned file believed held"
+
+
+# --- an undeclared region is recorded, never refused -------------------------
+#
+# `--region` stays optional: refusing here would break every in-flight window,
+# and the 1098 uncommitted items in the main checkout were all produced by
+# starts that declared nothing. What was missing is not enforcement but the
+# fact: "a window started work holding no file region" is exactly what the lane
+# convention exists to make visible. These tests pin that the fact is recorded,
+# that it costs no claim, and that omitting base_dir still behaves as before.
+
+
+def test_an_undeclared_start_is_recorded_not_refused(workspace):
+    root, pool = workspace
+    task = _first_task(pool)
+    result = ace_start(pool, task.task_id, "window-a", 300, base_dir=str(root))
+    assert result["status"] == "STARTED"
+    assert result["lane_declaration"] == "UNCLAIMED_RECORDED"
+    assert result["lane_claims"] == []
+
+
+def test_an_undeclared_start_writes_an_audit_row_naming_the_task(workspace):
+    import json
+
+    root, pool = workspace
+    task = _first_task(pool)
+    ace_start(pool, task.task_id, "window-a", 300, base_dir=str(root))
+
+    state = root / "08_GOVERNANCE" / "lanes" / "lane_claims.json"
+    assert state.is_file(), "the audit has to be readable or the fact is not durable"
+    rows = json.loads(state.read_text(encoding="utf-8"))["audit"]
+    assert len(rows) == 1
+    assert rows[0]["event"] == "unclaimed_start"
+    assert rows[0]["lane"] == "window-a"
+    assert rows[0]["task_id"] == task.task_id
+
+
+def test_recording_an_undeclared_start_does_not_claim_the_files(workspace):
+    root, pool = workspace
+    from core.window_lane import LaneRegistry
+
+    task = _first_task(pool)
+    ace_start(pool, task.task_id, "window-a", 300, base_dir=str(root))
+
+    registry = LaneRegistry(root, state_path=root / "claims.json")
+    assert registry.list_claims() == [], (
+        "recording an absence must not manufacture a claim - an unowned file "
+        "believed held is worse than a file known to be unowned"
+    )
+
+
+def test_a_declared_start_reports_claimed(workspace):
+    root, pool = workspace
+    task = _first_task(pool)
+    result = ace_start(pool, task.task_id, "window-a", 300,
+                       regions=["core/lane_a.py"], base_dir=str(root))
+    assert result["status"] == "STARTED"
+    assert result["lane_declaration"] == "CLAIMED"
+
+
+def test_a_start_without_base_dir_stays_none(workspace):
+    """The legacy call shape has no registry to record into; it must not break."""
+    root, pool = workspace
+    task = _first_task(pool)
+    result = ace_start(pool, task.task_id, "window-a", 300)
+    assert result["status"] == "STARTED"
+    assert result["lane_declaration"] == "NONE"
