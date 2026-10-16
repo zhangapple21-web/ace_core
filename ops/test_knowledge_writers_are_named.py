@@ -136,6 +136,118 @@ def test_the_deposition_path_records_the_lane_on_a_first_deposit(tmp_path):
     )
 
 
+ESCALATIONS = [
+    ("deposit_stall_experience.py", "stall-escalation"),
+    ("deposit_selfref_experience.py", "selfref-escalation"),
+]
+
+
+def test_no_operational_script_writes_into_knowledge_bypassing_the_canonical_path():
+    """A hand-built dict is a writer that looks like data.
+
+    The first round of lane work asked which modules call deposit(), and found the
+    four known windows. It missed these two entirely, because they call nothing -
+    they build the record as a literal and write it with target.write_text(). The
+    cost was not cosmetic: no lane, no entry in the deposition index, and a record
+    find_related cannot reach. Only a direct-write test sees them.
+
+    Tests are excluded: a test writing JSON into its own tmp_path is an isolated
+    fixture, not a writer into the shared substrate.
+    """
+    from pathlib import Path
+    import re
+
+    ops_dir = Path(__file__).resolve().parent
+    offenders = []
+    for path in sorted(ops_dir.glob("*.py")):
+        if path.name.startswith("test_"):
+            continue
+        text = path.read_text(encoding="utf-8", errors="replace")
+        code = re.sub(r"(?m)^\s*#.*$", "", text)
+        writes_directly = ("write_text(json.dumps" in code
+                           or "write_text(\n        json.dumps" in code
+                           or "write_bytes(" in code)
+        # Narrowed to the substrate, but the *second* narrowing is what matters.
+        # Flagging every write_text(json.dumps) named 21 scripts writing reports
+        # and backups elsewhere. Flagging any mention of 09_KNOWLEDGE then named
+        # backup_data.py, which reads the substrate and writes a manifest beside
+        # the copy. A real writer names the substrate inside a write call - but the
+        # earlier regex (write_text(...) with no ) before 09_KNOWLEDGE) missed the
+        # joinpath form, ROOT.joinpath("09_KNOWLEDGE", ...).write_text(...), because
+        # the ) of joinpath( breaks [^)\n]*. So: find the write call, then check the
+        # rest of that physical line for the substrate name. A bypass that splits
+        # the name across a line would slip by, which is acceptable for a guard.
+        writes_to_substrate = any(
+            re.search(r'(write_text|write_bytes|open|to_csv)\s*\(', line)
+            and "09_KNOWLEDGE" in line
+            for line in code.splitlines()
+        )
+        if writes_directly and writes_to_substrate and "deposition.deposit(" not in code and "deposit(task=" not in code:
+            offenders.append(path.name)
+    assert not offenders, (
+        "these scripts write into 09_KNOWLEDGE as a hand-built dict, skipping the "
+        f"lane, the index and the read side: {offenders}"
+    )
+
+
+@pytest.mark.parametrize("script,lane", ESCALATIONS)
+def test_each_escalation_deposits_through_the_canonical_path(script, lane):
+    """Run the real script against a throwaway tree and inspect what it wrote.
+
+    Statically checking that the file mentions ExperienceDeposition is weaker than
+    running it: the first fix produced a script that deposited correctly and then
+    died on its own sha256 tail, pointing at the pre-canonical filename. Only a
+    real run catches that the script does not actually succeed.
+    """
+    from pathlib import Path
+    import re
+    import subprocess
+    import sys
+    import tempfile
+
+    repo = Path(__file__).resolve().parents[1]
+    source = (repo / "ops" / script).read_text(encoding="utf-8")
+    patched = re.sub(
+        r'^ROOT = pathlib\.Path\(__file__\)\.resolve\(\)\.parent\.parent$',
+        'ROOT = pathlib.Path(r"__SANDBOX__")', source, count=1, flags=re.M)
+    assert patched != source, "could not redirect ROOT; refusing to run it live"
+
+    with tempfile.TemporaryDirectory() as tmp:
+        sandbox = Path(tmp) / "sandbox"
+        (sandbox / "ops").mkdir(parents=True)
+        runner = sandbox / "ops" / script
+        runner.write_text(patched.replace("__SANDBOX__", str(sandbox)), encoding="utf-8")
+
+        proc = subprocess.run([sys.executable, str(runner)],
+                              capture_output=True, text=True, timeout=300,
+                              encoding="utf-8", errors="replace")
+        assert proc.returncode == 0, (
+            f"{script} exited {proc.returncode}: {(proc.stderr or '')[:400]}"
+        )
+        assert "sha256" in (proc.stdout or ""), (
+            f"{script} did not print its sha256: a script that dies after depositing "
+            "reports failure for work it actually did"
+        )
+
+        knowledge = sandbox / "09_KNOWLEDGE"
+        records = [p for p in knowledge.rglob("*.json") if p.name != "index.json"]
+        assert len(records) == 1, f"{script} wrote {len(records)} records, expected 1"
+        assert (knowledge / "index.json").is_file(), (
+            "the canonical path updates the index; a hand-written dict never did"
+        )
+
+        data = json.loads(records[0].read_text(encoding="utf-8"))
+        assert data["depositing_lane"] == lane
+        assert data["constraints_updated"], "the constraints it recorded were lost"
+        assert data["evidence"], "the evidence it recorded was lost"
+
+        sys.path.insert(0, str(repo))
+        from core.experience_deposition import ExperienceDeposition
+        deposition = ExperienceDeposition(str(knowledge))
+        found = deposition.find_related(data.get("conclusion", "")[:40], limit=5)
+        assert found, "the record is on disk but unreachable by find_related"
+
+
 def test_deposit_from_task_carries_the_archivists_lane(tmp_path):
     """The production path, not a helper.
 
