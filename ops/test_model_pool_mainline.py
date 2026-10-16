@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 import sys
 import tempfile
 from pathlib import Path
@@ -258,7 +258,11 @@ def test_failed_model_call_persists_failure_trace_and_keeps_local_lifecycle():
 def test_miner_pool_initializes_shenwen_from_runtime_environment(monkeypatch):
     from core.miner_pool.miner_pool import MinerPool
 
+    # ProviderCredential.is_valid requires the base URL as well as the key, so a
+    # key-only fixture leaves the provider unregistered and this reads as an
+    # initialization bug rather than a half-configured environment.
     monkeypatch.setenv("SHENWEN_API_KEY", "test-runtime-key")
+    monkeypatch.setenv("SHENWEN_BASE_URL", "https://api.shenwenai.com/v1")
     pool = MinerPool(coze_assets_path="C:/nonexistent-assets")
 
     assert pool.initialize() is True
@@ -269,6 +273,7 @@ def test_miner_pool_initializes_separate_shenwen_grok_channel(monkeypatch):
     from core.miner_pool.miner_pool import MinerPool
 
     monkeypatch.setenv("SHENWEN_GROK_API_KEY", "test-grok-heavy-key")
+    monkeypatch.setenv("SHENWEN_GROK_BASE_URL", "https://api.shenwenai.com/v1")
     pool = MinerPool(coze_assets_path="C:/nonexistent-assets")
 
     assert pool.initialize() is True
@@ -284,7 +289,14 @@ def test_role_profiles_register_native_strategic_execution_and_free_boundaries()
 
     assert strategic["expected_model"] == "gpt-5.6-terra"
     assert strategic["preferred_models"] == ["oneapi:gpt-5.6-terra", "shenwen:gpt-5.6-terra"]
-    assert strategic["allowed_providers"] == {"shenwen", "oneapi"}
+    # da891f1 widened this to match the profile's own governed fallback: the
+    # fallback models are glm:glm-4-flash and nim:qwen/qwen3.5-397b-a17b, and
+    # routing_policy is terra_default_astra_complex_with_governed_fallback.
+    # allowed_providers is exactly the set of providers named by allowed_models,
+    # so the profile is self-consistent; only this expectation was stale.
+    assert strategic["allowed_providers"] == {"shenwen", "oneapi", "glm", "nim"}
+    assert {m.split(":")[0] for m in strategic["allowed_models"]} <= \
+        strategic["allowed_providers"], "every allowed model's provider must be allowed"
     assert execution["expected_model"] == "gpt-5.4-mini"
     assert execution["preferred_models"] == [
         "shenwen_ds41:deepseek-v4.1-flash",
@@ -292,7 +304,12 @@ def test_role_profiles_register_native_strategic_execution_and_free_boundaries()
         "oneapi:gpt-5.4-mini",
         "shenwen:gpt-5.4-mini",
     ]
-    assert execution["allowed_providers"] == {"shenwen_ds41", "shenwen", "oneapi"}
+    # Same da891f1 widening as `strategic`: the governed fallbacks are glm and
+    # nim, and allowed_providers is exactly the providers of allowed_models.
+    assert execution["allowed_providers"] == {
+        "shenwen_ds41", "shenwen", "oneapi", "glm", "nim"}
+    assert {m.split(":")[0] for m in execution["allowed_models"]} <= \
+        execution["allowed_providers"], "every allowed model's provider must be allowed"
     # Owner-directed 2026-10-09: free CLI route serves the sandbox first.
     # The exclusion intent below is unchanged: no paid strategic models.
     assert free["allowed_providers"] == {"shenwen_ds41", "oneapi", "glm", "nim", "ollama", "opencode_cli"}

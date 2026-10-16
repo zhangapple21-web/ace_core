@@ -438,7 +438,21 @@ class CredentialManager:
             ):
                 key = os.environ.get("OPENAI_API_KEY")
             if key:
-                base = os.environ.get(base_env) if base_env else default_base
+                # `default_base` is part of this table for a reason: a provider
+                # whose gateway is a known constant must stay usable when only
+                # its key is exported. os.environ.get(base_env) returns None for
+                # an unset variable, and None is not a base_url - ProviderCredential
+                # .is_valid requires both fields, so the credential was built and
+                # then silently discarded. Every provider in this table with a
+                # default was affected whenever its *_BASE_URL was unset.
+                #
+                # Concretely: the fallback above (L433-439) accepts OPENAI_API_KEY
+                # for oneapi/oneapi_free precisely so a missing ONEAPI_KEY does not
+                # strand a live localhost gateway, and then this line threw that
+                # credential away unless ONEAPI_BASE_URL happened to be exported
+                # too. test_miner_pool_free_key_isolation.py pins that path; it was
+                # failing for this reason, not because the isolation was wrong.
+                base = (os.environ.get(base_env) if base_env else "") or default_base
                 if provider == "shenwen_ds41" and not os.environ.get(base_env):
                     base = self._windows_user_env(base_env) or default_base
                 self._credentials[provider] = ProviderCredential(

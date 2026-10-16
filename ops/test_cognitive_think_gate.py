@@ -165,8 +165,18 @@ def test_model_call_is_think_not_execute_and_loop_skips_model():
     assert router.calls == 2
     assert task.outputs["model_execution"][1]["cognitive_think"]["think_rounds"] == 1
 
+    # Only attempts that actually reached a model consume think budget
+    # (a434d1c, "count only model-contacting attempts against think budget").
+    # This fixture predates that rule and carried only `execution_feedback`, so
+    # it counted as zero rounds and nothing could ever block. Give each entry
+    # what a real counted attempt has: api_called plus a model it reached.
     task.outputs["model_execution"] = [
-        {"execution_feedback": {"status": "STRUCTURED"}}
+        {
+            "execution_feedback": {"status": "STRUCTURED"},
+            "api_called": True,
+            "selected_model": "test:test-model",
+            "tried_models": ["test:test-model"],
+        }
         for _ in range(dynamic_think_budget(0, "medium"))
     ]
     blocked = _record_model_execution(task, "researcher", router, "should-not-call")

@@ -1,4 +1,4 @@
-﻿from core.miner_pool.miner_pool import MinerPool
+from core.miner_pool.miner_pool import MinerPool
 from core.miner_pool.providers.openai_compatible import ShenwenGrokProvider
 
 
@@ -15,7 +15,13 @@ def test_shadow_task_requires_explicit_opt_in(monkeypatch):
 
 
 def test_shadow_task_records_provider_authoritative_cost(monkeypatch):
+    # A credential is valid only when BOTH the key and the base URL are present
+    # (ProviderCredential.is_valid). Setting the key alone leaves the provider
+    # unregistered, the router then finds no candidate for the task type, and the
+    # chat returns "no available models for this task type" - which reads as a
+    # routing bug rather than a half-configured fixture.
     monkeypatch.setenv("SHENWEN_GROK_API_KEY", "test-grok-heavy-key")
+    monkeypatch.setenv("SHENWEN_GROK_BASE_URL", "https://api.shenwenai.com/v1")
     pool = MinerPool(coze_assets_path="C:/nonexistent-assets")
     assert pool.initialize()
 
