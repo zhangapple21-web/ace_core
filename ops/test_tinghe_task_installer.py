@@ -36,6 +36,14 @@ def _source():
     return INSTALLER.read_text(encoding="utf-8", errors="replace")
 
 
+def _source_of(path):
+    return path.read_text(encoding="utf-8", errors="replace")
+
+
+def _normalise(text):
+    return " ".join(text.split())
+
+
 def _names():
     return re.findall(r'Name\s*=\s*"(tinghe-[a-z0-9-]+)"', _source())
 
@@ -135,6 +143,86 @@ def test_the_two_tasks_that_differ_from_the_default_still_do():
         "daily-origin alone retries twice"
     )
     assert "RestartIntervalMinutes = 5" in daily.group(0)
+
+
+# ---------------------------------------------------------- the restart interval
+
+
+def _strip_ps_comments(text):
+    """Remove PowerShell comments so assertions inspect code, not prose.
+
+    The installer's own comment names the broken spelling to explain why it is
+    avoided, which defeats a naive substring check - the test passed the fix and
+    failed the comment. Quote-aware: a # inside a string is not a comment.
+    Handles both # line comments and <# block #> comments.
+    """
+    out = []
+    i = 0
+    n = len(text)
+    in_string = None
+    while i < n:
+        ch = text[i]
+        if in_string:
+            if ch == in_string:
+                # a doubled quote is an escaped quote, not a terminator
+                if i + 1 < n and text[i + 1] == in_string:
+                    out.append(text[i:i + 2])
+                    i += 2
+                    continue
+                in_string = None
+            out.append(ch)
+            i += 1
+            continue
+        if ch in ("'", '"'):
+            in_string = ch
+            out.append(ch)
+            i += 1
+            continue
+        if ch == "<" and text.startswith("<#", i):
+            end = text.find("#>", i + 2)
+            i = n if end == -1 else end + 2
+            out.append(" ")
+            continue
+        if ch == "#":
+            end = text.find("\n", i)
+            i = n if end == -1 else end
+            out.append(" ")
+            continue
+        out.append(ch)
+        i += 1
+    return "".join(out)
+
+
+def _code(path):
+    """The installer with comments removed - what actually executes."""
+    return _normalise(_strip_ps_comments(_source_of(path)))
+
+
+def test_restart_interval_is_passed_as_a_cmdlet_parameter():
+    """The trap that made daily-origin unregisterable.
+
+    Both spellings look equivalent and only one of them is. Passing
+    -RestartInterval to New-ScheduledTaskSettingsSet serialises to
+    <Interval>PT5M</Interval>. Assigning $settings.RestartInterval afterwards
+    serialises the same TimeSpan to 00:05:00 instead, and Register-ScheduledTask
+    rejects the XML: "(36,28):Interval:00:05:00".
+
+    Only tinghe-daily-origin sets a retry interval, so nothing else exercised the
+    path and the installer registered seven tasks while reporting the eighth as
+    failed. The assertion names the broken spelling rather than requiring the
+    fixed one, so a rewrite that finds another way is still accepted.
+
+    Checked against comment-stripped source: the installer's own comment names
+    the broken spelling in order to explain why it is avoided.
+    """
+    source = _code(INSTALLER)
+    assert "$settings.RestartInterval =" not in source, (
+        "assigning RestartInterval as a property serialises to 00:05:00 and "
+        "Register-ScheduledTask rejects the XML; pass it to the cmdlet instead"
+    )
+    assert "RestartInterval" in source and "New-TimeSpan -Minutes" in source, (
+        "the retry interval must still be settable for the task that uses it"
+    )
 
 
 # ---------------------------------------------------------- behavioural check

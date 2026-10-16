@@ -287,14 +287,28 @@ function Install-Tasks {
                 # DisallowStartIfOnBatteries, StopIfGoingOnBatteries and
                 # AllowDemandStart are properties, not cmdlet parameters; setting
                 # them here is the only way through the cmdlet.
-                $settings = New-ScheduledTaskSettingsSet `
-                    -Hidden `
-                    -MultipleInstances IgnoreNew `
-                    -ExecutionTimeLimit (New-TimeSpan -Hours $Task.LimitHours) `
-                    -StartWhenAvailable `
-                    -Priority 7 `
-                    -RestartCount $Task.RestartCount `
-                    -WakeToRun:([bool]$Task.Wake)
+                #
+                # RestartInterval is the opposite case, and the difference is not
+                # cosmetic. Passing it as a cmdlet parameter serialises to
+                # <Interval>PT5M</Interval>, which the scheduler accepts.
+                # Assigning $settings.RestartInterval = (New-TimeSpan ...) after
+                # the fact serialises to 00:05:00 instead, and Register-ScheduledTask
+                # rejects the XML outright - "(36,28):Interval:00:05:00". Only
+                # tinghe-daily-origin sets a retry interval, which is why this
+                # stayed hidden until every task's registration was probed.
+                $settingsParams = @{
+                    Hidden                = $true
+                    MultipleInstances     = "IgnoreNew"
+                    ExecutionTimeLimit    = New-TimeSpan -Hours $Task.LimitHours
+                    StartWhenAvailable    = $true
+                    Priority              = 7
+                    RestartCount          = $Task.RestartCount
+                    WakeToRun             = [bool]$Task.Wake
+                }
+                if ($Task.RestartIntervalMinutes -gt 0) {
+                    $settingsParams["RestartInterval"] = New-TimeSpan -Minutes $Task.RestartIntervalMinutes
+                }
+                $settings = New-ScheduledTaskSettingsSet @settingsParams
                 $settings.AllowDemandStart = $true
                 if ($task.BatteryOk) {
                     $settings.DisallowStartIfOnBatteries = $false
@@ -303,9 +317,6 @@ function Install-Tasks {
                 else {
                     $settings.DisallowStartIfOnBatteries = $true
                     $settings.StopIfGoingOnBatteries = $true
-                }
-                if ($task.RestartIntervalMinutes -gt 0) {
-                    $settings.RestartInterval = (New-TimeSpan -Minutes $task.RestartIntervalMinutes)
                 }
 
                 $runLevel = if ($task.Elevated) { "Highest" } else { "Limited" }
