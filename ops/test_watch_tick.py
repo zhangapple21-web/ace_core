@@ -1,161 +1,168 @@
-"""A health check must never end as a task pointing at nothing.
+"""A watch that is not run is not a watch.
 
-The defect this pins: ACE-Watch-Hourly and ACE-Loop-Guardian both referenced
-.ps1 scripts under the opencode temp directory. When the directory was cleaned,
-both tasks fired on schedule and both failed on schedule, and nothing said so:
-one was a structural-integrity watch that had not looked in 27 hours, the other
-a loop monitor whose loop had already closed.
+The hourly tick had two failure modes that both looked like success.
 
-The contract, stated so a machine can check it:
+Its launcher lived under the opencode temp directory, which was cleaned. After it
+vanished, ACE-Watch-Hourly fired and failed every hour while the
+dead_components_snapshot it exists to refresh went 27 hours stale, and nothing
+reported it because nothing watched the watcher.
 
-  - The watch tick launcher must live in the repo, not under a cleanable temp
-    directory. A path under a temp dir is the shape that vanished once already.
-  - NOT_DUE is a success state. The watch owns a twelve-hour interval and the
-    task fires hourly, so most ticks are correctly no-ops. Treating "snapshot
-    not refreshed on a no-op hour" as failure cries wolf every hour between real
-    runs, which is how you train people to ignore the watch.
-  - The closed loop monitor must not be re-pointed at anything. Its receipt says
-    the loop held for three consecutive sweeps; a task that re-fires a closed
-    monitor is re-opening finished work, not watching.
+Then the tick itself was PowerShell, launched through wscript. In the scheduler's
+window-less context that chain stops silently while Task Scheduler still records
+exit 0, so the job reported success having done nothing - twice over, across two
+different causes. The tick is now a Python entry point launched by pythonw, which
+needs no window and no wrapper. That change is what these tests protect, along
+with the discipline that proved it: delete the artifact, run the task, confirm the
+artifact came back. An exit code is not evidence.
 
-The static checks run everywhere. The behavioural checks need the deployed
-subsystem and skip where it was never deployed rather than reporting green on
-machines where they never ran.
+Each watch is judged by its own snapshot age rather than one shared threshold,
+because dead_component_watch owns a twelve-hour interval and its snapshot is
+routinely two hours old. A single freshness bound made the tick fail on eleven of
+twelve hours - a watcher that cries wolf is as blind as one that never speaks.
 """
+import json
 import re
-import shutil
 import subprocess
+import sys
 from pathlib import Path
 
-import pytest
-
 REPO = Path(__file__).resolve().parents[1]
-TICK = REPO / "ops" / "watch_tick.ps1"
-POWERSHELL = shutil.which("powershell") or r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe"
+TICK = REPO / "ops" / "watch_tick.py"
+WATCH_SCRIPT = REPO / "ops" / "incident_reachability_watch.py"
 
-
-def _text(path):
-    return Path(path).read_text(encoding="utf-8", errors="replace")
-
-
-def _normalise(text):
-    return " ".join(text.split())
-
-
-def _code(path):
-    """PowerShell with comments removed - what actually executes.
-
-    The repo's own headers name the temp directory that swallowed the scripts,
-    which defeats a naive substring check the same way it did for the installer
-    tests. Quote-aware: a # inside a string is not a comment.
-    """
-    text = _text(path)
-    out, i = [], 0
-    in_string = None
-    while i < len(text):
-        ch = text[i]
-        if in_string:
-            if ch == in_string:
-                if i + 1 < len(text) and text[i + 1] == in_string:
-                    out.append(text[i:i + 2])
-                    i += 2
-                    continue
-                in_string = None
-            out.append(ch)
-            i += 1
-            continue
-        if ch in ("'", '"'):
-            in_string = ch
-            out.append(ch)
-            i += 1
-            continue
-        if ch == "<" and text.startswith("<#", i):
-            end = text.find("#>", i + 2)
-            i = len(text) if end == -1 else end + 2
-            out.append(" ")
-            continue
-        if ch == "#":
-            end = text.find("\n", i)
-            i = len(text) if end == -1 else end
-            out.append(" ")
-            continue
-        out.append(ch)
-        i += 1
-    return _normalise("".join(out))
+python = sys.executable or "py"
 
 
 # --------------------------------------------------------------- static contract
 
 
-def test_the_tick_launcher_does_not_reference_a_temp_directory():
-    """The shape that vanished once already.
+def test_the_tick_is_a_python_entry_point():
+    """The PowerShell wrapper stopped running under the scheduler.
 
-    Asserting "no temp path" rather than "repo path" keeps the test honest: it
-    rejects any cleanable directory, not just the one that bit us.
+    wscript -> powershell -> py -> python is four layers that each need something
+    the scheduler's context does not provide. pythonw needs none of it. Routing
+    the tick back through PowerShell restores a silent failure that reports exit 0.
     """
-    source = _code(TICK)
-    assert "Temp" not in source and "TEMP" not in source and "Local\\Temp" not in source, (
-        "the tick launcher must live where a cleaner cannot remove it"
+    assert TICK.is_file(), "the tick must be a Python entry point"
+    assert not (REPO / "ops" / "watch_tick.ps1").exists(), (
+        "the PowerShell tick was removed once it was shown to stop silently under "
+        "the scheduler; its return would restore that failure"
     )
 
 
-def test_not_due_is_a_success_state():
-    """The watch's interval is twelve hours and the task fires hourly.
+def test_both_watches_are_driven_by_the_same_tick():
+    """The incident watch needs the same guarantee the dead-component watch got.
 
-    Treating a no-op hour as failure reports an error eleven hours out of twelve,
-    which is how you train people to ignore the watch they built.
+    A persistent incident pointer sat claiming open work for eighteen days while
+    the task it named had been archived minutes after creation, because the rule's
+    category never produced an observation the reconciler could see. A watch that
+    is not run is not a watch, and running it by hand is not running it.
     """
-    source = _code(TICK)
-    assert "NOT_DUE" in source, "the no-op state must be handled, not ignored"
-    assert re.search(r'"NOT_DUE"\)?\s*\{[^}]*exit 0', source), (
-        "a no-op tick must exit zero"
+    source = TICK.read_text(encoding="utf-8")
+    assert "incident_reachability_watch.py" in source, (
+        "the incident-reachability watch must be driven by the hourly tick"
+    )
+    assert "dead_component_watch.py" in source
+    assert "incident_reachability_snapshot.json" in source, (
+        "the incident watch's snapshot must be checked, not merely invoked"
     )
 
 
-def test_the_tick_never_forces_the_watch():
-    """--force on every tick would rewrite the snapshot hourly.
+def test_each_watch_has_its_own_age_floor():
+    """One threshold for both would fail eleven hours in twelve.
 
-    The snapshot's cadence is evidence of when the watch last actually looked.
-    Forcing it destroys that evidence.
+    dead_component_watch runs every twelve hours, so its snapshot is legitimately
+    old. incident_reachability_watch has no interval and must refresh every tick.
     """
-    source = _code(TICK)
-    assert "--force" not in source, (
-        "the tick must let the watch own its interval"
+    source = TICK.read_text(encoding="utf-8")
+    floors = re.findall(r'"max_age_minutes":\s*(\d+)', source)
+    assert len(floors) >= 2, "each watch needs its own age floor"
+    assert len(set(floors)) >= 2, (
+        "both watches share one floor, which either fails the interval-guarded "
+        "watch on every no-op hour or lets the other go stale unnoticed"
     )
 
 
-def test_a_scan_is_verified_by_freshness_not_by_exit_code():
-    """Zero exit is not proof the watch looked; only a fresh snapshot is.
-
-    The check must be conditional on SCANNED: demanding freshness on a no-op hour
-    is the same wolf-crying as the NOT_DUE bug in the other direction.
-    """
-    source = _code(TICK)
-    scanned = source.find("SCANNED")
-    assert scanned > 0, "the scan state must be handled"
-    assert "snapshot" in source[scanned:scanned + 800], (
-        "after a scan, the snapshot must be verified fresh"
+def test_exit_zero_is_not_treated_as_proof():
+    """The snapshot on disk is the evidence, not the return code."""
+    source = TICK.read_text(encoding="utf-8")
+    assert "NO_SNAPSHOT" in source and "STALE_SNAPSHOT" in source, (
+        "a watch that exits 0 without writing or refreshing its snapshot must be "
+        "a failure - that is precisely how the scheduler reported success for 27 "
+        "hours of not running"
     )
 
 
-# ------------------------------------------------------------ behavioural proof
+def test_each_watch_is_verified_independently():
+    """One failing watch must not be masked by another passing."""
+    source = TICK.read_text(encoding="utf-8")
+    assert "results = [run_watch(watch, root, python) for watch in watches]" in source
+    assert "failed = [r for r in results if r[\"status\"] != \"OK\"]" in source
 
-@pytest.mark.skipif(not (TICK.is_file() and POWERSHELL), reason="needs the tick and powershell on a Windows host")
-def test_the_tick_exits_zero_in_both_states():
-    """The tick must not fail on a no-op hour.
 
-    Two consecutive runs: the first may scan or not, but the second is certainly
-    inside the twelve-hour interval and must exit zero anyway. A watcher that
-    needs forcing to look healthy is not healthy.
+def test_forcing_a_watch_every_tick_is_not_permitted():
+    """--force would destroy the cadence evidence of when it last looked."""
+    source = TICK.read_text(encoding="utf-8")
+    assert '"--force"' not in source, (
+        "the tick must let each watch own its interval"
+    )
+
+
+# ---------------------------------------------------------- behavioural proof
+
+
+def test_the_tick_runs_both_watches_and_judges_each_by_its_own_snapshot():
+    proc = subprocess.run(
+        [python, "-u", str(TICK), "--root", str(REPO)],
+        capture_output=True, text=True, timeout=1200,
+        encoding="utf-8", errors="replace", cwd=str(REPO))
+    assert proc.returncode == 0, (
+        f"tick failed: {(proc.stdout or '')[-400:]}{(proc.stderr or '')[-300:]}"
+    )
+    for name in ("dead_component_watch", "incident_reachability_watch"):
+        assert name in (proc.stdout or ""), f"{name} did not run under the tick"
+
+
+def test_the_tick_reports_a_broken_watch_instead_of_passing():
+    """A watch that cannot run must fail the tick, not be skipped.
+
+    Verified with a throwaway root whose incident-reachability script is absent,
+    so the failure is real without touching the deployed subsystem.
     """
-    for attempt in range(2):
+    import shutil
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        (root / "ops").mkdir()
+        shutil.copy2(TICK, root / "ops" / "watch_tick.py")
+        shutil.copy2(REPO / "ops" / "incident_reachability_watch.py",
+                     root / "ops" / "incident_reachability_watch.py")
+        # dead_component_watch.py deliberately left absent
         proc = subprocess.run(
-            [POWERSHELL, "-NoProfile", "-ExecutionPolicy", "Bypass",
-             "-File", str(TICK)],
+            [python, "-u", str(root / "ops" / "watch_tick.py"),
+             "--root", str(root), "--json"],
             capture_output=True, text=True, timeout=600,
-            encoding="utf-8", errors="replace", cwd=str(REPO),
+            encoding="utf-8", errors="replace")
+        assert proc.returncode != 0, (
+            "a missing watch script produced a passing tick; that is how a broken "
+            "watcher looks exactly like a working one"
         )
-        assert proc.returncode == 0, (
-            f"tick run {attempt + 1} failed (rc={proc.returncode}):\n"
-            f"{(proc.stdout or '')[:600]}{(proc.stderr or '')[:600]}"
-        )
+        assert "dead_component_watch" in (proc.stdout or "")
+
+
+def test_the_tick_does_not_force_the_interval_guarded_watch():
+    """dead_component_watch is NOT_DUE most hours, and that is not a failure.
+
+    Its twelve-hour interval means an hourly tick is a no-op eleven times in twelve.
+    Treating the unchanged snapshot as an error would make the tick cry wolf every
+    hour and train people to ignore it.
+    """
+    report = json.loads(subprocess.run(
+        [python, "-u", str(TICK), "--root", str(REPO), "--json"],
+        capture_output=True, text=True, timeout=1200,
+        encoding="utf-8", errors="replace", cwd=str(REPO)).stdout)
+    statuses = {w["name"]: w["status"] for w in report["watches"]}
+    assert statuses["dead_component_watch"] in {"OK"}, (
+        f"an interval-guarded no-op must read OK, got {statuses['dead_component_watch']}"
+    )
