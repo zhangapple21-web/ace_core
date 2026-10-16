@@ -73,11 +73,21 @@ def run(root: Path = ROOT, observer: Any = None, *, force: bool = False) -> Dict
             "snapshot": "",
         }
 
-    # A rule with no incident on file is not broken; the net is simply idle. Only a
-    # pointer that exists and cannot be cleared is a gap.
+    # A rule with no incident on file is not broken; the net is simply idle. Two
+    # distinct findings share this watch, because both are ways a pointer stops
+    # meaning what it says, and both were present in this repository:
+    #
+    #   STUCK_NO_OBSERVATION  the machinery cannot clear the pointer at all - a
+    #                         safety net that has no input
+    #   CONDITION_STILL_TRUE  the pointer is accurate: the condition it names is
+    #                         still true, and a terminal task was archived over it.
+    #                         This is unfixed work wearing a closed task's name, and
+    #                         filtering it out here would have made this watch go
+    #                         quiet about the very thing it was built to surface.
     findings: List[Dict[str, Any]] = []
     for row in report["incidents"]:
-        if row["verdict"] != "STUCK_NO_OBSERVATION":
+        verdict = row["verdict"]
+        if verdict not in ("STUCK_NO_OBSERVATION", "CONDITION_STILL_TRUE"):
             continue
         observed = str(row.get("last_observed_at") or "")
         age_days = None
@@ -94,15 +104,26 @@ def run(root: Path = ROOT, observer: Any = None, *, force: bool = False) -> Dict
                 age_days = (_now() - parsed).days
             except (ValueError, TypeError):
                 age_days = None
+        if verdict == "STUCK_NO_OBSERVATION":
+            detail = ("the rule's category has produced no unprocessed observation, so "
+                      "the reconciler cannot see it and the pointer cannot be cleared")
+        else:
+            condition = row.get("live_condition") or {}
+            detail = (f"the condition is still true: {condition.get('state_key')}="
+                      f"{condition.get('value')!r} against {condition.get('threshold')!r}"
+                      f"; task {row['task_id']} is terminal, so the work was closed "
+                      f"without the condition changing")
         findings.append({
             "rule": row["incident"],
+            "verdict": verdict,
             "category": row["category"],
             "task_id": row["task_id"],
             "task_terminal": row["task_terminal"],
+            "task_status": row.get("task_found_in"),
             "last_observed_at": observed,
             "unverified_days": age_days,
-            "detail": ("the rule's category has produced no unprocessed observation, so "
-                       "the reconciler cannot see it and the pointer cannot be cleared"),
+            "live_condition": row.get("live_condition"),
+            "detail": detail,
         })
 
     snapshot = {
@@ -127,19 +148,34 @@ def run(root: Path = ROOT, observer: Any = None, *, force: bool = False) -> Dict
                 # would train the same blindness this watch exists to remove.
                 continue
             shown_age = f"{age} days" if age is not None else "an unknown number of days"
+            condition = finding.get("live_condition") or {}
+            if finding["verdict"] == "CONDITION_STILL_TRUE":
+                description = (
+                    f"incident {finding['rule']} is open work closed on paper: "
+                    f"{condition.get('state_key')}={condition.get('value')!r} still "
+                    f"breaches {condition.get('threshold')!r} and task "
+                    f"{finding['task_id']} is terminal"
+                )
+                severity = "high"
+            else:
+                description = (f"incident rule {finding['rule']} cannot be reconciled: "
+                               f"no {finding['category']!r} observation reaches the "
+                               f"converter; pointer to {finding['task_id']} unverified "
+                               f"for {shown_age}")
+                severity = "medium"
             observer.record(
-                description=(f"incident rule {finding['rule']} cannot be reconciled: "
-                             f"no {finding['category']!r} observation reaches the converter; "
-                             f"pointer to {finding['task_id']} unverified for {shown_age}"),
+                description=description,
                 system_state={
                     "rule": finding["rule"],
+                    "verdict": finding["verdict"],
                     "category": finding["category"],
                     "task_id": finding["task_id"],
                     "task_terminal": finding["task_terminal"],
                     "unverified_days": finding["unverified_days"],
+                    "live_condition": condition,
                     "contract_version": CONTRACT_VERSION,
                 },
-                severity="medium",
+                severity=severity,
                 source="incident_reachability_watch",
                 category="structural_gap",
                 dedup_key=f"incident_unreachable:{finding['rule']}",

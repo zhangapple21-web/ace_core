@@ -52,6 +52,68 @@ def _find_task(task_id: str):
     return None
 
 
+def _live_condition(rule: str) -> dict:
+    """Read the state the rule is about, from the source the daemon reads.
+
+    This session diagnosed both incidents as unreachable: no `gap` observation
+    reaches the converter, so the pointer can never be cleared. That was true
+    and it was beside the point. A grep scoped to core/*.py found no producer,
+    because the producer is ace_daemon.py at the repository root - lines 3295,
+    3317 and 3333 record exactly these categories, and 55 such observations
+    exist, all consumed into the two tasks now sitting archived.
+
+    The conditions those observations carried are still true:
+      fragment_backlog   pending_scan 7847 of 17293, threshold 500
+      cross_agent_idle   last_mine_seed_scan == "never"
+
+    So the incidents were never stuck. The work was closed on paper while the
+    condition persisted. A diagnosis that stops at the queue cannot tell those
+    apart, and reports a broken safety net when the real finding is unfixed work
+    wearing a closed task's name.
+    """
+    if rule == "fragment_backlog":
+        index_dir = ROOT / "02_FRAGMENT_INDEX"
+        if not index_dir.is_dir():
+            return {"readable": False, "detail": f"{index_dir} absent"}
+        try:
+            from core.fragment_index import FragmentIndex
+
+            stats = FragmentIndex(str(index_dir)).get_stats()
+        except Exception as exc:  # noqa: BLE001 - diagnosis must not raise
+            return {"readable": False, "detail": f"{type(exc).__name__}: {exc}"}
+        pending = stats.get("by_status", {}).get("pending_scan", 0)
+        return {
+            "readable": True,
+            "state_key": "pending_scan",
+            "value": pending,
+            "threshold": 500,
+            "source": str(index_dir / "fragment_index.json").replace("\\", "/"),
+            "still_true": pending > 500,
+            "total": stats.get("total"),
+            "archaeologized": stats.get("by_status", {}).get("archaeologized"),
+        }
+
+    if rule == "cross_agent_idle":
+        state_path = ROOT / "06_RUNTIME" / "ace" / "data" / "memory" / "daemon_state.json"
+        if not state_path.is_file():
+            return {"readable": False, "detail": f"{state_path} absent"}
+        try:
+            value = json.loads(state_path.read_text(encoding="utf-8")).get(
+                "last_mine_seed_scan", "never")
+        except (OSError, ValueError) as exc:
+            return {"readable": False, "detail": str(exc)}
+        return {
+            "readable": True,
+            "state_key": "last_mine_seed_scan",
+            "value": value,
+            "threshold": "never",
+            "source": str(state_path).replace("\\", "/"),
+            "still_true": value == "never",
+        }
+
+    return {"readable": False, "detail": "no condition is defined for this rule"}
+
+
 def diagnose() -> dict:
     from core.observation import RuntimeObserver
     from core.observation_to_task import ObservationToTaskConverter
@@ -90,7 +152,27 @@ def diagnose() -> dict:
                       else "last_mine_seed_scan" if name == "cross_agent_idle"
                       else None)
         reachable = category in queue_categories
-        if not reachable:
+        condition = _live_condition(name)
+        still_true = bool(condition.get("still_true"))
+
+        # Order matters. A condition that is still true is the finding, whatever
+        # the queue looks like: the work exists, and a terminal task claiming to
+        # have handled it does not make it disappear. Reporting this as an
+        # unreachable rule would blame the safety net for the closure decision.
+        if still_true:
+            verdict = "CONDITION_STILL_TRUE"
+            if condition["threshold"] == "never":
+                breach = (f"{condition['state_key']} is still {condition['value']!r}, "
+                          f"which is the state this rule exists to catch")
+            else:
+                breach = (f"{condition['state_key']}={condition['value']!r} still "
+                          f"breaches {condition['threshold']!r}")
+            explanation = (
+                f"{breach}, so the underlying condition persists; the incident is "
+                f"open work, not an unreachable rule"
+                + (f", while task {task_id} is {task_status}" if task_status else "")
+            )
+        elif not reachable:
             verdict = "STUCK_NO_OBSERVATION"
             explanation = (f"no unprocessed observation in category {category!r}, so "
                            f"_reconcile_persistent_incidents never sees one for this rule")
@@ -109,6 +191,7 @@ def diagnose() -> dict:
             "task_found_in": f"{found[0]}/{found[1]}" if found else None,
             "task_terminal": (task_status in TERMINAL) if task_status else None,
             "category_reachable_in_queue": reachable,
+            "live_condition": condition,
             "verdict": verdict,
             "explanation": explanation,
         })

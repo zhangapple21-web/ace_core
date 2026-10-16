@@ -33,7 +33,15 @@ import pytest  # noqa: E402
 
 from ops.diagnose_semantic_incidents import diagnose  # noqa: E402
 
-VERDICTS = {"MONITORED", "STALE_TASK_DONE", "STUCK_NO_OBSERVATION"}
+# CONDITION_STILL_TRUE joins the set rather than replacing it. The original three
+# describe the state of the reconciliation machinery; this fourth describes the
+# state of the world, which the machinery was reporting accurately all along.
+# Both incidents on file resolve to it: pending_scan is 7847 against a threshold
+# of 500, and last_mine_seed_scan is still "never". Reading either as an
+# unreachable rule blamed the safety net for a task that was archived while its
+# condition persisted.
+VERDICTS = {"MONITORED", "STALE_TASK_DONE", "STUCK_NO_OBSERVATION",
+            "CONDITION_STILL_TRUE"}
 
 
 def test_the_diagnosis_reaches_a_definite_verdict_for_every_incident():
@@ -42,10 +50,28 @@ def test_the_diagnosis_reaches_a_definite_verdict_for_every_incident():
     for row in report["incidents"]:
         assert row["verdict"] in VERDICTS, (
             f"{row['incident']} got verdict {row['verdict']!r}; every incident must "
-            "resolve to one of the three states or the diagnosis is not answering "
+            "resolve to one of the four states or the diagnosis is not answering "
             "the question"
         )
         assert row["explanation"], f"{row['incident']} has no explanation"
+
+
+def test_every_verdict_carries_the_live_condition_it_judged_on():
+    """A verdict with no value behind it cannot be acted on or disbelieved.
+
+    This is the half the first version was missing entirely: it reported that no
+    gap observation reaches the converter and stopped, never reading
+    pending_scan or last_mine_seed_scan. So it could not distinguish a rule with
+    no input from a rule correctly reporting a condition that is still true.
+    """
+    report = diagnose()
+    for row in report["incidents"]:
+        condition = row.get("live_condition")
+        assert condition is not None, (
+            f"{row['incident']} has no live_condition; the verdict must rest on the "
+            f"state it read, not on the queue alone"
+        )
+        assert "readable" in condition
 
 
 def test_an_incident_naming_a_finished_task_is_not_reported_as_live_work():

@@ -39,6 +39,7 @@ from ops.incident_reachability_watch import (  # noqa: E402
     _iso,
     run,
 )
+from ops.diagnose_semantic_incidents import diagnose  # noqa: E402
 
 
 class RecordingObserver:
@@ -173,7 +174,13 @@ def test_escalation_carries_enough_to_act_on(monkeypatch, tmp_path):
     assert state["rule"] == "fragment_backlog"
     assert state["task_id"] == "RQ-FAKE-4"
     assert state["unverified_days"] >= STALE_POINTER_DAYS
-    assert "gap" in record["description"]
+    # The description must name the live value that justifies the escalation.
+    # It used to assert the category name instead, which told a reader nothing
+    # they could check - "no 'gap' observation" is a claim about the queue, while
+    # "pending_scan=7847 still breaches 500" is a claim about the world, and only
+    # the second one can be acted on or disbelieved.
+    assert str(state["live_condition"]["value"]) in record["description"]
+    assert str(state["live_condition"]["threshold"]) in record["description"]
 
 
 def test_the_snapshot_records_the_queue_bound_that_makes_it_fragile(monkeypatch, tmp_path):
@@ -202,6 +209,92 @@ def test_the_snapshot_records_the_queue_bound_that_makes_it_fragile(monkeypatch,
     assert "convert_limit" in snapshot and "unprocessed_queue_size" in snapshot
     assert snapshot["contract_version"] == CONTRACT_VERSION
     assert "fragment_backlog" in snapshot["unreachable_incident_rules"]
+
+
+def test_a_still_true_condition_is_not_mislabelled_as_an_unreachable_rule():
+    """The error this watch was about to keep making.
+
+    Both persistent incidents were diagnosed as unreachable - "the rule's category
+    never reaches the converter" - and that diagnosis was wrong twice over. A grep
+    scoped to core/*.py found no producer, because the producer is
+    ace_daemon.py at the repository root; 55 gap observations exist and every one
+    was consumed into the two tasks now archived. The conditions those
+    observations carried are still true: pending_scan 7847 against a threshold of
+    500, and last_mine_seed_scan still "never".
+
+    So the pointer was never stuck. The work was closed on paper while the
+    condition persisted. A verdict of STUCK_NO_OBSERVATION blames the safety net
+    for a closure decision, and would send the next reader looking for a broken
+    reconciler instead of an unfinished backlog.
+    """
+    report = diagnose()
+    verdicts = {row["incident"]: row for row in report["incidents"]}
+
+    for name in ("fragment_backlog", "cross_agent_idle"):
+        row = verdicts.get(name)
+        if row is None:
+            pytest.skip(f"{name} has no incident on file in this checkout")
+        assert row["verdict"] != "STUCK_NO_OBSERVATION", (
+            f"{name} reported as unreachable; if its condition is still true the "
+            f"finding is unfixed work, not a dead rule"
+        )
+        condition = row["live_condition"]
+        assert condition["readable"], f"{name}'s condition could not be read"
+        if condition["still_true"]:
+            assert row["verdict"] == "CONDITION_STILL_TRUE", (
+                f"{name}: the condition is still true but the verdict says "
+                f"{row['verdict']}"
+            )
+
+
+def test_a_still_true_condition_still_escalates():
+    """Being accurate must not mean being quiet.
+
+    The first version of this watch filtered to STUCK_NO_OBSERVATION only. Once
+    the verdicts were corrected to CONDITION_STILL_TRUE, both real findings would
+    have fallen out of the watch entirely - and the watch would have gone silent
+    about exactly the unfinished work it was built to surface.
+    """
+    observer = RecordingObserver()
+    result = run(REPO, observer)
+
+    still_true = [
+        row["incident"]
+        for row in diagnose()["incidents"]
+        if row.get("live_condition", {}).get("still_true")
+    ]
+    if not still_true:
+        pytest.skip("no incident on this host has a condition that is still true")
+
+    escalated_rules = {
+        r["system_state"].get("rule") for r in observer.recorded
+    }
+    for name in still_true:
+        assert name in escalated_rules, (
+            f"{name} has an unfixed condition and was not escalated; the watch "
+            f"must not treat accuracy as an excuse for silence"
+        )
+    assert result["escalated"] >= len(still_true)
+
+
+def test_the_escalation_names_the_live_value_not_just_the_rule():
+    """An escalation someone can act on must carry the number that proves it."""
+    observer = RecordingObserver()
+    run(REPO, observer)
+    for record in observer.recorded:
+        state = record["system_state"]
+        if state.get("verdict") != "CONDITION_STILL_TRUE":
+            continue
+        condition = state["live_condition"]
+        assert condition.get("value") is not None, (
+            "the observation says the condition is still true without saying what "
+            "it currently is, which is the part a reader needs"
+        )
+        assert condition.get("threshold") is not None
+        assert str(condition["value"]) in record["description"], (
+            "the live value must appear in the description, not only in the "
+            "structured state"
+        )
 
 
 def test_with_no_incident_file_the_watch_reports_nothing_and_does_not_raise(tmp_path, monkeypatch):
