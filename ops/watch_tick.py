@@ -78,6 +78,16 @@ WATCHES: List[Dict[str, object]] = [
         # No interval of its own: every tick should refresh it.
         "max_age_minutes": 90,
     },
+    {
+        "name": "daemon_liveness_watch",
+        "script": "ops/daemon_liveness_watch.py",
+        "snapshot": "08_GOVERNANCE/structural_integrity/daemon_liveness_snapshot.json",
+        # No interval of its own either, and the reason is different from the one
+        # above: a stopped runtime is the condition this tick runs as SYSTEM to be
+        # able to notice at all. Waiting twelve hours to look would restore the
+        # nine-and-a-half-hour outage this watch exists to shorten.
+        "max_age_minutes": 90,
+    },
 ]
 
 
