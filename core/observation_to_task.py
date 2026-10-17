@@ -700,6 +700,14 @@ class ObservationToTaskConverter:
             if not failed:
                 return ""
             payload = {"failed_checks": list(failed)}
+        elif name == "tension_question":
+            # A question is re-asked every cycle by construction. Its identity is
+            # the question, not the asking: 78 observations carried 3 distinct
+            # tension_key values, and without this branch those became 78 tasks.
+            question = cls._normal_text(state.get("tension_key", ""))
+            if not question:
+                return ""
+            payload = {"tension_key": question}
         elif name == "structural_gap_review":
             identity = _structural_gap_identity(state)
             if not identity:
@@ -751,6 +759,7 @@ class ObservationToTaskConverter:
             "disk_space_low",
             "checkup_error",
             "structural_gap_review",
+            "tension_question",
         }:
             return None
         signature = self._semantic_signature(rule, state)
