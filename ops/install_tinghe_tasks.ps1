@@ -383,6 +383,7 @@ if ($Remove) {
 if ($Check) {
     Write-Host "tinghe scheduled-task status" -ForegroundColor Yellow
     $bad = 0
+$missed = 0
     foreach ($task in $TaskTable) {
         $problems = Test-TaskDefinition -Task $task -WrapperDirPath $WrapperDir -LauncherPath $LauncherPath
         if (-not (Get-ScheduledTask -TaskName $task.Name -ErrorAction SilentlyContinue)) {
@@ -395,6 +396,29 @@ if ($Check) {
             Write-Host "[drift] $($task.Name) -> $($problems -join ',')" -ForegroundColor Red
             $bad++
         }
+        elseif ($info.NumberOfMissedRuns -gt 0) {
+            # A correct definition that did not fire is not "ok". These tasks run
+            # as InteractiveToken, so they cannot start when nobody is logged on:
+            # on 2026-10-17 the user was logged out at 02:59, the machine rebooted
+            # at 03:02, and the next logon was 11:31 - so the 08:00 and 11:00 slots
+            # were skipped while this audit still printed eight [ok] lines, because
+            # it only printed LastRunTime and LastTaskResult and never asked
+            # whether the trigger had actually fired.
+            #
+            # Reported as its own category so the cause is not mistaken for drift,
+            # and warned rather than failed: a missed run is evidence about the
+            # machine's session, not about the installer's correctness, so it must
+            # not turn a definition check red. Re-registering does not fix it -
+            # StartWhenAvailable cannot recover a window during which no session
+            # existed.
+            $missed++
+            Write-Host ("[missed] {0} last={1} result={2} missed={3}" -f `
+                $task.Name, $info.LastRunTime, $info.LastTaskResult, $info.NumberOfMissedRuns) `
+                -ForegroundColor Yellow
+            Write-Host ("         the trigger did not fire: these tasks need a logged-on session " +
+                "(InteractiveToken); run the site's catch-up if that day's content matters") `
+                -ForegroundColor Yellow
+        }
         else {
             Write-Host "[ok] $($task.Name) last=$($info.LastRunTime) result=$($info.LastTaskResult)" -ForegroundColor Green
         }
@@ -406,6 +430,13 @@ if ($Check) {
     $wrapperBad = ($wrappers.Missing + $wrappers.Stale) -gt 0
     Write-Host "[$(if ($wrapperBad) { 'drift' } else { 'ok' })] wrappers: $($wrappers.Unchanged) match, $($wrappers.Stale) stale, $($wrappers.Missing) missing" -ForegroundColor $(if ($wrapperBad) { 'Red' } else { 'Green' })
     if ($wrapperBad) { $wrappers.Details | ForEach-Object { Write-Host "        $_" -ForegroundColor Red } }
+    # Missed runs are summarised separately and do NOT fail the audit: the
+    # definitions are correct, the machine simply had no session at trigger time.
+    # Failing here would conflate "the installer is wrong" with "the machine was
+    # logged out", and the second one is not something re-registering can fix.
+    if ($missed -gt 0) {
+        Write-Host "[warning] $missed task(s) did not fire since their last run (see [missed] above)" -ForegroundColor Yellow
+    }
     exit $(if (($bad -gt 0) -or (-not $launcherOk) -or $wrapperBad) { 1 } else { 0 })
 }
 

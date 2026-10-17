@@ -228,6 +228,37 @@ def test_restart_interval_is_passed_as_a_cmdlet_parameter():
 # ---------------------------------------------------------- behavioural check
 
 @pytest.mark.skipif(not POWERSHELL, reason="no powershell on this host")
+def test_a_task_that_did_not_fire_is_not_reported_as_ok():
+    """-Check used to print [ok] for a correct definition that never ran.
+
+    On 2026-10-17 the user was logged out at 02:59 and the machine rebooted at
+    03:02; the next logon was 11:31. The 08:00 and 11:00 InteractiveToken slots
+    were therefore skipped, NumberOfMissedRuns went to 1 on three tasks, and the
+    audit still printed eight [ok] lines because it only surfaced LastRunTime and
+    LastTaskResult - it never asked whether the trigger had fired. A green audit
+    over a day that produced nothing is the exact failure this installer exists to
+    end, so the miss has to be its own, visible category.
+
+    A missed run must warn rather than fail: the definition is correct and the
+    machine simply had no session, which re-registering cannot repair. So this
+    asserts the audit READS the field and reports it separately from drift.
+    """
+    source = _code(INSTALLER)
+    assert "NumberOfMissedRuns" in source, (
+        "-Check must consult NumberOfMissedRuns: a correct definition that did not "
+        "fire is not ok, and LastRunTime/LastTaskResult cannot reveal that"
+    )
+    assert "[missed]" in source, (
+        "a missed run needs its own visible category, so it is not confused with "
+        "[drift] (a wrong definition) or [ok] (a definition that ran)"
+    )
+    # It must not be folded into the failure count, or a logged-out machine would
+    # report the installer as broken and stay broken until someone logged in.
+    assert "elseif ($info.NumberOfMissedRuns -gt 0)" in source, (
+        "the missed check must be a separate branch, not part of the drift test"
+    )
+
+
 def test_the_deployed_subsystem_matches_the_declared_contract():
     """-Check is the contract test: does the machine match the table?
 
