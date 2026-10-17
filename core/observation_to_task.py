@@ -477,6 +477,13 @@ class ObservationToTaskConverter:
         state field has to be present and its persistent rule must be false.
         This preserves generic terminal-task reuse while allowing a recovered
         incident to reopen when it genuinely returns.
+
+        Recovery is judged on the newest evidence, not on whichever observation
+        this loop reaches.  convert() walks the queue newest-first, so a stale
+        recovery observation left in the queue is processed *after* a relapse
+        observation that has already reopened the incident - and closing on it
+        erased the relapse in the same pass.  An incident may only close when no
+        newer observation contradicts the recovery.
         """
         state = obs.system_state if isinstance(obs.system_state, dict) else {}
         for rule in self.rules:
@@ -485,9 +492,45 @@ class ObservationToTaskConverter:
             required_key = "pending_scan" if rule.name == "fragment_backlog" else "last_mine_seed_scan"
             if required_key not in state or not rule.condition_fn or rule.condition_fn(obs):
                 continue
-            if rule.name in self._semantic_incidents:
-                self._semantic_incidents.pop(rule.name, None)
-                self._save_semantic_incidents()
+            if rule.name not in self._semantic_incidents:
+                continue
+            if self._newer_evidence_contradicts(rule, obs):
+                continue
+            self._semantic_incidents.pop(rule.name, None)
+            self._save_semantic_incidents()
+
+    def _newer_evidence_contradicts(self, rule: ConversionRule, obs: Observation) -> bool:
+        """True when a later observation still shows this rule's condition true.
+
+        Without this, recovery evidence that merely happens to sit in the queue
+        outranks evidence that is actually more recent, which is the reverse of
+        what the incident record is supposed to mean.
+
+        "Later" means recorded later, and that is the store's append order rather
+        than a wall-clock timestamp.  The daemon records several gap observations
+        inside one cycle (lexicon gap, fragment backlog, mine-seed idle), so two
+        records routinely share a timestamp.  Comparing times made neither of them
+        newer, which let a stale recovery observation left in the queue erase a
+        relapse recorded moments later in the same tick.  Positions have no ties.
+
+        An observation that has already fallen out of the bounded store cannot be
+        placed, and then no evidence is newer than it: the caller keeps the
+        incident instead of closing on something it cannot order.
+        """
+        store = list(getattr(self.observer, "_observations", None) or [])
+        obs_id = str(getattr(obs, "obs_id", "") or "")
+        position = None
+        for index, stored in enumerate(store):
+            if str(getattr(stored, "obs_id", "") or "") == obs_id:
+                position = index
+        if position is None:
+            return False
+        for other in store[position + 1:]:
+            if str(getattr(other, "category", "") or "") != rule.category:
+                continue
+            if not rule.condition_fn or rule.condition_fn(other):
+                return True
+        return False
 
     @staticmethod
     def _lexicon_gap_signature(state: Dict[str, Any]) -> tuple:
@@ -673,6 +716,17 @@ class ObservationToTaskConverter:
             if incident.get("signature") == signature and incident.get("task_id"):
                 task = self.task_pool.load_task(str(incident["task_id"]))
                 if task is not None:
+                    # The incident's own task is usually archived by the time the
+                    # condition is re-observed - that is the normal steady state,
+                    # not recovery.  Refresh the incident here as the open-status
+                    # branch above does.  Without this the incident keeps pointing
+                    # at work that ended weeks ago and its last_observed_at freezes
+                    # at that moment, so "the condition is still true" is carried
+                    # by a stale record.  Same signature, same task_id: this only
+                    # restates that the condition was observed true now.  It does
+                    # not reopen the archived work; re-triggering is the watch and
+                    # escalation layer's call, not the poll loop's.
+                    self._record_persistent_incident(rule, state, task.task_id)
                     return task
                 self._semantic_incidents.pop(rule.name, None)
                 self._save_semantic_incidents()

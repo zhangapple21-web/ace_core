@@ -154,7 +154,25 @@ class RuntimeObserver:
         existing = self._signature_index.get(signature, {})
         if existing.get("status") == "active":
             active = self._find_observation(existing.get("obs_id", ""))
-            if active is not None:
+            # Returning a consumed observation made this an observation of a single
+            # moment that then stopped representing anything. mark_consumed() says
+            # the converter read this record once; it says nothing about the world.
+            # Because the converter will never look at that record again, a
+            # condition that stays true froze onto its first observation forever
+            # and could not re-enter the unprocessed queue - so it could neither be
+            # re-reported nor recognised as recovered. Both semantic incidents ended
+            # up that way: real conditions, both still true (pending_scan 7847
+            # against a threshold of 500, last_mine_seed_scan still "never"),
+            # carrying remediation tasks that were archived over them.
+            #
+            # Re-report instead. This does not create a task per cycle: the
+            # converter reuses by semantic signature, and those signatures exclude
+            # rolling counters (fragment_backlog encodes only whether the
+            # condition holds), so a value that ticks from 7847 to 7800 refreshes
+            # the evidence and reuses the same task. Recovery also becomes visible
+            # again, which is what lets _reconcile_persistent_incidents close the
+            # incident on real evidence rather than never.
+            if active is not None and active.task_generated is None:
                 return active
         observation = Observation(
             obs_id=self._next_id(),
