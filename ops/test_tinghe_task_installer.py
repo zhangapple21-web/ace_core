@@ -259,6 +259,35 @@ def test_a_task_that_did_not_fire_is_not_reported_as_ok():
     )
 
 
+def test_check_reports_a_run_that_returned_a_failure_code():
+    """A task that ran and failed must not be printed as [ok].
+
+    The audit carried `result=$($info.LastTaskResult)` in its [ok] line for months
+    without ever comparing it to zero. Any failing run - a wrapper whose cd failed,
+    a py that could not be found, a target script that raised - was reported in
+    green with its nonzero code displayed as though it were decoration.
+
+    This is the same blindness as the missed-run case fixed alongside it, and it
+    matters more: a missed run means nothing was attempted, while a failed run
+    means something was attempted and went wrong.
+
+    Verified on 2026-10-17 by registering a task whose action is `cmd /c exit 3`
+    and confirming it landed in this branch rather than [ok].
+    """
+    source = _code(INSTALLER)
+    assert "[failed]" in source, (
+        "a failed run needs its own visible category, not a green [ok] line"
+    )
+    assert "$info.LastTaskResult -ne 0" in source, (
+        "LastTaskResult must be compared against zero, not merely printed"
+    )
+    # The never-ran code is a normal state right after registering; treating it as
+    # a failure would make every fresh install look broken.
+    assert "267011" in source and "TaskNeverRan" in source, (
+        "267011 (0x41303, 'has not run yet') must be excluded from the failed test"
+    )
+
+
 def test_the_tasks_do_not_require_an_interactive_session():
     """The logon type must not need somebody logged on at trigger time.
 

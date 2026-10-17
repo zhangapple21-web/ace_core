@@ -421,6 +421,10 @@ if ($Check) {
     Write-Host "tinghe scheduled-task status" -ForegroundColor Yellow
     $bad = 0
 $missed = 0
+$failed = 0
+# Get-ScheduledTaskInfo reports this for a task that has never run. It is a normal
+# state right after registering, not a failure.
+$script:TaskNeverRan = 267011
     foreach ($task in $TaskTable) {
         $problems = Test-TaskDefinition -Task $task -WrapperDirPath $WrapperDir -LauncherPath $LauncherPath
         if (-not (Get-ScheduledTask -TaskName $task.Name -ErrorAction SilentlyContinue)) {
@@ -456,6 +460,22 @@ $missed = 0
                 "(InteractiveToken); run the site's catch-up if that day's content matters") `
                 -ForegroundColor Yellow
         }
+        elseif ($info.LastTaskResult -ne $Script:TaskNeverRan -and $info.LastTaskResult -ne 0) {
+            # The run happened and FAILED. The definition is correct, so this is
+            # not drift, but calling it [ok] is the same blindness as the missed
+            # case: the line printed `result=1` in green and nothing ever compared
+            # it against zero. A wrapper that cannot cd, a Python that cannot be
+            # found, or a target script that raises would all have been reported
+            # as a healthy task whose result merely happened to be nonzero.
+            #
+            # 267011 / 0x41303 means "the task has not run yet", which is a normal
+            # state right after registering - not a failure.
+            $failed++
+            Write-Host ("[failed] {0} last={1} result={2} (0x{2:X})" -f `
+                $task.Name, $info.LastRunTime, $info.LastTaskResult) -ForegroundColor Red
+            Write-Host ("         the task ran and returned a failure code; check that day's " +
+                "log for the wrapper's own output") -ForegroundColor Red
+        }
         else {
             Write-Host "[ok] $($task.Name) last=$($info.LastRunTime) result=$($info.LastTaskResult)" -ForegroundColor Green
         }
@@ -473,6 +493,12 @@ $missed = 0
     # logged out", and the second one is not something re-registering can fix.
     if ($missed -gt 0) {
         Write-Host "[warning] $missed task(s) did not fire since their last run (see [missed] above)" -ForegroundColor Yellow
+    }
+    # A failed RUN is also not a definition problem, so it warns rather than
+    # failing the contract check - but unlike a missed run it means something the
+    # job tried to do went wrong, so it must never be silent.
+    if ($failed -gt 0) {
+        Write-Host "[warning] $failed task(s) last ran and returned a failure code (see [failed] above)" -ForegroundColor Yellow
     }
     exit $(if (($bad -gt 0) -or (-not $launcherOk) -or $wrapperBad) { 1 } else { 0 })
 }
