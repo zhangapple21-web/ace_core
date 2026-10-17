@@ -259,6 +259,61 @@ def test_a_task_that_did_not_fire_is_not_reported_as_ok():
     )
 
 
+def test_the_tasks_do_not_require_an_interactive_session():
+    """The logon type must not need somebody logged on at trigger time.
+
+    These jobs ran with -LogonType Interactive until 2026-10-17. On that day the
+    user was logged out at 02:59 and back at 11:31, so the 08:00 and 11:00 slots
+    simply did not run: a whole day produced no content while -Check reported
+    [ok] for eight correct definitions.
+
+    Interactive looked necessary because the deploy uses the operator's wrangler
+    credentials. Tested, it is not: the OAuth refresh_token is a FILE under
+    %APPDATA%\\xdg.config\\.wrangler\\config\\default.toml, an S4U task loads the
+    same user profile, and a probe task running as S4U read that file, found node
+    on PATH and completed `wrangler whoami` with exit 0 and full scopes. S4U's
+    "no network credentials" restriction covers SMB/UNC; this pipeline uses HTTPS
+    and local paths only.
+
+    This pins the reasoning, not just the string: a future change back to
+    Interactive has to argue with this test.
+    """
+    source = _code(INSTALLER)
+    assert "$LogonType = \"S4U\"" in source, (
+        "the default logon type must be S4U: Interactive cannot fire while the "
+        "machine has no logged-on session, which is the normal overnight case"
+    )
+    assert "-LogonType Interactive" not in source, (
+        "the principal must not be hardcoded to Interactive"
+    )
+    assert "$LogonType" in source and "New-ScheduledTaskPrincipal" in source, (
+        "the principal must take its logon type from the parameter"
+    )
+
+
+def test_the_logon_type_audit_uses_the_real_com_enum():
+    """S4U is 2, not 4 - and a wrong guess makes every task look like drift.
+
+    The COM view reports TASK_LOGON_TYPE: 1=Password, 2=S4U, 3=InteractiveToken,
+    4=Group, 5=ServiceAccount, 6=InteractiveTokenOrPassword. Verified against COM
+    on 2026-10-17: an S4U task reports 2, an InteractiveToken task reports 3.
+
+    The first version of this change guessed 4 for S4U. It registered the tasks
+    correctly and then told the operator that all eight were drifted, which is
+    worse than not checking: an audit that cries wolf gets ignored.
+    """
+    source = _code(INSTALLER)
+    assert "S4U" in source and "= 2" in source, (
+        "the COM LogonType table must map S4U to 2"
+    )
+    assert "LogonTypeCom" in source, (
+        "the audit must compare against the intended logon type, not a constant"
+    )
+    assert "LogonType -ne 3" not in source, (
+        "a hardcoded comparison against 3 breaks as soon as the type is configurable"
+    )
+
+
 def test_the_deployed_subsystem_matches_the_declared_contract():
     """-Check is the contract test: does the machine match the table?
 

@@ -38,7 +38,26 @@ param(
     # Replace wrappers that already exist. Without it, existing wrappers are left
     # untouched and only reported on, so a stray run cannot clobber a working
     # site.
-    [switch]$Force
+    [switch]$Force,
+    # How the task logon is typed. S4U is the default because these jobs must run
+    # whether or not somebody is sitting in front of the machine.
+    #
+    # Interactive was the original choice, on the theory that the deploy reads the
+    # operator's npx/wrangler credentials and therefore needs the interactive
+    # token. That theory was tested on 2026-10-17 and is false: wrangler's OAuth
+    # refresh_token is a FILE under %APPDATA%\xdg.config\.wrangler\config\
+    # default.toml, and an S4U task loads the same user profile - a probe task
+    # running as S4U read that file, found node on PATH, and completed `wrangler
+    # whoami` with exit 0 and full scopes. S4U's "no network credentials"
+    # restriction applies to SMB/UNC, and this pipeline uses only HTTPS to the
+    # Cloudflare API and local paths.
+    #
+    # The cost of Interactive was real and concrete: on 2026-10-17 the user was
+    # logged out at 02:59 and back at 11:31, so the 08:00 and 11:00 slots were
+    # skipped entirely - a day produced no content - while the audit reported
+    # [ok] for eight correct definitions.
+    [ValidateSet("S4U", "Interactive", "Password", "ServiceAccount")]
+    [string]$LogonType = "S4U"
 )
 
 $ErrorActionPreference = "Stop"
@@ -205,7 +224,23 @@ function Test-TaskDefinition {
 
     $wantLevel = if ($Task.Elevated) { 1 } else { 0 }
     if ([int]$com.Definition.Principal.RunLevel -ne $wantLevel) { $problems += "principal-runlevel" }
-    if ([int]$com.Definition.Principal.LogonType -ne 3) { $problems += "principal-logontype" }
+
+    # The COM view exposes LogonType as an int. Compare against what this run
+    # intends to install (the -LogonType parameter, default S4U) rather than a
+    # hardcoded 3, so switching the parameter does not make every task look like
+    # drift.
+    #
+    # The numbers are the Task Scheduler TASK_LOGON_TYPE enum, and they are worth
+    # reading twice because the obvious guess is wrong: S4U is 2, not 4, and
+    # InteractiveToken is 3. 1=Password, 2=S4U, 3=InteractiveToken,
+    # 4=Group, 5=ServiceAccount, 6=InteractiveTokenOrPassword.
+    # Verified against COM on 2026-10-17: an S4U-registered task reports 2 and an
+    # InteractiveToken task reports 3.
+    $script:LogonTypeCom = @{ "Password" = 1; "S4U" = 2; "Interactive" = 3;
+                              "ServiceAccount" = 5 }[$LogonType]
+    if ([int]$com.Definition.Principal.LogonType -ne [int]$script:LogonTypeCom) {
+        $problems += "principal-logontype"
+    }
     if ("$($com.Definition.Principal.UserId)" -notmatch '(^|\\)Administrator$') { $problems += "principal-userid" }
     return $problems
 }
@@ -320,7 +355,9 @@ function Install-Tasks {
                 }
 
                 $runLevel = if ($task.Elevated) { "Highest" } else { "Limited" }
-                $principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel $runLevel
+                # $LogonType is a script parameter (default S4U). See its comment
+                # for why Interactive was wrong despite looking necessary.
+                $principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType $LogonType -RunLevel $runLevel
 
                 if (Get-ScheduledTask -TaskName $task.Name -ErrorAction SilentlyContinue) {
                     Unregister-ScheduledTask -TaskName $task.Name -Confirm:$false
