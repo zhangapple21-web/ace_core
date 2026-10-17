@@ -25,16 +25,28 @@ wrapper in the path to misbehave.
 
 What it runs
 ------------
-Two watches, each judged independently so one failing cannot mask the other:
+Entries, each judged independently so one failing cannot mask another:
 
   dead_component_watch         a component that exists and is referenced nowhere
   incident_reachability_watch  an incident rule that exists and can never fire
+  daemon_liveness_watch        a runtime that is dead while its lock still claims it
+  runtime_identity_receipt     what code was on disk while the runtime ran
 
-The second exists because of exactly this script's failure mode. A persistent
-incident pointer sat in semantic_incidents.json for eighteen days claiming open
-work while the task it named had been archived minutes after creation, because
-the rule's category never produced an observation the reconciler could see. A
-watch that is not run is not a watch.
+incident_reachability_watch exists because of exactly this script's failure mode.
+A persistent incident pointer sat in semantic_incidents.json for eighteen days
+claiming open work while the task it named had been archived minutes after
+creation, because the rule's category never produced an observation the
+reconciler could see. A watch that is not run is not a watch.
+
+The last entry is not a watch, and is listed here as what it is rather than
+smuggled in as one: it detects nothing and can raise no finding. It records
+identity - git HEAD and branch, the worktree-versus-HEAD blob hashes of the two
+observation-lifecycle files, the OS view of the process, the registered task's
+action and logon type, and the lock/heartbeat/anchor join - so that "what is
+actually running" is a file anyone can read, instead of an answer reconstructed
+by hand each time it is asked. It runs here because this tick already runs as
+SYSTEM, the only identity that can see a Session 0 process and read its task
+definition.
 
 Judging rules
 -------------
@@ -86,6 +98,18 @@ WATCHES: List[Dict[str, object]] = [
         # above: a stopped runtime is the condition this tick runs as SYSTEM to be
         # able to notice at all. Waiting twelve hours to look would restore the
         # nine-and-a-half-hour outage this watch exists to shorten.
+        "max_age_minutes": 90,
+    },
+    {
+        "name": "runtime_identity_receipt",
+        "script": "ops/runtime_identity_receipt.py",
+        # Not a watch: it observes no condition and can raise no finding. It is
+        # here so the receipt is produced by a schedule rather than by whoever
+        # remembers, and so a receipt that stops being refreshed is judged stale
+        # like everything else. The path is git-ignored on purpose - a file that
+        # recorded the dirty flag into a tracked path would make every later
+        # receipt dirty and destroy the signal it exists to report.
+        "snapshot": "06_RUNTIME/ace/data/memory/runtime_identity_receipt.json",
         "max_age_minutes": 90,
     },
 ]
