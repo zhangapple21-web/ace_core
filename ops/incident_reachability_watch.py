@@ -140,13 +140,23 @@ def run(root: Path = ROOT, observer: Any = None, *, force: bool = False) -> Dict
     if observer is not None:
         for finding in findings:
             age = finding["unverified_days"]
-            # A pointer whose age cannot be computed is itself unverified, and must
-            # surface. Skipping it silently would repeat the failure this watch
-            # exists to catch.
-            if age is not None and age < STALE_POINTER_DAYS:
-                # Not yet old enough to be a standing claim. Surfacing it on day one
-                # would train the same blindness this watch exists to remove.
+            # The age gate belongs to STUCK_NO_OBSERVATION alone. There the age is
+            # the evidence: a pointer nobody can clear is only a standing claim
+            # once it has stood for a while, and surfacing it on day one would
+            # train the blindness this watch exists to remove.
+            #
+            # CONDITION_STILL_TRUE is not a claim about age. `_live_condition()`
+            # measures it against the real state on every run, so a fresh
+            # last_observed_at is the opposite of a reason to stay quiet. Applying
+            # one gate to both made this watch go silent the moment the lifecycle
+            # fix began refreshing last_observed_at every cycle: the condition
+            # became better evidenced and therefore unreportable, which is the
+            # failure mode the age gate was written to prevent and not to cause.
+            if (finding["verdict"] == "STUCK_NO_OBSERVATION"
+                    and age is not None and age < STALE_POINTER_DAYS):
                 continue
+            # An age that cannot be computed is itself unverified and still
+            # surfaces: the guard above needs a real, small age to stay quiet.
             shown_age = f"{age} days" if age is not None else "an unknown number of days"
             condition = finding.get("live_condition") or {}
             if finding["verdict"] == "CONDITION_STILL_TRUE":

@@ -129,9 +129,22 @@ def test_an_unknown_age_escalates_rather_than_vanishing(monkeypatch, tmp_path):
 
 
 def test_a_young_pointer_stays_quiet(monkeypatch, tmp_path):
-    """Not everything is an incident; a new pointer must not cry wolf on day one."""
+    """Not everything is an incident; a new pointer must not cry wolf on day one.
+
+    The pointer has to be one whose verdict the age gate actually governs. An
+    earlier version of this fixture used the real `fragment_backlog` rule and could
+    never test this: `_live_condition()` reads the fragment index directly, so that
+    rule's verdict is CONDITION_STILL_TRUE, which is decided before age is
+    consulted and is deliberately not subject to the gate. A live measurement does
+    not become truer by waiting, and suppressing it is how unfixed work wearing a
+    closed task's name stayed invisible for eighteen days.
+
+    So this fixture pins what its name says - young and not yet a standing claim -
+    by using a pointer whose rule has no live condition to read, which is the case
+    the gate exists for.
+    """
     incidents = {
-        "fragment_backlog": {
+        "a_rule_with_no_measurable_condition": {
             "schema_version": 1,
             "signature": "c" * 64,
             "task_id": "RQ-FAKE-3",
@@ -275,6 +288,68 @@ def test_a_still_true_condition_still_escalates():
             f"must not treat accuracy as an excuse for silence"
         )
     assert result["escalated"] >= len(still_true)
+
+
+def test_fresh_evidence_does_not_suppress_a_still_true_condition(tmp_path, monkeypatch):
+    """The age gate belongs to the verdict that is *about* age, and only to it.
+
+    This is the interaction that actually bit. The lifecycle fix began refreshing
+    `last_observed_at` every cycle, so `unverified_days` fell to zero - and a gate
+    meant to keep a young pointer quiet silently swallowed the one verdict that is
+    measured live from real state on every run. The condition became better
+    evidenced and therefore less reported.
+
+    Both branches are pinned here so the gate cannot drift back over the wrong one:
+    fresh evidence stops STUCK_NO_OBSERVATION from being a standing claim, and must
+    do nothing at all to CONDITION_STILL_TRUE.
+    """
+    from datetime import datetime
+
+    fresh = datetime.now().isoformat()
+    report = {
+        "status": "SCANNED",
+        "unprocessed_queue_size": 1,
+        "convert_limit": 20,
+        "queue_categories": {"gap": 1},
+        "incidents": [
+            {
+                "incident": "fabricated_still_true",
+                "verdict": "CONDITION_STILL_TRUE",
+                "category": "gap",
+                "task_id": "RQ-20260101-001",
+                "task_terminal": True,
+                "task_found_in": "archived",
+                "last_observed_at": fresh,
+                "live_condition": {"readable": True, "still_true": True,
+                                   "state_key": "pending_scan", "value": 9000,
+                                   "threshold": 500},
+            },
+            {
+                "incident": "fabricated_stuck",
+                "verdict": "STUCK_NO_OBSERVATION",
+                "category": "gap",
+                "task_id": "RQ-20260101-002",
+                "task_terminal": True,
+                "task_found_in": "archived",
+                "last_observed_at": fresh,
+                "live_condition": {"readable": True, "still_true": False},
+            },
+        ],
+    }
+    monkeypatch.setattr("ops.incident_reachability_watch.diagnose", lambda: report)
+    observer = RecordingObserver()
+
+    result = run(tmp_path, observer)
+
+    escalated = {r["system_state"]["rule"] for r in observer.recorded}
+    assert "fabricated_still_true" in escalated, (
+        "a live, freshly measured condition was suppressed by an age gate, which is "
+        "the opposite of what its freshness means"
+    )
+    assert "fabricated_stuck" not in escalated, (
+        "the age gate was written for exactly this verdict and must still hold"
+    )
+    assert result["escalated"] == 1
 
 
 def test_the_escalation_names_the_live_value_not_just_the_rule():
