@@ -81,10 +81,40 @@ def test_an_incident_naming_a_finished_task_is_not_reported_as_live_work():
     work. Any reader - a human or the next window - would believe there is open
     work indefinitely. If such a pointer is ever reachable by the reconciler, the
     diagnosis must say so plainly.
+
+    Superseded 2026-10-17. This used to require one of the two machinery verdicts
+    here ('STALE_TASK_DONE' or 'MONITORED'). Both incidents are now terminal AND
+    reachable in the live queue - a `gap` observation is unconsumed - while both
+    conditions are still true, so the older assertion was demanding the machinery
+    framing for exactly the case the fourth verdict was introduced to describe.
+    The harm was never "the diagnosis mentions a persistent condition"; it was the
+    diagnosis hiding a dead task, and 'MONITORED' actively claims reconciliation
+    can answer a question it does not answer. What is required now: the row still
+    says so plainly, and a still-true verdict must carry the live value behind it
+    plus the name of the terminal task that was closed over it.
+
+    Note the vacuity this keeps, deliberately: if both conditions are ever
+    genuinely cleared, no incident reaches this branch and the test goes quiet.
+    That is the correct reason for it to stop asserting, and it is written down
+    here so a later window does not read the quiet as coverage.
     """
     report = diagnose()
     for row in report["incidents"]:
-        if row["task_terminal"] and row["category_reachable_in_queue"]:
+        if not (row["task_terminal"] and row["category_reachable_in_queue"]):
+            continue
+        assert row["verdict"] in VERDICTS
+        if row["verdict"] == "CONDITION_STILL_TRUE":
+            condition = row["live_condition"]
+            assert condition.get("still_true") is True, (
+                f"{row['incident']} was called CONDITION_STILL_TRUE without a live "
+                f"condition that is still true: {condition!r}"
+            )
+            assert "readable" in condition
+            assert row["task_id"] and row["task_id"] in row["explanation"], (
+                f"{row['incident']} names a finished task and its condition is still "
+                f"true, so the explanation has to say which task was closed over it"
+            )
+        else:
             assert row["verdict"] in {"STALE_TASK_DONE", "MONITORED"}, (
                 f"{row['incident']} names a finished task and its category IS "
                 f"reachable, yet it was called {row['verdict']!r}"

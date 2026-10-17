@@ -11,7 +11,13 @@ tasks archived minutes after creation.
 This is the same shape as an unwired component: a rule that exists, has tests, and
 can never fire. The dead-component watch already escalates that condition into the
 `structural_gap` observation channel; this does the same for incident rules, so a
-broken safety net becomes visible work instead of a silent, permanent claim.
+broken safety net becomes a durable, visible record instead of a silent, permanent
+claim.
+
+It is a record, not work: measured 2026-10-17, no converter rule matches
+`structural_gap`, so the observation is marked PERCEPTION_ONLY and no task is
+created for it. Saying otherwise would repeat the disease this file is about - a
+rule that looks wired and is not.
 
 It records nothing about market or lexicon conditions. It reports one fact: this
 rule cannot currently be reconciled, so nobody should read its incident file entry

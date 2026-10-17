@@ -27,10 +27,10 @@ anything.
 
 Where an escalation goes depends on whether anyone can hear it
 -------------------------------------------------------------
-The repository's existing escalation channel is an observation with
-`category="structural_gap"`, which the daemon's converter turns into work. That
-channel is circular for this watch: a dead daemon cannot consume the observation
-that says it is dead. So the disposition splits:
+The escalation is an observation with `category="structural_gap"` - the category
+the other structural watches already use - and it is circular for this watch: a
+dead daemon cannot consume the observation that says it is dead. So the
+disposition splits:
 
   daemon stopped   start it, then record the finding once it is alive to consume it
   daemon running   record the finding directly - the pipeline is up, so use it
@@ -38,6 +38,27 @@ that says it is dead. So the disposition splits:
 Both branches end in the same durable place when the runtime is reachable. When it
 is not, the snapshot and a non-zero exit are the record, and the next hourly run
 tries again.
+
+What escalating actually buys, measured 2026-10-17 rather than assumed
+----------------------------------------------------------------------
+The record is durable: it survives the daemon's rewrites of the store (fixed in
+core/observation.py, commit 4449c45) and it is present in the queue the converter
+reads. It does NOT become a task. The converter's ten rules match categories
+improvement / bottleneck / gap / anomaly / health, and none matches
+`structural_gap`, so such an observation is marked PERCEPTION_ONLY and stops
+there. An earlier version of this docstring said the converter "turns into work"
+- it does not, and the correction is written down because a watch that overstates
+its own reach is worse than one that names its limit.
+
+The one existing rule that turns a runtime-level failure into a task is
+`checkup_error` (category health), fed by ACE-Checkup-Hourly - a separate
+scheduled task, so genuinely independent of the daemon. It fires only on
+`overall=error`, and a dead runtime currently grades as `warning`: on 2026-10-17
+the patrol ran at 12:47 and 13:47 with no daemon alive at all and both were
+`warning` (task result 1), so the condition this watch exists for never reached
+the rule. Raising that grade belongs to the patrol, not here. Until someone does,
+the durable evidence for a death is this snapshot, the tick's non-zero exit, and
+the observation.
 
 What it deliberately does not do
 --------------------------------
@@ -48,8 +69,9 @@ starting an already-running task is refused by the task's own `IgnoreNew` policy
 so a spurious attempt is harmless rather than a second runtime.
 
 It never invents a new observation category. `structural_gap` is the category the
-converter already sees; a fresh category would be a finding nobody can act on,
-which is the failure this repository already has a name for.
+other structural watches already use, and it stays a perception record until a
+converter rule consumes it; inventing a fresh category would be a finding nobody
+can act on at all, which is the failure this repository already has a name for.
 """
 from __future__ import annotations
 
