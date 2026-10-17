@@ -69,12 +69,19 @@ def test_unchanged_projection_writes_nothing(tmp_path):
         }
 
     path = pool._task_path(task.task_id, task.status)
-    before_mtime = os.path.getmtime(path)
 
+    # project() has a side effect worth naming: the task file on disk still holds
+    # `lifecycle: {}` at this point, but project() calls setdefault on the live
+    # dict as it reads it. So the projection must be computed ONCE and applied,
+    # not computed twice with the first call already mutating the target. The old
+    # form called project() in the `changed` test and again in the update, which
+    # made the "first projection" a no-op whenever the dict had been touched in
+    # between - and left this test depending on a timestamp tick to notice.
     lifecycle = task.outputs["external_mining"]["lifecycle"]
-    changed = any(lifecycle.get(k) != v for k, v in project(task).items())
+    projection = project(task)
+    changed = any(lifecycle.get(k) != v for k, v in projection.items())
     assert changed is True, "the first projection must be written"
-    lifecycle.update(project(task))
+    lifecycle.update(projection)
     task.outputs = dict(task.outputs)
     task.outputs["external_mining"]["lifecycle"] = lifecycle
     assert pool.update_task(task)
@@ -86,4 +93,13 @@ def test_unchanged_projection_writes_nothing(tmp_path):
     changed = any(lifecycle.get(k) != v for k, v in project(task).items())
     assert changed is False, "a converged projection must report no change"
     assert os.path.getmtime(stable_path) == settled
-    assert before_mtime != settled, "the first pass must have persisted"
+
+    # "The first pass persisted" is proved by the projected fields actually being
+    # on disk - not by mtime, which is a race (both writes can land inside one
+    # filesystem timestamp tick; that failed on 2 of 3 runs on 2026-10-17), and
+    # not by whole-file inequality, which any timestamp anywhere in the document
+    # can satisfy for reasons unrelated to this projection.
+    persisted = json.loads(path.read_bytes().decode("utf-8"))
+    assert persisted["outputs"]["external_mining"]["lifecycle"] == projection, (
+        "the first pass must have persisted the projection"
+    )
