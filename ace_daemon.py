@@ -4861,7 +4861,20 @@ class AceDaemon:
         observation_priorities = (
             None if observation_policy["observer"] else {"critical", "high"}
         )
-        if obs_recorded > 0 and self.obs_to_task_converter:
+        # The queue, not this process's own pen, decides whether there is anything
+        # to convert. `obs_recorded` only counted what this cycle recorded here, so
+        # a finding written by an independent process - which is what the structural
+        # watches are, since a daemon cannot be trusted to report its own death -
+        # waited for an unrelated event before anything looked at it. Measured
+        # 2026-10-17: a SYSTEM watch's escalation sat unconverted for 16 minutes and
+        # at least three cycles, with task_generated still None on the record.
+        # get_unprocessed() adopts what other processes appended, so it answers the
+        # question that matters: is there unconsumed work? It is bounded - conversion
+        # marks what it handles consumed, so the queue drains and the gate closes.
+        has_unconsumed = False
+        if self.runtime_observer is not None:
+            has_unconsumed = bool(self.runtime_observer.get_unprocessed(limit=1))
+        if (obs_recorded > 0 or has_unconsumed) and self.obs_to_task_converter:
             try:
                 convert_result = self.obs_to_task_converter.convert(
                     allowed_priorities=observation_priorities,
