@@ -51,8 +51,17 @@ come from `core/continuity_audit.py`, so this receipt agrees with
 
 Usage:
     py -3 ops/runtime_identity_receipt.py                 # write the receipt
-    py -3 ops/runtime_identity_receipt.py --json          # print it instead
+    py -3 ops/runtime_identity_receipt.py --json          # write it and print it
+    py -3 ops/runtime_identity_receipt.py --print-only    # print without writing
     py -3 ops/runtime_identity_receipt.py --root <dir>
+
+The hourly tick runs every registered entry as `--root <root> --json` and then
+judges the entry's snapshot by age, so `--json` prints without suppressing the
+write. That is not a detail: the first version of this file read it as "do not
+write", and the measured result was an entry that would run green every hour while
+the receipt stayed at whatever a human last wrote by hand. The convention was
+already established by the other entries in that registry; this file follows it
+instead of asking the tick to special-case one entry.
 """
 from __future__ import annotations
 
@@ -404,15 +413,31 @@ def write_receipt(root: Path, receipt: dict) -> Path:
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", default=str(ROOT_DEFAULT))
-    parser.add_argument("--json", action="store_true", help="print instead of writing")
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        # The hourly tick runs every registered entry as `--root <root> --json` and
+        # then judges the entry's snapshot by age, so this prints *in addition to*
+        # writing. The first version of this file read --json as "do not write", and
+        # the measured result was an entry that would exit 0 every hour while its
+        # snapshot stayed at the last manual run (3.4 minutes old, unchanged): green,
+        # silent, and producing nothing. An entry asked to run cannot decline to
+        # produce its artifact.
+        help="write the receipt and also print it as JSON (the tick's invocation)",
+    )
+    parser.add_argument("--print-only", action="store_true",
+                        help="print without writing, for reading a receipt")
     args = parser.parse_args(argv)
 
     receipt = build_receipt(Path(args.root))
-    if args.json:
+    if args.print_only:
+        path = Path(args.root).resolve() / RECEIPT_RELPATH
+    else:
+        path = write_receipt(Path(args.root), receipt)
+    if args.json or args.print_only:
         print(json.dumps(receipt, ensure_ascii=False, indent=2, sort_keys=True))
-        return 0
-    path = write_receipt(Path(args.root), receipt)
-    print(f"receipt written: {path}")
+    else:
+        print(f"receipt written: {path}")
     return 0
 
 

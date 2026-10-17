@@ -218,3 +218,47 @@ def test_writing_the_receipt_does_not_change_the_git_status_it_reports(tmp_path)
     )
     assert json.loads(path.read_text(encoding="utf-8"))["schema"] == (
         "ace.runtime_identity_receipt.v1")
+
+
+def test_the_registered_invocation_writes_the_snapshot(tmp_path, capsys, monkeypatch):
+    """The tick runs every entry as `--root <root> --json`, then judges the entry's
+    snapshot by age.
+
+    This test exists because the first version of this file failed it in production:
+    --json meant "print instead of writing", so the hourly tick ran the entry, saw
+    rc=0, and judged a receipt that had never been rewritten. The measured symptom
+    was a snapshot still 3.4 minutes old and bearing the previous manual run's
+    timestamp. Green, silent, and producing nothing - which is the failure this
+    repository keeps having to name. An entry asked to run produces its artifact;
+    printing is extra.
+    """
+    import ops.runtime_identity_receipt as receipt_module
+
+    root = _root(tmp_path)
+    path = root / RECEIPT_RELPATH
+    assert not path.is_file()
+
+    monkeypatch.setattr(receipt_module, "observe_processes", lambda: [])
+    monkeypatch.setattr(receipt_module, "observe_task_definition",
+                        lambda task_name=receipt_module.DAEMON_TASK: {"available": False})
+
+    assert receipt_module.main(["--root", str(root), "--json"]) == 0
+    assert path.is_file(), "the tick's own invocation must produce the snapshot"
+    printed = json.loads(capsys.readouterr().out)
+    assert printed["schema"] == "ace.runtime_identity_receipt.v1"
+
+
+def test_print_only_reads_without_recording(tmp_path, capsys, monkeypatch):
+    """Reading the receipt must not be the same act as recording one."""
+    import ops.runtime_identity_receipt as receipt_module
+
+    root = _root(tmp_path)
+    path = root / RECEIPT_RELPATH
+
+    monkeypatch.setattr(receipt_module, "observe_processes", lambda: [])
+    monkeypatch.setattr(receipt_module, "observe_task_definition",
+                        lambda task_name=receipt_module.DAEMON_TASK: {"available": False})
+
+    assert receipt_module.main(["--root", str(root), "--print-only"]) == 0
+    assert not path.is_file()
+    assert json.loads(capsys.readouterr().out)["schema"] == "ace.runtime_identity_receipt.v1"
