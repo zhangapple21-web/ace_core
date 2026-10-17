@@ -214,6 +214,37 @@ def _valid_autonomous_maintenance_contract(contract: Any) -> bool:
     return True
 
 
+def _structural_gap_identity(state: Dict[str, Any]) -> str:
+    """The identity of a structural gap, per producer.
+
+    Four processes write `category="structural_gap"` and each already knows what
+    makes its own incident distinct: a lane's refused target, a dead component's
+    name, an unreachable rule's name, a runtime finding's kind. The dedup key those
+    producers used when recording is not carried on the observation, so it is
+    reconstructed here from the same fields rather than replaced by a new identity.
+
+    An empty string means the observation cannot be attributed to an incident, and
+    an unattributable gap is deliberately not converted: with no identity there is
+    nothing to deduplicate against, so converting it would mint one task per report.
+    """
+    if not isinstance(state, dict):
+        return ""
+    lane, region = state.get("lane"), state.get("region")
+    if lane and region:
+        kind = "unclaimed" if state.get("unclaimed") else "refused"
+        return f"lane:{kind}:{lane}:{region}"
+    component = state.get("component")
+    if component:
+        return f"component:{state.get('kind') or 'unwired'}:{component}"
+    rule = state.get("rule")
+    if rule:
+        return f"rule:{rule}"
+    kind = state.get("kind")
+    if kind:
+        return f"kind:{kind}"
+    return ""
+
+
 BUILTIN_RULES: List[ConversionRule] = [
     ConversionRule(
         name="discovery_candidate",
@@ -323,6 +354,25 @@ BUILTIN_RULES: List[ConversionRule] = [
         task_tags=["ops", "patrol"],
         task_hypothesis="定期巡检 overall=error，但失败明细只活在快照里。"
                         "按快照逐条核对失败项，修好或降级误报项。"
+                        "来源：{obs_id}",
+    ),
+    ConversionRule(
+        name="structural_gap_review",
+        category="structural_gap",
+        severity_min="medium",
+        # This category had four producers and no consumer: the converter read these
+        # observations, matched nothing, and left them unconsumed in the queue - not
+        # even perception-only, which is reserved for host_session. So the three
+        # structural watches escalated into a channel that quietly accumulated. The
+        # rule is built from the same parts as the other nine - one category, a
+        # severity floor, a signature for dedup - so those escalations become work
+        # through the existing conversion path rather than a new mechanism.
+        condition_fn=lambda obs: bool(_structural_gap_identity(obs.system_state)),
+        task_title="结构性缺口复核 — {obs_id}",
+        task_priority="high",
+        task_tags=["governance", "structural_gap"],
+        task_hypothesis="独立进程观察到一个结构性缺口。需要确认它是否仍然成立、由谁处置，"
+                        "并决定它是被修复、被接受，还是该规则本来就多余。\n观察：{description}\n"
                         "来源：{obs_id}",
     ),
     ConversionRule(
@@ -650,6 +700,11 @@ class ObservationToTaskConverter:
             if not failed:
                 return ""
             payload = {"failed_checks": list(failed)}
+        elif name == "structural_gap_review":
+            identity = _structural_gap_identity(state)
+            if not identity:
+                return ""
+            payload = {"incident": identity}
         elif name == "disk_space_low":
             try:
                 free_pct = float(state.get("disk_free_pct", 0) or 0)
@@ -695,6 +750,7 @@ class ObservationToTaskConverter:
             "scheduled_task_inactive",
             "disk_space_low",
             "checkup_error",
+            "structural_gap_review",
         }:
             return None
         signature = self._semantic_signature(rule, state)

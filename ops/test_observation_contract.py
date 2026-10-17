@@ -36,7 +36,15 @@ CATEGORY_ROUTING = {
     'provider_missing': "unrouted",
     'provider_ok': "unrouted",
     'sensor_error': "unrouted",
-    'structural_gap': ['window_lane_refusal', 'unclaimed_region_write'],
+    # This one entry was fiction for as long as it existed. It named two rules,
+    # `window_lane_refusal` and `unclaimed_region_write`, that were never in
+    # BUILTIN_RULES: four processes produce this category and the converter matched
+    # nothing - not even perception-only, which is reserved for host_session - so
+    # the escalations of three structural watches accumulated unread while the
+    # vocabulary test stayed green. The rule that actually exists is
+    # `structural_gap_review`, and the test below now checks this direction too,
+    # which is the part that let the fiction survive.
+    'structural_gap': ['structural_gap_review'],
     'trending_repo': "unrouted",
     '任务归档': "unrouted",
     '切片考古': "unrouted",
@@ -78,4 +86,16 @@ def test_routing_marks_match_the_builtin_rules():
     for category, marked in CATEGORY_ROUTING.items():
         if marked == "unrouted":
             assert category not in by_category, f"{category} marked unrouted but routed"
+    # And the other direction, which is what was missing: a registry may not name a
+    # rule that does not exist. Checking only rule -> registry allowed a category to
+    # be declared routed by two invented rule names for as long as the produced
+    # vocabulary stayed green - which is exactly what happened to `structural_gap`.
+    known = {rule.name for rule in BUILTIN_RULES}
+    for category, marked in CATEGORY_ROUTING.items():
+        if marked == "unrouted":
+            continue
+        for name in marked:
+            assert name in known, (
+                f"{category} is declared routed by {name!r}, which is not a rule"
+            )
 
