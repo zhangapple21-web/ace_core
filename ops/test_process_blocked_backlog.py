@@ -162,6 +162,49 @@ def test_disposition_is_idempotent(workspace):
     assert again["disposed_count"] == 0, "a disposed task is no longer in blocked"
 
 
+def test_an_applied_run_writes_a_receipt(workspace):
+    """A disposition moves real records, so it has to say which and why.
+
+    Without this the only trace is each task's own transition row, which records
+    that it moved but not why this run chose it over the ones it left behind.
+    The `observed` half matters most for review: it is the set a later reader
+    must be able to check the run did not quietly dispose of.
+    """
+    spent = _task(workspace, "RQ-SPENT", unchanged=4, review=5)
+    held = _task(workspace, "RQ-HELD", unchanged=1, review=1)
+    _review(workspace, "S1", [spent], "deepseek", "CANNOT_ASSESS")
+
+    report = pbb.process(workspace, apply=True)
+
+    receipt = report.get("receipt")
+    assert receipt, "an applied run must name its receipt"
+    path = workspace / receipt
+    assert path.exists(), "the receipt must be on disk, not only in the return value"
+
+    saved = json.loads(path.read_text(encoding="utf-8"))
+    assert saved["contract_version"] == pbb.CONTRACT_VERSION
+    assert saved["apply"] is True
+    assert [e["task_id"] for e in saved["disposed"]] == [spent]
+    # the task that was deliberately left behind must be visible in the receipt,
+    # with the reason it was left
+    kept = {e["task_id"]: e.get("reason", "") for e in saved["observed"]}
+    assert held in kept, "the held task must appear in the receipt"
+    assert kept[held], "and it must carry the reason it was not disposed"
+    assert saved["disposed_count"] == 1
+    assert saved["observed_count"] == len(saved["observed"])
+
+
+def test_a_read_only_run_writes_nothing(workspace):
+    tid = _task(workspace, "RQ-RO", unchanged=4, review=5)
+    _review(workspace, "S1", [tid], "deepseek", "CANNOT_ASSESS")
+
+    report = pbb.process(workspace, apply=False)
+
+    assert "receipt" not in report, "a read-only pass must not claim a receipt"
+    evidence = workspace / "08_GOVERNANCE" / "evidence"
+    assert not evidence.exists() or not list(evidence.glob("blocked_backlog_disposition_*.json"))
+
+
 def test_a_disposed_task_is_recoverable_by_the_existing_hatch(workspace):
     """Disposing is a statement that work finished, not a deletion.
 

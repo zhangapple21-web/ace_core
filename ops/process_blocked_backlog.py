@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import json
 import sys
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -222,7 +223,7 @@ def process(root: Path, *, apply: bool = False) -> dict[str, Any]:
             entry["deposited_experience"] = getattr(scheduled, "experience_id", "")
         disposed.append(entry)
 
-    return {
+    report = {
         "contract_version": CONTRACT_VERSION,
         "apply": apply,
         "disposed": disposed,
@@ -234,6 +235,24 @@ def process(root: Path, *, apply: bool = False) -> dict[str, Any]:
             "observed": DISPOSITION_MEANING["external_condition_pending"],
         },
     }
+
+    # A disposition moves real records. Without a receipt the only trace is the
+    # tasks' own transition rows, which record that they moved but not why this
+    # run chose them over the ones it left behind. The `observed` list is the
+    # half that matters most for review: it is the set a later reader must be
+    # able to check this script did not quietly dispose of.
+    if apply:
+        receipt_dir = root / "08_GOVERNANCE" / "evidence"
+        receipt_dir.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.now().strftime("%Y%m%dT%H%M%S")
+        receipt = receipt_dir / f"blocked_backlog_disposition_{stamp}.json"
+        receipt.write_text(
+            json.dumps(report, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        report["receipt"] = str(receipt.relative_to(root)).replace("\\", "/")
+
+    return report
 
 
 def main() -> int:
