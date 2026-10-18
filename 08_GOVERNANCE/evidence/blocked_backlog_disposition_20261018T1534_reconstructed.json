@@ -1,0 +1,511 @@
+{
+  "contract_version": "ace.blocked_backlog_disposition.v1",
+  "apply": true,
+  "note": "reconstructed: this run moved these records; the code path at the time wrote no receipt",
+  "disposed": [
+    {
+      "task_id": "RQ-20261007-009",
+      "status": "graveyard",
+      "title": "终端blocked永积：清扫排除blocked而reopen只认blocked",
+      "disposition_reason": "research exhausted: ceiling reached (unchanged_review_count=4) and 3 outside assessment(s) found the evidence insufficient",
+      "at": "2026-10-18T15:38:28.653284"
+    },
+    {
+      "task_id": "RQ-20261008-002",
+      "status": "graveyard",
+      "title": "巡检失败跟进 — OBS-20261008-10376",
+      "disposition_reason": "research exhausted: ceiling reached (unchanged_review_count=4) and 3 outside assessment(s) found the evidence insufficient",
+      "at": "2026-10-18T15:38:28.708238"
+    },
+    {
+      "task_id": "RQ-20261008-015",
+      "status": "graveyard",
+      "title": "任务ID是池内顺序号：跨池合并会撞号，去重靠内容而寻址靠文件名",
+      "disposition_reason": "research exhausted: ceiling reached (unchanged_review_count=4) and 3 outside assessment(s) found the evidence insufficient",
+      "at": "2026-10-18T15:38:28.762107"
+    },
+    {
+      "task_id": "RQ-20261008-019",
+      "status": "graveyard",
+      "title": "巡检失败跟进 — OBS-20261008-10388",
+      "disposition_reason": "research exhausted: ceiling reached (unchanged_review_count=4) and 3 outside assessment(s) found the evidence insufficient",
+      "at": "2026-10-18T15:38:28.816099"
+    },
+    {
+      "task_id": "RQ-20261013-027",
+      "status": "graveyard",
+      "title": "回看自由区结果 EXP-20261011103412435591-FREEZONE-63FD2E023F14",
+      "disposition_reason": "research exhausted: ceiling reached (unchanged_review_count=4) and 3 outside assessment(s) found the evidence insufficient",
+      "at": "2026-10-18T15:38:28.881006"
+    },
+    {
+      "task_id": "RQ-20261013-028",
+      "status": "graveyard",
+      "title": "回看自由区结果 EXP-RT-00133D51AFA26934",
+      "disposition_reason": "research exhausted: ceiling reached (unchanged_review_count=4) and 1 outside assessment(s) found the evidence insufficient",
+      "at": "2026-10-18T15:38:28.936431"
+    },
+    {
+      "task_id": "RQ-20261013-029",
+      "status": "graveyard",
+      "title": "回看自由区结果 EXP-MODEL-3DB6AB3AEE46BC8C",
+      "disposition_reason": "research exhausted: ceiling reached (unchanged_review_count=4) and 2 outside assessment(s) found the evidence insufficient",
+      "at": "2026-10-18T15:38:28.989996"
+    },
+    {
+      "task_id": "RQ-20261013-030",
+      "status": "graveyard",
+      "title": "回看自由区结果 EXP-MODEL-A5E635182BDA4F82",
+      "disposition_reason": "research exhausted: ceiling reached (unchanged_review_count=4) and 1 outside assessment(s) found the evidence insufficient",
+      "at": "2026-10-18T15:38:29.046316"
+    },
+    {
+      "task_id": "RQ-20261013-031",
+      "status": "graveyard",
+      "title": "回看自由区结果 EXP-MODEL-43BE32611D7D19E9",
+      "disposition_reason": "research exhausted: ceiling reached (unchanged_review_count=4) and 1 outside assessment(s) found the evidence insufficient",
+      "at": "2026-10-18T15:38:29.100166"
+    },
+    {
+      "task_id": "RQ-20261013-032",
+      "status": "graveyard",
+      "title": "回看自由区结果 EXP-RT-15041752BD7EB30A",
+      "disposition_reason": "research exhausted: ceiling reached (unchanged_review_count=4) and 1 outside assessment(s) found the evidence insufficient",
+      "at": "2026-10-18T15:38:29.156213"
+    },
+    {
+      "task_id": "RQ-20261013-033",
+      "status": "graveyard",
+      "title": "回看自由区结果 EXP-EXTREVIEW-599CA2F4474DE036",
+      "disposition_reason": "research exhausted: ceiling reached (unchanged_review_count=4) and 2 outside assessment(s) found the evidence insufficient",
+      "at": "2026-10-18T15:38:29.210664"
+    },
+    {
+      "task_id": "RQ-20261013-034",
+      "status": "graveyard",
+      "title": "回看自由区结果 EXP-SR-02EC131CF19D093F",
+      "disposition_reason": "research exhausted: ceiling reached (unchanged_review_count=4) and 2 outside assessment(s) found the evidence insufficient",
+      "at": "2026-10-18T15:38:29.266472"
+    },
+    {
+      "task_id": "RQ-20261013-035",
+      "status": "graveyard",
+      "title": "回看自由区结果 EXP-RT-7232ACE6F8E71662",
+      "disposition_reason": "research exhausted: ceiling reached (unchanged_review_count=4) and 2 outside assessment(s) found the evidence insufficient",
+      "at": "2026-10-18T15:38:29.322450"
+    },
+    {
+      "task_id": "RQ-20261013-036",
+      "status": "graveyard",
+      "title": "回看自由区结果 EXP-SR-9450C9B6E3C825A9",
+      "disposition_reason": "research exhausted: ceiling reached (unchanged_review_count=4) and 1 outside assessment(s) found the evidence insufficient",
+      "at": "2026-10-18T15:38:29.376745"
+    },
+    {
+      "task_id": "RQ-20261013-037",
+      "status": "graveyard",
+      "title": "回看自由区结果 EXP-SR-15041752BD7EB30A",
+      "disposition_reason": "research exhausted: ceiling reached (unchanged_review_count=4) and 1 outside assessment(s) found the evidence insufficient",
+      "at": "2026-10-18T15:38:29.430109"
+    },
+    {
+      "task_id": "RQ-20261013-038",
+      "status": "graveyard",
+      "title": "回看自由区结果 EXP-SR-A28C42D93FD8A6F5",
+      "disposition_reason": "research exhausted: ceiling reached (unchanged_review_count=4) and 3 outside assessment(s) found the evidence insufficient",
+      "at": "2026-10-18T15:38:29.485649"
+    },
+    {
+      "task_id": "RQ-20261013-039",
+      "status": "graveyard",
+      "title": "回看自由区结果 EXP-RT-F601834D6144238E",
+      "disposition_reason": "research exhausted: ceiling reached (unchanged_review_count=4) and 5 outside assessment(s) found the evidence insufficient",
+      "at": "2026-10-18T15:38:29.539166"
+    },
+    {
+      "task_id": "RQ-20261013-040",
+      "status": "graveyard",
+      "title": "回看自由区结果 EXP-RT-72A3B7E31BAB1454",
+      "disposition_reason": "research exhausted: ceiling reached (unchanged_review_count=4) and 5 outside assessment(s) found the evidence insufficient",
+      "at": "2026-10-18T15:38:29.597438"
+    },
+    {
+      "task_id": "RQ-20261013-041",
+      "status": "graveyard",
+      "title": "回看自由区结果 EXP-RT-D10ECA559BE43EAC",
+      "disposition_reason": "research exhausted: ceiling reached (unchanged_review_count=4) and 3 outside assessment(s) found the evidence insufficient",
+      "at": "2026-10-18T15:38:29.650847"
+    },
+    {
+      "task_id": "RQ-20261013-042",
+      "status": "graveyard",
+      "title": "回看自由区结果 EXP-RT-0114B6AC23E24DAC",
+      "disposition_reason": "research exhausted: ceiling reached (unchanged_review_count=4) and 3 outside assessment(s) found the evidence insufficient",
+      "at": "2026-10-18T15:38:29.706473"
+    },
+    {
+      "task_id": "RQ-20261013-043",
+      "status": "graveyard",
+      "title": "回看自由区结果 EXP-RT-9450C9B6E3C825A9",
+      "disposition_reason": "research exhausted: ceiling reached (unchanged_review_count=4) and 5 outside assessment(s) found the evidence insufficient",
+      "at": "2026-10-18T15:38:29.761383"
+    },
+    {
+      "task_id": "RQ-20261013-044",
+      "status": "graveyard",
+      "title": "回看自由区结果 EXP-EXTREVIEW-ADD36C27F28AF47F",
+      "disposition_reason": "research exhausted: ceiling reached (unchanged_review_count=4) and 5 outside assessment(s) found the evidence insufficient",
+      "at": "2026-10-18T15:38:29.817392"
+    },
+    {
+      "task_id": "RQ-20261013-045",
+      "status": "graveyard",
+      "title": "回看自由区结果 EXP-EXTREVIEW-8F63038769A61077",
+      "disposition_reason": "research exhausted: ceiling reached (unchanged_review_count=4) and 4 outside assessment(s) found the evidence insufficient",
+      "at": "2026-10-18T15:38:29.877673"
+    },
+    {
+      "task_id": "RQ-20261013-046",
+      "status": "graveyard",
+      "title": "回看自由区结果 EXP-20261012122344243438-FREEZONE-095663582088",
+      "disposition_reason": "research exhausted: ceiling reached (unchanged_review_count=4) and 4 outside assessment(s) found the evidence insufficient",
+      "at": "2026-10-18T15:38:29.932682"
+    },
+    {
+      "task_id": "RQ-20261013-047",
+      "status": "graveyard",
+      "title": "回看自由区结果 EXP-SR-E5BD0A02607F0A36",
+      "disposition_reason": "research exhausted: ceiling reached (unchanged_review_count=4) and 5 outside assessment(s) found the evidence insufficient",
+      "at": "2026-10-18T15:38:29.988258"
+    },
+    {
+      "task_id": "RQ-20261013-048",
+      "status": "graveyard",
+      "title": "回看自由区结果 EXP-RT-E5BD0A02607F0A36",
+      "disposition_reason": "research exhausted: ceiling reached (unchanged_review_count=4) and 5 outside assessment(s) found the evidence insufficient",
+      "at": "2026-10-18T15:38:30.045157"
+    },
+    {
+      "task_id": "RQ-20261013-049",
+      "status": "graveyard",
+      "title": "回看自由区结果 EXP-EXTREVIEW-152F14033BC4E946",
+      "disposition_reason": "research exhausted: ceiling reached (unchanged_review_count=4) and 4 outside assessment(s) found the evidence insufficient",
+      "at": "2026-10-18T15:38:30.099669"
+    },
+    {
+      "task_id": "RQ-20261013-050",
+      "status": "graveyard",
+      "title": "回看自由区结果 EXP-EXTREVIEW-AF9E8AEA55776456",
+      "disposition_reason": "research exhausted: ceiling reached (unchanged_review_count=4) and 4 outside assessment(s) found the evidence insufficient",
+      "at": "2026-10-18T15:38:30.154585"
+    },
+    {
+      "task_id": "RQ-20261013-051",
+      "status": "graveyard",
+      "title": "回看自由区结果 EXP-EXTREVIEW-43766EE2231C0A85",
+      "disposition_reason": "research exhausted: ceiling reached (unchanged_review_count=4) and 6 outside assessment(s) found the evidence insufficient",
+      "at": "2026-10-18T15:38:30.213730"
+    },
+    {
+      "task_id": "RQ-20261013-052",
+      "status": "graveyard",
+      "title": "回看自由区结果 EXP-EXTREVIEW-378CE5BB92C0B397",
+      "disposition_reason": "research exhausted: ceiling reached (unchanged_review_count=4) and 6 outside assessment(s) found the evidence insufficient",
+      "at": "2026-10-18T15:38:30.268602"
+    },
+    {
+      "task_id": "RQ-20261013-053",
+      "status": "graveyard",
+      "title": "回看自由区结果 EXP-EXTREVIEW-D8567D49DF09BE52",
+      "disposition_reason": "research exhausted: ceiling reached (unchanged_review_count=4) and 5 outside assessment(s) found the evidence insufficient",
+      "at": "2026-10-18T15:38:30.326998"
+    },
+    {
+      "task_id": "RQ-20261013-054",
+      "status": "graveyard",
+      "title": "回看自由区结果 EXP-EXTREVIEW-CBC7658FC546C5EB",
+      "disposition_reason": "research exhausted: ceiling reached (unchanged_review_count=4) and 5 outside assessment(s) found the evidence insufficient",
+      "at": "2026-10-18T15:38:30.412521"
+    },
+    {
+      "task_id": "RQ-20261013-055",
+      "status": "graveyard",
+      "title": "回看自由区结果 EXP-EXTREVIEW-A1B3F6570A3D1CB3",
+      "disposition_reason": "research exhausted: ceiling reached (unchanged_review_count=4) and 6 outside assessment(s) found the evidence insufficient",
+      "at": "2026-10-18T15:38:30.467086"
+    },
+    {
+      "task_id": "RQ-20261013-056",
+      "status": "graveyard",
+      "title": "回看自由区结果 EXP-EXTREVIEW-5C3C0EB204068799",
+      "disposition_reason": "research exhausted: ceiling reached (unchanged_review_count=4) and 6 outside assessment(s) found the evidence insufficient",
+      "at": "2026-10-18T15:38:30.525923"
+    },
+    {
+      "task_id": "RQ-20261013-057",
+      "status": "graveyard",
+      "title": "回看自由区结果 EXP-EXTREVIEW-80482403B70FA42E",
+      "disposition_reason": "research exhausted: ceiling reached (unchanged_review_count=4) and 4 outside assessment(s) found the evidence insufficient",
+      "at": "2026-10-18T15:38:30.582096"
+    },
+    {
+      "task_id": "RQ-20261013-058",
+      "status": "graveyard",
+      "title": "回看自由区结果 EXP-EXTREVIEW-FB12535B1CB3DFD5",
+      "disposition_reason": "research exhausted: ceiling reached (unchanged_review_count=4) and 4 outside assessment(s) found the evidence insufficient",
+      "at": "2026-10-18T15:38:30.637092"
+    },
+    {
+      "task_id": "RQ-20261013-059",
+      "status": "graveyard",
+      "title": "回看自由区结果 EXP-EXTREVIEW-FCC7BCC033E7E14C",
+      "disposition_reason": "research exhausted: ceiling reached (unchanged_review_count=4) and 4 outside assessment(s) found the evidence insufficient",
+      "at": "2026-10-18T15:38:30.694392"
+    },
+    {
+      "task_id": "RQ-20261013-060",
+      "status": "graveyard",
+      "title": "回看自由区结果 EXP-EXTREVIEW-094D6B9BC3B220AE",
+      "disposition_reason": "research exhausted: ceiling reached (unchanged_review_count=4) and 4 outside assessment(s) found the evidence insufficient",
+      "at": "2026-10-18T15:38:30.758336"
+    },
+    {
+      "task_id": "RQ-20261013-061",
+      "status": "graveyard",
+      "title": "回看自由区结果 EXP-EXTREVIEW-742A3D70A27379F2",
+      "disposition_reason": "research exhausted: ceiling reached (unchanged_review_count=4) and 4 outside assessment(s) found the evidence insufficient",
+      "at": "2026-10-18T15:38:30.833706"
+    },
+    {
+      "task_id": "RQ-20261013-062",
+      "status": "graveyard",
+      "title": "回看自由区结果 EXP-EXTREVIEW-421ABA8196188AFD",
+      "disposition_reason": "research exhausted: ceiling reached (unchanged_review_count=4) and 4 outside assessment(s) found the evidence insufficient",
+      "at": "2026-10-18T15:38:30.900229"
+    },
+    {
+      "task_id": "RQ-20261013-063",
+      "status": "graveyard",
+      "title": "回看自由区结果 EXP-EXTREVIEW-876F29840312CE37",
+      "disposition_reason": "research exhausted: ceiling reached (unchanged_review_count=4) and 4 outside assessment(s) found the evidence insufficient",
+      "at": "2026-10-18T15:38:30.970360"
+    },
+    {
+      "task_id": "RQ-20261013-064",
+      "status": "graveyard",
+      "title": "回看自由区结果 EXP-EXTREVIEW-545434ECD52CB2F5",
+      "disposition_reason": "research exhausted: ceiling reached (unchanged_review_count=4) and 4 outside assessment(s) found the evidence insufficient",
+      "at": "2026-10-18T15:38:31.038598"
+    },
+    {
+      "task_id": "RQ-20261013-065",
+      "status": "graveyard",
+      "title": "回看自由区结果 EXP-EXTREVIEW-B222C692E1E3AD55",
+      "disposition_reason": "research exhausted: ceiling reached (unchanged_review_count=4) and 6 outside assessment(s) found the evidence insufficient",
+      "at": "2026-10-18T15:38:31.113584"
+    },
+    {
+      "task_id": "RQ-20261013-066",
+      "status": "graveyard",
+      "title": "回看自由区结果 EXP-EXTREVIEW-B9634C40360AE2C7",
+      "disposition_reason": "research exhausted: ceiling reached (unchanged_review_count=4) and 6 outside assessment(s) found the evidence insufficient",
+      "at": "2026-10-18T15:38:31.178354"
+    },
+    {
+      "task_id": "RQ-20261013-067",
+      "status": "graveyard",
+      "title": "回看自由区结果 EXP-EXTREVIEW-1EBCECAE80F3AEC9",
+      "disposition_reason": "research exhausted: ceiling reached (unchanged_review_count=4) and 6 outside assessment(s) found the evidence insufficient",
+      "at": "2026-10-18T15:38:31.252340"
+    },
+    {
+      "task_id": "RQ-20261013-068",
+      "status": "graveyard",
+      "title": "回看自由区结果 EXP-EXTREVIEW-B8DC95CBC95371D6",
+      "disposition_reason": "research exhausted: ceiling reached (unchanged_review_count=4) and 6 outside assessment(s) found the evidence insufficient",
+      "at": "2026-10-18T15:38:31.321183"
+    },
+    {
+      "task_id": "RQ-20261013-069",
+      "status": "graveyard",
+      "title": "回看自由区结果 EXP-EXTREVIEW-2F522581C495BF5D",
+      "disposition_reason": "research exhausted: ceiling reached (unchanged_review_count=4) and 6 outside assessment(s) found the evidence insufficient",
+      "at": "2026-10-18T15:38:31.398637"
+    },
+    {
+      "task_id": "RQ-20261013-070",
+      "status": "graveyard",
+      "title": "回看自由区结果 EXP-EXTREVIEW-0E7B1C0DD4062F8F",
+      "disposition_reason": "research exhausted: ceiling reached (unchanged_review_count=4) and 6 outside assessment(s) found the evidence insufficient",
+      "at": "2026-10-18T15:38:31.473141"
+    },
+    {
+      "task_id": "RQ-20261013-071",
+      "status": "graveyard",
+      "title": "回看自由区结果 EXP-EXTREVIEW-C4000A71646A56DF",
+      "disposition_reason": "research exhausted: ceiling reached (unchanged_review_count=4) and 3 outside assessment(s) found the evidence insufficient",
+      "at": "2026-10-18T15:38:31.543788"
+    },
+    {
+      "task_id": "RQ-20261013-072",
+      "status": "graveyard",
+      "title": "回看自由区结果 EXP-EXTREVIEW-F489FEBB81DE71A9",
+      "disposition_reason": "research exhausted: ceiling reached (unchanged_review_count=4) and 3 outside assessment(s) found the evidence insufficient",
+      "at": "2026-10-18T15:38:31.615240"
+    },
+    {
+      "task_id": "RQ-20261013-073",
+      "status": "graveyard",
+      "title": "回看自由区结果 EXP-EXTREVIEW-7F5C7290D54B90E8",
+      "disposition_reason": "research exhausted: ceiling reached (unchanged_review_count=4) and 4 outside assessment(s) found the evidence insufficient",
+      "at": "2026-10-18T15:38:31.687799"
+    },
+    {
+      "task_id": "RQ-20261013-074",
+      "status": "graveyard",
+      "title": "回看自由区结果 EXP-EXTREVIEW-C89FDB44EBE1C877",
+      "disposition_reason": "research exhausted: ceiling reached (unchanged_review_count=4) and 4 outside assessment(s) found the evidence insufficient",
+      "at": "2026-10-18T15:38:31.765809"
+    },
+    {
+      "task_id": "RQ-20261013-075",
+      "status": "graveyard",
+      "title": "回看自由区结果 EXP-EXTREVIEW-814A56C3A5191665",
+      "disposition_reason": "research exhausted: ceiling reached (unchanged_review_count=4) and 5 outside assessment(s) found the evidence insufficient",
+      "at": "2026-10-18T15:38:31.857285"
+    },
+    {
+      "task_id": "RQ-20261013-076",
+      "status": "graveyard",
+      "title": "回看自由区结果 EXP-EXTREVIEW-4C31D3A5CD6C1278",
+      "disposition_reason": "research exhausted: ceiling reached (unchanged_review_count=4) and 5 outside assessment(s) found the evidence insufficient",
+      "at": "2026-10-18T15:38:31.938501"
+    },
+    {
+      "task_id": "RQ-20261013-077",
+      "status": "graveyard",
+      "title": "回看自由区结果 EXP-EXTREVIEW-BA520AE0C03C5D5C",
+      "disposition_reason": "research exhausted: ceiling reached (unchanged_review_count=4) and 4 outside assessment(s) found the evidence insufficient",
+      "at": "2026-10-18T15:38:32.008697"
+    },
+    {
+      "task_id": "RQ-20261013-078",
+      "status": "graveyard",
+      "title": "回看自由区结果 EXP-EXTREVIEW-2C8141FAD85BD354",
+      "disposition_reason": "research exhausted: ceiling reached (unchanged_review_count=4) and 4 outside assessment(s) found the evidence insufficient",
+      "at": "2026-10-18T15:38:32.078808"
+    },
+    {
+      "task_id": "RQ-20261013-083",
+      "status": "graveyard",
+      "title": "回看自由区结果 EXP-20261013103209857849-FREEZONE-F737E57359A5",
+      "disposition_reason": "research exhausted: ceiling reached (unchanged_review_count=4) and 5 outside assessment(s) found the evidence insufficient",
+      "at": "2026-10-18T15:38:32.150717"
+    },
+    {
+      "task_id": "RQ-20261013-084",
+      "status": "graveyard",
+      "title": "回看自由区结果 EXP-EXTREVIEW-BA5DABFE14C85EFD",
+      "disposition_reason": "research exhausted: ceiling reached (unchanged_review_count=4) and 5 outside assessment(s) found the evidence insufficient",
+      "at": "2026-10-18T15:38:32.234674"
+    },
+    {
+      "task_id": "RQ-20261013-085",
+      "status": "graveyard",
+      "title": "回看自由区结果 EXP-SR-5B168CD932A95A04",
+      "disposition_reason": "research exhausted: ceiling reached (unchanged_review_count=4) and 5 outside assessment(s) found the evidence insufficient",
+      "at": "2026-10-18T15:38:32.301905"
+    },
+    {
+      "task_id": "RQ-20261013-086",
+      "status": "graveyard",
+      "title": "回看自由区结果 EXP-EXTREVIEW-854BFD8261712B71",
+      "disposition_reason": "research exhausted: ceiling reached (unchanged_review_count=4) and 5 outside assessment(s) found the evidence insufficient",
+      "at": "2026-10-18T15:38:32.379326"
+    },
+    {
+      "task_id": "RQ-20261013-087",
+      "status": "graveyard",
+      "title": "回看自由区结果 EXP-EXTREVIEW-CC1EFBB6CA1A6B0B",
+      "disposition_reason": "research exhausted: ceiling reached (unchanged_review_count=4) and 6 outside assessment(s) found the evidence insufficient",
+      "at": "2026-10-18T15:38:32.448808"
+    },
+    {
+      "task_id": "RQ-20261013-088",
+      "status": "graveyard",
+      "title": "回看自由区结果 EXP-EXTREVIEW-97EF49EE6EC4813E",
+      "disposition_reason": "research exhausted: ceiling reached (unchanged_review_count=4) and 6 outside assessment(s) found the evidence insufficient",
+      "at": "2026-10-18T15:38:32.526969"
+    },
+    {
+      "task_id": "RQ-20261013-089",
+      "status": "graveyard",
+      "title": "回看自由区结果 EXP-EXTREVIEW-28DABB61354D2C3B",
+      "disposition_reason": "research exhausted: ceiling reached (unchanged_review_count=4) and 5 outside assessment(s) found the evidence insufficient",
+      "at": "2026-10-18T15:38:32.614961"
+    },
+    {
+      "task_id": "RQ-20261014-083",
+      "status": "graveyard",
+      "title": "验证自由区影子结果 EXP-20261014103426772840-FREEZONE-CEBDEFF4B3F8",
+      "disposition_reason": "research exhausted: ceiling reached (unchanged_review_count=4) and 4 outside assessment(s) found the evidence insufficient",
+      "at": "2026-10-18T15:38:32.688136"
+    },
+    {
+      "task_id": "RQ-20261015-043",
+      "status": "graveyard",
+      "title": "处理系统异常错误 — OBS-20261015-10751",
+      "disposition_reason": "research exhausted: ceiling reached (unchanged_review_count=4) and 2 outside assessment(s) found the evidence insufficient",
+      "at": "2026-10-18T15:38:32.772631"
+    },
+    {
+      "task_id": "RQ-20261015-046",
+      "status": "graveyard",
+      "title": "经验验证: 连续无进展的阻塞必须切换动作，而不只是切换状态字符串。状态在 consecuti",
+      "disposition_reason": "research exhausted: ceiling reached (unchanged_review_count=4) and 3 outside assessment(s) found the evidence insufficient",
+      "at": "2026-10-18T15:38:32.856491"
+    },
+    {
+      "task_id": "RQ-20261016-002",
+      "status": "graveyard",
+      "title": "补齐词库分类缺口 — OBS-20261016-10757",
+      "disposition_reason": "research exhausted: ceiling reached (unchanged_review_count=4) and 3 outside assessment(s) found the evidence insufficient",
+      "at": "2026-10-18T15:38:32.936223"
+    },
+    {
+      "task_id": "RQ-20261016-022",
+      "status": "graveyard",
+      "title": "补齐词库分类缺口 — OBS-20261016-10783",
+      "disposition_reason": "research exhausted: ceiling reached (unchanged_review_count=4) and 4 outside assessment(s) found the evidence insufficient",
+      "at": "2026-10-18T15:38:33.032126"
+    }
+  ],
+  "disposed_count": 68,
+  "observed": [
+    "RQ-20261006-009",
+    "RQ-20261007-010",
+    "RQ-20261008-016",
+    "RQ-20261009-034",
+    "RQ-20261010-010",
+    "RQ-20261010-017",
+    "RQ-20261014-033",
+    "RQ-20261016-001",
+    "RQ-20261016-007",
+    "RQ-20261016-009",
+    "RQ-20261016-011",
+    "RQ-20261016-020",
+    "RQ-20261016-021",
+    "RQ-20261016-023",
+    "RQ-20261016-024"
+  ],
+  "observed_count": 15,
+  "meaning": {
+    "disposed": "the validator's non-convergence ceiling was reached and outside readers confirmed the evidence does not support the claim",
+    "observed": "the task is waiting on something outside ACE - a ruling, a key, or a design decision - so it is held, not disposed"
+  },
+  "pre_existing_dispositions_not_from_this_run": {
+    "count": 67,
+    "earliest": "2026-10-13T20:33:37.330597",
+    "latest": "2026-10-13T20:33:40.354448"
+  }
+}
