@@ -36,12 +36,40 @@ from .cognitive_think_gate import COGNITIVE_HUB, LOOP_BLOCKED, evaluate_cognitiv
 
 LOCAL_ARCHAEOLOGY_TAGS = {"archaeology", "local_archaeology", "fragment", "碎片考古", "考古"}
 
+# Evidence written by the Archivist. An `archivist:<id>` record whose body is a
+# task card - it opens with this header - is the system quoting its own ledger
+# back at itself, not an observation of anything outside it.
+ARCHIVIST_SOURCE_PREFIX = "archivist:"
+_TASK_CARD_HEADER = "## 任务ID: RQ-"
+
 
 def _is_reuse_pointer(item: Any) -> bool:
     """True for entries that point at archived knowledge instead of observing
-    the world. Governance must not count them as corroboration."""
-    return (isinstance(item, dict)
-            and str(item.get("source") or "").startswith(JOIN_SOURCE_PREFIX))
+    the world. Governance must not count them as corroboration.
+
+    Two shapes reach this predicate, and the second was previously invisible.
+
+    `knowledge_join:` is the declared reuse pointer. The `archivist:` shape is an
+    archived task card rendered back as evidence. On 2026-10-13 the
+    free-zone reflection relay filed 59 of these, and each cited the other two:
+    a task whose evidence is two other task cards is not two independent
+    observations, it is a closed ring of the system reading its own backlog.
+    Validator scored the pair as corroboration, could not converge, and the ring
+    parked 59 tasks in `blocked` with the reason "相同证据集重复验证达到上限" -
+    the correct verdict, reached for the wrong reason, and unrecoverable because
+    no amount of re-validation could break a ring.
+
+    Both shapes are the same claim: this points at what we already wrote, not at
+    the world.
+    """
+    if not isinstance(item, dict):
+        return False
+    source = str(item.get("source") or "")
+    if source.startswith(JOIN_SOURCE_PREFIX):
+        return True
+    if source.startswith(ARCHIVIST_SOURCE_PREFIX):
+        return str(item.get("content") or "").lstrip().startswith(_TASK_CARD_HEADER)
+    return False
 
 
 def _model_task_type(task: Task) -> str:
