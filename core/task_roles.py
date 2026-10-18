@@ -1072,6 +1072,48 @@ class Researcher:
                     "at": datetime.now().isoformat(),
                 }
 
+        # A blocked or failed model call is not a research result.  Without this
+        # the failure was invisible: the flow continued into the keyword path,
+        # whose candidates are built from title tokens, and the task was then
+        # validated on the evidence count and archived with an outcome receipt.
+        # Measured on 2026-10-18: 228 archived tension_question tasks, none with
+        # a model_execution trace and none with a model_research_result, every
+        # one carrying the same "core hypothesis: 验证系统 / 来源 / obs" and the
+        # same three memory hits.  The questions were never read.
+        #
+        # The cause was a correct decision by a different component: those tasks
+        # are data_class=PRIVATE, so the data boundary refused egress with
+        # DATA_BOUNDARY_BLOCKED:sensitive_data_cannot_egress.  Refusing to send
+        # the data was right.  Turning that refusal into a signed "researched"
+        # outcome was not, and it made the TaskPool's completion counts report
+        # work that never happened.
+        #
+        # So: record why the model contributed nothing, and refuse to present a
+        # keyword-only candidate set as a completed research step.  The task
+        # still closes its lifecycle - closing is honest here - but the result
+        # now carries the reason instead of a fabricated hypothesis.
+        model_attempted = False
+        model_engaged = False
+        model_block_reason = ""
+        if isinstance(model_response, dict):
+            model_attempted = True
+            if model_response.get("success") and str(model_response.get("content") or "").strip():
+                model_engaged = True
+            else:
+                model_block_reason = str(
+                    model_response.get("error")
+                    or model_response.get("routing", {}).get("selected_route_state", "")
+                    or "model_returned_no_content"
+                )[:200]
+        elif task.outputs.get("model_execution"):
+            model_attempted = True
+            traces = task.outputs.get("model_execution")
+            last = traces[-1] if isinstance(traces, list) and traces else {}
+            if isinstance(last, dict):
+                model_block_reason = str(
+                    last.get("error") or last.get("api_result") or "model_returned_no_content"
+                )[:200]
+
         title_lower = task.title.lower()
         hypothesis_lower = task.hypothesis.lower()
         keywords = self._extract_keywords(title_lower + " " + hypothesis_lower)
@@ -1192,12 +1234,22 @@ class Researcher:
         
         # 生成多候选假设（ToT 风格）
         candidates = self.generate_candidates(task, max_candidates=3)
-        
+
+        # A candidate set derived only from title tokens is not a hypothesis
+        # about the task's question.  Marking it keeps the honesty of the record
+        # without discarding the evidence gathering that did happen, and without
+        # inventing a second failure path for work that legitimately only needed
+        # local evidence.
+        keyword_only = bool(candidates) and not model_engaged
         task.result = {
             "evidence_count": len(evidence),
             "counter_count": len(counter_examples),
             "summary": result["research_summary"],
             "candidates": candidates,  # ToT 风格多路径探索
+            "model_engaged": model_engaged,
+            "model_attempted": model_attempted,
+            "model_block_reason": model_block_reason,
+            "candidate_basis": "title_keywords_only" if keyword_only else "evidence_or_model",
         }
         
         self.task_pool.update_task(task)
