@@ -18,6 +18,12 @@ CATEGORY_ROUTING = {
     'anomaly': ['recent_errors', 'tension_question'],
     'api_error': "unrouted",
     'bottleneck': ['review_queue_bottleneck'],
+    # Added by another workstream on 2026-10-18 (commits 3031cde / 999c042 / e168d8e)
+# without being registered here, which is what turned this vocabulary test red. It is
+# marked unrouted rather than given a rule: nothing consumes it yet, and "unrouted" is
+# the honest statement. Whoever owns that producer should decide whether it needs a
+# conversion rule, and the contract will hold them to the answer.
+    'environment_change': "unrouted",
     'file_change': "unrouted",
     'file_deleted': "unrouted",
     'financial_research': "unrouted",

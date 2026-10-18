@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import os
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
@@ -39,6 +40,9 @@ class RuntimeObserver:
         self._observations: List[Observation] = []
         self._seq = 0
         self._signature_index: Dict[str, Dict[str, Any]] = {}
+        # Rows this store could not build, most recent load last. A row that cannot
+        # be parsed is one lost row, not a reason to believe the store is empty.
+        self.skipped_rows: List[str] = []
         self._load()
 
     def _load(self):
@@ -49,12 +53,38 @@ class RuntimeObserver:
                 self._seq = 0
         if self.observations_file.exists():
             try:
-                for line in self.observations_file.read_text(encoding="utf-8").splitlines():
-                    if line.strip():
-                        self._observations.append(Observation(**json.loads(line)))
-                self._observations = self._observations[-200:]
-            except (OSError, json.JSONDecodeError, TypeError):
-                self._observations = []
+                text = self.observations_file.read_text(encoding="utf-8")
+            except OSError:
+                text = ""
+            # One row is one row. A row that cannot be built is skipped and named,
+            # because the alternative - losing the whole store to a single truncated
+            # line - is how a partial problem becomes a total one: the process then
+            # believes it has never seen an observation and rewrites the file from an
+            # empty list.
+            for number, line in enumerate(text.splitlines(), start=1):
+                if not line.strip():
+                    continue
+                try:
+                    payload = json.loads(line)
+                except ValueError as error:
+                    self.skipped_rows.append(
+                        f"line {number}: unparseable json ({type(error).__name__})")
+                    continue
+                if not isinstance(payload, dict):
+                    self.skipped_rows.append(f"line {number}: row is not an object")
+                    continue
+                # A row written before a field existed must still load. The field is
+                # absent, not the row: skipping it would lose history every time the
+                # schema grows, which is how a compatibility question turns into a
+                # silent deletion.
+                if payload.get("related_tasks") is None:
+                    payload["related_tasks"] = []
+                try:
+                    self._observations.append(Observation(**payload))
+                except TypeError as error:
+                    label = str(payload.get("obs_id") or f"line {number}")
+                    self.skipped_rows.append(f"{label}: {error}")
+            self._observations = self._observations[-200:]
         if self.index_file.exists():
             try:
                 self._signature_index = json.loads(
@@ -296,9 +326,41 @@ class RuntimeObserver:
         if observation is None:
             return
         observation.task_generated = task_id
-        with self.observations_file.open("w", encoding="utf-8") as stream:
-            for stored in self._observations:
-                stream.write(json.dumps(stored.to_dict(), ensure_ascii=False) + "\n")
+        # The reverse edge was declared on the dataclass and initialised empty by
+        # record(); nothing anywhere appended to it, so the store carried a field
+        # that claimed a relation to work and could not represent any. Fill it
+        # idempotently, and only for real tasks - PERCEPTION_ONLY is a disposition,
+        # not work. The edge still lives only as long as the observation does; the
+        # durable copy of the evidence is on the task side.
+        if task_id and task_id != "PERCEPTION_ONLY":
+            related = list(observation.related_tasks or [])
+            if task_id not in related:
+                related.append(task_id)
+            observation.related_tasks = related
+        self._rewrite_store()
+
+    def _rewrite_store(self) -> None:
+        """Write the store by moving a completed file into place.
+
+        This used to write straight into the store with `open("w")`. A process killed
+        part-way through left a truncated line behind, and the next load treated that
+        line as unparseable - emptying the store, after which the rewrite that
+        followed replaced two hundred good rows with nothing, silently. Writing beside
+        the store and renaming means a half-finished write never becomes the store.
+        The pattern is the one `core/continuity_audit.py::_atomic_write` already uses.
+        """
+        temporary = self.observations_file.with_name(
+            f"{self.observations_file.name}.{os.getpid()}.tmp")
+        try:
+            with temporary.open("w", encoding="utf-8") as stream:
+                for stored in self._observations:
+                    stream.write(json.dumps(stored.to_dict(), ensure_ascii=False) + "\n")
+                stream.flush()
+                os.fsync(stream.fileno())
+            temporary.replace(self.observations_file)
+        finally:
+            if temporary.exists():
+                temporary.unlink()
 
     def get_stats(self) -> Dict[str, Any]:
         by_category: Dict[str, int] = {}
