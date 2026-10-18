@@ -2449,6 +2449,13 @@ class AceDaemon:
                 )
                 result["mine_seed_commits"] = ms_result.get("new_commits", 0)
                 result["mine_seed_tasks"] = ms_result.get("tasks_created", 0)
+                if (
+                    isinstance(ms_result, dict)
+                    and ms_result.get("fetched") is True
+                    and ms_result.get("error") is None
+                ):
+                    self.state["last_mine_seed_scan"] = datetime.now().isoformat()
+                    self._save_state()
         except Exception as e:
             self._log_error("mine_seed_scanner", str(e))
 
