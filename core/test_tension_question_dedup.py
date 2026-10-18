@@ -72,12 +72,27 @@ def test_the_three_recurring_questions_become_three_tasks(tmp_path):
     )
 
 
-def test_a_new_question_after_the_first_one_closed_gets_its_own_task(tmp_path):
-    """The identity ends with the work, not with the question's name.
+def test_the_same_question_asked_again_after_its_task_closed_creates_nothing(tmp_path):
+    """Superseded 2026-10-18, and the reason is the repository's own rule.
 
-    While a question's task is open the same question reuses it. Once that work is
-    closed, the next asking is new work again - otherwise a question could be
-    answered once and never re-raised.
+    This test used to require the opposite: that a question re-asked after its task
+    closed would raise new work. That is the behaviour behind a measured production
+    problem - 526 `fairness_yield`-era re-asks on one task, and roughly sixteen
+    self-question tasks an hour in the live pool, each archived minutes after
+    creation - and it contradicts what `core/observation_to_task.py` already says:
+
+        "re-triggering is the watch and escalation layer's call, not the poll
+        loop's"
+
+    The converter is the poll loop. A question that was asked, worked, and closed is
+    a question the civilization already answered once. Being asked again is a
+    *question about the question*, and whether that deserves new work is a judgement
+    for the escalation layer, not for every cycle of a loop that is only trying to be
+    thorough.
+
+    So the contract is: no new task, and the observation is marked consumed against
+    the closed task that already carries this question. A genuinely new question
+    still gets its own task - that is the test above, and it stays.
     """
     observer, pool, converter = _converter(tmp_path)
 
@@ -85,19 +100,47 @@ def test_a_new_question_after_the_first_one_closed_gets_its_own_task(tmp_path):
     converter.convert()
     first = _tasks(pool)
     assert len(first) == 1
+    task_id = first[0].task_id
 
-    # close it the way production does: the real transition path, not a file move
+    for status in ("active", "review", "approved", "archived"):
+        assert pool.move_task(task_id, status, actor="test") is not None
+
+    _ask(observer, "fa_duty_gap")
+    converter.convert()
+
+    assert len(_tasks(pool)) == 0, (
+        "a question whose task already closed minted another task, which is how a "
+        "self-ask becomes an endless supply of work"
+    )
+    re_ask = observer.get_unprocessed()
+    assert re_ask == [], (
+        f"the re-ask was left unconsumed as well as unconverted: {re_ask}"
+    )
+    reopened = pool.load_task(task_id)
+    assert reopened is not None and reopened.status == "archived", (
+        "the closed task was revived instead of the re-ask pointing at it"
+    )
+
+
+def test_a_new_question_still_gets_its_own_task(tmp_path):
+    """The other half: suppression must not become muting.
+
+    A question nobody has asked before is new information about the runtime, and the
+    loop's job is to carry it. If closing one task silenced every question, this
+    would be a quieter and much more expensive bug than the one it replaced.
+    """
+    observer, pool, converter = _converter(tmp_path)
+
+    _ask(observer, "fa_duty_gap")
+    converter.convert()
+    first = _tasks(pool)
     for status in ("active", "review", "approved", "archived"):
         assert pool.move_task(first[0].task_id, status, actor="test") is not None
 
-    _ask(observer, "fa_duty_gap")
+    _ask(observer, "model_call_starvation")
     result = converter.convert()
 
-    remaining = _tasks(pool)
-    assert len(remaining) == 1, (
-        f"after that work closed, one re-asking left {len(remaining)} open tasks: "
-        f"{result}"
+    assert len(_tasks(pool)) == 1, (
+        f"a never-asked question was suppressed along with the repeat: {result}"
     )
-    assert remaining[0].task_id != first[0].task_id, (
-        "the archived task was revived in place instead of new work being raised"
-    )
+    assert _tasks(pool)[0].task_id != first[0].task_id

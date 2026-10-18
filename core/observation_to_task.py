@@ -797,6 +797,38 @@ class ObservationToTaskConverter:
                 self._save_semantic_incidents()
         return None
 
+    # Rules whose repeat observations must not become new work once their task has
+    # closed. Narrow on purpose: for a condition like a failed checkup, closing the
+    # task and seeing the condition again really is a new occurrence. A question the
+    # runtime asks itself is different - being asked again says the question is still
+    # unanswered, and "re-triggering is the watch and escalation layer's call, not the
+    # poll loop's" is this module's own rule. Measured 2026-10-18: roughly sixteen
+    # self-question tasks an hour, each archived minutes after creation, on a store
+    # whose real work was being drowned.
+    RE_TRIGGER_SUPPRESSED = {"tension_question"}
+
+    def _closed_semantic_carrier(self, rule: ConversionRule, state: Dict[str, Any]):
+        """A closed task that already carries this exact incident.
+
+        Used only for `RE_TRIGGER_SUPPRESSED`: the observation is marked consumed
+        against the closed task rather than minting a successor, and the task itself
+        is left alone - re-opening archived work is the escalation layer's decision,
+        not this loop's.
+        """
+        if rule.name not in self.RE_TRIGGER_SUPPRESSED:
+            return None
+        signature = self._semantic_signature(rule, state)
+        if not signature:
+            return None
+        for status in ("archived", "graveyard", "rejected"):
+            for task in self.task_pool.list_tasks(status=status, limit=10000):
+                outputs = task.outputs if isinstance(getattr(task, "outputs", None), dict) else {}
+                if outputs.get("conversion_rule") != rule.name:
+                    continue
+                if self._task_semantic_signature(task, rule) == signature:
+                    return task
+        return None
+
     def _convert_discovery_candidate(
         self,
         obs: Observation,
@@ -1004,6 +1036,22 @@ class ObservationToTaskConverter:
                         "rule": rule.name,
                         "status": "semantic_duplicate",
                         "existing_task_id": duplicate.task_id,
+                    })
+                    break
+                carrier = self._closed_semantic_carrier(rule, state)
+                if carrier is not None:
+                    # The same incident was already carried to a terminal task. The
+                    # observation is consumed against that task so the finding is
+                    # not left looking unhandled, and no successor is minted.
+                    self.observer.mark_consumed(obs.obs_id, carrier.task_id)
+                    self._mark_triggered(obs.obs_id)
+                    result["skipped"] += 1
+                    result["semantic_duplicates"] += 1
+                    result["details"].append({
+                        "obs_id": obs.obs_id,
+                        "rule": rule.name,
+                        "status": "re_trigger_suppressed",
+                        "carrying_task_id": carrier.task_id,
                     })
                     break
                 gap_categories_raw = state.get("gap_categories")
