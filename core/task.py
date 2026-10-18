@@ -81,6 +81,48 @@ ALLOWED_TRANSITIONS = {
     "graveyard": set(),
 }
 
+# Content fields whose silent rewrite would change what the record claims.
+# Status is deliberately absent: it is audited as a transition by _transition.
+# Timestamps and bookkeeping are absent because `touch()` updates them on every
+# write by design and would otherwise make every update look like a rewrite.
+_AUDITED_CONTENT_FIELDS = (
+    "title",
+    "hypothesis",
+    "priority",
+    "result",
+    "evidence",
+    "counter_examples",
+    "validation_notes",
+    "research_notes",
+    "guardian_decision",
+    "outputs",
+    "tags",
+    "references",
+    "depends_on",
+    "failure_reason",
+    "blocked_reason",
+    "assignee",
+)
+
+
+def _rewritten_fields(stored: "Task", incoming: "Task") -> list:
+    """Names of the content fields that differ between two versions of a task.
+
+    Returns [] when nothing was rewritten, so the common path - a lease renewal
+    or a heartbeat refresh that touches nothing but bookkeeping - stays silent
+    rather than logging a row on every write.
+    """
+    changed = []
+    for field in _AUDITED_CONTENT_FIELDS:
+        before = getattr(stored, field, None)
+        after = getattr(incoming, field, None)
+        if before == after:
+            continue
+        if before in (None, [], {}, "") and after in (None, [], {}, ""):
+            continue
+        changed.append(field)
+    return changed
+
 
 class Task:
     """任务对象 — 有生命周期的活物"""
@@ -747,6 +789,27 @@ class TaskPool:
                     return False
             if task.status != stored.status and task.status not in ALLOWED_TRANSITIONS[stored.status]:
                 return False
+            # Field-level rewrites were silent.  RQ-20261006-009 named this
+            # ("归档记录静默改写：update_task经_transition落盘只touch不留audit
+            # 痕迹") and it was accurate about the shape: every status change
+            # goes through move_task and is audited, but anything written by
+            # update_task landed with no trace at all - no audit_log row, no
+            # ledger entry.  The ledger's drift check only fires on counters, so
+            # rewriting a hypothesis, result or evidence list was indistinguishable
+            # from never having touched the task.
+            #
+            # A task record is evidence for every conclusion drawn from it, so a
+            # rewrite has to be visible on the record itself.  The status change
+            # is audited by _transition below; this records the content change
+            # that accompanies it.
+            rewritten = _rewritten_fields(stored, task)
+            if rewritten:
+                task.audit_log.append({
+                    "event": "content_rewritten",
+                    "actor": "task_pool.update_task",
+                    "fields": rewritten,
+                    "at": datetime.now().isoformat(),
+                })
             self._transition(task, task.status)
             return True
 
