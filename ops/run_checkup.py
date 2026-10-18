@@ -36,6 +36,17 @@ def run_script(script_name: str, args: list = None) -> dict:
             cmd,
             capture_output=True,
             text=True,
+            # The checks this runs write UTF-8 (they report on Chinese task
+            # titles). `text=True` alone decodes with the *locale* encoding,
+            # which on this host is GBK, so any Chinese byte in the child's
+            # output raised UnicodeDecodeError inside the reader thread. That
+            # killed the reader, lost the output and made the hourly task exit
+            # non-zero - a green-looking patrol that could not read what it was
+            # patrolling. errors="replace" keeps a malformed byte from
+            # aborting the read at all; the child was UTF-8 and must be decoded
+            # as such.
+            encoding="utf-8",
+            errors="replace",
             timeout=120,
             cwd=str(BASE_DIR),
         )
@@ -70,9 +81,11 @@ def write_snapshot(snapshot: dict):
         f.write(json.dumps(snapshot, ensure_ascii=False) + "\n")
 
 
-def send_alert(level: str, module: str, message: str, notify: bool = False):
+def send_alert(level: str, module: str, message: str, notify: bool = False, details: dict = None):
     """发送告警"""
     args = ["--level", level, "--module", module, "--message", message]
+    if details:
+        args.extend(["--details", json.dumps(details, ensure_ascii=False)])
     if notify:
         args.append("--notify")
     run_script("alert.py", args)
@@ -135,11 +148,23 @@ def main():
             }
             if hc_data["overall"] == "error":
                 snapshot["overall"] = "error"
-                send_alert("error", "checkup", f"健康检查失败: {hc_data['errors']}个错误", args.alert)
+                send_alert(
+                    "error",
+                    "checkup",
+                    f"健康检查失败: {hc_data['errors']}个错误",
+                    args.alert,
+                    {"failed_checks": failed_checks, "observed_at": timestamp},
+                )
             elif hc_data["overall"] == "warning":
                 if snapshot["overall"] == "ok":
                     snapshot["overall"] = "warning"
-                send_alert("warn", "checkup", f"健康检查警告: {hc_data['warnings']}个警告", args.alert)
+                send_alert(
+                    "warn",
+                    "checkup",
+                    f"健康检查警告: {hc_data['warnings']}个警告",
+                    args.alert,
+                    {"failed_checks": failed_checks, "observed_at": timestamp},
+                )
             if not args.quiet:
                 print(f"  结果: {hc_data['overall']} (通过{hc_data['passed']}, 警告{hc_data['warnings']}, 错误{hc_data['errors']})")
         except Exception as e:
@@ -197,6 +222,11 @@ def main():
             "checkup",
             f"巡检结果: {snapshot['overall']}",
             args.alert,
+            {
+                "overall": snapshot["overall"],
+                "checks": snapshot["checks"],
+                "observed_at": timestamp,
+            },
         )
         if not args.quiet:
             print(f"  已发送 {snapshot['overall']} 级别告警")

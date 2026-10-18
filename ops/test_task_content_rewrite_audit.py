@@ -73,6 +73,89 @@ class ContentRewriteIsAudited(unittest.TestCase):
         self.assertEqual(rows[0]["fields"], ["hypothesis"])
         self.assertIn("at", rows[0])
 
+    def test_appending_a_note_is_not_a_rewrite(self):
+        """A note being added is the system recording what it just did.
+
+        Measured on 2026-10-18, this guard fired on every write in a live task:
+        RQ-20261018-281 reached 20 rows in under an hour, half its audit log,
+        every row naming the same append-only fields. That is not evidence of
+        tampering - each entry carries its own timestamp and is already the
+        record - it is evidence the guard was watching the wrong thing and would
+        have buried a real rewrite in noise.
+        """
+        pool = _pool(self.tmp_path)
+        task = _task(pool)
+
+        task.add_research_note("first observation")
+        self.assertTrue(pool.update_task(task))
+        first = len(_rewrite_rows(pool.load_task(task.task_id)))
+
+        task = pool.load_task(task.task_id)
+        task.add_research_note("second observation")
+        pool.update_task(task)
+        self.assertEqual(
+            len(_rewrite_rows(pool.load_task(task.task_id))),
+            first,
+            "appending must not be recorded as a rewrite",
+        )
+
+    def test_rewriting_an_existing_note_is_still_a_rewrite(self):
+        """The guard must not become a way to edit the record quietly."""
+        pool = _pool(self.tmp_path)
+        task = _task(pool)
+        task.add_research_note("original")
+        pool.update_task(task)
+        baseline = len(_rewrite_rows(pool.load_task(task.task_id)))
+
+        task = pool.load_task(task.task_id)
+        task.research_notes = [{"content": "original", "at": "2026-10-18T00:00:00"}]
+        pool.update_task(task)
+
+        rows = _rewrite_rows(pool.load_task(task.task_id))
+        self.assertEqual(len(rows), baseline + 1)
+        self.assertIn("research_notes", rows[-1]["fields"])
+
+    def test_appending_while_altering_an_existing_entry_is_a_rewrite(self):
+        """The subtle case: grow the list but quietly change what was in it."""
+        pool = _pool(self.tmp_path)
+        task = _task(pool)
+        task.add_research_note("original")
+        pool.update_task(task)
+        baseline = len(_rewrite_rows(pool.load_task(task.task_id)))
+
+        task = pool.load_task(task.task_id)
+        existing = dict(task.research_notes[0])
+        existing["content"] = "altered"
+        task.research_notes = [existing, {"content": "new", "at": "2026-10-18T00:00:01"}]
+        pool.update_task(task)
+
+        rows = _rewrite_rows(pool.load_task(task.task_id))
+        self.assertEqual(len(rows), baseline + 1, "a rewrite hidden inside an append")
+        self.assertIn("research_notes", rows[-1]["fields"])
+
+    def test_outputs_growing_is_not_a_rewrite_but_changing_is(self):
+        pool = _pool(self.tmp_path)
+        task = _task(pool)
+        outputs = dict(task.outputs or {})
+        outputs["first_key"] = {"v": 1}
+        task.outputs = outputs
+        pool.update_task(task)
+        baseline = len(_rewrite_rows(pool.load_task(task.task_id)))
+
+        task = pool.load_task(task.task_id)
+        grown = dict(task.outputs or {})
+        grown["second_key"] = {"v": 2}
+        task.outputs = grown
+        pool.update_task(task)
+        self.assertEqual(len(_rewrite_rows(pool.load_task(task.task_id))), baseline)
+
+        task = pool.load_task(task.task_id)
+        changed = dict(task.outputs or {})
+        changed["first_key"] = {"v": 99}
+        task.outputs = changed
+        pool.update_task(task)
+        self.assertIn("outputs", _rewrite_rows(pool.load_task(task.task_id))[-1]["fields"])
+
     def test_each_content_field_is_covered(self):
         pool = _pool(self.tmp_path)
         task = _task(pool)

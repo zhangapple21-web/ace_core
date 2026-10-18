@@ -90,12 +90,7 @@ _AUDITED_CONTENT_FIELDS = (
     "hypothesis",
     "priority",
     "result",
-    "evidence",
-    "counter_examples",
-    "validation_notes",
-    "research_notes",
     "guardian_decision",
-    "outputs",
     "tags",
     "references",
     "depends_on",
@@ -104,13 +99,46 @@ _AUDITED_CONTENT_FIELDS = (
     "assignee",
 )
 
+# Fields that grow by append. A note, a piece of evidence or a counterexample
+# being added is the system recording what it just did, and every such write
+# carries a timestamp inside the entry itself - so the entry list is already the
+# record. Treating "one more note" as a rewrite produced this on live data:
+# RQ-20261018-281 reached 20 rows in under an hour, half its audit log, with
+# every row saying the same thing. That is not evidence of tampering, it is
+# evidence that the guard is wrong about what it is watching. What matters here
+# is a rewrite of what was already said: changing a hypothesis, a result, or a
+# verdict after the fact.
+_APPEND_ONLY_FIELDS = (
+    "evidence",
+    "counter_examples",
+    "validation_notes",
+    "research_notes",
+    "outputs",
+)
+
+
+def _is_pure_append(before, after) -> bool:
+    """True when `after` is `before` plus new entries, with nothing altered.
+
+    Works for lists of dicts by identity of the leading entries, and for dicts
+    by requiring every pre-existing key to keep its exact value. A rewrite that
+    happens to lengthen the container fails this and is audited.
+    """
+    if isinstance(before, list) and isinstance(after, list):
+        return len(after) >= len(before) and after[: len(before)] == before
+    if isinstance(before, dict) and isinstance(after, dict):
+        return len(after) >= len(before) and all(
+            key in after and after[key] == value for key, value in before.items()
+        )
+    return False
+
 
 def _rewritten_fields(stored: "Task", incoming: "Task") -> list:
-    """Names of the content fields that differ between two versions of a task.
+    """Names of the content fields that were rewritten, not merely appended to.
 
-    Returns [] when nothing was rewritten, so the common path - a lease renewal
-    or a heartbeat refresh that touches nothing but bookkeeping - stays silent
-    rather than logging a row on every write.
+    Returns [] when nothing was rewritten, so the dominant production path -
+    a lease renewal, a heartbeat refresh, or a note being added to a task in
+    flight - stays silent rather than logging a row on every write.
     """
     changed = []
     for field in _AUDITED_CONTENT_FIELDS:
@@ -119,6 +147,16 @@ def _rewritten_fields(stored: "Task", incoming: "Task") -> list:
         if before == after:
             continue
         if before in (None, [], {}, "") and after in (None, [], {}, ""):
+            continue
+        changed.append(field)
+    for field in _APPEND_ONLY_FIELDS:
+        before = getattr(stored, field, None)
+        after = getattr(incoming, field, None)
+        if before == after:
+            continue
+        if before in (None, [], {}, "") and after in (None, [], {}, ""):
+            continue
+        if _is_pure_append(before, after):
             continue
         changed.append(field)
     return changed
@@ -809,6 +847,7 @@ class TaskPool:
                     "actor": "task_pool.update_task",
                     "fields": rewritten,
                     "at": datetime.now().isoformat(),
+                    "detail": "an existing value changed; appends alone are not a rewrite",
                 })
             self._transition(task, task.status)
             return True
