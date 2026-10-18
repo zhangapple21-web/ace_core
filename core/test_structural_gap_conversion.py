@@ -131,6 +131,113 @@ def test_a_gap_with_no_identifiable_incident_creates_nothing(tmp_path):
     )
 
 
+def test_a_standing_gap_re_raised_after_its_task_closed_creates_nothing(tmp_path):
+    """The measured production churn, stated as a test.
+
+    On 2026-10-18 this rule minted 13 tasks in four hours against 4 distinct
+    signatures - two of which produced 6 and 5 - because each re-assertion arrived
+    after its predecessor had been archived and nothing was left carrying the
+    incident. An unreachable rule does not become a different problem because it was
+    reviewed and filed last hour; `core/observation_to_task.py` already says that
+    re-triggering is the escalation layer's call.
+    """
+    observer, pool, converter = _converter(tmp_path)
+
+    def _raise_incident(rule: str):
+        observer.record(
+            description=f"incident rule {rule} can never be reconciled",
+            system_state={"rule": rule, "verdict": "STUCK_NO_OBSERVATION",
+                          "category": "gap", "task_id": f"RQ-{rule}",
+                          "task_terminal": True, "unverified_days": 7},
+            severity="high", source="incident_reachability_watch",
+            category="structural_gap", dedup_key=f"incident_unreachable:{rule}")
+
+    _raise_incident("fragment_backlog")
+    converter.convert()
+    first = _tasks(pool)
+    assert len(first) == 1
+    for status in ("active", "review", "approved", "archived"):
+        assert pool.move_task(first[0].task_id, status, actor="test") is not None
+
+    _raise_incident("fragment_backlog")
+    result = converter.convert()
+
+    assert len(_tasks(pool)) == 0, (
+        f"the same standing gap minted another task an hour later: {result}"
+    )
+    assert observer.get_unprocessed() == [], (
+        "the suppressed re-assertion was left unconsumed as well as unconverted"
+    )
+    carried = pool.load_task(first[0].task_id)
+    assert carried is not None and carried.status == "archived", (
+        "the closed task was revived instead of the re-assertion pointing at it"
+    )
+
+
+def test_a_new_runtime_death_is_a_new_event_and_still_gets_its_own_task(tmp_path):
+    """The half that keeps suppression from becoming invisibility.
+
+    The daemon dying again next week is a new occurrence, not the same unanswered
+    question. Suppressing it would trade a churn problem for a recurrence nobody ever
+    hears about, which is why the suppression is decided per incident identity rather
+    than per rule.
+    """
+    observer, pool, converter = _converter(tmp_path)
+
+    def _kill():
+        observer.record(description="daemon liveness watch: daemon is not running",
+                        system_state=_liveness_state(), severity="high",
+                        source="daemon_liveness_watch", category="structural_gap",
+                        dedup_key="daemon_liveness:DAEMON_STOPPED")
+
+    _kill()
+    converter.convert()
+    first = _tasks(pool)
+    assert len(first) == 1
+    for status in ("active", "review", "approved", "archived"):
+        assert pool.move_task(first[0].task_id, status, actor="test") is not None
+
+    _kill()
+    converter.convert()
+
+    remaining = _tasks(pool)
+    assert len(remaining) == 1, (
+        f"a recurrence of the runtime dying was swallowed as a re-trigger: "
+        f"{len(remaining)} open tasks"
+    )
+    assert remaining[0].task_id != first[0].task_id, (
+        "the archived task was revived in place instead of raising the new death"
+    )
+
+
+def test_a_brand_new_gap_is_still_carried_while_others_are_suppressed(tmp_path):
+    """A never-seen identity must not be muted by the suppression of an old one."""
+    observer, pool, converter = _converter(tmp_path)
+
+    def _raise_incident(rule: str):
+        observer.record(
+            description=f"incident rule {rule} can never be reconciled",
+            system_state={"rule": rule, "verdict": "STUCK_NO_OBSERVATION",
+                          "category": "gap", "task_id": f"RQ-{rule}",
+                          "task_terminal": True, "unverified_days": 7},
+            severity="high", source="incident_reachability_watch",
+            category="structural_gap", dedup_key=f"incident_unreachable:{rule}")
+
+    _raise_incident("fragment_backlog")
+    converter.convert()
+    first = _tasks(pool)
+    for status in ("active", "review", "approved", "archived"):
+        assert pool.move_task(first[0].task_id, status, actor="test") is not None
+
+    _raise_incident("cross_agent_idle")
+    result = converter.convert()
+
+    assert len(_tasks(pool)) == 1, (
+        f"a gap nobody had raised before was suppressed along with the repeat: {result}"
+    )
+    assert _tasks(pool)[0].task_id != first[0].task_id
+
+
 def test_a_low_severity_gap_stays_out_of_the_pool(tmp_path):
     """`dead_component_watch` grades a never-referenced component `low`.
 

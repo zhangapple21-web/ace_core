@@ -803,19 +803,51 @@ class ObservationToTaskConverter:
     # runtime asks itself is different - being asked again says the question is still
     # unanswered, and "re-triggering is the watch and escalation layer's call, not the
     # poll loop's" is this module's own rule. Measured 2026-10-18: roughly sixteen
-    # self-question tasks an hour, each archived minutes after creation, on a store
+    # self-question tasks an hour, each archived minutes after creation, on a pool
     # whose real work was being drowned.
-    RE_TRIGGER_SUPPRESSED = {"tension_question"}
+    #
+    # `structural_gap_review` joined that set for the same measured reason: 13 tasks in
+    # four hours against 4 distinct signatures, two of which minted 6 and 5 tasks
+    # because the previous task had been archived and nothing carried the incident.
+    RE_TRIGGER_SUPPRESSED = {"tension_question", "structural_gap_review"}
+
+    # Within a suppressed rule, only *standing* incidents are re-trigger suppressed.
+    # A structural gap can also be a discrete runtime event, and the daemon dying
+    # again next week is a new occurrence rather than the same unanswered condition.
+    # Suppressing that would trade churn for invisibility, which is the same mistake
+    # pointed the other way. Standing identities are the ones whose producers describe
+    # a condition that simply persists: an unreachable rule, an unwired component, a
+    # lane that refuses a write.
+    STANDING_IDENTITY_PREFIXES = ("rule:", "component:", "lane:")
+
+    def _re_trigger_suppressed(self, rule: ConversionRule, state: Dict[str, Any]):
+        """Whether a repeat of this observation may reuse a closed task.
+
+        Returns (suppressed, reason). The reason is part of the answer on purpose:
+        "why did this repeat not become work" is the question a reader of the store
+        will ask, and a bare boolean makes the two very different cases - a standing
+        condition, and a discrete event that happens to share a rule - look alike.
+        """
+        if rule.name not in self.RE_TRIGGER_SUPPRESSED:
+            return False, "rule_not_in_suppressed_set"
+        if rule.name == "structural_gap_review":
+            identity = _structural_gap_identity(state)
+            if not identity:
+                return False, "no_incident_identity"
+            if not identity.startswith(self.STANDING_IDENTITY_PREFIXES):
+                return False, "discrete_event:" + identity.split(":", 1)[0]
+        return True, "standing_condition_already_carried"
 
     def _closed_semantic_carrier(self, rule: ConversionRule, state: Dict[str, Any]):
         """A closed task that already carries this exact incident.
 
-        Used only for `RE_TRIGGER_SUPPRESSED`: the observation is marked consumed
+        Used only for suppressed re-triggers: the observation is marked consumed
         against the closed task rather than minting a successor, and the task itself
         is left alone - re-opening archived work is the escalation layer's decision,
         not this loop's.
         """
-        if rule.name not in self.RE_TRIGGER_SUPPRESSED:
+        suppressed, _reason = self._re_trigger_suppressed(rule, state)
+        if not suppressed:
             return None
         signature = self._semantic_signature(rule, state)
         if not signature:
