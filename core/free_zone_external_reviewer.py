@@ -116,16 +116,16 @@ REVIEW_VERDICTS = ("SUPPORTED", "CONTRADICTED", "CANNOT_ASSESS")
 def parse_review_verdict(detail: str) -> str | None:
     """The verdict a review actually reached, or None when it reached none.
 
-    Reads the ``VERDICT: <word>`` line the prompt requests and takes the last
-    one, because a review reasons before it concludes and the conclusion is
-    what counts. A review that never writes the line is UNPARSED downstream -
-    not CANNOT_ASSESS, not SUPPORTED, and never whatever word happens to appear
-    in its reasoning.
+    Reads the ``VERDICT: <word>`` line the prompt requests, allowing Markdown
+    emphasis around its label or value. The last explicit verdict wins because
+    the final conclusion is what counts. A review that never writes the line is
+    UNPARSED downstream - not CANNOT_ASSESS, not SUPPORTED, and never whatever
+    word happens to appear in its reasoning.
     """
     import re
 
     matches = re.findall(
-        r"VERDICT\s*:\s*(SUPPORTED|CONTRADICTED|CANNOT_ASSESS)",
+        r"\*{0,2}VERDICT\*{0,2}\s*:\*{0,2}\s*\*{0,2}(SUPPORTED|CONTRADICTED|CANNOT_ASSESS)\b\*{0,2}",
         str(detail or ""),
         flags=re.IGNORECASE,
     )
