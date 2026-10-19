@@ -24,24 +24,139 @@ from typing import Any, Dict, Iterable, List, Optional
 
 from core.instruction_boundary import evaluate_instruction_set
 
+# Role -> ordered candidates. The first entry that the CLI currently serves wins.
+#
+# These were single pinned ids, and the free tier retired four of the nine:
+# long_context (fledge-alpha-free), lightweight (ling-3.1-flash-free),
+# creative_candidate (muse-spark-1.3-contributor-free) and legacy_fallback
+# (ling-3.0-flash-fin-free). The owner noted the writing workhorse was simply
+# gone, with deepseek and GLM available as replacements that were never
+# registered at all.
+#
+# A single pinned id is the wrong shape for a rotating free tier: it cannot
+# survive one retirement, and it cannot make use of a new model without a code
+# change. A candidate list survives both. What a role means - which model is good
+# for long context, which for writing - is still a human judgement recorded
+# here; which of them actually exist today is asked of the CLI at call time.
+OPENCODE_MODEL_CANDIDATES: Dict[str, List[str]] = {
+    "heavy_agent": [
+        "opencode/nemotron-3-ultra-free",
+        "opencode/nemotron-3.5-lightning-free",
+        "opencode/space-bunny-free",
+    ],
+    # deepseek-v4.1 and glm-5.3 lead here because they are the writing path the
+    # owner named on 2026-10-19; nemotron-3-5-super-vl stays for image-shaped
+    # work and nemotron-3-ultra is the broad fallback behind them.
+    "long_context": [
+        "opencode/deepseek-v4.1-flash-free",
+        "opencode/glm-5.3-flash-free",
+        "opencode/nemotron-3.5-super-vl-free",
+        "opencode/nemotron-3-ultra-free",
+        "opencode/fledge-alpha-free",
+    ],
+    "coding_reasoning": [
+        "opencode/mimo-v2.6-flash-free",
+        "opencode/deepseek-v4.1-flash-free",
+        "opencode/glm-5.3-flash-free",
+    ],
+    "ultra_long_context": [
+        "opencode/longcat-2.5-preview-free",
+        "opencode/deepseek-v4.1-flash-free",
+        "opencode/glm-5.3-flash-free",
+    ],
+    "fast_inspection": [
+        "opencode/nemotron-3.5-lightning-free",
+        "opencode/beam-free",
+        "opencode/nemotron-3-ultra-free",
+    ],
+    "lightweight": [
+        "opencode/beam-free",
+        "opencode/nemotron-3.5-lightning-free",
+        "opencode/space-bunny-free",
+        "opencode/ling-3.1-flash-free",
+    ],
+    "experimental": [
+        "opencode/space-bunny-free",
+        "opencode/beam-free",
+    ],
+    "creative_candidate": [
+        "opencode/glm-5.3-flash-free",
+        "opencode/deepseek-v4.1-flash-free",
+        "opencode/space-bunny-free",
+        "opencode/muse-spark-1.3-contributor-free",
+    ],
+    "legacy_fallback": [
+        "opencode/space-bunny-free",
+        "opencode/beam-free",
+        "opencode/ling-3.0-flash-fin-free",
+    ],
+}
+
+
+def _live() -> Optional[set]:
+    try:
+        from core.miner_pool.providers.free_model_discovery import discover_free_models
+        return set(discover_free_models())
+    except Exception:
+        return None
+
+
+def resolve_role_model(role: str) -> Optional[str]:
+    """The model this role should use right now, or None if nothing is live.
+
+    Falls back to the first candidate when the CLI cannot be asked, so a
+    transient probe failure degrades to the previous behaviour rather than to no
+    capacity at all.
+    """
+    candidates = OPENCODE_MODEL_CANDIDATES.get(role)
+    if not candidates:
+        return None
+    live = _live()
+    if not live:
+        return candidates[0]
+    for candidate in candidates:
+        if candidate in live:
+            return candidate
+    return None
+
+
+def role_status() -> Dict[str, Dict[str, Any]]:
+    """Every role, what it would pick now, and which candidates are retired.
+
+    The retired list is the useful half: it is how a retirement becomes visible
+    to a person instead of turning into a 500 at call time.
+    """
+    live = _live()
+    out: Dict[str, Dict[str, Any]] = {}
+    for role, candidates in sorted(OPENCODE_MODEL_CANDIDATES.items()):
+        out[role] = {
+            "selected": next((c for c in candidates if live and c in live), None),
+            "candidates": list(candidates),
+            "retired": [c for c in candidates if live is not None and c not in live],
+        }
+    return out
+
+
+def _first_live(candidates: List[str]) -> Optional[str]:
+    live = _live()
+    if not live:
+        return candidates[0] if candidates else None
+    return next((c for c in candidates if c in live), None)
+
+
+# Kept for the callers that read a flat dict. Values are the *current* pick, so
+# an existing caller is now following the free tier instead of a snapshot of it.
 OPENCODE_MODELS: Dict[str, str] = {
-    "heavy_agent": "opencode/nemotron-3-ultra-free",
-    "long_context": "opencode/fledge-alpha-free",
-    "coding_reasoning": "opencode/mimo-v2.6-flash-free",
-    "ultra_long_context": "opencode/longcat-2.5-preview-free",
-    "fast_inspection": "opencode/nemotron-3.5-lightning-free",
-    "lightweight": "opencode/ling-3.1-flash-free",
-    "experimental": "opencode/space-bunny-free",
-    "creative_candidate": "opencode/muse-spark-1.3-contributor-free",
-    "legacy_fallback": "opencode/ling-3.0-flash-fin-free",
+    role: (_first_live(cands) or cands[0])
+    for role, cands in OPENCODE_MODEL_CANDIDATES.items()
 }
 
 DEFAULT_MODEL_ORDER = [
-    OPENCODE_MODELS["fast_inspection"],
-    OPENCODE_MODELS["lightweight"],
-    OPENCODE_MODELS["coding_reasoning"],
-    OPENCODE_MODELS["long_context"],
-    OPENCODE_MODELS["heavy_agent"],
+    _first_live(OPENCODE_MODEL_CANDIDATES["fast_inspection"]) or OPENCODE_MODEL_CANDIDATES["fast_inspection"][0],
+    _first_live(OPENCODE_MODEL_CANDIDATES["lightweight"]) or OPENCODE_MODEL_CANDIDATES["lightweight"][0],
+    _first_live(OPENCODE_MODEL_CANDIDATES["coding_reasoning"]) or OPENCODE_MODEL_CANDIDATES["coding_reasoning"][0],
+    _first_live(OPENCODE_MODEL_CANDIDATES["long_context"]) or OPENCODE_MODEL_CANDIDATES["long_context"][0],
+    _first_live(OPENCODE_MODEL_CANDIDATES["heavy_agent"]) or OPENCODE_MODEL_CANDIDATES["heavy_agent"][0],
 ]
 
 # "off": no instruction file is written, behaviour unchanged. "workspace": the

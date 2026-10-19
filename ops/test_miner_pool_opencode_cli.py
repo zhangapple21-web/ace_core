@@ -19,21 +19,35 @@ from core.miner_pool.providers.opencode_cli import (
 
 
 def test_mapping_covers_the_free_tier_and_nothing_else():
-    assert resolve_cli_model("oneapi_free:mimo-v2.6-flash-free") == "opencode/mimo-v2.6-flash-free"
-    assert resolve_cli_model("opencode/nemotron-3-ultra-free") == "opencode/nemotron-3-ultra-free"
-    assert resolve_cli_model("oneapi:gpt-6-sol") is None
+    """The refusal contract still holds; the roster no longer has a tombstone.
+
+    This test used to assert that MODEL_MAP's values were a subset of a literal
+    list of eight ids. That literal was the same tombstone the map was - four of
+    those eight were retired by the free tier and nothing noticed, because the
+    test was checking the map against itself.
+
+    What is worth keeping is the refusal: an id the CLI does not serve must be
+    refused before any subprocess starts. So the assertion is now against the
+    CLI's own catalogue, which is the thing that was wrong before.
+    """
     assert resolve_cli_model("") is None
     assert resolve_cli_model(None) is None
-    assert set(MODEL_MAP.values()) <= {
-        "opencode/nemotron-3-ultra-free",
-        "opencode/fledge-alpha-free",
-        "opencode/mimo-v2.6-flash-free",
-        "opencode/longcat-2.5-preview-free",
-        "opencode/nemotron-3.5-lightning-free",
-        "opencode/muse-spark-1.3-contributor-free",
-        "opencode/ling-3.1-flash-free",
-        "opencode/ling-3.0-flash-fin-free",
-    }
+    assert resolve_cli_model("oneapi:gpt-6-sol") is None
+    assert resolve_cli_model("oneapi_free:no-such-model") is None
+
+    from core.miner_pool.providers.free_model_discovery import discover_free_models
+
+    live = set(discover_free_models(force=True))
+    assert live, "the CLI offered no free models; this machine should have some"
+
+    for miner_id, cli_id in MODEL_MAP.items():
+        # A mapped alias is either live today or explicitly retired - never
+        # silently routable, which is the failure this whole change exists for.
+        routable = resolve_cli_model(miner_id)
+        if routable is not None:
+            assert cli_id in live, (
+                f"{miner_id} resolved to {cli_id} but the CLI does not serve it"
+            )
 
 
 def test_profiles_pair_each_free_entry_with_its_cli_twin():

@@ -32,8 +32,19 @@ from core.mirror_constitution import validate_data_boundary
 
 from . import BaseProvider
 
-# Miner model id -> opencode --model id. Both sides are pinned by tests so a
-# rename on either side fails loudly instead of silently routing elsewhere.
+# Miner model id -> opencode --model id.
+#
+# This used to be the whole roster, and the free tier retired four of its eight
+# entries without telling us: fledge-alpha-free (the writing workhorse),
+# muse-spark-1.3-contributor-free, ling-3.1-flash-free and
+# ling-3.0-flash-fin-free. Worse, `resolve_cli_model` only asked whether a slug
+# appeared in OPENCODE_MODELS - this same table - so a retired model validated
+# fine and only failed at the call.
+#
+# So the roster is now two things that cannot both be stale: this file keeps the
+# *aliases* people and roles refer to, and free_model_discovery answers which of
+# them the CLI actually serves today. An alias absent from the live list is
+# retired, and a live model nobody aliased is still routable by its full id.
 MODEL_MAP = {
     "mimo-v2.6-flash-free": "opencode/mimo-v2.6-flash-free",
     "fledge-alpha-free": "opencode/fledge-alpha-free",
@@ -43,27 +54,74 @@ MODEL_MAP = {
     "muse-spark-1.3-contributor-free": "opencode/muse-spark-1.3-contributor-free",
     "ling-3.1-flash-free": "opencode/ling-3.1-flash-free",
     "ling-3.0-flash-fin-free": "opencode/ling-3.0-flash-fin-free",
+    # Added 2026-10-19 from the live catalogue, because the two the owner named
+    # as the replacement writing path were never registered at all.
+    "deepseek-v4.1-flash-free": "opencode/deepseek-v4.1-flash-free",
+    "glm-5.3-flash-free": "opencode/glm-5.3-flash-free",
+    "nemotron-3.5-super-vl-free": "opencode/nemotron-3.5-super-vl-free",
+    "beam-free": "opencode/beam-free",
+    "space-bunny-free": "opencode/space-bunny-free",
 }
 
 _CLI_EXECUTABLE = r"C:\Users\Administrator\.local\bin\opencode.exe"
 
 
+def _live_cli_models() -> Optional[set]:
+    """The free ids the CLI serves right now, or None if it could not be asked."""
+    try:
+        from .free_model_discovery import discover_free_models
+        from core.miner_pool.providers import free_model_discovery as _d
+        live = set(discover_free_models())
+        if not live:
+            # An empty answer is either "no free tier" or "probe failed"; the
+            # discovery layer keeps the previous roster on a failed probe, so an
+            # empty set here really means nothing is being served.
+            return set()
+        return live
+    except Exception:
+        return None
+
+
 def resolve_cli_model(miner_model: str) -> Optional[str]:
-    """Map a miner model id to an opencode --model id, or None to refuse."""
+    """Map a miner model id to a live opencode --model id, or None to refuse.
+
+    Refusing is the module's existing contract and it still holds: only a model
+    the CLI currently serves is routable, so a retired id is refused before any
+    subprocess starts. What changed is that the answer now comes from the CLI's
+    own catalogue rather than from this repository's memory of it.
+    """
     if not isinstance(miner_model, str):
         return None
     slug = miner_model.split(":", 1)[-1].strip()
-    if slug.startswith("opencode/"):
-        candidate = slug
-    else:
-        candidate = MODEL_MAP.get(slug, "")
-    try:
-        from core.opencode_worker import OPENCODE_MODELS
-    except ImportError:
+    candidate = slug if slug.startswith("opencode/") else MODEL_MAP.get(slug, "")
+    if not candidate:
         return None
-    if candidate in set(OPENCODE_MODELS.values()):
-        return candidate
-    return None
+
+    live = _live_cli_models()
+    if live is None:
+        # The probe failed. Refusing everything here would take the free tier
+        # offline on a transient CLI problem, so fall back to the alias table -
+        # which is the old behaviour, and is still better than nothing.
+        try:
+            from core.opencode_worker import OPENCODE_MODELS
+        except ImportError:
+            return None
+        return candidate if candidate in set(OPENCODE_MODELS.values()) else None
+
+    return candidate if candidate in live else None
+
+
+def available_cli_models() -> List[Dict[str, Any]]:
+    """Routable models right now: alias, miner id, and whether it is live."""
+    live = _live_cli_models()
+    rows = []
+    for miner_id, cli_id in sorted(MODEL_MAP.items()):
+        rows.append({
+            "id": miner_id,
+            "cli_model": cli_id,
+            "live": None if live is None else (cli_id in live),
+        })
+    return rows
 
 
 class OpenCodeCliProvider(BaseProvider):
@@ -72,11 +130,12 @@ class OpenCodeCliProvider(BaseProvider):
     provider_name = "opencode_cli"
 
     def list_models(self) -> List[Dict[str, Any]]:
-        """The models this route can serve. Fixed set by design."""
-        return [
-            {"id": miner_id, "cli_model": cli_id}
-            for miner_id, cli_id in sorted(MODEL_MAP.items())
-        ]
+        """The models this route can serve, with liveness from the CLI's own list.
+
+        Still an allowlist - unknown ids are refused before any subprocess starts.
+        What is no longer fixed is which of the known ids exist today.
+        """
+        return available_cli_models()
 
     def __init__(self, api_key: str = "", base_url: str = "", provider_name: str = "", **kwargs):
         super().__init__(api_key, base_url, **kwargs)
