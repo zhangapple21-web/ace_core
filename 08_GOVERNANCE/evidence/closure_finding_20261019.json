@@ -1,0 +1,43 @@
+{
+  "finding": "The report-to-repair loop closes on the lifecycle but not on the decision",
+  "recorded_at": "2026-10-19",
+  "recorded_by": "ACE full-domain audit, closure verification",
+  "what_was_tested": "The audit's three deferred decisions were submitted through the governed path and left to run: RQ-20261019-023 (why reports reach no repair), -024 (may knowledge_reuse be enabled), -025 (merge the branch into main).",
+  "observed_outcome": {
+    "reached_terminal_state": true,
+    "states": "all three: pending -> ... -> archived",
+    "model_engaged": false,
+    "model_block_reason": "DATA_BOUNDARY_BLOCKED:sensitive_data_cannot_egress",
+    "data_class": "PRIVATE",
+    "candidate_basis": "title_keywords_only",
+    "produced_hypothesis": "e.g. \"核心假设：decide / whether / merge\" - the task title, tokenised",
+    "distinct_evidence_count": 3,
+    "stored_evidence_count": 5,
+    "evidence_inflation_ratio": 1.67,
+    "validator_notes": [
+      "未主动寻找反例，存在确认偏误风险",
+      "核心关键词在词库中无对应概念，研究背景薄弱"
+    ],
+    "guardian_decision": "experience",
+    "outcome_receipt_status": "PENDING_EXTERNAL_VERIFICATION",
+    "learning_return": "NOT_APPLICABLE / no_learning_source"
+  },
+  "what_this_means": [
+    "The failure is not that the system claims success. It does not: the receipt is PENDING_EXTERNAL_VERIFICATION and no learning was deposited. That part is honest and fail-closed.",
+    "The failure is upstream of the lifecycle. These tasks are data_class=PRIVATE, so the data boundary correctly refuses to send them to any model. With no model, research degrades to keyword extraction from the title, and the validator can see it - it wrote the confirmation-bias objection - but the lifecycle still runs to archived.",
+    "So the loop closes on motion and opens on judgement. Everything about the plumbing is correct; nothing about it ever consulted anything that could answer the question."
+  ],
+  "second_finding": {
+    "subject": "the reuse-pointer guard works, but only on the counting path",
+    "detail": "Validator._unique_evidence returned 3 against 5 stored records, correctly excluding the two archivist task cards the tasks had borrowed from each other. The e168d8e guard holds.",
+    "but": "task.result.evidence_count still reports the raw 5, and evidence_inflation_ratio 1.67 is computed from it. A reader of the research summary sees 5 evidence items where the governance path counted 3.",
+    "consequence": "cosmetic rather than a governance hole, but it is the same class of error as the guard itself was before: two different numbers for the same thing, and only one of them is the honest one."
+  },
+  "not_changed": [
+    "The data boundary refusal is correct and stays. PRIVATE data does not leave the process.",
+    "Validator's independent-evidence count stays the authority.",
+    "No task was reopened, no receipt rewritten, no threshold loosened."
+  ],
+  "the_real_question_now": "A reasoning task whose whole method is a model call cannot complete when the data class forbids the model. Either such tasks need a classification that permits a model under redaction, or they should be admitted as something other than reasoning. Both are governance decisions, and neither should be made by the executor.",
+  "submitted_as": "this finding is the answer to RQ-20261019-023, whose own body asked the question"
+}
