@@ -19,7 +19,16 @@ from one file:
                   free_model_discovery (reused, not reimplemented) with the
                   probe's own provenance: source, error, age, ttl.
   what each role  every role's call-time pick and its retired candidates, from
-  would pick      role_status(), which until now had no consumer at all.
+  would pick      role_status(), which until now had no consumer at all. The role
+                  reading is the same probe asked a second time, so a failed probe
+                  fails it too: it then answers "no live models", which is not a
+                  measurement. `roles.origin` says which it is - "probe",
+                  "carried_forward_after_failed_probe" (the last trusted selection,
+                  carried exactly as the roster list is), or
+                  "probe_failed_no_baseline" (unknown, so nothing is claimed about
+                  starvation). Measured need: without this the hourly SYSTEM run
+                  wrote "all nine roles starved" in an hour nothing was asked, and the
+                  next successful run reported nine roles as moved.
   when it moved   `roster_changed_at` is the write time of the first receipt that
                   observed the current roster, carried forward while the roster
                   holds. A rotation becomes a dated fact instead of a surprise.
@@ -28,8 +37,10 @@ from one file:
                   receipt ("absent"), a previous receipt that could not be parsed
                   ("unreadable"), this run's probe failed ("skipped"), or the
                   previous run's probe failed - whose list is *unknown*, and unknown
-                  is not empty. Reading any of those as "first run" is how a
-                  rotation disappears without a trace.
+                  is not empty. One more case fits inside the last one: the previous
+                  receipt's roster was a trustworthy carry-forward but its role
+                  selection was not, and then a retirement is still reported while
+                  role movement stays unclaimed ("role movement not comparable").
   what a new      the module-level table a *fresh* process would import. A
   process reads   long-running runtime holds its import-time copy; that is the
                   one live question this receipt cannot see into, so it says so
@@ -232,6 +243,8 @@ def build_receipt(
     prev_quality = previous.get("quality") if previous else None
     prev_live = set(previous.get("roster", {}).get("live") or []) if previous else None
     prev_origin = (previous.get("roster") or {}).get("origin") if previous else None
+    prev_selection = (previous.get("roles", {}).get("selection") or {}) if previous else {}
+    prev_roles_origin = (previous.get("roles") or {}).get("origin") if previous else None
     # A list is trustworthy when a probe produced it, or when a failed run carried a
     # trustworthy list forward and labelled it. `quality: failed` alone cannot decide:
     # on a fresh process the discovery cache is empty, so a failed probe returns [].
@@ -239,6 +252,13 @@ def build_receipt(
         prev_quality in ("fresh", "empty_tier")
         or (prev_quality == "failed"
             and prev_origin == "carried_forward_after_failed_probe"))
+    # The role reading is the same probe asked a second time, so the same rule decides
+    # it - and a receipt written before roles carried an `origin` at all cannot be
+    # trusted here, because its selection came from a probe that failed.
+    prev_roles_trusted = (
+        prev_quality in ("fresh", "empty_tier")
+        or (prev_quality == "failed"
+            and prev_roles_origin == "carried_forward_after_failed_probe"))
 
     # A failed probe in a fresh process returns [] - the discovery cache lives in
     # the process, not on disk - so a failed receipt's empty list means "unknown",
@@ -256,6 +276,23 @@ def build_receipt(
 
     role_rows = roles.get("roles") or {}
     selection = _role_selection(roles)
+
+    # When the probe failed, role_status() answers "no live models", so every role
+    # comes back with no model and every candidate looks retired. That is a fabricated
+    # reading, not a measurement: the SYSTEM run writes it into an hour in which
+    # nothing was asked, and the next successful run then reports nine roles as having
+    # moved - measured 2026-10-19, four such false change observations by 12:46.
+    # Carry the last trusted selection forward and label it, exactly as the roster
+    # list is carried; with no trustworthy baseline, say the roles are unknown rather
+    # than claim every role is starving.
+    roles_origin = "probe"
+    if quality == "failed":
+        if prev_roles_trusted:
+            selection = dict(prev_selection)
+            roles_origin = "carried_forward_after_failed_probe"
+        else:
+            selection = {}
+            roles_origin = "probe_failed_no_baseline"
     starved = sorted(role for role, chosen in selection.items() if not chosen)
 
     # Candidates the static table still names but the CLI no longer serves. The
@@ -265,7 +302,6 @@ def build_receipt(
     retired_candidates = sorted(c for c in candidates if c not in live_set)
     live_but_unnamed = sorted(live_set - candidates)
 
-    prev_selection = (previous.get("roles", {}).get("selection") or {}) if previous else {}
     carried_changed_at = previous.get("change", {}).get("roster_changed_at") if previous else None
     carried_first_seen = previous.get("change", {}).get("roster_first_seen_at") if previous else None
 
@@ -283,15 +319,27 @@ def build_receipt(
     elif prev_live is not None and prev_list_trusted:
         appeared = sorted(live_set - prev_live)
         retired = sorted(prev_live - live_set)
-        for role in sorted(set(selection) | set(prev_selection)):
-            was, now_choice = prev_selection.get(role), selection.get(role)
-            if was != now_choice:
-                role_moved[role] = {"was": was, "now": now_choice}
-        changed = bool(appeared or retired or role_moved)
+        if prev_roles_trusted:
+            for role in sorted(set(selection) | set(prev_selection)):
+                was, now_choice = prev_selection.get(role), selection.get(role)
+                if was != now_choice:
+                    role_moved[role] = {"was": was, "now": now_choice}
+            changed = bool(appeared or retired or role_moved)
+        elif appeared or retired:
+            # A retirement or an appearance stands on its own: the roster diff is a
+            # measurement even when the previous role reading cannot be compared.
+            changed = True
+        else:
+            # Nothing moved in the roster and role movement is unknown. "No change"
+            # would be a claim nobody measured, so this stays unknown instead.
+            changed = None
         roster_changed_at = written_at if changed else carried_changed_at
         roster_first_seen_at = written_at if changed else (carried_first_seen or written_at)
         comparison = (f"previous receipt written {previous.get('written_at')} "
                       f"(quality {prev_quality}, origin {prev_origin})")
+        if not prev_roles_trusted:
+            comparison += ("; role movement not comparable: the previous receipt's "
+                           "probe failed, so its role selection is not a measurement")
     elif prev_live is not None:
         # A list is present but is not a baseline: the previous run's probe failed in
         # a process whose cache was empty, so its [] means "unknown", and comparing
@@ -358,6 +406,11 @@ def build_receipt(
             "available": bool(roles.get("available")),
             "module_error": roles.get("module_error"),
             "selection": selection,
+            # "probe" = role_status() was asked and answered; "carried_forward_after_
+            # failed_probe" = this run could not ask, so the selection is the last
+            # trusted one; "probe_failed_no_baseline" = it could not ask and there was
+            # nothing trusted to carry, so the roles are unknown rather than starving.
+            "origin": roles_origin,
             "detail": role_rows,
             "starved": starved,
         },
@@ -384,10 +437,13 @@ def build_receipt(
             "whether the already-running daemon's delivery router still holds the "
             "model table it imported: that router is built once and this receipt "
             "can only show what a new process would read",
-            "whether this receipt's own SYSTEM identity could reach the CLI when the "
-            "probe failed: `quality` and `written_by.identity` are recorded together "
-            "in opencode_roster_receipt_attempts.jsonl, one line per run, so the "
-            "answer survives this file being overwritten by the next run",
+            "whether this receipt's own SYSTEM identity could reach the CLI: answered "
+            "2026-10-19, and the answer is that it cannot. All six of the scheduler's "
+            "runs that day failed the probe with cli_probe_failed (10:44, 11:06, 11:26, "
+            "11:44, 12:14, 12:44) while every Administrator run succeeded; the evidence "
+            "is one line per run in opencode_roster_receipt_attempts.jsonl. What is "
+            "still unproven is why: the receipt cannot see the scheduler's "
+            "environment, so it records the failure rather than inventing a cause",
             "that a roster observed at this moment is the roster at any other moment: "
             "the CLI is asked once, on this tick's schedule",
         ],

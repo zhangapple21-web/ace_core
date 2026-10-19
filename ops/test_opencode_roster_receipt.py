@@ -302,6 +302,66 @@ def test_a_second_failed_run_keeps_carrying_the_same_trusted_roster():
     assert change["retired"] == [MODEL_B], change
 
 
+def test_a_failed_probe_does_not_turn_every_role_into_no_model():
+    """The measured second half of the same defect: role_status() asks the same CLI.
+
+    When the probe fails, role_status() answers "no live models", so every role's
+    selection comes back None and every candidate looks retired. Measured on
+    2026-10-19: the hourly SYSTEM run wrote nine starved roles in an hour in which
+    nothing was asked at all, and the next successful run then read those nine as
+    roles that had moved - four false change observations by 12:46.
+    """
+    good = build_receipt(Path("."), roster=roster([MODEL_A, MODEL_B]),
+                         roles=roles({"r": MODEL_A, "r2": MODEL_B}), previous={}, now=T1)
+    failed = build_receipt(Path("."), roster=roster([], error="cli_probe_failed"),
+                           roles=roles({"r": None, "r2": None}), previous=good, now=T2)
+    assert failed["status"] == STATUS_PROBE_FAILED, failed["status"]
+    assert failed["roles"]["selection"] == {"r": MODEL_A, "r2": MODEL_B}, failed["roles"]
+    assert failed["roles"]["origin"] == "carried_forward_after_failed_probe", failed["roles"]
+    assert failed["roles"]["starved"] == [], failed["roles"]
+
+
+def test_role_movement_is_not_measured_against_a_previous_failed_probe():
+    """A previous receipt whose probe failed says nothing about where roles pointed.
+
+    The previous receipt here is the shape that is on disk right now: its roster list
+    is a trustworthy carry-forward, but its role selection was fabricated by the
+    failed probe and carries no `origin` at all.
+    """
+    good = build_receipt(Path("."), roster=roster([MODEL_A, MODEL_B]),
+                         roles=roles({"r": MODEL_A, "r2": MODEL_B}), previous={}, now=T1)
+    previous = build_receipt(Path("."), roster=roster([], error="cli_probe_failed"),
+                             roles=roles({"r": None, "r2": None}), previous=good, now=T2)
+    previous["roles"]["selection"] = {"r": None, "r2": None}
+    previous["roles"]["starved"] = ["r", "r2"]
+    previous["roles"].pop("origin", None)
+
+    now = build_receipt(Path("."), roster=roster([MODEL_A, MODEL_B]),
+                        roles=roles({"r": MODEL_A, "r2": MODEL_B}), previous=previous,
+                        now=T2 + 3600)
+    change = now["change"]
+    assert change["changed"] is None, change
+    assert change["role_selection_moved"] == {}, change
+    assert "role movement not comparable" in change["compared_to"], change
+
+
+def test_a_roster_rotation_is_still_reported_when_the_previous_roles_were_unknown():
+    """A retirement is a fact even when the previous role reading cannot be compared."""
+    good = build_receipt(Path("."), roster=roster([MODEL_A, MODEL_B]),
+                         roles=roles({"r": MODEL_A}), previous={}, now=T1)
+    previous = build_receipt(Path("."), roster=roster([], error="cli_probe_failed"),
+                             roles=roles({"r": None}), previous=good, now=T2)
+    previous["roles"]["selection"] = {"r": None}
+    previous["roles"].pop("origin", None)
+
+    now = build_receipt(Path("."), roster=roster([MODEL_A]), roles=roles({"r": MODEL_A}),
+                        previous=previous, now=T2 + 3600)
+    change = now["change"]
+    assert change["changed"] is True, change
+    assert change["retired"] == [MODEL_B], change
+    assert change["role_selection_moved"] == {}, change
+
+
 def test_a_genuine_empty_tier_is_still_a_baseline():
     """The other side of the same coin: 'the tier served nothing' is an answer."""
     empty = build_receipt(Path("."), roster=roster([], error="no_free_models_offered"),
