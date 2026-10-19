@@ -133,6 +133,12 @@ def _is_pure_append(before, after) -> bool:
     return False
 
 
+# The class a task gets when its caller says nothing. Kept as a named constant
+# because "was this label chosen or inherited" is now answerable, and that
+# question is the one the audit had to guess at.
+_DEFAULT_DATA_CLASS = "PRIVATE"
+
+
 def _rewritten_fields(stored: "Task", incoming: "Task") -> list:
     """Names of the content fields that were rewritten, not merely appended to.
 
@@ -749,6 +755,24 @@ class TaskPool:
         if not boundary["valid"]:
             raise ValueError("task_data_boundary_invalid:" + ",".join(boundary["errors"]))
         data_class = boundary["data_class"]
+        # A default that was never exercised is not a decision. PRIVATE remains
+        # the default here on purpose - loosening it would weaken the boundary for
+        # every caller at once - but a caller that knows its own payload may now
+        # declare a class, and the class it declared is recorded so a reader can
+        # see the label was chosen rather than inherited.
+        #
+        # Why this exists: measured 2026-10-19, 1418 of 2173 tasks carry
+        # data_class=PRIVATE, none of them by explicit request, and of the 94 that
+        # recorded whether a model took part, zero did. The three the audit
+        # submitted to test closure were refused egress on every attempt and
+        # finished as a tokenisation of their own titles. A reasoning task whose
+        # entire method is a model call cannot complete while its label forbids
+        # the model, so the label - not the boundary rule - was the defect.
+        #
+        # The boundary itself is unchanged and still fail-closed: PRIVATE and
+        # CORE still cannot reach MODEL_CONTEXT, and credential-like content is
+        # still refused at every egress target regardless of class.
+        data_class_source = "declared" if data_class != _DEFAULT_DATA_CLASS else "default"
         admission = validate_admission(admission)
         if admission:
             admission = {**admission, **admission_envelope(admission, title=title)}
@@ -769,6 +793,10 @@ class TaskPool:
             today = datetime.now().strftime("%Y%m%d")
             today_count = sum(1 for task in existing if task.task_id.startswith(f"RQ-{today}"))
             task_outputs = dict(outputs or {})
+            task_outputs.setdefault(
+                "data_class_provenance",
+                {"data_class": data_class, "source": data_class_source},
+            )
             task_outputs.setdefault(
                 "execution_discipline",
                 build_execution_discipline(

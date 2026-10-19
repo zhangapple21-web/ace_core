@@ -214,6 +214,61 @@ def _valid_autonomous_maintenance_contract(contract: Any) -> bool:
     return True
 
 
+def _declare_data_class(admission: Dict[str, Any]) -> str:
+    """Class this task from what it will actually carry, not from a default.
+
+    Every task was born PRIVATE because `create_task` defaults to it, and nothing
+    ever changed it. Measured 2026-10-19: 1418 of 2173 tasks carried
+    data_class=PRIVATE, none by explicit request, and of the 94 that recorded
+    whether a model took part, zero did. A discovery candidate - whose entire
+    method is a research call - could never reach a model, so it completed as a
+    tokenisation of its own title and was archived with an outcome receipt.
+
+    The label has to describe the payload, so this reads it. A candidate whose
+    evidence is local file facts, counts and paths carries nothing that leaving
+    the process would expose, and the boundary already refuses credential-like
+    content at every egress target regardless of class. Anything whose evidence
+    quotes file content, or that cannot be read confidently, stays PRIVATE: the
+    default remains the safe answer, and this only earns its way out by proving
+    it does not need to be there.
+    """
+    try:
+        from core.mirror_constitution import contains_credential_like_content
+    except ImportError:
+        return "PRIVATE"
+
+    evidence = (admission or {}).get("evidence") or []
+    parts = []
+    for item in evidence:
+        if not isinstance(item, dict):
+            return "PRIVATE"
+        # Every field is read, not just the pointers. Reading only source_ref was
+        # the first version of this and it passed a record carrying
+        # `detail: "api_key=sk-..."` straight through as PUBLIC - the one
+        # outcome this function must never produce. A whitelist of safe fields
+        # is also a way to forget to update; a credential scan over the whole
+        # record is not.
+        for value in item.values():
+            if isinstance(value, (str, int, float)):
+                parts.append(str(value))
+            elif value is None or isinstance(value, bool):
+                continue
+            else:
+                # Nested structures are where quoted document bytes hide. The
+                # default has to cover that case, so they are not inspected.
+                return "PRIVATE"
+    blob = "\n".join(parts)
+
+    if not blob.strip():
+        return "PRIVATE"
+    try:
+        if contains_credential_like_content(blob):
+            return "PRIVATE"
+    except Exception:
+        return "PRIVATE"
+    return "PUBLIC"
+
+
 def _structural_gap_identity(state: Dict[str, Any]) -> str:
     """The identity of a structural gap, per producer.
 
@@ -946,6 +1001,7 @@ class ObservationToTaskConverter:
             priority=discovery["priority"],
             tags=tags,
             admission=admission,
+            data_class=_declare_data_class(admission),
             outputs={
                 "source_obs_id": obs.obs_id,
                 "source_obs_description": obs.description,
