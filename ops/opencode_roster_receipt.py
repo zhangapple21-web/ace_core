@@ -24,14 +24,25 @@ from one file:
                   observed the current roster, carried forward while the roster
                   holds. A rotation becomes a dated fact instead of a surprise.
                   `comparison_state` is the field to read first, because a null
-                  `changed` means three different things: no previous receipt
-                  ("absent"), a previous receipt that could not be used
-                  ("unreadable"), or a probe that failed ("skipped"). Reading those
-                  as "first run" is how a rotation disappears without a trace.
+                  `changed` has four causes, named in `compared_to`: no previous
+                  receipt ("absent"), a previous receipt that could not be parsed
+                  ("unreadable"), this run's probe failed ("skipped"), or the
+                  previous run's probe failed - whose list is *unknown*, and unknown
+                  is not empty. Reading any of those as "first run" is how a
+                  rotation disappears without a trace.
   what a new      the module-level table a *fresh* process would import. A
   process reads   long-running runtime holds its import-time copy; that is the
                   one live question this receipt cannot see into, so it says so
                   in `unproven` instead of implying the table is shared.
+  and every run   `opencode_roster_receipt_attempts.jsonl`, one appended line per
+                  run. The receipt is a snapshot that the next run overwrites, and
+                  two identities run it - the hourly tick as SYSTEM and whoever runs
+                  it by hand - so without an append-only record the answer to "can
+                  the identity the schedule uses reach the CLI" is erased by the
+                  next successful probe. That is a measured need, not a worry: on
+                  2026-10-19 the failed SYSTEM run's empty list became the next
+                  run's baseline and produced a change observation for a rotation
+                  that never happened.
 
 When the roster changes, one observation is recorded through the normal channel
 so the change enters the system's own memory rather than only this file. The
@@ -69,6 +80,8 @@ ROOT_DEFAULT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT_DEFAULT))
 
 RECEIPT_RELPATH = Path("06_RUNTIME") / "ace" / "data" / "memory" / "opencode_roster_receipt.json"
+ATTEMPTS_RELPATH = (Path("06_RUNTIME") / "ace" / "data" / "memory"
+                    / "opencode_roster_receipt_attempts.jsonl")
 OBSERVATIONS_RELPATH = Path("06_RUNTIME") / "ace" / "data" / "observations"
 
 _OBSERVE = object()
@@ -214,8 +227,32 @@ def build_receipt(
     previous_reason = loaded["reason"]
 
     live = sorted(set(roster.get("live") or []))
-    live_set = set(live)
     quality = _quality_of(roster)
+
+    prev_quality = previous.get("quality") if previous else None
+    prev_live = set(previous.get("roster", {}).get("live") or []) if previous else None
+    prev_origin = (previous.get("roster") or {}).get("origin") if previous else None
+    # A list is trustworthy when a probe produced it, or when a failed run carried a
+    # trustworthy list forward and labelled it. `quality: failed` alone cannot decide:
+    # on a fresh process the discovery cache is empty, so a failed probe returns [].
+    prev_list_trusted = (
+        prev_quality in ("fresh", "empty_tier")
+        or (prev_quality == "failed"
+            and prev_origin == "carried_forward_after_failed_probe"))
+
+    # A failed probe in a fresh process returns [] - the discovery cache lives in
+    # the process, not on disk - so a failed receipt's empty list means "unknown",
+    # not "empty". Reported verbatim it both reads as an empty tier and, worse,
+    # becomes the next successful probe's baseline: measured 2026-10-19 10:34,
+    # where that produced a change observation for a rotation that never happened.
+    # Carry the last trusted answer forward instead, labelled, so the baseline
+    # survives the failed window - even several in a row - and the next real
+    # rotation is still dated.
+    roster_origin = "probe"
+    if quality == "failed" and prev_list_trusted:
+        live = sorted(prev_live or [])
+        roster_origin = "carried_forward_after_failed_probe"
+    live_set = set(live)
 
     role_rows = roles.get("roles") or {}
     selection = _role_selection(roles)
@@ -228,8 +265,6 @@ def build_receipt(
     retired_candidates = sorted(c for c in candidates if c not in live_set)
     live_but_unnamed = sorted(live_set - candidates)
 
-    prev_quality = previous.get("quality") if previous else None
-    prev_live = set(previous.get("roster", {}).get("live") or []) if previous else None
     prev_selection = (previous.get("roles", {}).get("selection") or {}) if previous else {}
     carried_changed_at = previous.get("change", {}).get("roster_changed_at") if previous else None
     carried_first_seen = previous.get("change", {}).get("roster_first_seen_at") if previous else None
@@ -245,7 +280,7 @@ def build_receipt(
         roster_changed_at = carried_changed_at
         roster_first_seen_at = carried_first_seen
         comparison = "skipped: probe failed, list is the previous cached answer"
-    elif prev_live is not None:
+    elif prev_live is not None and prev_list_trusted:
         appeared = sorted(live_set - prev_live)
         retired = sorted(prev_live - live_set)
         for role in sorted(set(selection) | set(prev_selection)):
@@ -255,7 +290,21 @@ def build_receipt(
         changed = bool(appeared or retired or role_moved)
         roster_changed_at = written_at if changed else carried_changed_at
         roster_first_seen_at = written_at if changed else (carried_first_seen or written_at)
-        comparison = f"previous receipt written {previous.get('written_at')} (quality {prev_quality})"
+        comparison = (f"previous receipt written {previous.get('written_at')} "
+                      f"(quality {prev_quality}, origin {prev_origin})")
+    elif prev_live is not None:
+        # A list is present but is not a baseline: the previous run's probe failed in
+        # a process whose cache was empty, so its [] means "unknown", and comparing
+        # against it invented a nine-model rotation on 2026-10-19 10:34. Claim no
+        # change and say which of the two it is, instead of silently trusting it.
+        reason = ("its probe failed, so its list is unknown rather than empty"
+                  if prev_quality == "failed"
+                  else f"its list came from an unrecognised shape (quality {prev_quality!r})")
+        changed = None
+        roster_changed_at = carried_changed_at
+        roster_first_seen_at = carried_first_seen
+        comparison = (f"no comparison: the previous receipt's list cannot be used as "
+                      f"a baseline: {reason}")
     elif previous_state == "absent":
         changed = None
         roster_changed_at = None
@@ -297,6 +346,11 @@ def build_receipt(
         "roster": {
             "live": live,
             "count": len(live),
+            # "probe" = this run asked the CLI; "carried_forward_after_failed_probe"
+            # = this run could not, so the list is the last trusted answer and
+            # `quality` is "failed". Read them together or the list will be read as
+            # a fresh reading it is not.
+            "origin": roster_origin,
             "retired_candidates_named_in_table": retired_candidates,
             "live_but_unnamed_in_table": live_but_unnamed,
         },
@@ -332,7 +386,8 @@ def build_receipt(
             "can only show what a new process would read",
             "whether this receipt's own SYSTEM identity could reach the CLI when the "
             "probe failed: `quality` and `written_by.identity` are recorded together "
-            "so that question is answerable from disk, not from here",
+            "in opencode_roster_receipt_attempts.jsonl, one line per run, so the "
+            "answer survives this file being overwritten by the next run",
             "that a roster observed at this moment is the roster at any other moment: "
             "the CLI is asked once, on this tick's schedule",
         ],
@@ -439,6 +494,42 @@ def write_receipt(root: Path, receipt: Dict[str, Any]) -> Path:
     return path
 
 
+def append_attempt(root: Path, receipt: Dict[str, Any]) -> Path:
+    """One line per run, so the receipt's own overwrites stop hiding its history.
+
+    The receipt is a snapshot: whoever writes last wins, and two identities run this
+    file - the hourly tick as SYSTEM, and whoever runs it by hand as Administrator.
+    That made the question this component exists downstream of unanswerable from
+    disk: "can the identity the schedule uses actually reach the CLI?". Each
+    successful probe erased the signature of the failed one, and a failed probe's
+    empty list then became the next comparison's baseline - measured on 2026-10-19
+    at 10:34, when that produced a change observation for a rotation that never
+    happened. This file is append-only and keeps that answer.
+    """
+    path = Path(root).resolve() / ATTEMPTS_RELPATH
+    path.parent.mkdir(parents=True, exist_ok=True)
+    change = receipt.get("change") or {}
+    probe = (receipt.get("source") or {}).get("probe") or {}
+    line = {
+        "written_at": receipt.get("written_at"),
+        "identity": (receipt.get("written_by") or {}).get("identity"),
+        "pid": (receipt.get("written_by") or {}).get("pid"),
+        "status": receipt.get("status"),
+        "quality": receipt.get("quality"),
+        "probe_source": probe.get("source"),
+        "probe_error": probe.get("error"),
+        "probe_age_seconds": probe.get("age_seconds"),
+        "live_count": (receipt.get("roster") or {}).get("count"),
+        "live_origin": (receipt.get("roster") or {}).get("origin"),
+        "changed": change.get("changed"),
+        "comparison_state": change.get("comparison_state"),
+        "starved": (receipt.get("roles") or {}).get("starved") or [],
+    }
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(line, ensure_ascii=False, sort_keys=True) + "\n")
+    return path
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", default=str(ROOT_DEFAULT))
@@ -456,6 +547,7 @@ def main(argv=None) -> int:
         path = Path(root).resolve() / RECEIPT_RELPATH
     else:
         path = write_receipt(root, receipt)
+        append_attempt(root, receipt)
     if args.json or args.print_only:
         print(json.dumps(receipt, ensure_ascii=False, indent=2, sort_keys=True, default=str))
     else:

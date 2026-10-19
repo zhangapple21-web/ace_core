@@ -23,10 +23,12 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from ops.opencode_roster_receipt import (  # noqa: E402
+    ATTEMPTS_RELPATH,
     RECEIPT_RELPATH,
     STATUS_DEGRADED,
     STATUS_FRESH,
     STATUS_PROBE_FAILED,
+    append_attempt,
     build_receipt,
     record_change,
     write_receipt,
@@ -240,6 +242,105 @@ def test_an_unreadable_previous_receipt_is_named_not_treated_as_first():
         shutil.rmtree(workdir, ignore_errors=True)
 
 
+def test_a_previous_receipt_from_a_failed_probe_is_not_a_baseline():
+    """The measured false rotation: an unknown list must not read as an empty roster.
+
+    Reproduces what happened in production on 2026-10-19 at 10:34: the SYSTEM tick's
+    probe failed (its per-process cache was empty, so discovery returned []), and the
+    next successful probe compared against that [] and reported the whole roster as
+    newly appeared - one observation, recorded as a change that never happened.
+    """
+    failed = build_receipt(Path("."), roster=roster([], error="cli_probe_failed"),
+                           roles=roles({"r": None}), previous={}, now=T1)
+    assert failed["status"] == STATUS_PROBE_FAILED, failed["status"]
+
+    now = build_receipt(Path("."), roster=roster([MODEL_A, MODEL_B]),
+                        roles=roles({"r": MODEL_A}), previous=failed, now=T2)
+    change = now["change"]
+    assert change["changed"] is None, change
+    assert change["appeared"] == [], change
+    assert change["retired"] == [], change
+    assert "unknown rather than empty" in change["compared_to"], change
+
+
+def test_a_failed_probe_carries_the_last_trusted_roster_forward():
+    good = build_receipt(Path("."), roster=roster([MODEL_A, MODEL_B]),
+                         roles=roles({"r": MODEL_A}), previous={}, now=T1)
+    failed = build_receipt(Path("."), roster=roster([], error="cli_probe_failed"),
+                           roles=roles({"r": MODEL_A}), previous=good, now=T2)
+    assert failed["roster"]["live"] == [MODEL_A, MODEL_B], failed["roster"]
+    assert failed["roster"]["origin"] == "carried_forward_after_failed_probe", failed["roster"]
+    assert failed["change"]["changed"] is None, failed["change"]
+
+    # Because the baseline survives the failed window, a retirement that happened
+    # during it is still caught, and dated at the first receipt that could see it.
+    now = build_receipt(Path("."), roster=roster([MODEL_A]),
+                        roles=roles({"r": MODEL_A}), previous=failed, now=T3)
+    change = now["change"]
+    assert change["changed"] is True, change
+    assert change["retired"] == [MODEL_B], change
+    assert change["roster_changed_at"] == now["written_at"], change
+
+
+def test_a_second_failed_run_keeps_carrying_the_same_trusted_roster():
+    """Two failures in a row must not drop the baseline the first one rescued."""
+    good = build_receipt(Path("."), roster=roster([MODEL_A, MODEL_B]),
+                         roles=roles({"r": MODEL_A}), previous={}, now=T1)
+    first_failed = build_receipt(Path("."), roster=roster([], error="cli_probe_failed"),
+                                 roles=roles({"r": MODEL_A}), previous=good, now=T2)
+    second_failed = build_receipt(Path("."), roster=roster([], error="cli_probe_failed"),
+                                  roles=roles({"r": MODEL_A}), previous=first_failed,
+                                  now=T2 + 3600)
+    assert second_failed["roster"]["live"] == [MODEL_A, MODEL_B], second_failed["roster"]
+    assert second_failed["roster"]["origin"] == "carried_forward_after_failed_probe"
+
+    now = build_receipt(Path("."), roster=roster([MODEL_A]),
+                        roles=roles({"r": MODEL_A}), previous=second_failed,
+                        now=T3 + 3600)
+    change = now["change"]
+    assert change["changed"] is True, change
+    assert change["retired"] == [MODEL_B], change
+
+
+def test_a_genuine_empty_tier_is_still_a_baseline():
+    """The other side of the same coin: 'the tier served nothing' is an answer."""
+    empty = build_receipt(Path("."), roster=roster([], error="no_free_models_offered"),
+                          roles=roles({"r": None}), previous={}, now=T1)
+    assert empty["quality"] == "empty_tier", empty["quality"]
+    now = build_receipt(Path("."), roster=roster([MODEL_A]), roles=roles({"r": MODEL_A}),
+                        previous=empty, now=T2)
+    change = now["change"]
+    assert change["changed"] is True, change
+    assert change["appeared"] == [MODEL_A], change
+    assert now["roster"]["origin"] == "probe", now["roster"]
+
+
+def test_each_run_appends_one_attempt_line_so_history_survives_the_overwrite():
+    workdir = Path(tempfile.mkdtemp(prefix="ace_roster_attempts_"))
+    try:
+        first = build_receipt(workdir, roster=roster([MODEL_A]), roles=roles({"r": MODEL_A}),
+                              previous={}, now=T1)
+        append_attempt(workdir, first)
+        second = build_receipt(workdir, roster=roster([], error="cli_probe_failed"),
+                               roles=roles({"r": None}), previous=first, now=T2)
+        append_attempt(workdir, second)
+
+        path = workdir.resolve() / ATTEMPTS_RELPATH
+        lines = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()
+                 if line.strip()]
+        assert len(lines) == 2, lines
+        assert lines[0]["quality"] == "fresh", lines[0]
+        assert lines[0]["live_count"] == 1, lines[0]
+        assert lines[0]["identity"], lines[0]
+        assert lines[0]["written_at"] == first["written_at"], lines[0]
+        assert lines[1]["quality"] == "failed", lines[1]
+        assert lines[1]["probe_error"] == "cli_probe_failed", lines[1]
+        assert lines[1]["changed"] is None, lines[1]
+    finally:
+        import shutil
+        shutil.rmtree(workdir, ignore_errors=True)
+
+
 def main() -> int:
     tests = [(name, value) for name, value in sorted(globals().items())
              if name.startswith("test_") and callable(value)]
@@ -247,9 +348,9 @@ def main() -> int:
     for name, test in tests:
         try:
             test()
-        except AssertionError as exc:
+        except Exception as exc:  # noqa: BLE001 - a KeyError must not hide later tests
             failures.append(name)
-            print(f"FAIL {name}: {exc}")
+            print(f"FAIL {name}: {type(exc).__name__}: {exc}")
         else:
             print(f"ok   {name}")
     print(f"{len(tests) - len(failures)} passed, {len(failures)} failed")
