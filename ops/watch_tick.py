@@ -31,6 +31,7 @@ Entries, each judged independently so one failing cannot mask another:
   incident_reachability_watch  an incident rule that exists and can never fire
   daemon_liveness_watch        a runtime that is dead while its lock still claims it
   runtime_identity_receipt     what code was on disk while the runtime ran
+  opencode_roster_receipt      which free models the CLI serves, and when that moved
 
 incident_reachability_watch exists because of exactly this script's failure mode.
 A persistent incident pointer sat in semantic_incidents.json for eighteen days
@@ -38,15 +39,25 @@ claiming open work while the task it named had been archived minutes after
 creation, because the rule's category never produced an observation the
 reconciler could see. A watch that is not run is not a watch.
 
-The last entry is not a watch, and is listed here as what it is rather than
-smuggled in as one: it detects nothing and can raise no finding. It records
-identity - git HEAD and branch, the worktree-versus-HEAD blob hashes of the two
-observation-lifecycle files, the OS view of the process, the registered task's
-action and logon type, and the lock/heartbeat/anchor join - so that "what is
-actually running" is a file anyone can read, instead of an answer reconstructed
-by hand each time it is asked. It runs here because this tick already runs as
-SYSTEM, the only identity that can see a Session 0 process and read its task
-definition.
+The last two entries are not watches, and are listed here as what they are
+rather than smuggled in as watches: they detect nothing and can raise no
+finding. One records identity - git HEAD and branch, the worktree-versus-HEAD blob
+hashes of the two observation-lifecycle files, the OS view of the process, the
+registered task's action and logon type, and the lock/heartbeat/anchor join - so
+that "what is actually running" is a file anyone can read, instead of an answer
+reconstructed by hand each time it is asked. It runs here because this tick
+already runs as SYSTEM, the only identity that can see a Session 0 process and
+read its task definition.
+
+The other records the free model roster: which ids the OpenCode CLI serves, what
+each role would pick now, and the write time of the first receipt that saw the
+current roster, so a rotation is a dated fact rather than a surprise. It is also
+where two answers stay distinguishable that otherwise read the same - "the roster
+did not change" and "the roster could not be read": a failed probe reports
+`quality: failed` and stops claiming anything about change. It does not exit
+non-zero for a failed probe, because that would make the entry an alarm whose
+clearing path has not been verified in this environment; the probe's own
+provenance is in the file instead of in the exit code.
 
 Judging rules
 -------------
@@ -110,6 +121,15 @@ WATCHES: List[Dict[str, object]] = [
         # recorded the dirty flag into a tracked path would make every later
         # receipt dirty and destroy the signal it exists to report.
         "snapshot": "06_RUNTIME/ace/data/memory/runtime_identity_receipt.json",
+        "max_age_minutes": 90,
+    },
+    {
+        "name": "opencode_roster_receipt",
+        "script": "ops/opencode_roster_receipt.py",
+        # Not a watch either, and git-ignored for the same reason. Judged by age
+        # so that a roster which stops being recorded is visible as staleness
+        # instead of as the silence that let four model retirements go unnoticed.
+        "snapshot": "06_RUNTIME/ace/data/memory/opencode_roster_receipt.json",
         "max_age_minutes": 90,
     },
 ]
