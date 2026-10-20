@@ -320,7 +320,7 @@ def test_role_profiles_register_native_strategic_execution_and_free_boundaries()
 def test_strategic_uses_native_profile_and_records_terra_result():
     response = {
         "success": True,
-        "content": "战略结论",
+        "content": "{\"facts\": [\"战略结论\"], \"evidence\": [\"bounded route fixture\"], \"inference\": [\"strategic route was selected\"], \"unknowns\": [\"test fixture scope\"], \"objections\": [\"route behavior only\"], \"next_verification\": [\"assert profile trace\"], \"stop_condition\": [\"after route assertion\"], \"hard_objections\": [], \"advisory_objections\": [], \"counter_examples\": []}",
         "provider": "shenwen",
         "model": "gpt-5.6-terra",
         "error": "",
@@ -335,12 +335,13 @@ def test_strategic_uses_native_profile_and_records_terra_result():
     assert all(entry["expected_model"] == "gpt-5.6-terra" for entry in trace)
     assert all(entry["selected_model"] == "gpt-5.6-terra" for entry in trace)
     assert all(entry["result"] == "success" for entry in trace)
+    assert all(entry["output_contract_gate"]["status"] == "pass" for entry in trace)
 
 
 def test_execution_uses_native_profile_and_records_mini_result():
     response = {
         "success": True,
-        "content": "执行结论",
+        "content": "{\"facts\": [\"执行结论\"], \"evidence\": [\"bounded route fixture\"], \"inference\": [\"execution route was selected\"], \"unknowns\": [\"test fixture scope\"], \"objections\": [\"route behavior only\"], \"next_verification\": [\"assert profile trace\"], \"stop_condition\": [\"after route assertion\"], \"hard_objections\": [], \"advisory_objections\": [], \"counter_examples\": []}",
         "provider": "shenwen",
         "model": "gpt-5.4-mini",
         "error": "",
@@ -354,6 +355,8 @@ def test_execution_uses_native_profile_and_records_mini_result():
     assert all(entry["profile"] == "execution" for entry in trace)
     assert all(entry["expected_model"] == "gpt-5.4-mini" for entry in trace)
     assert all(entry["selected_model"] == "gpt-5.4-mini" for entry in trace)
+    assert all(entry["result"] == "success" for entry in trace)
+    assert all(entry["output_contract_gate"]["status"] == "pass" for entry in trace)
     assert all(entry["selected_model"] != "gpt-5.6-terra" for entry in trace)
 
 

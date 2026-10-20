@@ -31,7 +31,44 @@ from .execution_discipline import (
 from .delivery_protocols import ensure_task_protocols, protocol_errors, validate_release_receipt
 from .miner_pool.task_profiles import get_task_profile
 from .execution_contract import build_execution_system_prompt, summarize_execution_feedback
+from .neuro_symbolic_claims import (
+    audit_symbolic_claims,
+    claims_from_audit,
+    combine_symbolic_claim_sets,
+)
 from .cognitive_think_gate import COGNITIVE_HUB, LOOP_BLOCKED, evaluate_cognitive_think_gate
+
+
+def _symbolic_evidence_snapshot(evidence_items: Any) -> list[dict[str, str]]:
+    """Bound and normalize evidence identity/content used by the audit digest."""
+    if not isinstance(evidence_items, list) or len(evidence_items) > 512:
+        raise ValueError("symbolic evidence context exceeds the bounded list size")
+    snapshot: list[dict[str, str]] = []
+    source_chars = 0
+    content_chars = 0
+    for item in evidence_items:
+        if isinstance(item, dict):
+            source = item.get("source") or item.get("source_ref") or ""
+            kind = item.get("kind") or item.get("type") or item.get("evidence_type") or ""
+            if not kind and item.get("source_ref"):
+                kind = "admission"
+            content = item.get("content") or item.get("detail") or ""
+        else:
+            source, kind, content = item, "", ""
+        source = source.strip() if isinstance(source, str) else ""
+        kind = kind.strip() if isinstance(kind, str) else ""
+        if not kind and isinstance(item, dict) and item.get("source_ref"):
+            kind = "admission"
+        content = content.strip() if isinstance(content, str) else ""
+        if len(source) > 512 or len(content) > 32768:
+            raise ValueError("symbolic evidence item exceeds the bounded field size")
+        source_chars += len(source)
+        content_chars += len(content)
+        if source_chars > 32768 or content_chars > 32768:
+            raise ValueError("symbolic evidence context exceeds aggregate budgets")
+        if source:
+            snapshot.append({"source": source, "kind": kind.lower(), "content": content})
+    return snapshot
 
 
 LOCAL_ARCHAEOLOGY_TAGS = {"archaeology", "local_archaeology", "fragment", "碎片考古", "考古"}
@@ -145,11 +182,134 @@ def _model_result_allowed(profile: Dict[str, Any], provider: str, model: str) ->
 
 def _quality_gate(response: Dict[str, Any], allowed: bool) -> Dict[str, Any]:
     content = response.get("content", "")
-    executed = bool(response.get("success") and allowed and isinstance(content, str) and content)
+    if not response.get("success"):
+        reason = "model_call_failed"
+    elif not allowed:
+        reason = "task_profile_mismatch"
+    elif not isinstance(content, str) or not content.strip():
+        reason = "empty_model_content"
+    else:
+        reason = ""
+    executed = not reason
     return {
         "executed": executed,
         "status": "pass" if executed else "not_run",
+        "reason": reason,
     }
+
+
+_MODEL_OUTPUT_CONTRACT_FIELDS = (
+    "facts",
+    "evidence",
+    "inference",
+    "unknowns",
+    "objections",
+    "next_verification",
+    "stop_condition",
+)
+_VALIDATOR_FINDING_FIELDS = (
+    "hard_objections",
+    "advisory_objections",
+    "counter_examples",
+)
+
+
+def _has_nonempty_contract_value(value: Any) -> bool:
+    if isinstance(value, str):
+        return bool(value.strip())
+    if isinstance(value, (list, tuple)):
+        return any(_has_nonempty_contract_value(item) for item in value)
+    if isinstance(value, dict):
+        return any(_has_nonempty_contract_value(item) for item in value.values())
+    return False
+
+
+def _output_contract_gate(
+    response: Dict[str, Any], role: str, quality_passed: bool
+) -> Dict[str, Any]:
+    """Require role-relevant structured output after route/content eligibility.
+
+    Researcher may return a partial structured result from its declared fields.
+    Validator must additionally provide all three review arrays (empty arrays
+    are valid), so downstream objection parsing cannot silently substitute
+    omitted or malformed findings with empty lists.
+    """
+    role_fields = list(_MODEL_OUTPUT_CONTRACT_FIELDS)
+    if role == "validator":
+        role_fields.extend(_VALIDATOR_FINDING_FIELDS)
+    result = {
+        "executed": False,
+        "status": "not_run",
+        "reason": "model_response_not_eligible",
+        "contract": "json_object_with_role_fields",
+        "fields_present": [],
+        "missing_fields": list(role_fields),
+        "invalid_fields": [],
+    }
+    if not quality_passed:
+        return result
+    if role not in {"researcher", "validator"}:
+        result["reason"] = "unsupported_role_contract"
+        return result
+    try:
+        payload = json.loads(response.get("content", ""))
+    except (TypeError, ValueError):
+        result.update(
+            executed=True,
+            status="fail",
+            reason="response_not_json",
+            missing_fields=list(role_fields),
+        )
+        return result
+    if not isinstance(payload, dict):
+        result.update(executed=True, status="fail", reason="response_not_json_object")
+        return result
+
+    present = [field for field in _MODEL_OUTPUT_CONTRACT_FIELDS if field in payload]
+    missing = [field for field in role_fields if field not in payload]
+    invalid_fields = [
+        field for field in _MODEL_OUTPUT_CONTRACT_FIELDS
+        if field in payload and not _has_nonempty_contract_value(payload[field])
+    ]
+    reason = ""
+    if role == "validator":
+        present.extend(field for field in _VALIDATOR_FINDING_FIELDS if field in payload)
+        invalid_fields.extend(
+            field for field in _VALIDATOR_FINDING_FIELDS
+            if field in payload
+            and (
+                not isinstance(payload[field], list)
+                or any(not isinstance(value, str) for value in payload[field])
+            )
+        )
+        missing_findings = [field for field in _VALIDATOR_FINDING_FIELDS if field not in payload]
+        has_review_context = bool(
+            set(present).intersection(_MODEL_OUTPUT_CONTRACT_FIELDS)
+        )
+        passed = has_review_context and not missing_findings and not invalid_fields
+        if invalid_fields:
+            reason = "invalid_validator_finding_types"
+        elif missing_findings:
+            reason = "missing_validator_finding_fields"
+        elif not has_review_context:
+            reason = "no_known_role_contract_fields"
+    else:
+        passed = bool(present) and not invalid_fields
+        if invalid_fields:
+            reason = "empty_research_contract_fields"
+        elif not passed:
+            reason = "no_known_role_contract_fields"
+
+    result.update(
+        executed=True,
+        status="pass" if passed else "fail",
+        reason="" if passed else reason,
+        contract=("researcher_json" if role == "researcher" else "validator_json"),
+        fields_present=present,
+        missing_fields=missing,
+        invalid_fields=invalid_fields,
+    )
+    return result
 
 
 def _record_model_execution(
@@ -297,13 +457,27 @@ def _record_model_execution(
             trace["provider"] = selected_provider
     trace["error"] = str(response.get("error", ""))
     trace["api_result"] = "success" if response.get("success") else "failed"
-    trace["execution_feedback"] = summarize_execution_feedback(response.get("content", ""))
+    content = response.get("content", "")
     allowed = _model_result_allowed(profile, trace["provider"], trace["selected_model"])
+    trace["quality_gate"] = _quality_gate(response, allowed)
+    usable = trace["quality_gate"]["executed"]
     if response.get("success") and not allowed:
         trace["error"] = "selected provider/model violates task profile"
-    trace["result"] = "success" if response.get("success") and allowed else "failed"
-    trace["quality_gate"] = _quality_gate(response, allowed)
-    content = response.get("content", "")
+    elif response.get("success") and not usable:
+        trace["error"] = trace["quality_gate"].get("reason") or "model response has no usable content"
+    trace["execution_feedback"] = summarize_execution_feedback(content if usable else "")
+    trace["output_contract_gate"] = _output_contract_gate(
+        response, role, quality_passed=usable
+    )
+    output_eligible = (
+        usable
+        and role in {"researcher", "validator"}
+        and trace["output_contract_gate"].get("status") == "pass"
+    )
+    trace["result"] = "success" if output_eligible else "failed"
+    if usable and not output_eligible:
+        contract_reason = trace["output_contract_gate"].get("reason") or "role_contract_rejected"
+        trace["error"] = "model output contract failed: " + str(contract_reason)
     if isinstance(content, str) and content:
         trace["response_sha256"] = hashlib.sha256(content.encode("utf-8")).hexdigest()
     required_trace_fields = (
@@ -321,7 +495,10 @@ def _record_model_execution(
         and all(trace.get(field) not in (None, "") for field in required_trace_fields)
     )
     task.outputs.setdefault("model_execution", []).append(trace)
-    return response
+    # The execution receipt may preserve an off-profile or empty response for
+    # diagnostics, but only a response that passed both the route and content
+    # gates is a model result.  Downstream roles must not consume the raw reply.
+    return response if output_eligible else None
 
 
 class BaseWorker:
@@ -679,7 +856,7 @@ class Researcher:
             # every untouched task behind them, including an admitted model
             # task, while the selector keeps reclaiming the same old work.
             for task in self.task_pool.list_tasks(status="pending", priority=priority, limit=10000):
-                if task.task_id == exclude_task_id or task.last_claimed_at:
+                if task.task_id == exclude_task_id:
                     continue
                 if task.retry_after:
                     try:
@@ -1075,6 +1252,10 @@ class Researcher:
             f"- [{item['source']}] {item['content'][:500]}"
             for item in admitted_evidence
         )
+        symbolic_evidence_context = list(admitted_evidence)
+        audit_task_evidence = _symbolic_evidence_snapshot(list(task.evidence or []))
+        evidence_candidates_for_audit: list[dict[str, Any]] = []
+        symbolic_audit = audit_symbolic_claims(None)
         model_response = _record_model_execution(
             task,
             "researcher",
@@ -1084,21 +1265,124 @@ class Researcher:
                 "Role: analyze the supplied evidence, identify alternatives and "
                 "invalidating conditions. Do not invent evidence. Return JSON with "
                 "facts, evidence, inference, unknowns, objections, "
-                "next_verification, and stop_condition when a model is available.\n"
+                "next_verification, stop_condition, and symbolic_claims. Each "
+                "symbolic_claim must be an object with claim_id, subject, predicate, "
+                "object, polarity (SUPPORTS/REFUTES/UNKNOWN), epistemic_status "
+                "(FACT/INFERENCE/HYPOTHESIS/UNKNOWN), evidence_refs (exact source "
+                "ids from the supplied evidence), premise_ids, and falsifiable_if. "
+                "Use claim-level UNKNOWN when unsupported; citations prove traceability "
+                "only, never entailment. This is a candidate format, not verified truth.\n"
                 f"Admitted evidence:\n{evidence_context or '(none)'}"
             ),
             ace_local_run_id=self._ace_local_run_id(),
         )
-        if isinstance(model_response, dict):
-            content = model_response.get("content")
-            if isinstance(content, str) and content.strip():
-                task.outputs["model_research_result"] = {
-                    "content": content[:4000],
-                    "response_sha256": hashlib.sha256(
-                        content.encode("utf-8")
-                    ).hexdigest(),
-                    "at": datetime.now().isoformat(),
-                }
+        research_output_contract = {}
+        if isinstance(model_response, dict) and task.outputs.get("model_execution"):
+            last_trace = task.outputs["model_execution"][-1]
+            research_output_contract = (
+                last_trace.get("output_contract_gate", {})
+                if isinstance(last_trace, dict) else {}
+            )
+            if research_output_contract.get("status") == "pass":
+                task.outputs.pop("neuro_symbolic_audit", None)
+                task.outputs.pop("neuro_symbolic_audit_task_id", None)
+                task.outputs.pop("neuro_symbolic_audit_model_sha256", None)
+                task.outputs.pop("research_model_execution_receipt", None)
+                content = model_response.get("content")
+                response_sha256 = hashlib.sha256(content.encode("utf-8")).hexdigest()
+                try:
+                    model_payload = json.loads(content)
+                    model_claims = (
+                        model_payload.get("symbolic_claims")
+                        if isinstance(model_payload, dict) else None
+                    )
+                    audit_claims = model_claims if isinstance(model_claims, list) else None
+                    if isinstance(audit_claims, list):
+                        audit_claims = [
+                            {
+                                **claim,
+                                "premise_ids": [
+                                    premise for premise in claim.get("premise_ids", [])
+                                    if not (
+                                        isinstance(premise, str)
+                                        and premise.startswith(("researcher:", "validator:"))
+                                    )
+                                ],
+                            }
+                            if isinstance(claim, dict)
+                            and isinstance(claim.get("premise_ids"), list)
+                            else claim
+                            for claim in audit_claims
+                        ]
+                    audit_claims_digest = hashlib.sha256(
+                        json.dumps(
+                            {"symbolic_claims": audit_claims},
+                            ensure_ascii=False,
+                            separators=(",", ":"),
+                        ).encode("utf-8")
+                    ).hexdigest()
+                    research_task_evidence = _symbolic_evidence_snapshot(
+                        audit_task_evidence
+                        + [
+                            {
+                                "source": ev.get("source", ""),
+                                "kind": "research",
+                                "content": ev.get("content", "")[:300],
+                            }
+                            for ev in evidence_candidates_for_audit
+                            if isinstance(ev, dict)
+                        ]
+                    )
+                    research_evidence_snapshot = _symbolic_evidence_snapshot(
+                        symbolic_evidence_context + research_task_evidence
+                    )
+                    research_evidence_digest = hashlib.sha256(
+                        json.dumps(
+                            research_evidence_snapshot,
+                            ensure_ascii=False,
+                            sort_keys=True,
+                            separators=(",", ":"),
+                        ).encode("utf-8")
+                    ).hexdigest()
+                    task.outputs["model_research_result"] = {
+                        "content": content[:4000],
+                        "response_sha256": response_sha256,
+                        "audit_claims": audit_claims,
+                        "audit_claims_sha256": audit_claims_digest,
+                        "audit_evidence": research_evidence_snapshot,
+                        "audit_task_evidence": research_task_evidence,
+                        "audit_evidence_sha256": research_evidence_digest,
+                        "at": datetime.now().isoformat(),
+                    }
+                    symbolic_audit = audit_symbolic_claims(
+                        model_claims,
+                        research_evidence_snapshot,
+                        side_effect_scope="researcher_audit_persisted_as_task_metadata",
+                    )
+                except (TypeError, ValueError):
+                    # The output contract already parsed the content, but keep
+                    # the symbolic shadow fail-closed if the payload changes.
+                    task.outputs.pop("model_research_result", None)
+                    symbolic_audit = audit_symbolic_claims("INVALID")
+                task.outputs["neuro_symbolic_audit"] = symbolic_audit
+                task.outputs["neuro_symbolic_audit_task_id"] = task.task_id
+                task.outputs["neuro_symbolic_audit_model_sha256"] = task.outputs[
+                    "model_research_result"
+                ]["response_sha256"]
+            else:
+                task.outputs.pop("model_research_result", None)
+                task.outputs.pop("neuro_symbolic_audit", None)
+                task.outputs.pop("neuro_symbolic_audit_task_id", None)
+                task.outputs.pop("neuro_symbolic_audit_model_sha256", None)
+                model_response = None
+        else:
+            # Never let a stale symbolic audit or prior model response stand in
+            # for the current research attempt.
+            task.outputs.pop("neuro_symbolic_audit", None)
+            task.outputs.pop("neuro_symbolic_audit_task_id", None)
+            task.outputs.pop("neuro_symbolic_audit_model_sha256", None)
+            if task.outputs.get("model_research_result"):
+                task.outputs.pop("model_research_result", None)
 
         # A blocked or failed model call is not a research result.  Without this
         # the failure was invisible: the flow continued into the keyword path,
@@ -1125,15 +1409,19 @@ class Researcher:
         model_block_reason = ""
         if isinstance(model_response, dict):
             model_attempted = True
-            if model_response.get("success") and str(model_response.get("content") or "").strip():
-                model_engaged = True
-            else:
+            model_engaged = True
+            if research_output_contract.get("status") != "pass":
+                task.outputs.pop("neuro_symbolic_audit", None)
+                task.outputs.pop("neuro_symbolic_audit_task_id", None)
+                task.outputs.pop("neuro_symbolic_audit_model_sha256", None)
                 model_block_reason = str(
-                    model_response.get("error")
-                    or model_response.get("routing", {}).get("selected_route_state", "")
-                    or "model_returned_no_content"
+                    research_output_contract.get("reason") or "model_output_contract_failed"
                 )[:200]
         elif task.outputs.get("model_execution"):
+            task.outputs.pop("neuro_symbolic_audit", None)
+            task.outputs.pop("neuro_symbolic_audit_task_id", None)
+            task.outputs.pop("neuro_symbolic_audit_model_sha256", None)
+            task.outputs.pop("model_research_result", None)
             model_attempted = True
             traces = task.outputs.get("model_execution")
             last = traces[-1] if isinstance(traces, list) and traces else {}
@@ -1205,6 +1493,7 @@ class Researcher:
         # Empty search hits are not evidence.  Persisting them created the
         # illusion of a larger evidence set while Validator correctly counted
         # only meaningful independent records, causing avoidable rework loops.
+        evidence_candidates_for_audit = list(evidence)
         candidates = [
             ev for ev in evidence
             if isinstance(ev, dict)
@@ -1246,6 +1535,11 @@ class Researcher:
 
         for ev in evidence:
             task.add_evidence(ev.get("content", "")[:300], source=ev.get("source", ""))
+            audit_task_evidence.append({
+                "source": ev.get("source", ""),
+                "kind": "research",
+                "content": ev.get("content", "")[:300],
+            })
             add_evidence_ledger_entry(
                 task,
                 "source",
@@ -1257,6 +1551,7 @@ class Researcher:
             types = Counter(e.get("type", "unknown") for e in evidence)
             summary_parts.append(f"来源分布: {dict(types)}")
         result["research_summary"] = "；".join(summary_parts)
+        result["neuro_symbolic_audit"] = symbolic_audit
 
         task.add_research_note(result["research_summary"])
         
@@ -1498,18 +1793,363 @@ class Validator:
                 f"Task: {task.title}\nHypothesis: {task.hypothesis}\n"
                 "Role: identify counterexamples and validation risks. Return only a JSON object "
                 "with facts, evidence, inference, unknowns, objections, next_verification, "
-                "stop_condition, and optional hard_objections, advisory_objections, "
-                "counter_examples arrays of concise strings."
+                "stop_condition, and hard_objections, advisory_objections, "
+                "counter_examples arrays of concise strings. Use empty arrays when none. "
+                "Optionally emit symbolic_claims with typed subject/predicate/object, "
+                "polarity (SUPPORTS/REFUTES/UNKNOWN), epistemic_status "
+                "(FACT/INFERENCE/HYPOTHESIS/UNKNOWN), exact evidence_refs, premise_ids, "
+                "and falsifiable_if. Distinguish source traceability from entailment; "
+                "keep unsupported claims UNKNOWN and conflicts unresolved."
             ),
             ace_local_run_id=self._ace_local_run_id(),
         )
         model_objections = self._model_objections(model_response)
         execution_feedback = {}
+        output_contract = {}
         execution_traces = task.outputs.get("model_execution", [])
+        latest_trace = {}
+        current_validator_trace = (
+            execution_traces[-1]
+            if isinstance(execution_traces, list) and execution_traces
+            and isinstance(execution_traces[-1], dict)
+            and execution_traces[-1].get("role") == "validator"
+            and execution_traces[-1].get("task_id") == task.task_id
+            else None
+        )
         if isinstance(execution_traces, list) and execution_traces:
             latest_trace = execution_traces[-1]
             if isinstance(latest_trace, dict):
                 execution_feedback = latest_trace.get("execution_feedback", {})
+                output_contract = latest_trace.get("output_contract_gate", {})
+
+        admission_records = (
+            task.outputs.get("admission", {}).get("evidence", [])
+            if isinstance(task.outputs, dict)
+            and isinstance(task.outputs.get("admission"), dict) else []
+        )
+        symbolic_evidence_context = list(admission_records) + list(task.evidence or [])
+        researcher_audit = task.outputs.get("neuro_symbolic_audit")
+        research_result = task.outputs.get("model_research_result")
+        stored_validator_audit = task.outputs.get("validator_neuro_symbolic_audit")
+        stored_validator_audit_task_id = task.outputs.get("validator_neuro_symbolic_audit_task_id")
+        stored_validator_audit_digest = task.outputs.get("validator_neuro_symbolic_audit_model_sha256")
+        validator_audit_metadata_present = any(
+            key in task.outputs
+            for key in (
+                "validator_neuro_symbolic_audit",
+                "validator_neuro_symbolic_audit_task_id",
+                "validator_neuro_symbolic_audit_model_sha256",
+            )
+        )
+        validator_shadow_present = validator_audit_metadata_present and not (
+            isinstance(stored_validator_audit, dict)
+            and stored_validator_audit.get("status") == "ABSENT"
+        )
+        validator_shadow_binding_valid = (
+            validator_shadow_present
+            and isinstance(stored_validator_audit, dict)
+            and stored_validator_audit.get("contract_version") == "ace.neuro_symbolic_claims.v1"
+            and stored_validator_audit_task_id == task.task_id
+            and isinstance(stored_validator_audit_digest, str)
+            and bool(stored_validator_audit_digest)
+            and isinstance(stored_validator_audit.get("claims"), list)
+            and stored_validator_audit.get("claim_count") == len(stored_validator_audit["claims"])
+            and isinstance(stored_validator_audit.get("issues"), list)
+        )
+        researcher_trace = next(
+            (
+                trace for trace in reversed(execution_traces)
+                if isinstance(trace, dict)
+                and trace.get("task_id") == task.task_id
+                and trace.get("role") == "researcher"
+            ),
+            None,
+        ) if isinstance(execution_traces, list) else None
+        research_content = (
+            research_result.get("content") if isinstance(research_result, dict) else None
+        )
+        research_digest = (
+            research_result.get("response_sha256") if isinstance(research_result, dict) else None
+        )
+        research_claim_payload = (
+            research_result.get("audit_claims") if isinstance(research_result, dict) else None
+        )
+        if isinstance(research_claim_payload, list):
+            research_claim_payload = [
+                {
+                    **claim,
+                    "premise_ids": [
+                        premise for premise in claim.get("premise_ids", [])
+                        if not (
+                            isinstance(premise, str)
+                            and premise.startswith(("researcher:", "validator:"))
+                        )
+                    ],
+                }
+                if isinstance(claim, dict) and isinstance(claim.get("premise_ids"), list)
+                else claim
+                for claim in research_claim_payload
+            ]
+        try:
+            saved_research_task_evidence = (
+                research_result.get("audit_task_evidence")
+                if isinstance(research_result, dict) else None
+            )
+            current_research_evidence = (
+                list(admission_records) + saved_research_task_evidence
+                if isinstance(saved_research_task_evidence, list)
+                else symbolic_evidence_context
+            )
+            research_evidence_snapshot = _symbolic_evidence_snapshot(current_research_evidence)
+        except (TypeError, ValueError):
+            research_evidence_snapshot = []
+        research_evidence_digest = hashlib.sha256(
+            json.dumps(
+                research_evidence_snapshot,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        ).hexdigest()
+        try:
+            research_claims_reaudited = audit_symbolic_claims(
+                research_claim_payload if isinstance(research_claim_payload, list) else None,
+                research_evidence_snapshot,
+                side_effect_scope="researcher_audit_persisted_as_task_metadata",
+            )
+        except (TypeError, ValueError):
+            research_claims_reaudited = audit_symbolic_claims("INVALID")
+        research_response_hash_valid = (
+            isinstance(research_content, str)
+            and isinstance(research_digest, str)
+            and bool(research_digest)
+            and hashlib.sha256(research_content.encode("utf-8")).hexdigest() == research_digest
+            and isinstance(research_claim_payload, list)
+            and hashlib.sha256(
+                json.dumps(
+                    {"symbolic_claims": research_claim_payload},
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                ).encode("utf-8")
+            ).hexdigest() == research_result.get("audit_claims_sha256")
+        )
+        research_reaudit = research_claims_reaudited
+        research_binding_valid = (
+            isinstance(researcher_audit, dict)
+            and researcher_audit.get("contract_version") == "ace.neuro_symbolic_claims.v1"
+            and task.outputs.get("neuro_symbolic_audit_task_id") == task.task_id
+            and research_response_hash_valid
+            and isinstance(researcher_trace, dict)
+            and researcher_trace.get("task_id") == task.task_id
+            and researcher_trace.get("role") == "researcher"
+            and researcher_trace.get("result") == "success"
+            and researcher_trace.get("response_sha256") == research_digest
+            and isinstance(research_claim_payload, list)
+            and researcher_audit.get("claim_count") == len(research_claim_payload)
+            and (
+                hashlib.sha256(
+                    json.dumps(
+                        claims_from_audit(researcher_audit),
+                        ensure_ascii=False,
+                        sort_keys=True,
+                        separators=(",", ":"),
+                    ).encode("utf-8")
+                ).hexdigest()
+                == hashlib.sha256(
+                    json.dumps(
+                        research_claim_payload,
+                        ensure_ascii=False,
+                        sort_keys=True,
+                        separators=(",", ":"),
+                    ).encode("utf-8")
+                ).hexdigest()
+                if researcher_audit.get("status") in {"TRACEABLE_UNVERIFIED", "NEEDS_REVIEW"}
+                else True
+            )
+            and task.outputs.get("neuro_symbolic_audit_model_sha256") == research_digest
+            and research_result.get("audit_evidence_sha256") == research_evidence_digest
+            and researcher_audit == research_reaudit
+        )
+        research_reaudit = research_claims_reaudited
+        researcher_claims_for_validator = (
+            claims_from_audit(researcher_audit) if research_binding_valid else None
+        )
+        if research_binding_valid:
+            researcher_claims_for_validator = audit_symbolic_claims(
+                research_claim_payload,
+                research_evidence_snapshot,
+                namespace="researcher",
+                side_effect_scope="researcher_audit_recomputed_in_validator",
+            )
+            researcher_claims_for_validator = claims_from_audit(researcher_claims_for_validator)
+        validator_evidence_context = symbolic_evidence_context + [
+            {"source": reference}
+            for claim in (researcher_claims_for_validator or [])
+            if isinstance(claim, dict)
+            for reference in claim.get("evidence_refs", [])
+            if isinstance(reference, str)
+        ]
+        validator_evidence_snapshot = _symbolic_evidence_snapshot(validator_evidence_context)
+        validator_claims = None
+        validator_symbolic_audit = audit_symbolic_claims(None)
+        validator_binding_valid = False
+        if isinstance(model_response, dict):
+            try:
+                validator_payload = json.loads(model_response.get("content", ""))
+                validator_claims = (
+                    validator_payload.get("symbolic_claims")
+                    if isinstance(validator_payload, dict) else None
+                )
+                validator_binding_valid = (
+                    isinstance(current_validator_trace, dict)
+                    and current_validator_trace.get("api_result") == "success"
+                    and current_validator_trace.get("result") == "success"
+                    and current_validator_trace.get("output_contract_gate", {}).get("status") == "pass"
+                    and isinstance(current_validator_trace.get("response_sha256"), str)
+                    and bool(current_validator_trace.get("response_sha256"))
+                    and hashlib.sha256(
+                        str(model_response.get("content", "")).encode("utf-8")
+                    ).hexdigest() == current_validator_trace.get("response_sha256")
+                )
+                validator_symbolic_audit = audit_symbolic_claims(
+                    validator_claims if validator_binding_valid else None,
+                    validator_evidence_snapshot,
+                    namespace="validator",
+                    side_effect_scope="pure_validator_audit_in_task_lifecycle",
+                )
+            except (TypeError, ValueError):
+                validator_claims = "INVALID"
+                validator_symbolic_audit = audit_symbolic_claims(validator_claims)
+        if validator_binding_valid and isinstance(validator_claims, list) and research_binding_valid:
+            validator_symbolic_audit = audit_symbolic_claims(
+                validator_claims,
+                validator_evidence_snapshot,
+                namespace="validator",
+                external_premise_ids=(
+                    [claim["claim_id"] for claim in researcher_claims_for_validator]
+                    if research_binding_valid and isinstance(researcher_claims_for_validator, list)
+                    else []
+                ),
+                side_effect_scope="pure_validator_audit_in_task_lifecycle",
+            )
+        validator_audit_binding_valid = (
+            validator_binding_valid
+            and stored_validator_audit_task_id == task.task_id
+            and isinstance(current_validator_trace, dict)
+            and stored_validator_audit_digest == current_validator_trace.get("response_sha256")
+            and stored_validator_audit == validator_symbolic_audit
+        )
+        if (
+            not validator_audit_metadata_present
+            and validator_binding_valid
+        ) or (
+            validator_shadow_binding_valid
+            and validator_binding_valid
+            and stored_validator_audit_digest == current_validator_trace.get("response_sha256")
+            and stored_validator_audit == validator_symbolic_audit
+        ):
+            # This is the first audit of this Validator response: the inputs are
+            # bound directly to its live execution trace, so no prior persisted
+            # audit can be compared yet. The next validation pass will verify the
+            # persisted task-id, response digest, and full audit before reuse.
+            validator_audit_binding_valid = True
+        if not validator_binding_valid:
+            validator_claims = None
+            validator_symbolic_audit = audit_symbolic_claims(None)
+            validator_audit_binding_valid = False
+        task.outputs["validator_neuro_symbolic_audit"] = validator_symbolic_audit
+        task.outputs["validator_neuro_symbolic_audit_task_id"] = task.task_id
+        task.outputs["validator_neuro_symbolic_audit_model_sha256"] = (
+            current_validator_trace.get("response_sha256")
+            if isinstance(current_validator_trace, dict) else None
+        )
+
+        # Combine only the current research audit (bound to this task and the
+        # stored model-response digest) with this Validator attempt.  Namespaced
+        # IDs preserve each role's local premise graph.  The existing evidence
+        # catalogue and review authority remain the sole source of acceptance.
+        researcher_claims = researcher_claims_for_validator
+        combined_claims = combine_symbolic_claim_sets({
+            "researcher": researcher_claims,
+            "validator": validator_claims,
+        })
+        combined_ids = {
+            claim.get("claim_id")
+            for claim in combined_claims if isinstance(claim, dict)
+        }
+        combined_claims = [
+            {
+                **claim,
+                "premise_ids": [
+                    premise for premise in claim.get("premise_ids", [])
+                    if not (
+                        isinstance(premise, str)
+                        and premise.startswith("validator:")
+                        and premise not in combined_ids
+                    )
+                ],
+            }
+            if isinstance(claim, dict)
+            and claim.get("claim_id", "").startswith("researcher:")
+            and isinstance(claim.get("premise_ids"), list)
+            else claim
+            for claim in combined_claims
+        ]
+        symbolic_audit = audit_symbolic_claims(
+            combined_claims if combined_claims else None,
+            validator_evidence_context,
+            max_claims=64,
+            side_effect_scope="combined_advisory_metadata_in_task_lifecycle",
+        )
+        if (
+            len(combined_claims) > 64
+            or len(combined_claims) > 32 and researcher_claims and validator_claims
+        ):
+            combined_audit_claims = combined_claims[:64]
+            symbolic_audit = audit_symbolic_claims(
+                combined_audit_claims,
+                validator_evidence_context,
+                max_claims=64,
+                side_effect_scope="combined_advisory_metadata_in_task_lifecycle",
+            )
+            symbolic_audit["warnings"].append({
+                "claim_id": None,
+                "code": "COMBINED_CLAIM_SET_BUDGETED",
+                "field": "symbolic_claims",
+            })
+        symbolic_audit["role_audits"] = {
+            "researcher": {
+                "binding_valid": research_binding_valid,
+                "status": (
+                    researcher_audit.get("status")
+                    if research_binding_valid else "ABSENT_OR_STALE"
+                ),
+                "issues": (
+                    list(researcher_audit.get("issues", []))
+                    if research_binding_valid else []
+                ),
+            },
+            "validator": {
+                "binding_valid": validator_audit_binding_valid,
+                "status": validator_symbolic_audit.get("status"),
+                "issues": list(validator_symbolic_audit.get("issues", [])),
+            },
+        }
+        prior_invalid = [
+            role for role, role_audit in symbolic_audit["role_audits"].items()
+            if role_audit.get("status") == "INVALID"
+            and role_audit.get("binding_valid")
+        ]
+        unbound_validator_audit = validator_shadow_present and not validator_audit_binding_valid
+        invalid_roles = list(prior_invalid)
+        if unbound_validator_audit and "validator" not in invalid_roles:
+            invalid_roles.append("validator")
+        if invalid_roles:
+            symbolic_audit["status"] = "INVALID"
+            symbolic_audit["issues"] = list(symbolic_audit.get("issues", [])) + [
+                {"claim_id": None, "code": "ROLE_AUDIT_INVALID", "field": role}
+                for role in invalid_roles
+            ]
 
         objections = []
         hard_objections = []
@@ -1529,13 +2169,31 @@ class Validator:
         # task back to research so the next attempt must produce facts,
         # unknowns, objections and a minimal verification step.  No model call
         # or no configured model keeps the existing local validation behavior.
-        if (
+        latest_trace = (
+            execution_traces[-1]
+            if isinstance(execution_traces, list) and execution_traces
+            else {}
+        )
+        rejected_successful_contract = (
+            isinstance(latest_trace, dict)
+            and latest_trace.get("api_result") == "success"
+            and isinstance(latest_trace.get("quality_gate"), dict)
+            and latest_trace["quality_gate"].get("executed") is True
+            and isinstance(output_contract, dict)
+            and output_contract.get("status") == "fail"
+        )
+        if rejected_successful_contract or (
             isinstance(model_response, dict)
             and model_response.get("success") is True
-            and isinstance(execution_feedback, dict)
-            and execution_feedback.get("status") != "STRUCTURED"
+            and (
+                not isinstance(execution_feedback, dict)
+                or execution_feedback.get("status") != "STRUCTURED"
+                or output_contract.get("status") != "pass"
+            )
         ):
-            objection = "模型验证结果缺少结构化事实/未知/反例/下一步验证，不能直接批准"
+            missing_fields = output_contract.get("missing_fields", [])
+            detail = "缺少字段: " + ", ".join(missing_fields) if missing_fields else "结构不符合岗位契约"
+            objection = "模型验证结果缺少结构化事实/未知/反例/下一步验证，不能直接批准（" + detail + "）"
             objections.append(objection)
             hard_objections.append(objection)
 
@@ -1547,6 +2205,10 @@ class Validator:
                 (item.get("source", ""), item.get("content", ""))
                 for item in packet_items
                 if isinstance(item, dict) and item.get("source") and item.get("content")
+            } - {
+                (item.get("source", ""), item.get("content", ""))
+                for item in packet_items
+                if isinstance(item, dict) and _is_reuse_pointer(item)
             })
         # A verified physical artifact is first-hand evidence about the world,
         # and a strictly stronger acceptance test than counting memory excerpts.
@@ -1600,15 +2262,31 @@ class Validator:
 
         genuine_objections = [o for o in objections if "未发现明显逻辑漏洞" not in o]
 
+        # Questions and advisory warnings are useful review notes, but are not
+        # concrete counterexamples. Preserve the existing response shape while
+        # keeping the epistemic record from inventing counterexamples.
         if not genuine_objections:
             genuine_objections.append("建议扩大样本量后再确认")
+            advisory_objections.append(genuine_objections[-1])
 
+        # Distinguish concrete falsifying observations from blocking obligations.
+        # Hard blockers (sample-count, protocol, or response-contract failures)
+        # stop approval, but do not become epistemic counterexamples merely
+        # because they are hard. Only explicit model counterexamples enter the
+        # counterexample ledger.
+        concrete_counter_examples = []
+        existing_counter_examples = self._unique_counter_examples(task)
+        for counter_example in model_objections["counter_examples"]:
+            if counter_example not in existing_counter_examples and counter_example not in concrete_counter_examples:
+                concrete_counter_examples.append(counter_example)
         for obj in genuine_objections:
             task.add_validation_note(obj, validator="validator")
-            task.add_counter_example(obj, source="validator")
+        for counter_example in concrete_counter_examples:
+            if counter_example not in self._unique_counter_examples(task):
+                task.add_counter_example(counter_example, source="validator")
 
         result["objections"] = genuine_objections
-        result["counter_examples"] = len(genuine_objections)
+        result["counter_examples"] = len(concrete_counter_examples)
         result["hard_objections"] = list(hard_objections)
         result["advisory_objections"] = list(advisory_objections)
 
@@ -1690,6 +2368,8 @@ class Validator:
             "objections": list(genuine_objections),
             "hard_objections": list(hard_objections),
             "advisory_objections": list(advisory_objections),
+            "neuro_symbolic_claims": claims_from_audit(symbolic_audit),
+            "neuro_symbolic_audit": symbolic_audit,
             "validated_at": datetime.now().isoformat(),
         }
 
@@ -2104,13 +2784,13 @@ class Guardian:
                 decision["verdict"] = "axiom"
                 decision["reason"] = f"{ev_count}条证据支撑，0反例，可作为临时公理"
                 decision["promoted"] = True
-        elif ev_count >= 3 and task.priority in ["high", "critical"]:
+        elif ev_count >= 3 and task.priority in ["high", "critical"] and ce_count == 0:
             decision["verdict"] = "constraint"
-            decision["reason"] = "高优先级任务，证据充分，可作为约束"
+            decision["reason"] = "高优先级任务，证据充分且无已记录反例，可作为约束"
             decision["promoted"] = True
         elif ev_count >= 2:
             decision["verdict"] = "experience"
-            decision["reason"] = "有一定证据，但反例或不足仍存，归入经验库"
+            decision["reason"] = "有一定证据，但已记录反例或其他不足，归入经验库"
         else:
             decision["verdict"] = "experience"
             decision["reason"] = "证据有限，暂存经验库待后续验证"

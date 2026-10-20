@@ -4,6 +4,7 @@ Covers: kill switch, mode ladder, group collapse, evidence budget, traceability
 refusal, index health gates, attach idempotence and the report's separation of
 'cited' from 'changed'.
 """
+import hashlib
 import json
 import sys
 import tempfile
@@ -40,6 +41,20 @@ class FakePool:
         return True
 
 
+def _verified_outcome_receipt(task_id):
+    return {
+        "status": "VERIFIED",
+        "task_id": task_id,
+        "verifier": "fixture_independent_verifier",
+        "verified_at": "2026-10-01T00:00:00",
+        "result_ref": f"fixture://{task_id}/result",
+        "verification_ref": f"fixture://{task_id}/verification",
+        "evidence_refs": [f"fixture://{task_id}/evidence-1",
+                          f"fixture://{task_id}/evidence-2"],
+        "independent_evidence_groups": 2,
+    }
+
+
 def archived_task(task_id, *, source_file=None, obs=None, intent=None,
                   references=None, created="2026-10-01T00:00:00",
                   terminal=False, reference_count=0):
@@ -55,8 +70,10 @@ def archived_task(task_id, *, source_file=None, obs=None, intent=None,
     if intent:
         outputs["intent"] = intent
         tags.append(f"intent:{intent}")
+    outputs["verified_outcome_receipt"] = _verified_outcome_receipt(task_id)
     return SimpleNamespace(
-        task_id=task_id, status="archived", outputs=outputs, tags=tags,
+        task_id=task_id, status="archived", guardian_decision="experience",
+        outputs=outputs, tags=tags,
         references=list(references or []), reference_count=reference_count,
         created_at=created, evidence=[], title=f"碎片考古: {task_id}",
     )
@@ -76,12 +93,23 @@ def subject(task_id="RQ-20261003-100", **kwargs):
                                 "source_type": "archaeology"}
     return SimpleNamespace(
         task_id=task_id, status="active", outputs=outputs, tags=tags,
+        data_class=kwargs.get("data_class", "CAPABILITY"),
         references=[], reference_count=0, evidence=[],
         created_at="2026-10-03T00:00:00", title="subject",
     )
 
 
 def make_gate(root, pool, **settings):
+    for task in pool.tasks.values():
+        if not getattr(task, "_preserve_guardian_decision", False):
+            task.guardian_decision = "experience"
+        if not getattr(task, "_preserve_data_class", False):
+            task.data_class = "CAPABILITY"
+        if (not getattr(task, "_preserve_task_receipt", False)
+                and "verified_outcome_receipt" not in task.outputs):
+            task.outputs["verified_outcome_receipt"] = _verified_outcome_receipt(
+                task.task_id
+            )
     index = {
         "protocol": "ace.knowledge.join.v1",
         "built_at": datetime.now().isoformat(),
@@ -96,11 +124,15 @@ def make_gate(root, pool, **settings):
     path = root / "09_KNOWLEDGE" / "join_index.v1.json"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(index), encoding="utf-8")
-    # A citation must point at a file that really exists: create the artifacts.
+    # A citation must point at an on-disk, qualification-complete experience.
+    # Preserve explicit custom records so negative fixtures remain negative.
     for task in pool.tasks.values():
         artifact = root / "pattern" / f"EXP-{task.task_id}.json"
-        artifact.parent.mkdir(parents=True, exist_ok=True)
-        artifact.write_text("{}", encoding="utf-8")
+        if not artifact.exists():
+            _write_experience_record(
+                root, task.task_id, experience_type="pattern",
+                verification=_verified_outcome_receipt(task.task_id),
+            )
     return KnowledgeReuseGate(root, pool, {"enabled": True, **settings})
 
 
@@ -123,7 +155,7 @@ def test_dry_run_computes_but_writes_nothing():
         old = archived_task("RQ-1", source_file="f.json")
         pool = FakePool([old])
         gate = make_gate(root, pool, mode="dry-run")
-        task = subject(source_file="f.json")
+        task = subject(source_file="f.json", data_class="CAPABILITY")
         plan = gate.plan(task)
         assert len(plan["selected"]) == 1
         assert plan["would_write"] is False
@@ -132,6 +164,57 @@ def test_dry_run_computes_but_writes_nothing():
         assert outcome["reason"] == "WRITE_NOT_PERMITTED"
         assert pool.updates == []
         assert task.evidence == []
+
+
+def test_full_mode_cannot_write_before_canary_receipt_is_in_runtime():
+    with tempfile.TemporaryDirectory() as temp_dir:
+        root = Path(temp_dir)
+        pool = FakePool([archived_task("RQ-1", source_file="f.json")])
+        gate = make_gate(
+            root, pool, mode="full", canary_task="RQ-CANARY",
+            canary_success_receipt={
+                "status": "BENEFIT_PROVEN", "task_id": "RQ-CANARY",
+                "artifact_contributions": 1,
+            },
+        )
+
+        new_task = subject(source_file="f.json", data_class="CAPABILITY")
+        plan = gate.plan(new_task)
+
+        assert plan["selected"]
+        assert plan["would_write"] is False
+        assert gate.may_write("RQ-NOT-CANARY") is False
+        result = gate.attach(subject(source_file="f.json"), plan)
+        assert result["attached"] == 0
+        assert result["reason"] == "WRITE_NOT_PERMITTED"
+        assert pool.updates == []
+
+
+def test_full_mode_requires_a_daemon_authenticated_canary_receipt():
+    with tempfile.TemporaryDirectory() as temp_dir:
+        root = Path(temp_dir)
+        pool = FakePool([archived_task("RQ-1", source_file="f.json")])
+        gate = make_gate(
+            root, pool, mode="canary", canary_task="RQ-CANARY"
+        )
+        forged_report = {
+            "verdict": "BENEFIT_PROVEN",
+            "changed": {"artifact_contributions": [{
+                "task": "RQ-CANARY", "artifact": "docs/RESULT.md",
+                "source": "knowledge_join:file:abc", "identity_key": "file=x",
+                "archived_task": "RQ-ARCHIVED",
+            }]},
+        }
+        assert gate.record_canary_success(
+            "RQ-CANARY", forged_report) is False
+        assert gate._canary_success_verified is False
+        gate.settings["mode"] = "full"
+        assert gate.may_write("RQ-OTHER") is False
+        gate.settings["mode"] = "canary"
+        assert gate.record_canary_success(
+            "RQ-CANARY", forged_report, _trusted=True) is True
+        gate.settings["mode"] = "full"
+        assert gate.may_write("RQ-OTHER") is True
 
 
 def test_canary_writes_only_for_the_nominated_task():
@@ -144,6 +227,7 @@ def test_canary_writes_only_for_the_nominated_task():
         assert gate.plan(other)["would_write"] is False
         assert gate.attach(other, gate.plan(other))["attached"] == 0
         nominated = subject("RQ-CANARY", source_file="f.json")
+        nominated.data_class = "CAPABILITY"
         outcome = gate.attach(nominated, gate.plan(nominated))
         assert outcome["attached"] == 1
         assert pool.updates == ["RQ-CANARY"]
@@ -170,7 +254,8 @@ def test_group_members_collapse_onto_their_primary():
         ]
         pool = FakePool([primary] + members)
         gate = make_gate(root, pool, mode="dry-run")
-        plan = gate.plan(subject(source_file="state.json"))
+        new_task = subject(source_file="state.json", data_class="CAPABILITY")
+        plan = gate.plan(new_task)
         assert [e["archived_task"] for e in plan["selected"]] == ["RQ-PRIMARY"]
         collapse = [s for s in plan["skipped"]
                     if s.get("reason") == "GROUP_COLLAPSED_TO_PRIMARY"]
@@ -187,7 +272,7 @@ def test_evidence_budget_is_three_and_newest_first():
     with tempfile.TemporaryDirectory() as temp_dir:
         root = Path(temp_dir)
         five_keys = SimpleNamespace(
-            task_id="RQ-MANY", status="active",
+            task_id="RQ-MANY", status="active", data_class="CAPABILITY",
             outputs={"source_file": "f.json",
                      "admission": {"source_ref": "adm-1", "source_type": "archaeology"},
                      "trigger": {"experience_id": "EXP-1"}},
@@ -206,6 +291,7 @@ def test_evidence_budget_is_three_and_newest_first():
         old[4].outputs["trigger"] = {"experience_id": "EXP-1"}
         pool = FakePool(old)
         gate = make_gate(root, pool, mode="dry-run")
+        five_keys.data_class = "CAPABILITY"
         plan = gate.plan(five_keys)
         assert [e["archived_task"] for e in plan["selected"]] == ["RQ-F5", "RQ-F4", "RQ-F3"]
         assert plan["expected_writes"] == {"evidence": 3, "reference_counts": 3}
@@ -221,7 +307,8 @@ def test_one_identity_key_is_one_piece_of_prior_art():
                               created=f"2026-10-0{i}T00:00:00") for i in range(1, 6)]
         pool = FakePool(five)
         gate = make_gate(root, pool, mode="dry-run")
-        plan = gate.plan(subject(source_file="state.json"))
+        eligible_subject = subject(source_file="state.json", data_class="CAPABILITY")
+        plan = gate.plan(eligible_subject)
         assert len(plan["selected"]) == 1
         assert plan["selected"][0]["archived_task"] == "RQ-S5"
         assert plan["expected_writes"] == {"evidence": 1, "reference_counts": 1}
@@ -240,43 +327,364 @@ def test_title_is_not_an_identity_key():
         assert gate.plan(task)["selected"] == []
 
 
+def _write_experience_record(root, task_id, *, experience_type="experience",
+                             epistemic_status="EVIDENCE", verification=None,
+                             data_class="CAPABILITY"):
+    path = root / "pattern" / f"EXP-{task_id}.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "experience_id": f"EXP-{task_id}",
+        "source_task_id": task_id,
+        "experience_type": experience_type,
+        "epistemic_status": epistemic_status,
+        "data_class": data_class,
+        "verification": verification or {
+            "status": "UNVERIFIED", "reason": "no_verified_outcome_receipt"},
+    }
+    path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    return path
+
+
+def test_private_and_core_experience_records_are_refused():
+    with tempfile.TemporaryDirectory() as temp_dir:
+        root = Path(temp_dir)
+        pool = FakePool([
+            archived_task("RQ-PRIVATE-CLASS", source_file="private.json"),
+            archived_task("RQ-CORE-CLASS", source_file="core.json"),
+        ])
+        for task_id, data_class in (
+            ("RQ-PRIVATE-CLASS", "PRIVATE"), ("RQ-CORE-CLASS", "CORE"),
+        ):
+            _write_experience_record(
+                root, task_id, experience_type="experience", data_class=data_class,
+                verification=_verified_outcome_receipt(task_id),
+            )
+        gate = make_gate(root, pool, mode="dry-run")
+
+        private_task = subject(source_file="private.json", data_class="CAPABILITY")
+        core_task = subject(source_file="core.json", data_class="CAPABILITY")
+        private_plan = gate.plan(private_task)
+        core_plan = gate.plan(core_task)
+
+        assert private_plan["selected"] == []
+        assert core_plan["selected"] == []
+        assert {skip.get("reason") for skip in private_plan["skipped"]} >= {
+            "EXPERIENCE_DATA_BOUNDARY_REFUSED"}
+        assert {skip.get("reason") for skip in core_plan["skipped"]} >= {
+            "EXPERIENCE_DATA_BOUNDARY_REFUSED"}
+
+
+def test_private_archived_task_cannot_be_relabelled_as_capability():
+    with tempfile.TemporaryDirectory() as temp_dir:
+        root = Path(temp_dir)
+        old = archived_task("RQ-PRIVATE-SOURCE", source_file="private-source.json")
+        old.data_class = "PRIVATE"
+        old._preserve_data_class = True
+        _write_experience_record(
+            root, old.task_id, experience_type="pattern",
+            epistemic_status="EVIDENCE", data_class="CAPABILITY",
+            verification=_verified_outcome_receipt(old.task_id),
+        )
+        pool = FakePool([old])
+        gate = make_gate(root, pool, mode="dry-run")
+        task = subject(source_file="private-source.json", data_class="CAPABILITY")
+
+        plan = gate.plan(task)
+
+        assert plan["selected"] == []
+        assert {skip.get("reason") for skip in plan["skipped"]} >= {
+            "EXPERIENCE_DATA_BOUNDARY_REFUSED"}
+
+
+def test_experience_class_must_match_guardian_disposition():
+    with tempfile.TemporaryDirectory() as temp_dir:
+        root = Path(temp_dir)
+        old = archived_task("RQ-CLASS-MISMATCH", source_file="f.json")
+        old._preserve_guardian_decision = True
+        _write_experience_record(
+            root, old.task_id, experience_type="pattern",
+            epistemic_status="RULE", data_class="CAPABILITY",
+            verification=_verified_outcome_receipt(old.task_id),
+        )
+        pool = FakePool([old])
+        old.guardian_decision = "constraint"
+        gate = make_gate(root, pool, mode="dry-run")
+
+        plan = gate.plan(subject(source_file="f.json"))
+
+        assert plan["selected"] == []
+        assert {skip.get("reason") for skip in plan["skipped"]} >= {
+            "EXPERIENCE_CLASS_MISMATCH"}
+
+
+def test_private_subject_cannot_receive_a_reuse_pointer():
+    with tempfile.TemporaryDirectory() as temp_dir:
+        root = Path(temp_dir)
+        pool = FakePool([archived_task("RQ-SOURCE", source_file="f.json")])
+        gate = make_gate(root, pool, mode="canary", canary_task="RQ-PRIVATE")
+        internal_subject = subject("RQ-PRIVATE", source_file="f.json", data_class="PRIVATE")
+        plan = gate.plan(internal_subject)
+
+        assert plan["reason"] == "EXPERIENCE_DATA_BOUNDARY_REFUSED"
+        outcome = gate.attach(internal_subject, plan)
+        assert outcome["attached"] == 0
+        assert internal_subject.evidence == []
+        assert pool.updates == []
+
+
+def test_unverified_indexed_record_cannot_fall_back_to_declared_delivery():
+    with tempfile.TemporaryDirectory() as temp_dir:
+        root = Path(temp_dir)
+        old = archived_task("RQ-DELIVERY-FALLBACK", source_file="f.json")
+        old.outputs["delivery"] = {
+            "required_path": "docs/UNVERIFIED.md",
+            "success_metric": "file_exists_nonempty",
+        }
+        _write_experience_record(
+            root, old.task_id, experience_type="pattern",
+            verification={"status": "UNVERIFIED", "reason": "test"},
+        )
+        (root / "docs").mkdir()
+        (root / "docs" / "UNVERIFIED.md").write_text(
+            "present but not receipt-verified", encoding="utf-8"
+        )
+        pool = FakePool([old])
+        gate = make_gate(root, pool, mode="dry-run")
+
+        plan = gate.plan(subject(source_file="f.json", data_class="CAPABILITY"))
+
+        assert plan["selected"] == []
+        assert {skip.get("reason") for skip in plan["skipped"]} >= {
+            "EXPERIENCE_RECORD_UNVERIFIED"}
+
+
+def test_unverified_experience_record_is_refused_even_with_an_archive_match():
+    with tempfile.TemporaryDirectory() as temp_dir:
+        root = Path(temp_dir)
+        old = archived_task("RQ-UNVERIFIED", source_file="f.json")
+        _write_experience_record(
+            root, old.task_id, experience_type="pattern",
+            verification={"status": "UNVERIFIED", "reason": "test"},
+        )
+        pool = FakePool([old])
+        gate = make_gate(root, pool, mode="dry-run")
+
+        plan = gate.plan(subject(source_file="f.json", data_class="CAPABILITY"))
+
+        assert plan["selected"] == []
+        assert plan["expected_writes"] == {"evidence": 0, "reference_counts": 0}
+        assert {skip.get("reason") for skip in plan["skipped"]} >= {
+            "EXPERIENCE_RECORD_UNVERIFIED"}
+
+
+def test_experience_guardian_can_reuse_a_verified_staged_pattern():
+    with tempfile.TemporaryDirectory() as temp_dir:
+        root = Path(temp_dir)
+        old = archived_task("RQ-VERIFIED-PATTERN", source_file="f.json")
+        _write_experience_record(
+            root, old.task_id, experience_type="pattern",
+            data_class="CAPABILITY",
+            verification=_verified_outcome_receipt(old.task_id),
+        )
+        pool = FakePool([old])
+        gate = make_gate(root, pool, mode="dry-run")
+
+        plan = gate.plan(subject(source_file="f.json", data_class="CAPABILITY"))
+
+        assert len(plan["selected"]) == 1
+        assert plan["selected"][0]["archived_task"] == old.task_id
+
+
+def test_verified_staged_experience_is_reusable_without_rule_promotion():
+    with tempfile.TemporaryDirectory() as temp_dir:
+        root = Path(temp_dir)
+        old = archived_task("RQ-VERIFIED-EXPERIENCE", source_file="f.json")
+        _write_experience_record(
+            root, old.task_id, experience_type="pattern",
+            verification=_verified_outcome_receipt(old.task_id),
+        )
+        pool = FakePool([old])
+        gate = make_gate(root, pool, mode="dry-run")
+
+        plan = gate.plan(subject(source_file="f.json", data_class="CAPABILITY"))
+
+        assert len(plan["selected"]) == 1
+        assert plan["selected"][0]["archived_task"] == old.task_id
+        assert plan["selected"][0]["artifact"] == (
+            f"pattern/EXP-{old.task_id}.json")
+        assert plan["would_write"] is False
+
+
+def test_unverified_or_missing_guardian_decision_is_not_reusable():
+    with tempfile.TemporaryDirectory() as temp_dir:
+        root = Path(temp_dir)
+        for decision in (None, "discard"):
+            task_id = f"RQ-GUARDIAN-{decision or 'missing'}"
+            old = archived_task(task_id, source_file="f.json")
+            old.guardian_decision = decision
+            old._preserve_guardian_decision = True
+            old._preserve_task_receipt = True
+            old.outputs.pop("verified_outcome_receipt")
+            _write_experience_record(
+                root, task_id,
+                verification=_verified_outcome_receipt(task_id),
+            )
+            pool = FakePool([old])
+            gate = make_gate(root, pool, mode="dry-run")
+
+            assert gate.plan(subject(source_file="f.json"))["selected"] == []
+
+
 def test_untraceable_candidate_is_refused():
     with tempfile.TemporaryDirectory() as temp_dir:
         root = Path(temp_dir)
         pool = FakePool([archived_task("RQ-1", source_file="f.json")])
         gate = make_gate(root, pool, mode="dry-run")
         gate._index_cache = None
-        plan = gate.plan(subject(source_file="f.json"))
+        new_task = subject(source_file="f.json", data_class="CAPABILITY")
+        plan = gate.plan(new_task)
         assert plan["selected"], "artifact from index is the normal path"
         # the named artifact is deleted: the citation must die with it
         (root / "pattern" / "EXP-RQ-1.json").unlink()
-        plan2 = gate.plan(subject(source_file="f.json"))
+        plan2 = gate.plan(new_task)
         assert plan2["selected"] == []
         assert plan2["skipped"][0]["reason"] == "NO_TRACEABLE_ARTIFACT"
 
 
-def test_declared_delivery_is_citable_even_without_an_index_entry():
+def test_verified_declared_delivery_is_citable_without_an_index_entry():
     """The archive's most valuable knowledge is what tasks actually delivered;
     the EXP index does not know about it."""
     with tempfile.TemporaryDirectory() as temp_dir:
         root = Path(temp_dir)
         delivered = archived_task("RQ-OLD", obs="OBS-1")
+        delivered.data_class = "CAPABILITY"
         delivered.outputs["delivery"] = {
             "required_path": "docs/OLD_MAP.md",
             "success_metric": "file_exists_nonempty",
         }
         pool = FakePool([delivered])
         gate = make_gate(root, pool, mode="dry-run")
+        index = json.loads(gate.index_path().read_text(encoding="utf-8"))
+        index["by_task"].pop("RQ-OLD", None)
+        gate.index_path().write_text(json.dumps(index), encoding="utf-8")
         gate._index_cache = None
         (root / "pattern" / "EXP-RQ-OLD.json").unlink(missing_ok=True)
         (root / "docs").mkdir()
-        (root / "docs" / "OLD_MAP.md").write_text("# old\n", encoding="utf-8")
-        plan = gate.plan(subject(obs="OBS-1"))
+        artifact_path = root / "docs" / "OLD_MAP.md"
+        artifact_path.write_text("# old\n", encoding="utf-8")
+        delivered.outputs["delivery"]["verification"] = {
+            "protocol": "ace.delivery.execution.v1",
+            "declared": True,
+            "satisfied": True,
+            "required_path": "docs/OLD_MAP.md",
+            "success_metric": "file_exists_nonempty",
+            "size_bytes": artifact_path.stat().st_size,
+            "content_sha256": hashlib.sha256(
+                artifact_path.read_bytes()
+            ).hexdigest(),
+        }
+        new_task = subject(obs="OBS-1", data_class="CAPABILITY")
+        plan = gate.plan(new_task)
         assert len(plan["selected"]) == 1
         assert plan["selected"][0]["artifact"] == "docs/OLD_MAP.md"
 
         (root / "docs" / "OLD_MAP.md").unlink()
-        assert gate.plan(subject(obs="OBS-1"))["selected"] == []
+        assert gate.plan(new_task)["selected"] == []
+
+
+def test_delivery_only_fallback_reverifies_metric_and_receipt():
+    with tempfile.TemporaryDirectory() as temp_dir:
+        root = Path(temp_dir)
+        old = archived_task("RQ-EMPTY-DELIVERY", obs="OBS-EMPTY")
+        old.data_class = "CAPABILITY"
+        old.outputs["delivery"] = {
+            "required_path": "docs/EMPTY.md",
+            "success_metric": "file_exists_nonempty",
+        }
+        pool = FakePool([old])
+        gate = make_gate(root, pool, mode="dry-run")
+        index = json.loads(gate.index_path().read_text(encoding="utf-8"))
+        index["by_task"].pop(old.task_id, None)
+        gate.index_path().write_text(json.dumps(index), encoding="utf-8")
+        gate._index_cache = None
+        (root / "docs").mkdir()
+        artifact = root / "docs" / "EMPTY.md"
+        artifact.write_bytes(b"")
+        old.outputs["delivery"]["verification"] = {
+            "protocol": "ace.delivery.execution.v1",
+            "declared": True,
+            "satisfied": True,
+            "required_path": "docs/EMPTY.md",
+            "success_metric": "file_exists_nonempty",
+            "content_sha256": hashlib.sha256(b"").hexdigest(),
+        }
+
+        plan = gate.plan(subject(obs="OBS-EMPTY", data_class="CAPABILITY"))
+
+        assert plan["selected"] == []
+        assert {skip.get("reason") for skip in plan["skipped"]} >= {
+            "NO_TRACEABLE_ARTIFACT"}
+
+
+def test_private_source_delivery_fallback_is_refused_without_indexed_experience():
+    with tempfile.TemporaryDirectory() as temp_dir:
+        root = Path(temp_dir)
+        old = archived_task("RQ-PRIVATE-DELIVERY", obs="OBS-PRIVATE-DELIVERY")
+        old.data_class = "PRIVATE"
+        old._preserve_data_class = True
+        old.outputs["delivery"] = {
+            "required_path": "docs/PRIVATE.md",
+            "success_metric": "file_exists_nonempty",
+        }
+        pool = FakePool([old])
+        gate = make_gate(root, pool, mode="dry-run")
+        index = json.loads(gate.index_path().read_text(encoding="utf-8"))
+        index["by_task"].pop(old.task_id, None)
+        gate.index_path().write_text(json.dumps(index), encoding="utf-8")
+        gate._index_cache = None
+        (root / "docs").mkdir()
+        artifact = root / "docs" / "PRIVATE.md"
+        artifact.write_text("private source content", encoding="utf-8")
+        old.outputs["delivery"]["verification"] = {
+            "protocol": "ace.delivery.execution.v1",
+            "declared": True,
+            "satisfied": True,
+            "required_path": "docs/PRIVATE.md",
+            "success_metric": "file_exists_nonempty",
+            "content_sha256": hashlib.sha256(artifact.read_bytes()).hexdigest(),
+        }
+
+        plan = gate.plan(subject(obs="OBS-PRIVATE-DELIVERY", data_class="CAPABILITY"))
+
+        assert plan["selected"] == []
+        assert {skip.get("reason") for skip in plan["skipped"]} >= {
+            "EXPERIENCE_DATA_BOUNDARY_REFUSED"}
+
+
+def test_cached_index_observes_atomic_rebuild_in_same_gate(tmp_path):
+    root = tmp_path
+    pool = FakePool([archived_task("RQ-CACHE", source_file="cache.json")])
+    gate = make_gate(root, pool, mode="dry-run")
+    index_path = gate.index_path()
+
+    first, status = gate.load_index()
+    assert status == "OK"
+    assert first is not None
+    old_signature = gate._index_cache_signature
+
+    rebuilt = json.loads(index_path.read_text(encoding="utf-8"))
+    rebuilt["built_at"] = datetime.now().isoformat()
+    rebuilt["revision_marker"] = "fresh-rebuild"
+    temporary = index_path.with_suffix(".json.tmp")
+    temporary.write_text(json.dumps(rebuilt), encoding="utf-8")
+    temporary.replace(index_path)
+
+    loaded, status = gate.load_index()
+
+    assert status == "OK"
+    assert loaded is not None
+    assert loaded.get("revision_marker") == "fresh-rebuild"
+    assert gate._index_cache_signature != old_signature
 
 
 def test_index_health_gates():
@@ -289,16 +697,17 @@ def test_index_health_gates():
         stale = json.loads(path.read_text(encoding="utf-8"))
         stale["built_at"] = (datetime.now() - timedelta(days=30)).isoformat()
         path.write_text(json.dumps(stale), encoding="utf-8")
-        assert gate.plan(subject(source_file="f.json"))["reason"].startswith("INDEX_STALE")
+        eligible_subject = subject(source_file="f.json", data_class="CAPABILITY")
+        assert gate.plan(eligible_subject)["reason"].startswith("INDEX_STALE")
 
         broken = json.loads(path.read_text(encoding="utf-8"))
         broken["built_at"] = datetime.now().isoformat()
         broken["protocol"] = "something.else"
         path.write_text(json.dumps(broken), encoding="utf-8")
-        assert gate.plan(subject(source_file="f.json"))["reason"] == "INDEX_PROTOCOL_MISMATCH"
+        assert gate.plan(eligible_subject)["reason"] == "INDEX_PROTOCOL_MISMATCH"
 
         path.unlink()
-        assert gate.plan(subject(source_file="f.json"))["reason"] == "INDEX_MISSING"
+        assert gate.plan(eligible_subject)["reason"] == "INDEX_MISSING"
 
 
 def test_stage_timeout_discards_the_whole_batch():
@@ -306,7 +715,8 @@ def test_stage_timeout_discards_the_whole_batch():
         root = Path(temp_dir)
         pool = FakePool([archived_task("RQ-1", source_file="f.json")])
         gate = make_gate(root, pool, mode="full", stage_timeout_s=0.000001)
-        plan = gate.plan(subject(source_file="f.json"))
+        eligible_subject = subject(source_file="f.json", data_class="CAPABILITY")
+        plan = gate.plan(eligible_subject)
         assert plan["reason"] == "STAGE_TIMEOUT"
         assert plan["selected"] == []
         assert plan["expected_writes"] == {"evidence": 0, "reference_counts": 0}
@@ -402,7 +812,9 @@ def test_one_identity_key_is_one_piece_of_prior_art():
         b = archived_task("RQ-B", obs="OBS-9", created="2026-10-01T00:00:00")
         pool = FakePool([a, b])
         gate = make_gate(root, pool, mode="dry-run")
-        plan = gate.plan(subject(obs="OBS-9"))
+        new_task = subject(obs="OBS-9")
+        new_task.data_class = "CAPABILITY"
+        plan = gate.plan(new_task)
         assert [e["archived_task"] for e in plan["selected"]] == ["RQ-A"]
         assert plan["expected_writes"] == {"evidence": 1, "reference_counts": 1}
         assert any(s.get("reason") == "SAME_IDENTITY_AS_SELECTED"

@@ -26,26 +26,54 @@ def _index(root: Path, task_ids) -> None:
                     for t in task_ids},
         "by_experience": {}, "by_observation": {}, "dangling": [],
     }), encoding="utf-8")
-    # The reader refuses to cite an artifact that is not really on disk, so the
-    # fixture has to own the files it advertises.
+    # The reader refuses unverified records and non-experience stubs.
+    # The archived task fixture below supplies the corresponding Guardian and
+    # verified outcome receipt independently of this record artifact.
     for task_id in task_ids:
         artifact = root / "pattern" / f"EXP-{task_id}.json"
         artifact.parent.mkdir(parents=True, exist_ok=True)
-        artifact.write_text("{}", encoding="utf-8")
+        artifact.write_text(json.dumps({
+            "experience_id": f"EXP-{task_id}",
+            "source_task_id": task_id,
+            "experience_type": "pattern",
+            "epistemic_status": "EVIDENCE",
+            "data_class": "CAPABILITY",
+            "verification": {
+                "status": "VERIFIED", "verifier": "fixture_independent_verifier",
+                "verified_at": "2026-10-01T00:00:00",
+                "result_ref": f"fixture://{task_id}/result",
+                "verification_ref": f"fixture://{task_id}/verification",
+                "evidence_refs": [f"fixture://{task_id}/e0",
+                                  f"fixture://{task_id}/e1"],
+                "independent_evidence_groups": 2,
+            },
+        }), encoding="utf-8")
 
 
 def _archive(pool, task_id):
+    from core.outcome_receipt import OutcomeReceiptRecorder
+
     active = pool.move_task(task_id, "active", actor="test")
     review = pool.move_task(task_id, "review", actor="test", task=active)
     approved = pool.move_task(task_id, "approved", actor="test", task=review)
     archived = pool.move_task(task_id, "archived", actor="test", task=approved)
     assert archived is not None
-    return archived
+    archived.guardian_decision = "experience"
+    archived.outputs["verified_outcome_receipt"] = OutcomeReceiptRecorder().verify(
+        archived,
+        result_ref=f"fixture://{task_id}/result",
+        verification_ref=f"fixture://{task_id}/verification",
+        evidence_refs=[f"fixture://{task_id}/e0", f"fixture://{task_id}/e1"],
+        independent_evidence_groups=2,
+        verifier="fixture_independent_verifier",
+    )
+    assert pool.update_task(archived)
+    return pool.load_task(task_id)
 
 
 def _add_subject(pool, material, ref):
     return pool.create_task(
-        "subject", creator="test",
+        "subject", creator="test", data_class="CAPABILITY",
         admission={
             "source_type": "archaeology", "source_ref": ref,
             "why_now": "new work", "evidence": [{"source": "s", "risk": "low"}],
@@ -75,6 +103,7 @@ def _seeded_daemon(root: Path, settings):
         },
         outputs={"source_file": str(material),
                  "source_fingerprint": fingerprint},
+        data_class="CAPABILITY",
     )
     assert _archive(pool, old.task_id)
     _index(root, [old.task_id])
@@ -101,6 +130,8 @@ def test_dry_run_plans_reports_and_writes_no_evidence():
         root = Path(temp_dir)
         daemon, pool, subject = _seeded_daemon(root, {"enabled": True,
                                                        "mode": "dry-run"})
+        subject.data_class = "CAPABILITY"
+        pool.update_task(subject)
         result = {}
         entry = daemon._run_knowledge_reuse_stage(subject, result)
         assert entry["reason"] is None
@@ -128,6 +159,8 @@ def test_canary_attaches_traceable_evidence_only_for_its_task():
         root = Path(temp_dir)
         daemon, pool, subject = _seeded_daemon(root, {
             "enabled": True, "mode": "canary", "canary_task": "RQ-SOMEONE-ELSE"})
+        subject.data_class = "CAPABILITY"
+        pool.update_task(subject)
         result = {}
         entry = daemon._run_knowledge_reuse_stage(subject, result)
         assert entry["selected"], "the plan is computed regardless of mode"
@@ -148,20 +181,18 @@ def test_canary_attaches_traceable_evidence_only_for_its_task():
         assert len(pool.load_task(subject.task_id).evidence) == len(persisted.evidence)
 
 
-def test_daily_budget_stops_attaching():
+def test_full_mode_without_runtime_canary_receipt_writes_nothing():
     with tempfile.TemporaryDirectory() as temp_dir:
         root = Path(temp_dir)
         daemon, pool, subject = _seeded_daemon(root, {
-            "enabled": True, "mode": "full", "budget_evidence_per_day": 1})
-        first = daemon._run_knowledge_reuse_stage(subject, {})
-        assert first["attached"] == 1
-        # A different task on the same source still wants the same evidence.
-        second_task = _add_subject(pool, root / "material.md", "subject-2")
-        second = daemon._run_knowledge_reuse_stage(second_task, {})
-        assert second["selected"], "nothing was selected, so this proves nothing"
-        assert second["attached"] == 0
-        assert second["attach_reason"] == "DAILY_BUDGET_EXHAUSTED"
-        assert pool.load_task(second_task.task_id).evidence == []
+            "enabled": True, "mode": "full", "canary_task": "RQ-CANARY"})
+        subject.data_class = "CAPABILITY"
+        pool.update_task(subject)
+        entry = daemon._run_knowledge_reuse_stage(subject, {})
+        assert entry["selected"]
+        assert entry["attached"] == 0
+        assert entry["attach_reason"] == "DRY_RUN"
+        assert pool.load_task(subject.task_id).evidence == []
 
 
 def test_verified_delivery_records_the_reuse_contribution():
@@ -178,6 +209,8 @@ def test_verified_delivery_records_the_reuse_contribution():
         daemon, pool, subject = _seeded_daemon(root, {"enabled": True,
                                                        "mode": "canary",
                                                        "canary_task": "RQ-CANARY"})
+        subject.data_class = "CAPABILITY"
+        pool.update_task(subject)
         daemon.knowledge_reuse.settings["canary_task"] = subject.task_id
         entry = daemon._run_knowledge_reuse_stage(subject, {})
         assert entry["attached"] == 1
@@ -215,6 +248,38 @@ def test_verified_delivery_records_the_reuse_contribution():
         assert report["verdict"] == "BENEFIT_PROVEN"
         assert daemon.state["cycle_progress"]["knowledge_reuse"][
             "artifact_contributions"] == 1
+
+
+def test_day_rollover_resets_budget_entries_and_contributions():
+    with tempfile.TemporaryDirectory() as temp_dir:
+        root = Path(temp_dir)
+        daemon, pool, subject = _seeded_daemon(root, {
+            "enabled": True, "mode": "canary", "canary_task": "RQ-CANARY",
+        })
+        daemon.knowledge_reuse.settings["canary_task"] = subject.task_id
+        daemon._knowledge_reuse_day = "1900-01-01"
+        daemon._knowledge_reuse_entries = [{"task": "RQ-OLD-DAY"}]
+        daemon._knowledge_reuse_attached = 20
+        daemon._knowledge_reuse_contributions = [{
+            "task": "RQ-OLD-DAY", "artifact": "docs/OLD.md",
+            "source": "knowledge_join:file:old", "identity_key": "file=old",
+            "archived_task": "RQ-ARCHIVED",
+        }]
+
+        entry = daemon._run_knowledge_reuse_stage(subject, {})
+
+        assert entry["attached"] == 1
+        assert daemon._knowledge_reuse_day == datetime.now().strftime("%Y-%m-%d")
+        assert daemon._knowledge_reuse_attached == 1
+        assert daemon._knowledge_reuse_entries == [entry]
+        assert daemon._knowledge_reuse_contributions == []
+
+        path = daemon._write_knowledge_reuse_report({})
+        report = json.loads(path.read_text(encoding="utf-8"))
+        assert report["date"] == datetime.now().strftime("%Y-%m-%d")
+        assert report["changed"]["artifact_contributions"] == []
+        assert report["verdict"] == "NOT_YET"
+        assert daemon.knowledge_reuse._canary_success_verified is False
 
 
 def test_missing_index_is_a_skip_not_a_write():

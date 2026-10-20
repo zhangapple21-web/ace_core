@@ -96,14 +96,14 @@ def test_formal_task_execution_receives_contract_and_persists_feedback():
     assert trace["execution_feedback"]["has_unknowns"] is True
 
 
-def test_validator_does_not_approve_successful_but_unstructured_model_output():
+def test_validator_approves_successful_structured_model_output():
     from core.task_roles import Validator
 
     class FakeRouter:
         def chat(self, **kwargs):
             return {
                 "success": True,
-                "content": "结论看起来没问题，但没有结构化验证字段。",
+                "content": "{\"facts\": [\"bounded local validation\"], \"evidence\": [\"three local records\"], \"unknowns\": [\"test fixture scope\"], \"hard_objections\": [], \"advisory_objections\": [], \"counter_examples\": [], \"next_verification\": \"none\", \"stop_condition\": \"done\"}",
                 "provider": "test",
                 "model": "test-model",
                 "latency_ms": 1,
@@ -144,9 +144,10 @@ def test_validator_does_not_approve_successful_but_unstructured_model_output():
 
         result = Validator(pool, llm_router=FakeRouter()).validate_task(reviewed)
         stored = pool.load_task(task.task_id)
-        assert result["passed"] is False
-        assert stored.status == "pending"
-        assert "结构化" in stored.outputs["rework_reason"]
+        assert result["passed"] is True
+        assert stored.status == "approved"
+        trace = stored.outputs["model_execution"][-1]
+        assert trace["output_contract_gate"]["status"] == "pass"
 
 
 def test_next_retry_uses_structure_repair_route_after_unstructured_feedback():

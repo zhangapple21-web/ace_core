@@ -36,6 +36,7 @@ SETTINGS = {
             "enabled": True,
             "mode": "canary",
             "canary_task": None,
+            "allow_full_after_canary": False,
             "budget_evidence_per_task": 3,
             "index_path": "09_KNOWLEDGE/join_index.v1.json",
             "report_dir": "06_RUNTIME/ace/data/knowledge_reuse",
@@ -68,6 +69,13 @@ def _root(tmp: str) -> Path:
     return root
 
 
+def _classify_experience_local(record: Path) -> None:
+    """Fixture labels this synthetic record safe for task-context reuse."""
+    payload = json.loads(record.read_text(encoding="utf-8"))
+    payload["data_class"] = "CAPABILITY"
+    record.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+
+
 def _posix(path) -> str:
     """The join index records forward-slashed paths; compare on that form."""
     return str(path).replace("\\", "/")
@@ -81,12 +89,13 @@ def _seeded_rule(daemon: AceDaemon):
         creator="merge", priority="high", tags=["archaeology"],
         admission=_admission("merge://prior"),
         outputs={"source_file": "merge://prior-source"},
+        data_class="CAPABILITY",
     )
     pool.move_task(prior.task_id, "active", actor="merge")
     pool.move_task(prior.task_id, "review", actor="merge")
     pool.move_task(prior.task_id, "approved", actor="merge")
     prior = pool.load_task(prior.task_id)
-    prior.guardian_decision = "experience"
+    prior.guardian_decision = "constraint"
     pool.update_task(prior)
     pool.move_task(prior.task_id, "archived", actor="merge")
 
@@ -108,6 +117,11 @@ def _seeded_rule(daemon: AceDaemon):
     )
     record = (daemon.base_dir / "09_KNOWLEDGE" / "constraint"
               / f"{graded.experience_id}.json")
+    record_payload = json.loads(record.read_text(encoding="utf-8"))
+    record_payload["verification"] = prior.outputs["verified_outcome_receipt"]
+    record_payload["experience_type"] = "constraint"
+    record.write_text(json.dumps(record_payload, ensure_ascii=False), encoding="utf-8")
+    _classify_experience_local(record)
     (daemon.base_dir / "09_KNOWLEDGE" / "join_index.v1.json").write_text(
         json.dumps({
             "protocol": "ace.knowledge.join.v1",
@@ -143,6 +157,7 @@ def test_intent_task_matches_the_graded_record_and_records_a_join(tmp_path):
     assert graded.experience_type == "constraint"
     assert graded.epistemic_status == "RULE"
     assert record.is_file()
+    daemon.knowledge_reuse.settings["mode"] = "canary"
 
     subject = daemon.task_pool.create_task(
         "intent: apply the archived boundary",
@@ -157,6 +172,7 @@ def test_intent_task_matches_the_graded_record_and_records_a_join(tmp_path):
                 "domain": "analysis",
             },
         },
+        data_class="CAPABILITY",
     )
     daemon.knowledge_reuse.settings["canary_task"] = subject.task_id
 
@@ -194,12 +210,14 @@ def test_reuse_pointer_is_not_corroboration_and_cannot_reach_a_rule(tmp_path):
     root = _root(str(tmp_path))
     daemon = AceDaemon(root, SETTINGS)
     _prior, graded, _record = _seeded_rule(daemon)
+    daemon.knowledge_reuse.settings["mode"] = "canary"
 
     subject = daemon.task_pool.create_task(
         "intent: subject", hypothesis="apply the archived boundary",
         creator="intent", priority="high", tags=["intent"],
         admission=_admission("merge://prior-source"),
         outputs={"source_file": "merge://prior-source"},
+        data_class="CAPABILITY",
     )
     daemon.knowledge_reuse.settings["canary_task"] = subject.task_id
     daemon._run_knowledge_reuse_stage(daemon.task_pool.load_task(subject.task_id), {})
@@ -244,6 +262,7 @@ def test_dry_run_plans_the_same_match_and_writes_nothing(tmp_path):
         creator="intent", priority="high", tags=["intent"],
         admission=_admission("merge://prior-source", kind="system_observation"),
         outputs={"source_file": "merge://prior-source"},
+        data_class="CAPABILITY",
     )
 
     entry = daemon._run_knowledge_reuse_stage(

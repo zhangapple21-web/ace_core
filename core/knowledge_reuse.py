@@ -34,6 +34,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from core.delivery_execution import resolve_delivery_path
+from core.delivery_execution import verify_delivery
+from core.delivery_execution import PROTOCOL as DELIVERY_PROTOCOL
 
 INDEX_PROTOCOL = "ace.knowledge.join.v1"
 JOIN_SOURCE_PREFIX = "knowledge_join:"
@@ -48,6 +50,7 @@ DEFAULTS: Dict[str, Any] = {
     "stage_timeout_s": 120,
     "index_max_age_days": 7,
     "canary_task": None,
+    "canary_success_receipt": None,
     "index_path": "09_KNOWLEDGE/join_index.v1.json",
     "report_dir": "06_RUNTIME/ace/data/knowledge_reuse",
 }
@@ -128,6 +131,8 @@ class KnowledgeReuseGate:
         self.settings = {**DEFAULTS, **(settings or {})}
         self._archive_cache: Optional[Tuple[Tuple[int, float], List[Any]]] = None
         self._index_cache: Optional[Dict[str, Any]] = None
+        self._index_cache_signature: Optional[Tuple[int, int, int, int]] = None
+        self._canary_success_verified = False
 
     # ── switch ────────────────────────────────────────────
     @property
@@ -139,15 +144,49 @@ class KnowledgeReuseGate:
         mode = _text(self.settings.get("mode") or "dry-run").strip().lower()
         return mode if mode in MODE_ORDER else "dry-run"
 
+    def record_canary_success(self, task_id: str, report: Dict[str, Any],
+                              *, _trusted: bool = False) -> bool:
+        """Advance the mode ladder only from the daemon's generated report."""
+        if _trusted is not True:
+            return False
+        nominated = _text(self.settings.get("canary_task"))
+        if not nominated or task_id != nominated or self.mode != "canary":
+            return False
+        if not isinstance(report, dict) or report.get("verdict") != "BENEFIT_PROVEN":
+            return False
+        changed = report.get("changed")
+        contributions = changed.get("artifact_contributions") if isinstance(changed, dict) else None
+        if not isinstance(contributions, list) or not contributions:
+            return False
+        required = ("task", "artifact", "source", "identity_key", "archived_task")
+        if any(
+            not isinstance(item, dict)
+            or _text(item.get("task")) != nominated
+            or any(not _text(item.get(field)).strip() for field in required)
+            or not _text(item.get("source")).startswith(JOIN_SOURCE_PREFIX)
+            for item in contributions
+        ):
+            return False
+        self._canary_success_verified = True
+        self.settings["canary_success_receipt"] = {
+            "status": "BENEFIT_PROVEN",
+            "task_id": nominated,
+            "artifact_contributions": len(contributions),
+        }
+        return True
+
     def may_write(self, task_id: str) -> bool:
-        """Dry-run never writes. Canary writes for exactly one nominated task."""
+        """Dry-run never writes; full mode requires a verified canary receipt."""
         if not self.enabled:
             return False
         if self.mode == "dry-run":
             return False
+        canary_task = _text(self.settings.get("canary_task"))
+        if not canary_task:
+            return False
         if self.mode == "canary":
-            return bool(self.settings.get("canary_task")) and task_id == self.settings.get("canary_task")
-        return True
+            return task_id == canary_task
+        return self._canary_success_verified and task_id != ""
 
     # ── index health ──────────────────────────────────────
     def index_path(self) -> Path:
@@ -155,9 +194,20 @@ class KnowledgeReuseGate:
 
     def load_index(self) -> Tuple[Optional[Dict[str, Any]], str]:
         path = self.index_path()
-        if not path.exists():
+        try:
+            stat = path.stat()
+        except FileNotFoundError:
+            self._index_cache = None
+            self._index_cache_signature = None
             return None, "INDEX_MISSING"
-        if self._index_cache is not None and self._index_cache.get("_path") == str(path):
+        except OSError as exc:
+            self._index_cache = None
+            self._index_cache_signature = None
+            return None, f"INDEX_UNREADABLE:{type(exc).__name__}"
+        signature = (stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns)
+        if (self._index_cache is not None
+                and self._index_cache.get("_path") == str(path)
+                and self._index_cache_signature == signature):
             return self._index_cache, "OK"
         try:
             index = json.loads(path.read_text(encoding="utf-8"))
@@ -177,6 +227,7 @@ class KnowledgeReuseGate:
             return None, f"INDEX_STALE:{age_days:.1f}d"
         index["_path"] = str(path)
         self._index_cache = index
+        self._index_cache_signature = signature
         return index, "OK"
 
     # ── archive view ──────────────────────────────────────
@@ -222,6 +273,11 @@ class KnowledgeReuseGate:
         if not self.enabled:
             report["reason"] = "DISABLED"
             report["skipped_status"] = "DISABLED"
+            return report
+        subject_class = _text(getattr(task, "data_class", "PRIVATE")).strip().upper()
+        if subject_class in {"PRIVATE", "CORE"}:
+            report["reason"] = "EXPERIENCE_DATA_BOUNDARY_REFUSED"
+            report["skipped_status"] = "EXPERIENCE_DATA_BOUNDARY_REFUSED"
             return report
         if index is None:
             report["reason"] = status
@@ -277,8 +333,12 @@ class KnowledgeReuseGate:
             entry = candidate_evidence(candidate, matched, subject_keys, index,
                                        workspace=self.base_dir)
             if entry is None:
-                report["skipped"].append({"task": tid, "via": matched,
-                                          "reason": "NO_TRACEABLE_ARTIFACT"})
+                report["skipped"].append({
+                    "task": tid, "via": matched,
+                    "reason": _candidate_failure_reason(
+                        candidate, index, self.base_dir
+                    ),
+                })
                 continue
             if tid in referenced:
                 report["skipped"].append({"task": tid, "via": matched,
@@ -359,14 +419,158 @@ class KnowledgeReuseGate:
         return {"attached": attached, "reason": None, "mode": self.mode}
 
 
+def _experience_record_reason(candidate: Any, record_path: str,
+                               workspace: Optional[Path]) -> Optional[str]:
+    """Check one indexed experience against its owning archived task and receipt."""
+    task_id = _text(getattr(candidate, "task_id", ""))
+    if workspace is None:
+        return "EXPERIENCE_RECORD_UNAVAILABLE"
+    resolved = resolve_delivery_path(workspace, _text(record_path))
+    if resolved is None or not resolved.is_file():
+        return "EXPERIENCE_RECORD_UNAVAILABLE"
+    try:
+        payload = json.loads(resolved.read_text(encoding="utf-8"))
+    except (OSError, ValueError, UnicodeDecodeError):
+        return "EXPERIENCE_RECORD_UNREADABLE"
+    if not isinstance(payload, dict) or _text(payload.get("source_task_id")) != task_id:
+        return "EXPERIENCE_OWNER_MISMATCH"
+    candidate_class = _text(getattr(candidate, "data_class", "PRIVATE")).strip().upper()
+    if candidate_class not in {"PUBLIC", "CAPABILITY", "STRUCTURE", "PRIVATE", "CORE"}:
+        return "EXPERIENCE_DATA_CLASS_INVALID"
+    if candidate_class in {"PRIVATE", "CORE"}:
+        return "EXPERIENCE_DATA_BOUNDARY_REFUSED"
+    data_class = _text(payload.get("data_class") or "PRIVATE").strip().upper()
+    if data_class not in {"PUBLIC", "CAPABILITY", "STRUCTURE", "PRIVATE", "CORE"}:
+        return "EXPERIENCE_DATA_CLASS_INVALID"
+    if data_class in {"PRIVATE", "CORE"}:
+        return "EXPERIENCE_DATA_BOUNDARY_REFUSED"
+    if data_class != candidate_class:
+        return "EXPERIENCE_DATA_CLASS_MISMATCH"
+    if _text(payload.get("epistemic_status")).strip().upper() not in {
+            "RULE", "VERIFIED_FACT", "EVIDENCE"}:
+        return "EXPERIENCE_GRADE_NOT_REUSABLE"
+    guardian = _text(getattr(candidate, "guardian_decision", "")).strip().lower()
+    experience_type = _text(payload.get("experience_type")).strip().lower()
+    valid_types = {
+        "experience": {"pattern"},
+        "constraint": {"constraint"},
+        "axiom": {"axiom"},
+    }
+    if experience_type not in valid_types.get(guardian, set()):
+        return "EXPERIENCE_CLASS_MISMATCH"
+    verification = payload.get("verification")
+    if not _verified_experience_verification(verification):
+        return "EXPERIENCE_RECORD_UNVERIFIED"
+    return None
+
+
+def _candidate_eligibility_reason(candidate: Any) -> Optional[str]:
+    """Require a reusable source class, Guardian disposition, and verified receipt."""
+    task_id = _text(getattr(candidate, "task_id", ""))
+    data_class = _text(getattr(candidate, "data_class", "PRIVATE")).strip().upper()
+    if data_class not in {"PUBLIC", "CAPABILITY", "STRUCTURE", "PRIVATE", "CORE"}:
+        return "EXPERIENCE_DATA_CLASS_INVALID"
+    if data_class in {"PRIVATE", "CORE"}:
+        return "EXPERIENCE_DATA_BOUNDARY_REFUSED"
+    guardian = _text(getattr(candidate, "guardian_decision", "")).strip().lower()
+    if guardian not in {"experience", "constraint", "axiom"}:
+        return "GUARDIAN_NOT_QUALIFIED"
+    outputs = getattr(candidate, "outputs", None)
+    outputs = outputs if isinstance(outputs, dict) else {}
+    if not _verified_receipt(outputs.get("verified_outcome_receipt"), task_id):
+        return "TASK_OUTCOME_UNVERIFIED"
+    return None
+
+
+def _experience_paths(record_paths: List[str]) -> List[str]:
+    result = []
+    for value in record_paths:
+        path_text = _text(value).replace("\\", "/")
+        filename = Path(path_text).name
+        if filename.startswith("EXP-") and filename.lower().endswith(".json"):
+            result.append(path_text)
+    return result
+
+
+def _candidate_failure_reason(candidate: Any, index: Optional[Dict[str, Any]],
+                              workspace: Optional[Path]) -> str:
+    eligibility = _candidate_eligibility_reason(candidate)
+    if eligibility:
+        return eligibility
+    task_id = _text(getattr(candidate, "task_id", ""))
+    record = ((index or {}).get("by_task") or {}).get(task_id) or {}
+    paths = list(record.get("patterns") or []) + list(record.get("cards") or [])
+    exp_paths = _experience_paths(paths)
+    if exp_paths:
+        for path in exp_paths:
+            reason = _experience_record_reason(candidate, path, workspace)
+            if reason is None:
+                continue
+            if reason != "EXPERIENCE_RECORD_UNAVAILABLE":
+                return reason
+    return "NO_TRACEABLE_ARTIFACT"
+
+
+def _verified_experience_verification(verification: Any) -> bool:
+    """Validate the evidence projection stored in Experience.verification."""
+    if not isinstance(verification, dict) or verification.get("status") != "VERIFIED":
+        return False
+    if not _text(verification.get("verifier")) or not _text(verification.get("verified_at")):
+        return False
+    if not _text(verification.get("result_ref")) or not _text(verification.get("verification_ref")):
+        return False
+    try:
+        groups = int(verification.get("independent_evidence_groups", 0) or 0)
+    except (TypeError, ValueError):
+        return False
+    refs = verification.get("evidence_refs")
+    return groups >= 2 and isinstance(refs, list) and len({
+        _text(ref).strip() for ref in refs if _text(ref).strip()
+    }) >= 2
+
+
+def _verified_receipt(receipt: Any, task_id: str) -> bool:
+    """Validate the existing receipt's minimum independent-evidence fields."""
+    if not isinstance(receipt, dict) or receipt.get("status") != "VERIFIED":
+        return False
+    if _text(receipt.get("task_id")) != task_id:
+        return False
+    if not _text(receipt.get("verifier")) or not _text(receipt.get("verified_at")):
+        return False
+    if not _text(receipt.get("result_ref")) or not _text(receipt.get("verification_ref")):
+        return False
+    try:
+        groups = int(receipt.get("independent_evidence_groups", 0) or 0)
+    except (TypeError, ValueError):
+        return False
+    refs = receipt.get("evidence_refs")
+    return groups >= 2 and isinstance(refs, list) and len({
+        _text(ref).strip() for ref in refs if _text(ref).strip()
+    }) >= 2
+
+
+def _qualified_experience(candidate: Any, workspace: Optional[Path],
+                          record_paths: List[str]) -> bool:
+    eligibility = _candidate_eligibility_reason(candidate)
+    if eligibility:
+        return False
+    experience_paths = _experience_paths(record_paths)
+    if not experience_paths:
+        return not record_paths
+    return any(
+        _experience_record_reason(candidate, path, workspace) is None
+        for path in experience_paths
+    )
+
+
 def candidate_evidence(candidate: Any, matched: List[str], subject_keys: Dict[str, str],
                        index: Optional[Dict[str, Any]],
                        workspace: Optional[Path] = None) -> Optional[Dict[str, Any]]:
-    """Build the traceable triple, or None when no artifact can be named.
+    """Build the traceable triple, or None when no qualified artifact can be named.
 
-    The artifact must be a real file inside the workspace. A citation that points
-    at a deleted EXP record or at a path nobody can open is a claim, not
-    evidence, and a report built on claims is worse than no report.
+    The artifact must be a real file inside the workspace. An indexed experience
+    is also screened against the archived owner task and its verified receipt;
+    the existence of an EVIDENCE/RULE label alone does not qualify it.
     """
     task_id = _text(getattr(candidate, "task_id", ""))
     outputs = getattr(candidate, "outputs", None)
@@ -376,21 +580,51 @@ def candidate_evidence(candidate: Any, matched: List[str], subject_keys: Dict[st
     by_task = (index or {}).get("by_task") or {}
     record = by_task.get(task_id) or {}
     paths = list(record.get("patterns") or []) + list(record.get("cards") or [])
+    if _candidate_eligibility_reason(candidate):
+        return None
+    exp_paths = _experience_paths(paths)
+    if exp_paths:
+        record_reasons = [
+            _experience_record_reason(candidate, exp_path, workspace)
+            for exp_path in exp_paths
+        ]
+        if not any(reason is None for reason in record_reasons):
+            return None
+    elif paths:
+        # An indexed card or other artifact is not an Experience record and is
+        # not covered by this narrow reuse gate.
+        return None
     if workspace is not None:
         for candidate_path in paths:
-            resolved = resolve_delivery_path(workspace, _text(candidate_path))
+            normalized_path = _text(candidate_path).replace("\\", "/")
+            if normalized_path in exp_paths and _experience_record_reason(
+                    candidate, normalized_path, workspace) is not None:
+                continue
+            resolved = resolve_delivery_path(workspace, normalized_path)
             if resolved is not None and resolved.is_file():
-                artifact = _text(candidate_path).replace("\\", "/")
+                artifact = normalized_path
                 break
-        if artifact is None:
-            # A declared delivery is the strongest artifact a task can produce,
-            # and the delivery contract already governs where it may live.
+        if artifact is None and not exp_paths and not paths:
+            # A delivery-only candidate may be cited only when the archived
+            # delivery verifier stored a matching, successful receipt.
             delivery = outputs.get("delivery")
-            required = _text((delivery or {}).get("required_path")).strip().replace("\\", "/")
-            if required:
+            delivery = delivery if isinstance(delivery, dict) else {}
+            required = _text(delivery.get("required_path")).strip().replace("\\", "/")
+            verification = delivery.get("verification")
+            if (required and isinstance(verification, dict)
+                    and verification.get("protocol") == DELIVERY_PROTOCOL
+                    and verification.get("satisfied") is True
+                    and _text(verification.get("required_path")).replace("\\", "/") == required):
                 resolved = resolve_delivery_path(workspace, required)
-                if resolved is not None and resolved.is_file():
-                    artifact = required
+                expected_sha256 = _text(verification.get("content_sha256")).strip().lower()
+                if (resolved is not None and resolved.is_file() and expected_sha256
+                        and hashlib.sha256(resolved.read_bytes()).hexdigest() == expected_sha256):
+                    fresh_verification = verify_delivery(candidate, workspace)
+                    if (fresh_verification.get("protocol") == DELIVERY_PROTOCOL
+                            and fresh_verification.get("satisfied") is True
+                            and fresh_verification.get("required_path", "").replace("\\", "/") == required
+                            and fresh_verification.get("success_metric") == verification.get("success_metric")):
+                        artifact = required
     if artifact is None:
         return None
     key = join_key(matched, subject_keys)

@@ -1,4 +1,4 @@
-﻿import copy
+import copy
 import sys
 import tempfile
 from datetime import datetime, timedelta

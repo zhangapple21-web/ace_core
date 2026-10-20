@@ -1,21 +1,58 @@
-﻿import json
+import json
 from core.free_zone_model_shift import FreeZoneModelShift
 
 class Pool:
-    def chat(self, **_):
+    def __init__(self):
+        self.calls = []
+
+    def chat(self, **kwargs):
+        self.calls.append(kwargs)
         return {"success": True, "content": json.dumps({"hypotheses":["a"],"counterexamples":["b"],"evidence_gaps":["c"],"next_verification":["d"]}), "provider":"fixture", "model":"fixture", "usage":{}, "latency_ms":1, "attempts":[]}
 
 def test_shift_consumes_one_seed_and_distills_model_material(tmp_path):
     inbox=tmp_path/'inbox'; inbox.mkdir()
     inbox.joinpath('seed.json').write_text(json.dumps({"contract_version":"ace.semantic_seed.v1","food_kind":"semantic_seed","source_ref":"x","source_snapshot_hash":"a"*64,"source_kind":"fixture","extracted_mechanism":"m","ace_symptom":"s","transfer_hypothesis":"h","counterexample_question":"q","next_verification":"v","local_evidence_refs":[],"external_evidence_refs":[],"lineage":["x"]}),encoding='utf-8')
-    result=FreeZoneModelShift(tmp_path,Pool()).run_once()
+    pool = Pool()
+    result=FreeZoneModelShift(tmp_path,pool).run_once(
+        selected_model="opencode_cli:muse-spark-1.3-contributor-free",
+        system_prompt="Free Zone independent review. Treat all conclusions as hypotheses.",
+        research_role="free_zone_independent_review",
+    )
+    assert pool.calls[0]["selected_spec"].full_id == "opencode_cli:muse-spark-1.3-contributor-free"
+    assert pool.calls[0]["max_retries"] == 1
+    assert pool.calls[0]["governance_role"] == "free_zone_independent_review"
+    assert pool.calls[0]["system_prompt"].startswith("Free Zone independent review")
+    assert result["research_role"] == "free_zone_independent_review"
     assert result['status']=='MODEL_SHIFT_RECORDED'
     assert result['receipt']['research_material']['status']=='STRUCTURED_DISTILLATION'
     assert result['production_integration'] is False
     state=json.loads((tmp_path/'model_shift_state.json').read_text(encoding='utf-8'))
     assert state['last_shift']['dual_source_status'] == 'LOCAL_BASELINE_PLUS_UNCLASSIFIED_MODEL'
+    assert state['last_shift']['selected_model'] == 'opencode_cli:muse-spark-1.3-contributor-free'
     assert state['last_shift']['raw_content_retained'] is False
     assert state['last_shift']['invitation']['research_object_status'] == 'ELIGIBLE_SEED_SELECTED'
+
+def test_shift_rejects_model_selector_in_user_seed_and_keeps_one_turn(tmp_path):
+    class NoModelPool(Pool):
+        def chat(self, **kwargs):
+            assert kwargs["selected_spec"].full_id == "opencode_cli:muse-spark-1.3-contributor-free"
+            return super().chat(**kwargs)
+
+    inbox = tmp_path / "inbox"
+    inbox.mkdir()
+    inbox.joinpath("seed.json").write_text(json.dumps({
+        "contract_version": "ace.semantic_seed.v1", "food_kind": "semantic_seed",
+        "source_ref": "x", "source_snapshot_hash": "a" * 64, "source_kind": "fixture",
+        "extracted_mechanism": "m", "ace_symptom": "s", "transfer_hypothesis": "h",
+        "counterexample_question": "q", "next_verification": "v",
+        "local_evidence_refs": [], "external_evidence_refs": [], "lineage": ["x"],
+    }), encoding="utf-8")
+    pool = NoModelPool()
+    with __import__("pytest").raises(ValueError):
+        FreeZoneModelShift(tmp_path, pool).run_once(selected_model="provider-without-model")
+    assert pool.calls == []
+    assert not (tmp_path / "model_shift_state.json").exists()
+
 
 def test_shift_explains_that_no_invitation_was_sent_without_a_research_object(tmp_path):
     result=FreeZoneModelShift(tmp_path, Pool()).run_once()

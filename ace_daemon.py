@@ -608,6 +608,10 @@ class AceDaemon:
                 public_sentiment=PublicSentimentObservation(
                     str(self.base_dir / "06_RUNTIME" / "ace" / "data")
                 ),
+                # A stalled data-admission blocker routes one bounded review
+                # task through the existing pool instead of repeating the
+                # research action that already failed.
+                task_pool=self.task_pool,
             )
             self.daily_shift = DailyShift(
                 self.task_pool,
@@ -4194,6 +4198,16 @@ class AceDaemon:
               " into the deliverable so its origin can be traced. If none of it"
               " applies, say so explicitly instead of citing it."
         )
+    def _begin_knowledge_reuse_day(self, day: Optional[str] = None) -> str:
+        """Reset per-day KnowledgeReuse state before planning or budget checks."""
+        day = day or datetime.now().strftime("%Y-%m-%d")
+        if self._knowledge_reuse_day != day:
+            self._knowledge_reuse_day = day
+            self._knowledge_reuse_entries = []
+            self._knowledge_reuse_attached = 0
+            self._knowledge_reuse_contributions = []
+        return day
+
     def _record_reuse_contributions(self, task: Task, verification: Dict[str, Any]) -> None:
         """Ask the delivered file whether it really used the reused knowledge.
 
@@ -4204,6 +4218,7 @@ class AceDaemon:
         gate = getattr(self, "knowledge_reuse", None)
         if gate is None or not gate.enabled:
             return
+        self._begin_knowledge_reuse_day()
         required_path = str(verification.get("required_path") or "")
         try:
             contributions = artifact_contributions(task, required_path, self.base_dir)
@@ -4226,6 +4241,7 @@ class AceDaemon:
         """
         gate = getattr(self, "knowledge_reuse", None)
         task_id = getattr(task, "task_id", "")
+        self._begin_knowledge_reuse_day()
         if gate is None:
             return {"status": "GATE_UNAVAILABLE", "task": task_id}
         try:
@@ -4259,10 +4275,6 @@ class AceDaemon:
             "attach_reason": attach.get("reason"),
             "skipped": plan.get("skipped", []),
         }
-        day = datetime.now().strftime("%Y-%m-%d")
-        if self._knowledge_reuse_day != day:
-            self._knowledge_reuse_day = day
-            self._knowledge_reuse_entries = []
         self._knowledge_reuse_entries.append(entry)
         result.setdefault("knowledge_reuse", []).append(entry)
         return entry
@@ -4275,7 +4287,7 @@ class AceDaemon:
         gate = getattr(self, "knowledge_reuse", None)
         if gate is None:
             return None
-        day = self._knowledge_reuse_day or datetime.now().strftime("%Y-%m-%d")
+        day = self._begin_knowledge_reuse_day()
         skip_reason = None if gate.enabled else "DISABLED"
         try:
             report = build_daily_report(day, gate.mode,
@@ -4286,6 +4298,13 @@ class AceDaemon:
         except Exception as e:
             self._log_error("knowledge_reuse_report", str(e))
             return None
+        if self._knowledge_reuse_entries:
+            canary_entry = next((
+                entry for entry in self._knowledge_reuse_entries
+                if entry.get("task") == gate.settings.get("canary_task")
+            ), None)
+            if canary_entry is not None:
+                gate.record_canary_success(canary_entry["task"], report, _trusted=True)
         self.state.setdefault("cycle_progress", {})["knowledge_reuse"] = {
             "mode": gate.mode,
             "enabled": gate.enabled,

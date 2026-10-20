@@ -14,9 +14,9 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import pytest  # noqa: E402
+import pytest
 
-from core.governance.mengpo_runtime import (  # noqa: E402
+from core.governance.mengpo_runtime import (
     MAX_PER_RUN,
     MengpoRuntime,
     assess,
@@ -184,7 +184,9 @@ def test_a_dry_run_changes_nothing(tmp_path, runtime):
 # ------------------------------------------------------------------ bounds
 
 def test_a_refusal_still_records_the_run(tmp_path, runtime):
-    lexicon = {"concepts": [_concept("c1", "unique")]}
+    concept = _concept("c1", "unique")
+    _seeded_lexicon(tmp_path, concept)
+    lexicon = {"concepts": [concept]}
     report = runtime.run(lexicon=lexicon, pollution_scores={"c1": 0.9})
     assert report["counts"]["refused"] == 1
     # cooldown applies even to a run that forgot nothing
@@ -210,8 +212,10 @@ def test_daily_cap_bounds_how_often_it_runs(tmp_path, runtime):
 def test_per_run_cap_bounds_a_single_sweep(tmp_path, runtime):
     """Even when everything qualifies, one run forgets at most MAX_PER_RUN."""
     concepts = [_concept(f"c{i}", "shape") for i in range(MAX_PER_RUN + 3)]
-    lexicon = {"concepts": concepts
-               + [_concept("sub", "shape", superseded_by="sub")]}
+    substitute = _concept("sub", "shape", superseded_by="sub")
+    lexicon = {"concepts": concepts + [substitute]}
+    lexicon_path = _seeded_lexicon(tmp_path, concepts[0])
+    lexicon_path.write_text(json.dumps(lexicon), encoding="utf-8")
     report = runtime.run(lexicon=lexicon,
                          pollution_scores={f"c{i}": 0.9 for i in range(MAX_PER_RUN + 3)},
                          dry_run=True)

@@ -54,6 +54,7 @@ class FinanceWorkWindows:
         public_sentiment=None,
         candidate_snapshot_provider=None,
         refresh_each_cycle: bool = False,
+        task_pool=None,
     ):
         self.data_dir = Path(data_dir)
         try:
@@ -75,6 +76,9 @@ class FinanceWorkWindows:
         self.report_path = self.data_dir / "finance_work_windows_latest.json"
         self.discovery_ledger_path = self.data_dir / "stock_data_evidence" / "early_opportunity_discovery.v1.jsonl"
         self.recovery = DataAdmissionRecovery(self.data_dir)
+        # Injected so a stalled blocker can route one bounded review task into
+        # the existing TaskPool.  Absent a pool the window stays a pure ledger.
+        self.task_pool = task_pool
 
     def _evidence_refs(self):
         return [
@@ -224,6 +228,10 @@ class FinanceWorkWindows:
         except (OSError, json.JSONDecodeError):
             matrix = {}
         recovery = self.recovery.build(matrix, observed_at=observed_at.isoformat())
+        # A repeated blocker must change what the system does, not just what it
+        # reports.  When the ledger declares a stall, route it once into the
+        # existing review path instead of replaying the dead research action.
+        recovery["escalation"] = self.recovery.escalate(recovery, self.task_pool)
         if due is None:
             window_status = "WINDOW_NOT_DUE"
         elif status in {"DEGRADED", "RESEARCH_ONLY"}:

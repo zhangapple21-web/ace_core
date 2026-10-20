@@ -364,7 +364,14 @@ class AutonomousKernel:
         """provider 的默认模型"""
         defaults = {
             "glm": "glm-4-flash",
-            "nim": "deepseek-ai/deepseek-v4-flash",
+            # 2026-10-13 修正: 原 "deepseek-ai/deepseek-v4-flash" 已被 NVIDIA 下架
+            # (HTTP 410 Gone)。曾改为 deepseek-v4.1-flash, 但同日 3 连发深测显示
+            # 它经 NIM 直连 0/3 (45s 超时, 路由在但 effectively 不可用),
+            # 故默认指向 3/3 稳定的 nemotron-3-super-120b-a12b。
+            # v4.1-flash 的生产路径仍是 Shenwen 专用通道, 与 NIM 无关。
+            # 注意: kernel 的 _provider_model 只在未显式指定模型时兜底,
+            # 生产路由仍以 08_GOVERNANCE/provider_registry + health score 为准。
+            "nim": "nvidia/nemotron-3-super-120b-a12b",
             "apiyi": "gemini-pro",
             "sambanova": "Meta-Llama-3.1-405B-Instruct",
             "oneapi": os.environ.get("ONEAPI_MODEL", "gpt-5.4-mini"),

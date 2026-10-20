@@ -1,4 +1,4 @@
-"""One daily, bounded Free Zone model-research shift; never a second scheduler."""
+"""One bounded Free Zone model-research shift; never a second scheduler."""
 from __future__ import annotations
 import json
 import hashlib
@@ -20,7 +20,14 @@ def _file_digest(path: Path) -> str:
 class FreeZoneModelShift:
     def __init__(self, root: str | Path, miner_pool: Any):
         self.root=Path(root); self.pool=miner_pool; self.inbox=self.root/'inbox'; self.state_path=self.root/'model_shift_state.json'; self.sandbox=FreeResearchSandbox(self.root)
-    def run_once(self, *, max_tokens: int=1024) -> dict:
+    def run_once(
+        self,
+        *,
+        max_tokens: int=1024,
+        selected_model: str = "",
+        research_role: str = "free_zone_research",
+        system_prompt: str = "Free Zone only. Treat all conclusions as hypotheses.",
+    ) -> dict:
         state=self._read(self.state_path); done=set(state.get('completed_seed_hashes',[]))
         selected=None; valid_count=0; invalid_count=0
         for path in sorted(self.inbox.glob('*.json')):
@@ -58,7 +65,13 @@ class FreeZoneModelShift:
         path,seed=selected
         derived_from = seed.get("derived_from_distillation") if isinstance(seed, dict) else None
         foundry_from = seed.get("foundry_model") if isinstance(seed, dict) else None
-        receipt=FreeZoneModelResearch(self.pool).run(seed,max_tokens=max_tokens)
+        receipt=FreeZoneModelResearch(self.pool).run(
+            seed,
+            max_tokens=max_tokens,
+            system_prompt=system_prompt,
+            selected_model=selected_model,
+            role=research_role,
+        )
         outcome='INCONCLUSIVE' if receipt['outcome']=='MODEL_TURN_RECORDED' else 'FAIL'
         exp_id='EXP-MODEL-'+seed['seed_hash'][:16].upper()
         if path is not None:
@@ -77,6 +90,8 @@ class FreeZoneModelShift:
             state['derived_distillation_ids'] = used_sources
         state['last_shift'] = {
             'outcome': receipt['outcome'],
+            'research_role': research_role,
+            'selected_model': receipt.get('selected_model', ''),
             'dual_source_status': receipt['dual_source_status'],
             'model_execution_realm': receipt['model_execution_realm'],
             'provider': receipt['provider'],
@@ -88,7 +103,7 @@ class FreeZoneModelShift:
             'production_integration': False,
         }
         self._write(self.state_path,state)
-        return {'status':'MODEL_SHIFT_RECORDED','seed_hash':seed['seed_hash'],'experiment_id':exp_id,'receipt':receipt,'distillation_status':distilled.get('status'),'invitation':receipt['invitation'],'inbox_fingerprint':self.inbox_fingerprint(),'production_integration':False}
+        return {'status':'MODEL_SHIFT_RECORDED','seed_hash':seed['seed_hash'],'experiment_id':exp_id,'research_role':research_role,'selected_model':receipt.get('selected_model',''),'receipt':receipt,'distillation_status':distilled.get('status'),'invitation':receipt['invitation'],'inbox_fingerprint':self.inbox_fingerprint(),'production_integration':False}
     def _distillation_from_derived_turn(self, exp_dir: Path, dist_id: str) -> bool:
         """True when this distillation came out of a derived-seed turn.
 

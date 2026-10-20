@@ -127,7 +127,7 @@ def test_judgment_ready_keeps_unknowns_open():
     assert result["thinking_grants_execution"] is False
 
 
-def test_model_call_is_think_not_execute_and_loop_skips_model():
+def test_structured_model_think_is_not_execution_and_loop_skips_model():
     class FakeRouter:
         def __init__(self):
             self.calls = 0
@@ -136,7 +136,7 @@ def test_model_call_is_think_not_execute_and_loop_skips_model():
             self.calls += 1
             return {
                 "success": True,
-                "content": "plain text without structure",
+                "content": '{"facts":["bounded thought"],"unknowns":["fixture uncertainty"],"objections":["test objection"],"next_verification":"none","stop_condition":"done"}',
                 "provider": "test",
                 "model": "test-model",
                 "latency_ms": 1,
@@ -159,6 +159,7 @@ def test_model_call_is_think_not_execute_and_loop_skips_model():
     assert trace["cognitive_think"]["thinking_permitted"] is True
     assert trace["cognitive_think"]["thinking_grants_execution"] is False
     assert trace["cognitive_think"]["execution_permitted"] is False
+    assert trace["output_contract_gate"]["status"] == "pass"
 
     second = _record_model_execution(task, "researcher", router, "repair")
     assert second is not None

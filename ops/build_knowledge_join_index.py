@@ -2,17 +2,18 @@
 
 The reader (`core/knowledge_reuse.py`) trusts this file completely: if it is
 missing, stale, or names artifacts that do not exist, the reuse stage silently
-plans nothing.  Nothing in the tree builds it, so it has been frozen at
-2026-10-03T20:57 and points only at records that predate the epistemic merge —
-which is why no real task can match graded knowledge today.
+plans nothing. No production daemon path currently refreshes it, so operators
+must not enable reuse until the index maintenance path is explicitly governed.
 
 This rebuilds it from the two things that ARE authoritative:
 
   * ``09_KNOWLEDGE/index.json`` + the per-record files, for what knowledge exists
   * ``task_pool/archived``, for which archived task owns which record
 
-It only reads. It writes the index atomically. It never promotes, grades or
-deletes anything.
+It reads the knowledge index, Experience records, and archived task files
+without constructing ``TaskPool`` (whose constructor performs runtime recovery).
+The builder writes only the derived join index atomically; it never mutates the
+TaskPool, promotes, grades, or deletes anything.
 """
 from __future__ import annotations
 
@@ -21,18 +22,19 @@ import os
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Set
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from core.knowledge_reuse import INDEX_PROTOCOL  # noqa: E402
-from core.task import TaskPool  # noqa: E402
 
 KNOWLEDGE = ROOT / "09_KNOWLEDGE"
 INDEX_PATH = KNOWLEDGE / "join_index.v1.json"
 KNOWLEDGE_INDEX = KNOWLEDGE / "index.json"
-POOL = TaskPool(str(ROOT / "task_pool"))
+# Optional test seam only. Production discovery below reads archived task files
+# directly so importing/running this builder cannot trigger TaskPool recovery.
+POOL = None
 
 
 def _load_index() -> Dict[str, Any]:
@@ -79,6 +81,33 @@ def _record_from_path(path_text: str) -> Dict[str, Any] | None:
     }
 
 
+def _archived_task_ids() -> Set[str]:
+    """Read archived IDs without constructing TaskPool or repairing its state.
+
+    TaskPool.__init__ runs recover_incomplete_transitions(), which may remove
+    duplicate/temp files and rebuild task_index.json. An index builder must be
+    a read-only consumer of that authoritative directory, not a recovery caller.
+    """
+    if POOL is not None:
+        return {task.task_id for task in POOL.list_tasks(
+            status="archived", limit=100000)}
+
+    archived_dir = ROOT / "task_pool" / "archived"
+    archived_ids: set[str] = set()
+    if not archived_dir.is_dir():
+        return archived_ids
+    for path in archived_dir.glob("RQ-*.json"):
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError, json.JSONDecodeError):
+            continue
+        if (isinstance(payload, dict)
+                and payload.get("status") == "archived"
+                and str(payload.get("task_id") or "") == path.stem):
+            archived_ids.add(path.stem)
+    return archived_ids
+
+
 def build() -> Dict[str, Any]:
     knowledge_index = _load_index()
 
@@ -107,7 +136,7 @@ def build() -> Dict[str, Any]:
 
     # Keep only tasks that are genuinely archived: the reader joins on the
     # archive, and pointing at a live task would invite reuse of work in flight.
-    archived_ids = {t.task_id for t in POOL.list_tasks(status="archived", limit=100000)}
+    archived_ids = _archived_task_ids()
     live_only = [tid for tid in by_task if tid not in archived_ids]
     for task_id in live_only:
         by_task.pop(task_id, None)

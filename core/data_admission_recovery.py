@@ -114,11 +114,10 @@ class DataAdmissionRecovery:
                 1 for task in task_pool.list_tasks(limit=10000) if _spent_same_cycle(task)
             )
         except Exception:
+            # Preserve the existing failure behavior: a transient spent-review
+            # count failure does not suppress a later escalation attempt.
             spent = 0
-        generation = spent + 1
 
-        # The generation is a diagnostic, not an identity.
-        #
         # This used to be spliced into operation_intent, which participates in
         # create_task's duplicate detection - and so guaranteed the opposite of
         # what this module exists to do. Measured on 2026-10-19: one blocker,
@@ -192,17 +191,12 @@ class DataAdmissionRecovery:
                     (getattr(task, "outputs", {}) or {}).get("admission", {}), ensure_ascii=False, default=str
                 )
             ]
-            before = {
-                task.task_id for task in existing
-                if fingerprint in json.dumps(
-                    (getattr(task, "outputs", {}) or {}).get("admission", {}), ensure_ascii=False, default=str
-                )
-                and not _spent_same_cycle(task)
+            # Preserve existing idempotency: the task-id baseline is a fresh
+            # snapshot immediately before create_task, so a concurrently-created
+            # task is not misreported as newly admitted by this call.
+            ids_before_call = {
+                task.task_id for task in task_pool.list_tasks(limit=10000)
             }
-            # Every id present before the call, spent or not. The created flag
-            # has to be answerable from the pool, not inferred from which subset
-            # of it happened to be unspent.
-            ids_before_call = {task.task_id for task in task_pool.list_tasks(limit=10000)}
             task = task_pool.create_task(
                 title=f"停滞根因复核: 数据准入 {len(escaped)} 项无进展",
                 hypothesis=(

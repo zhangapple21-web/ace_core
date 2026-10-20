@@ -105,6 +105,41 @@ def test_validator_consumes_evidence_packet_at_review_boundary():
         assert stored.outputs["delivery_protocol_checks"]["checked_by"] == "validator"
 
 
+def test_validator_excludes_archivist_task_cards_from_protocol_evidence_count():
+    """Protocol packet projection must not restore evidence excluded by Validator."""
+    with tempfile.TemporaryDirectory() as temp_dir:
+        pool = TaskPool(temp_dir)
+        task = pool.create_task(
+            "production validation with reused task card",
+            hypothesis="An archived task card is context, not an independent observation.",
+            creator="test",
+            tags=["production"],
+            admission=_admission("test-protocol:reuse-pointer-validator"),
+        )
+        claimed = pool.claim_task(task.task_id, "researcher", lease_seconds=60)
+        assert claimed is not None
+        claimed.evidence = [
+            {"content": "Independent source one confirms the observed production behavior.", "source": "source-1"},
+            {"content": "Independent source two separately confirms the same behavior.", "source": "source-2"},
+            {
+                "content": "## \u4efb\u52a1ID: RQ-20261019-023\n**\u6807\u9898**: Previously archived task card.",
+                "source": "archivist:05bd7b33",
+            },
+        ]
+        assert pool.update_task(claimed)
+        assert pool.move_task(claimed.task_id, "review", actor="researcher", task=claimed) is not None
+
+        result = Validator(pool).validate_task(pool.load_task(claimed.task_id))
+        stored = pool.load_task(claimed.task_id)
+
+        assert result["passed"] is False
+        assert result["verdict"].startswith("需补充研究")
+        assert "仅2条证据，样本量不足" in result["objections"]
+        assert stored is not None
+        assert stored.outputs["evidence_packet"]["status"] == "PASS"
+        assert stored.outputs["last_validator_result"]["distinct_evidence_count"] == 2
+
+
 def test_guardian_does_not_promote_long_term_rule_without_protocols():
     with tempfile.TemporaryDirectory() as temp_dir:
         pool = TaskPool(temp_dir)

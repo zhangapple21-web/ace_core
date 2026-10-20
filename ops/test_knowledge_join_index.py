@@ -1,4 +1,5 @@
-"""The join index must be rebuildable from the authoritative stores.
+"""The join index must be rebuildable from the authoritative stores without
+triggering TaskPool runtime recovery side effects.
 
 ``core/knowledge_reuse.py`` trusts ``09_KNOWLEDGE/join_index.v1.json``
 completely: a missing, stale, or wrong index makes the reuse stage plan nothing,
@@ -27,6 +28,14 @@ DERIVED = {
 }
 
 
+def _set_builder_paths(builder, root, knowledge, pool):
+    builder.ROOT = root
+    builder.KNOWLEDGE = knowledge
+    builder.INDEX_PATH = knowledge / "join_index.v1.json"
+    builder.KNOWLEDGE_INDEX = knowledge / "index.json"
+    builder.POOL = pool
+
+
 def _archive(pool, task_id, outputs, evidence=0):
     task = pool.create_task(
         "owner", hypothesis="h", creator="test",
@@ -37,6 +46,7 @@ def _archive(pool, task_id, outputs, evidence=0):
             "risk": "r", "estimated_scope": "one",
         },
         outputs=outputs,
+        data_class="CAPABILITY",
     )
     for i in range(evidence):
         task.add_evidence(f"fact {i}", source=f"s{i}")
@@ -89,11 +99,7 @@ def test_build_indexes_archived_records_and_grades_them(tmp_path, monkeypatch):
     knowledge = root / "09_KNOWLEDGE"
     knowledge.mkdir(parents=True)
     pool = TaskPool(str(root / "task_pool"))
-    monkeypatch.setattr(builder, "ROOT", root)
-    monkeypatch.setattr(builder, "KNOWLEDGE", knowledge)
-    monkeypatch.setattr(builder, "INDEX_PATH", knowledge / "join_index.v1.json")
-    monkeypatch.setattr(builder, "KNOWLEDGE_INDEX", knowledge / "index.json")
-    monkeypatch.setattr(builder, "POOL", pool)
+    _set_builder_paths(builder, root, knowledge, pool)
 
     archived = _archive(pool, "RQ-ARCHIVED",
                         {"source_file": "C:/frag/a.md"})
@@ -119,11 +125,7 @@ def test_build_drops_records_whose_task_is_not_archived(tmp_path, monkeypatch):
     knowledge = root / "09_KNOWLEDGE"
     knowledge.mkdir(parents=True)
     pool = TaskPool(str(root / "task_pool"))
-    monkeypatch.setattr(builder, "ROOT", root)
-    monkeypatch.setattr(builder, "KNOWLEDGE", knowledge)
-    monkeypatch.setattr(builder, "INDEX_PATH", knowledge / "join_index.v1.json")
-    monkeypatch.setattr(builder, "KNOWLEDGE_INDEX", knowledge / "index.json")
-    monkeypatch.setattr(builder, "POOL", pool)
+    _set_builder_paths(builder, root, knowledge, pool)
 
     # A task that is still pending must never be advertised as reusable history.
     live = pool.create_task(
@@ -151,11 +153,7 @@ def test_build_reports_a_record_whose_file_vanished(tmp_path, monkeypatch):
     knowledge = root / "09_KNOWLEDGE"
     knowledge.mkdir(parents=True)
     pool = TaskPool(str(root / "task_pool"))
-    monkeypatch.setattr(builder, "ROOT", root)
-    monkeypatch.setattr(builder, "KNOWLEDGE", knowledge)
-    monkeypatch.setattr(builder, "INDEX_PATH", knowledge / "join_index.v1.json")
-    monkeypatch.setattr(builder, "KNOWLEDGE_INDEX", knowledge / "index.json")
-    monkeypatch.setattr(builder, "POOL", pool)
+    _set_builder_paths(builder, root, knowledge, pool)
 
     (knowledge / "index.json").write_text(json.dumps({
         "EXP-GONE": {"path": str(knowledge / "pattern" / "EXP-GONE.json"),
@@ -166,6 +164,63 @@ def test_build_reports_a_record_whose_file_vanished(tmp_path, monkeypatch):
 
     assert payload["endpoints"]["dangling"] == 1
     assert payload["dangling"][0]["id"] == "EXP-GONE"
+
+
+def test_importing_builder_does_not_construct_task_pool(monkeypatch):
+    import importlib
+    import core.task as task_module
+    import build_knowledge_join_index as builder
+
+    original = task_module.TaskPool
+
+    def forbid_task_pool(*args, **kwargs):
+        raise AssertionError("builder import must not construct TaskPool")
+
+    monkeypatch.setattr(task_module, "TaskPool", forbid_task_pool)
+    try:
+        builder = importlib.reload(builder)
+    finally:
+        monkeypatch.setattr(task_module, "TaskPool", original)
+        importlib.reload(builder)
+
+    assert builder.POOL is None
+
+
+def test_builder_does_not_construct_task_pool_or_recover_runtime_state(tmp_path, monkeypatch):
+    import build_knowledge_join_index as builder
+
+    root = tmp_path / "ace_core"
+    knowledge = root / "09_KNOWLEDGE"
+    archived_dir = root / "task_pool" / "archived"
+    knowledge.mkdir(parents=True)
+    archived_dir.mkdir(parents=True)
+    monkeypatch.setattr(builder, "ROOT", root)
+    monkeypatch.setattr(builder, "KNOWLEDGE", knowledge)
+    monkeypatch.setattr(builder, "KNOWLEDGE_INDEX", knowledge / "index.json")
+    monkeypatch.setattr(builder, "POOL", None)
+
+    archived_task = archived_dir / "RQ-ARCHIVED.json"
+    archived_task.write_text(json.dumps({
+        "task_id": "RQ-ARCHIVED", "status": "archived",
+    }), encoding="utf-8")
+    # A conflicting temp file is recovery input, not builder-owned state. The
+    # read-only builder must leave it byte-for-byte intact.
+    duplicate = root / "task_pool" / "pending" / "RQ-ARCHIVED.json"
+    duplicate.parent.mkdir(parents=True)
+    duplicate.write_text(json.dumps({
+        "task_id": "RQ-ARCHIVED", "status": "pending",
+    }), encoding="utf-8")
+    temp_file = archived_dir / "RQ-ORPHAN.json.tmp"
+    temp_file.write_text("keep-me", encoding="utf-8")
+    record = _write_record(knowledge, "EXP-ARCHIVED", "RQ-ARCHIVED", "pattern")
+    _knowledge_index(knowledge, [record])
+
+    payload = builder.build()
+
+    assert "RQ-ARCHIVED" in payload["by_task"]
+    assert duplicate.is_file()
+    assert temp_file.read_text(encoding="utf-8") == "keep-me"
+    assert not (root / "task_pool" / "task_index.json").exists()
 
 
 def test_a_rebuilt_index_lets_the_real_gate_match_a_graded_record(tmp_path):
@@ -187,7 +242,36 @@ def test_a_rebuilt_index_lets_the_real_gate_match_a_graded_record(tmp_path):
     try:
         source = "C:/frag/identity.md"
         archived = _archive(pool, "RQ-ARCHIVED", {"source_file": source})
-        rule = _write_record(knowledge, "EXP-RULE", archived, "constraint")
+        prior = pool.load_task(archived)
+        receipt = {
+            "schema_version": 1,
+            "status": "VERIFIED",
+            "task_id": archived,
+            "verified_at": "2026-10-01T00:00:00",
+            "verifier": "fixture_independent_verifier",
+            "result_ref": f"fixture://{archived}/result",
+            "verification_ref": f"fixture://{archived}/verification",
+            "evidence_refs": [f"fixture://{archived}/e0",
+                              f"fixture://{archived}/e1"],
+            "independent_evidence_groups": 2,
+        }
+        prior.outputs["verified_outcome_receipt"] = receipt
+        pool.update_task(prior)
+        rule = _write_record(knowledge, "EXP-RULE", archived, "constraint",
+                             epistemic_status="RULE")
+        record = json.loads(rule.read_text(encoding="utf-8"))
+        record["data_class"] = "CAPABILITY"
+        record["verification"] = {
+            key: receipt[key] for key in (
+                "status", "verified_at", "verifier", "result_ref",
+                "verification_ref", "evidence_refs",
+                "independent_evidence_groups",
+            )
+        }
+        rule.write_text(json.dumps(record, ensure_ascii=False), encoding="utf-8")
+        archived_record = pool.load_task(archived)
+        archived_record.guardian_decision = "constraint"
+        pool.update_task(archived_record)
         _knowledge_index(knowledge, [rule])
         builder.main()
     finally:
@@ -203,6 +287,7 @@ def test_a_rebuilt_index_lets_the_real_gate_match_a_graded_record(tmp_path):
             "risk": "r", "estimated_scope": "one",
         },
         outputs={"source_file": source},
+        data_class="CAPABILITY",
     )
 
     gate = KnowledgeReuseGate(root, pool, {"enabled": True, "mode": "full",
@@ -223,11 +308,7 @@ def test_rebuilt_index_passes_the_gate_freshness_check(tmp_path, monkeypatch):
     knowledge = root / "09_KNOWLEDGE"
     knowledge.mkdir(parents=True)
     pool = TaskPool(str(root / "task_pool"))
-    for key, value in {"ROOT": root, "KNOWLEDGE": knowledge,
-                       "INDEX_PATH": knowledge / "join_index.v1.json",
-                       "KNOWLEDGE_INDEX": knowledge / "index.json",
-                       "POOL": pool}.items():
-        monkeypatch.setattr(builder, key, value)
+    _set_builder_paths(builder, root, knowledge, pool)
 
     (knowledge / "index.json").write_text("{}", encoding="utf-8")
     builder.main()

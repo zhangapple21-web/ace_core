@@ -31,6 +31,8 @@ from typing import Any, Iterable, Mapping
 BASE_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(BASE_DIR))
 
+from core.free_zone_external_reviewer import parse_review_verdict  # noqa: E402
+
 CONTRACT_VERSION = "ace.external_evidence_unblock.v1"
 
 REQUIRED_SUPPORTED = 2
@@ -113,15 +115,15 @@ def collect_reviews(root: Path) -> dict[str, TaskReview]:
                 continue
             reviewer = str(entry.get("reviewer") or "?").strip() or "?"
             status = str(entry.get("status") or "")
-            detail = str(entry.get("detail", "")).upper()
-            verdict = "UNPARSED"
-            for candidate in VERDICTS:
-                if candidate in detail:
-                    verdict = candidate
-                    break
+            raw_detail = str(entry.get("detail", ""))
             if status in {"UNAVAILABLE", "DEGENERATE"}:
                 verdict = status
-            flag = _flag_insufficiency(detail) if status == "REVIEWED" else ""
+            else:
+                # Parse the VERDICT line, never scan the prose: a review that
+                # discusses CONTRADICTED while concluding CANNOT_ASSESS is not
+                # a contradiction, and counting it as one manufactures dissent.
+                verdict = parse_review_verdict(raw_detail) or "UNPARSED"
+            flag = _flag_insufficiency(raw_detail) if status == "REVIEWED" else ""
             for task_id in task_ids:
                 record = collected.setdefault(task_id, TaskReview(task_id))
                 record.sweeps += 1

@@ -185,6 +185,7 @@ class OpenCodeCliProvider(BaseProvider):
         **kwargs,
     ) -> Dict[str, Any]:
         start_time = time.time()
+        governance_role = str(kwargs.pop("governance_role", "opencode_cli_provider"))
         result: Dict[str, Any] = {
             "success": False,
             "content": "",
@@ -218,7 +219,7 @@ class OpenCodeCliProvider(BaseProvider):
                 messages,
                 task_type=str(kwargs.pop("governance_task_type", "model_call")),
                 task_id=str(kwargs.pop("governance_task_id", "")),
-                role="opencode_cli_provider",
+                role=governance_role,
             )
         except RuntimeError as error:
             text = str(error)
@@ -241,6 +242,8 @@ class OpenCodeCliProvider(BaseProvider):
             # nothing.
             result["error"] = "opencode_empty_prompt"
             return result
+        # Governance role labels execution responsibility; it does not grant
+        # credentials or a persistent agent identity to the provider.
         prompt = self._flatten_messages(governed)
 
         try:

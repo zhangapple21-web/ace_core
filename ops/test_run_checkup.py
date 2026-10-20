@@ -36,8 +36,8 @@ def test_main_preserves_failed_check_diagnostics_in_snapshot(monkeypatch):
     monkeypatch.setattr(
         run_checkup,
         "send_alert",
-        lambda level, module, message, notify=False: alerts.append(
-            (level, module, message, notify)
+        lambda level, module, message, notify=False, details=None: alerts.append(
+            (level, module, message, notify, details)
         ),
     )
     monkeypatch.setattr(
@@ -68,7 +68,19 @@ def test_main_preserves_failed_check_diagnostics_in_snapshot(monkeypatch):
     assert "environment" not in snapshot["checks"]["health"]
     assert "must-not-be-recorded" not in str(snapshot)
     assert ("log_rotate.py", []) in calls
-    assert alerts == [("error", "checkup", "巡检结果: error", False)]
+    assert alerts == [
+        (
+            "error",
+            "checkup",
+            "巡检结果: error",
+            False,
+            {
+                "overall": "error",
+                "checks": snapshot["checks"],
+                "observed_at": snapshot["timestamp"],
+            },
+        )
+    ]
 
 
 def _run_main_with(monkeypatch, health_result):
@@ -93,8 +105,8 @@ def _run_main_with(monkeypatch, health_result):
     monkeypatch.setattr(
         run_checkup,
         "send_alert",
-        lambda level, module, message, notify=False: alerts.append(
-            (level, module, message, notify)
+        lambda level, module, message, notify=False, details=None: alerts.append(
+            (level, module, message, notify, details)
         ),
     )
     monkeypatch.setattr(run_checkup.sys, "argv", ["run_checkup.py", "--quiet"])
@@ -129,8 +141,15 @@ def test_warning_json_is_not_promoted_to_error(monkeypatch):
     assert {item["name"] for item in health["failed_checks"]} == {
         "known_backlog", "stale_ratings",
     }
-    assert alerts == [("warn", "checkup", "健康检查警告: 2个警告", False),
-                      ("warn", "checkup", "巡检结果: warning", False)]
+    assert alerts[0][:4] == ("warn", "checkup", "健康检查警告: 2个警告", False)
+    assert alerts[0][4]["failed_checks"] == [
+        {"name": "known_backlog", "severity": "warning"},
+        {"name": "stale_ratings", "severity": "warning"},
+    ]
+    assert alerts[0][4]["observed_at"] == snapshots[0]["timestamp"]
+    assert alerts[1][:4] == ("warn", "checkup", "巡检结果: warning", False)
+    assert alerts[1][4]["overall"] == "warning"
+    assert alerts[1][4]["checks"] == snapshots[0]["checks"]
 
 
 def test_error_json_keeps_failed_probe_identity(monkeypatch):

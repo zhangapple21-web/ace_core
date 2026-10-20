@@ -267,7 +267,13 @@ def main(argv=None) -> int:
 
     if args.command == "start":
         pool = _pool(args)
-        receipt = ace_start(pool, args.task_id, args.owner, lease_seconds=args.lease)
+        # Pass the repo root so the lane layer can record what this start does
+        # NOT claim. Without it, `ace_start` cannot build a registry and a start
+        # holding no file region stays invisible, which is exactly the silence
+        # the lane convention exists to remove. The owner still starts: an
+        # undeclared region is recorded, never refused.
+        receipt = ace_start(pool, args.task_id, args.owner, lease_seconds=args.lease,
+                            base_dir=str(REPO_ROOT))
         # A weak worker that has just been handed credentials still has to guess
         # how to spend them.  The receipt says the one next line instead, so the
         # claim -> render chain never depends on the worker remembering a format.

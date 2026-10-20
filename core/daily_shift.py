@@ -204,6 +204,23 @@ class DailyShift:
         free_zone_model_shift = self._free_zone_model_shift_summary(state)
         paper_evaluation = PaperEvaluationJournal(str(self.data_dir)).summary()
         refresh = window.get("data_refresh") if isinstance(window.get("data_refresh"), dict) else {}
+        if not refresh:
+            # The finance module records the refresh inside each window entry, not at
+            # the top level of the same file, so this used to read a key nothing writes
+            # and print its default over a refresh that had run. Measured 2026-10-19:
+            # `open_validation` carried the record while the top level was null. Read
+            # the most recently observed window that has one.
+            per_window = window.get("daily_windows")
+            if isinstance(per_window, dict):
+                for name in sorted(
+                    per_window,
+                    key=lambda key: str((per_window[key] or {}).get("observed_at") or "")
+                    if isinstance(per_window.get(key), dict) else "",
+                ):
+                    candidate = (per_window.get(name) or {}).get("data_refresh")
+                    if isinstance(candidate, dict) and candidate:
+                        refresh = candidate
+                        break
         if refresh.get("status") == "already_attempted_for_window":
             initial = refresh.get("initial_result")
             refresh_evidence = initial if isinstance(initial, dict) else refresh

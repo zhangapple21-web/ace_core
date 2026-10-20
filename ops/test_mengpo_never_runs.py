@@ -1,42 +1,30 @@
-"""Mengpo is designed but never runs: the diagnosis, as executable tests.
+"""Pin the Mengpo probe boundary and the unsafe production-runtime diagnosis.
 
-Three findings, each pinned so none can be argued away as a reading:
+The daemon currently runs only its isolated, legacy ``MengpoMemoryDecay``
+archive probe. The destructive ``MengpoRuntime`` path is deliberately unwired.
+These tests keep that distinction explicit:
 
-1. The auto-trigger that was written to actually do the forgetting
-   (MengpoAutoTrigger: thresholds, cooldown, daily cap, backup-first, archive-
-   not-delete) has ZERO call sites in the whole repo. It was built and never
-   wired.
+1. ``MengpoAutoTrigger`` still has zero production call sites.
+2. The legacy probe's ``MengpoMemoryDecay.forget()`` writes a graveyard
+   tombstone but does not remove source memory; its empty ``affected_items`` is
+   not proof of production forgetting.
+3. ``MengpoRuntime`` adds a substitution check and is covered by isolated tests,
+   but is not production-ready: it has no authorized canonical-store deletion
+   owner and has not passed independent recovery, governance, or daemon-evidence
+   review. Do not wire it into the daemon until those gates are satisfied.
 
-2. MengpoMemoryDecay.forget() writes a graveyard tombstone but never removes
-   the artifact from the lexicon or the experience store. Every one of the
-   2837 records in mengpo_records.jsonl has affected_items == [] because the
-   thing it "forgot" is still exactly where it was.
-
-3. The scorer that decides WHAT to forget asks only "is this dirty", never
-   "what would I lose". A low-pollution, unreferenced artifact with no
-   functional substitute is content whose removal creates a hole, and a dirty
-   one that nothing else can replace is worse to forget than to keep. Nothing
-   in the design models substitutability, so forgetting cannot be selective in
-   the sense the owner means.
-
-The first two are wiring and are fixed in core/autonomous_adjudication's
-sibling, core/governance/mengpo_runtime.py. The third is the substantive design
-addition: a substitution check that runs before any forget.
+The tests intentionally preserve the legacy liveness probe without granting the
+new runtime production deletion authority.
 """
 from __future__ import annotations
 
 import json
-import os
 import sys
 from pathlib import Path
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from core.governance.mengpo import MengpoMemoryDecay
 
-import pytest  # noqa: E402
-
-from core.governance.mengpo import (  # noqa: E402
-    MengpoMemoryDecay,
-)
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 
 # ------------------------------------------------------------------ finding 1
@@ -55,7 +43,7 @@ def test_the_auto_trigger_has_no_call_sites():
     repo = Path(__file__).resolve().parent.parent
     result = subprocess.run(
         ["git", "-C", str(repo), "grep", "-n", "MengpoAutoTrigger", "--", "*.py"],
-        capture_output=True, text=True, cwd=str(repo),
+        capture_output=True, text=True, cwd=str(repo), check=False,
     )
     invocations = []
     for line in result.stdout.splitlines():
@@ -102,3 +90,57 @@ def test_forget_writes_a_tombstone_but_leaves_the_body(tmp_path):
     assert list(record.get("affected_items") or []) == [], (
         "the artifact is still in the store; only a tombstone was written"
     )
+
+
+def test_mengpo_runtime_stays_unwired_until_rollback_gate_is_accepted():
+    """A passed unit test must not silently turn into daemon deletion authority."""
+    import ast
+
+    repo = Path(__file__).resolve().parent.parent
+    daemon_path = repo / "ace_daemon.py"
+    source = daemon_path.read_text(encoding="utf-8")
+    tree = ast.parse(source, filename=str(daemon_path))
+
+    runtime_references = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Name) and node.id == "MengpoRuntime":
+            runtime_references.append(f"name@{node.lineno}")
+        elif isinstance(node, (ast.Import, ast.ImportFrom)):
+            for alias in node.names:
+                if alias.name == "MengpoRuntime":
+                    runtime_references.append(f"import@{node.lineno}")
+    assert not runtime_references, (
+        "MengpoRuntime must remain out of the daemon until rollback and governance "
+        f"gates are independently accepted: {runtime_references}"
+    )
+
+    probe = next(
+        node for node in ast.walk(tree)
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and node.name == "_run_memory_governance_probe"
+    )
+    probe_names = {
+        node.id for node in ast.walk(probe) if isinstance(node, ast.Name)
+    }
+    assert "MengpoMemoryDecay" in probe_names
+    assert any(
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "forget"
+        for node in ast.walk(probe)
+    ), "the current liveness probe must keep exercising the legacy archive check"
+    assert any(
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "ForgettingCandidate"
+        and any(
+            keyword.arg == "id"
+            and isinstance(keyword.value, ast.Constant)
+            and keyword.value.value == "cycle-probe"
+            for keyword in node.keywords
+        )
+        for node in ast.walk(probe)
+    ), "the probe id must stay stable to avoid graveyard file accumulation"
+    probe_source = ast.get_source_segment(source, probe) or ""
+    assert '"production_integration": False' in probe_source
+    assert '"probe_only": True' in probe_source
