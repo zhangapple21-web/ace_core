@@ -191,9 +191,12 @@ def test_autonomous_kernel_experiment_blocks_private_input_before_model_or_persi
     assert result["provider_calls"] == 0
 
 
-def test_key_health_records_and_reports_never_include_visible_credential_prefix(tmp_path):
-    from core.governance.key_health import KeyHealthManager
+def test_key_health_records_and_reports_never_include_visible_credential_prefix(
+    tmp_path, monkeypatch
+):
+    from core.governance.key_health import KEY_ID_PBKDF2_ITERATIONS, KeyHealthManager
 
+    monkeypatch.setattr("core.governance.key_health.KEY_ID_PBKDF2_ITERATIONS", 1)
     fake_key = "test-only-credential-prefix-value"
     manager = KeyHealthManager(str(tmp_path))
     record = manager.record_success("test-provider", fake_key, 12)

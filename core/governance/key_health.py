@@ -24,6 +24,7 @@ Key Health（Key 健康度）
         - 证据可追溯
 """
 
+import hashlib
 import json
 import logging
 import re
@@ -34,6 +35,8 @@ from pathlib import Path
 from typing import Dict, List, Any, Mapping, Optional
 
 logger = logging.getLogger(__name__)
+KEY_ID_PBKDF2_ITERATIONS = 600_000
+KEY_ID_PBKDF2_SALT = b"ace.key-health.fingerprint.v1"
 
 _CREDENTIAL_ASSIGNMENT = re.compile(
     r"(?i)\b(?:authorization|api[_-]?key|access[_-]?token|secret|password)\b\s*[:=]\s*(?:bearer\s+)?[^\s,;\"']+"
@@ -197,10 +200,21 @@ class KeyHealthManager:
             logger.error(f"保存 Key 健康记录失败: {e}")
 
     def _key_id(self, api_key: str, provider: str) -> str:
-        """以完整凭证的不可读指纹稳定关联记录，不保留任何可见前缀。"""
-        import hashlib
-        raw = f"{provider}:{api_key}"
-        return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:20]
+        """Return a stable, non-reversible credential fingerprint.
+
+        PBKDF2 makes offline guessing materially more expensive than a direct
+        digest while retaining deterministic IDs across restarts. Its fixed,
+        purpose-specific salt is public; the credential and prefix are never stored.
+        """
+        raw = f"ace.key-health.fingerprint.v1:{provider}:{api_key}".encode("utf-8")
+        fingerprint = hashlib.pbkdf2_hmac(
+            "sha256",
+            raw,
+            KEY_ID_PBKDF2_SALT,
+            KEY_ID_PBKDF2_ITERATIONS,
+            dklen=32,
+        )
+        return fingerprint.hex()[:20]
 
     def _update_health_score(self, record: KeyHealthRecord):
         """计算健康评分"""
