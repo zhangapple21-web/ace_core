@@ -10,9 +10,28 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from core.task_roles import Researcher, Validator
+from core.task_roles import Researcher, Validator, _symbolic_evidence_snapshot
 from ops.test_support import FixtureTaskPool
 from ops.test_task_roles_contracts import _admission, _response, _Router
+
+
+def test_symbolic_evidence_snapshot_deduplicates_before_aggregate_budget():
+    evidence = [{"source": "runtime", "kind": "observation", "content": "same"}] * 512
+
+    snapshot = _symbolic_evidence_snapshot(evidence)
+
+    assert snapshot == [{"source": "runtime", "kind": "observation", "content": "same"}]
+
+
+def test_symbolic_evidence_snapshot_rejects_distinct_aggregate_overflow():
+    evidence = [
+        {"source": f"runtime:{index}", "content": "x" * 1024}
+        for index in range(40)
+    ]
+
+    import pytest
+    with pytest.raises(ValueError, match="aggregate budgets"):
+        _symbolic_evidence_snapshot(evidence)
 
 
 def _task_with_research(tmp_path, validator_response):

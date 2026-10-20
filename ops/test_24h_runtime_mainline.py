@@ -1435,10 +1435,26 @@ def test_daemon_daily_learning_adapts_independent_checkup_failure_evidence():
         / "daily_results"
         / "2026-09-15.json"
     )
-    production_before = production_receipt.read_text(encoding="utf-8")
+    production_before = (
+        production_receipt.exists(),
+        production_receipt.read_bytes() if production_receipt.is_file() else None,
+    )
 
     with tempfile.TemporaryDirectory() as temp_dir:
-        daemon = AceDaemon(Path(temp_dir), {})
+        scratch_root = Path(temp_dir)
+        prior_receipt = (
+            scratch_root
+            / "06_RUNTIME"
+            / "ace"
+            / "data"
+            / "memory"
+            / "daily_learning"
+            / "daily_results"
+            / "2026-09-15.json"
+        )
+        prior_receipt.parent.mkdir(parents=True)
+        prior_receipt.write_bytes(b'{"fixture":"preserve-me"}')
+        daemon = AceDaemon(scratch_root, {})
         checkup_path = str(Path(temp_dir) / "ops" / "logs" / "checkup_history.jsonl")
         snapshot = _independent_failed_checkup_snapshot(checkup_path)
         daemon.runtime_observer.record(
@@ -1489,7 +1505,13 @@ def test_daemon_daily_learning_adapts_independent_checkup_failure_evidence():
         assert {item["source"] for item in admission["evidence"]} == {"health", "status"}
         deposited = list(Path(daemon.daily_learning.deposition.knowledge_dir).rglob("EXP-*.json"))
         assert deposited, "adopted checkup failure learning must deposit an experience receipt"
-        assert production_receipt.read_text(encoding="utf-8") == production_before
+        assert (
+            production_receipt.exists(),
+            production_receipt.read_bytes() if production_receipt.is_file() else None,
+        ) == production_before
+        assert prior_receipt.read_bytes() == b'{"fixture":"preserve-me"}'
+        assert str(scratch_root) in str(daemon.data_dir)
+        assert str(scratch_root) in str(daemon.task_pool.pool_dir)
 
 
 def test_daemon_rejects_single_probe_or_ok_checkup_as_learning_candidate():

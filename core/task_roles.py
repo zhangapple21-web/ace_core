@@ -39,11 +39,25 @@ from .neuro_symbolic_claims import (
 from .cognitive_think_gate import COGNITIVE_HUB, LOOP_BLOCKED, evaluate_cognitive_think_gate
 
 
+def _invalid_symbolic_audit(reason: str, side_effect_scope: str) -> dict[str, Any]:
+    """Represent a bounded symbolic-audit failure without stopping the role."""
+    audit = audit_symbolic_claims("INVALID", side_effect_scope=side_effect_scope)
+    audit["issues"] = [{"claim_id": None, "code": reason, "field": "evidence_context"}]
+    return audit
+
+
 def _symbolic_evidence_snapshot(evidence_items: Any) -> list[dict[str, str]]:
-    """Bound and normalize evidence identity/content used by the audit digest."""
+    """Bound and normalize evidence identity/content used by the audit digest.
+
+    Task records can legitimately contain the same evidence more than once: the
+    Validator's convergence logic already treats exact duplicates as one record.
+    Keep the raw input and per-item limits fail-closed, but do not spend the
+    aggregate digest budget repeatedly on an identical item.
+    """
     if not isinstance(evidence_items, list) or len(evidence_items) > 512:
         raise ValueError("symbolic evidence context exceeds the bounded list size")
     snapshot: list[dict[str, str]] = []
+    seen: set[tuple[str, str, str]] = set()
     source_chars = 0
     content_chars = 0
     for item in evidence_items:
@@ -62,12 +76,18 @@ def _symbolic_evidence_snapshot(evidence_items: Any) -> list[dict[str, str]]:
         content = content.strip() if isinstance(content, str) else ""
         if len(source) > 512 or len(content) > 32768:
             raise ValueError("symbolic evidence item exceeds the bounded field size")
+        if not source:
+            continue
+        normalized_kind = kind.lower()
+        identity = (source, normalized_kind, content)
+        if identity in seen:
+            continue
+        seen.add(identity)
         source_chars += len(source)
         content_chars += len(content)
         if source_chars > 32768 or content_chars > 32768:
             raise ValueError("symbolic evidence context exceeds aggregate budgets")
-        if source:
-            snapshot.append({"source": source, "kind": kind.lower(), "content": content})
+        snapshot.append({"source": source, "kind": normalized_kind, "content": content})
     return snapshot
 
 
@@ -1989,9 +2009,22 @@ class Validator:
             for reference in claim.get("evidence_refs", [])
             if isinstance(reference, str)
         ]
-        validator_evidence_snapshot = _symbolic_evidence_snapshot(validator_evidence_context)
+        validator_evidence_snapshot_error = False
+        try:
+            validator_evidence_snapshot = _symbolic_evidence_snapshot(validator_evidence_context)
+        except (TypeError, ValueError):
+            # Keep the optional shadow fail-closed, but do not let oversized
+            # evidence prevent the established Validator gates from running.
+            validator_evidence_snapshot = []
+            validator_evidence_snapshot_error = True
         validator_claims = None
-        validator_symbolic_audit = audit_symbolic_claims(None)
+        validator_symbolic_audit = (
+            _invalid_symbolic_audit(
+                "EVIDENCE_SNAPSHOT_BUDGET_EXCEEDED",
+                "pure_validator_audit_in_task_lifecycle",
+            )
+            if validator_evidence_snapshot_error else audit_symbolic_claims(None)
+        )
         validator_binding_valid = False
         if isinstance(model_response, dict):
             try:
@@ -2011,16 +2044,27 @@ class Validator:
                         str(model_response.get("content", "")).encode("utf-8")
                     ).hexdigest() == current_validator_trace.get("response_sha256")
                 )
-                validator_symbolic_audit = audit_symbolic_claims(
-                    validator_claims if validator_binding_valid else None,
-                    validator_evidence_snapshot,
-                    namespace="validator",
-                    side_effect_scope="pure_validator_audit_in_task_lifecycle",
+                validator_symbolic_audit = (
+                    _invalid_symbolic_audit(
+                        "EVIDENCE_SNAPSHOT_BUDGET_EXCEEDED",
+                        "pure_validator_audit_in_task_lifecycle",
+                    )
+                    if validator_evidence_snapshot_error else audit_symbolic_claims(
+                        validator_claims if validator_binding_valid else None,
+                        validator_evidence_snapshot,
+                        namespace="validator",
+                        side_effect_scope="pure_validator_audit_in_task_lifecycle",
+                    )
                 )
             except (TypeError, ValueError):
                 validator_claims = "INVALID"
                 validator_symbolic_audit = audit_symbolic_claims(validator_claims)
-        if validator_binding_valid and isinstance(validator_claims, list) and research_binding_valid:
+        if (
+            validator_binding_valid
+            and isinstance(validator_claims, list)
+            and research_binding_valid
+            and not validator_evidence_snapshot_error
+        ):
             validator_symbolic_audit = audit_symbolic_claims(
                 validator_claims,
                 validator_evidence_snapshot,
@@ -2055,7 +2099,8 @@ class Validator:
             validator_audit_binding_valid = True
         if not validator_binding_valid:
             validator_claims = None
-            validator_symbolic_audit = audit_symbolic_claims(None)
+            if not validator_evidence_snapshot_error:
+                validator_symbolic_audit = audit_symbolic_claims(None)
             validator_audit_binding_valid = False
         task.outputs["validator_neuro_symbolic_audit"] = validator_symbolic_audit
         task.outputs["validator_neuro_symbolic_audit_task_id"] = task.task_id
@@ -2095,15 +2140,24 @@ class Validator:
             else claim
             for claim in combined_claims
         ]
-        symbolic_audit = audit_symbolic_claims(
-            combined_claims if combined_claims else None,
-            validator_evidence_context,
-            max_claims=64,
-            side_effect_scope="combined_advisory_metadata_in_task_lifecycle",
+        symbolic_audit = (
+            _invalid_symbolic_audit(
+                "EVIDENCE_SNAPSHOT_BUDGET_EXCEEDED",
+                "combined_advisory_metadata_in_task_lifecycle",
+            )
+            if validator_evidence_snapshot_error else audit_symbolic_claims(
+                combined_claims if combined_claims else None,
+                validator_evidence_context,
+                max_claims=64,
+                side_effect_scope="combined_advisory_metadata_in_task_lifecycle",
+            )
         )
         if (
-            len(combined_claims) > 64
-            or len(combined_claims) > 32 and researcher_claims and validator_claims
+            not validator_evidence_snapshot_error
+            and (
+                len(combined_claims) > 64
+                or len(combined_claims) > 32 and researcher_claims and validator_claims
+            )
         ):
             combined_audit_claims = combined_claims[:64]
             symbolic_audit = audit_symbolic_claims(
