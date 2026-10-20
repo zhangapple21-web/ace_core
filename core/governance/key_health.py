@@ -200,11 +200,12 @@ class KeyHealthManager:
             logger.error(f"保存 Key 健康记录失败: {e}")
 
     def _key_id(self, api_key: str, provider: str) -> str:
-        """Return a stable, non-reversible credential fingerprint.
+        """Return a stable pseudonymous ID derived from the credential.
 
-        PBKDF2 makes offline guessing materially more expensive than a direct
-        digest while retaining deterministic IDs across restarts. Its fixed,
-        purpose-specific salt is public; the credential and prefix are never stored.
+        PBKDF2 raises the cost of offline guesses compared with a direct digest,
+        though this deterministic identifier is not encryption. The fixed,
+        purpose-specific salt is public. Legacy SHA-256 IDs remain historical
+        records and intentionally do not merge into this new identifier scheme.
         """
         raw = f"ace.key-health.fingerprint.v1:{provider}:{api_key}".encode("utf-8")
         fingerprint = hashlib.pbkdf2_hmac(
@@ -214,7 +215,7 @@ class KeyHealthManager:
             KEY_ID_PBKDF2_ITERATIONS,
             dklen=32,
         )
-        return fingerprint.hex()[:20]
+        return fingerprint.hex()
 
     def _update_health_score(self, record: KeyHealthRecord):
         """计算健康评分"""

@@ -1,10 +1,11 @@
+import json
 import sys
 from pathlib import Path
-
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from core.miner_pool.resident_atlas import build_resident_atlas
+from ops.miner_pool_resident_atlas import main, print_text
 
 
 def test_atlas_keeps_registry_profile_and_execution_evidence_separate():
@@ -20,7 +21,12 @@ def test_atlas_keeps_registry_profile_and_execution_evidence_separate():
                         "status": "beta",
                         "verified": True,
                         "capabilities": ["research"],
-                        "meta": {"shadow_only": True, "production_eligible": False},
+                        "meta": {
+                            "shadow_only": True,
+                            "production_eligible": False,
+                            "api_key": "synthetic-secret-value",
+                            "private_note": "synthetic-private-value",
+                        },
                     }
                 ],
             }
@@ -39,6 +45,16 @@ def test_atlas_keeps_registry_profile_and_execution_evidence_separate():
     by_id = {row["resident_id"]: row for row in atlas["residents"]}
 
     grok = by_id["shenwen_grok:grok-4.6"]
+    assert grok["registry"]["provider_status"] == "active"
+    assert "provider" not in grok["registry"]
+    assert "model_id" not in grok["registry"]
+    assert "shenwen_grok" not in str(grok["registry"])
+    assert grok["registry"]["meta"] == {
+        "shadow_only": True,
+        "production_eligible": False,
+        "api_key": "synthetic-secret-value",
+        "private_note": "synthetic-private-value",
+    }
     assert grok["catalog_state"] == "SHADOW_EVALUATION"
     assert grok["routing_eligibility"] == "SHADOW_ONLY"
     assert grok["safe_room"]["room"] == "SHADOW_WORKSHOP"
@@ -64,6 +80,106 @@ def test_atlas_keeps_registry_profile_and_execution_evidence_separate():
         "unregistered_profile_reference": 1,
         "verified_production_eligible": 0,
     }
+
+
+def test_text_report_redacts_registry_values_labeled_private(capsys):
+    atlas = {
+        "summary": {
+            "resident_count": 1,
+            "shadow_evaluation": 0,
+            "unregistered_profile_reference": 0,
+            "verified_production_eligible": 0,
+        },
+        "residents": [{
+            "resident_id": "private-account:private-model",
+            "catalog_state": "UNVERIFIED_CANDIDATE",
+            "routing_eligibility": "EVIDENCE_REQUIRED",
+            "safe_room": {"room": "OBSERVATION_LOUNGE"},
+            "profile_references": ["private-profile"],
+            "execution": {"attempted": 1, "successful": 0, "failed": 1},
+        }],
+    }
+
+    print_text(atlas)
+
+    output = capsys.readouterr().out
+    assert "private-account" not in output
+    assert "private-model" not in output
+    assert "private-profile" not in output
+    assert "resident-1" in output
+    assert "profiles=1" in output
+
+
+def test_json_report_preserves_v1_registry_values_and_profile_links(
+    monkeypatch, capsys, tmp_path
+):
+    from core.miner_pool.resident_atlas import build_resident_atlas
+
+    registry = {
+        "providers": [{
+            "name": "private-account",
+            "status": "active",
+            "models": [{
+                "provider": "private-account",
+                "model_id": "private-model-one",
+                "status": "beta",
+                "verified": False,
+                "capabilities": ["research"],
+                "meta": {
+                    "shadow_only": True,
+                    "private_note": "synthetic-private-value",
+                },
+            }, {
+                "provider": "private-account",
+                "model_id": "private-model-two",
+                "status": "beta",
+                "verified": False,
+                "capabilities": ["research"],
+                "meta": {"shadow_only": True},
+            }],
+        }]
+    }
+    atlas = build_resident_atlas(
+        registry,
+        {
+            "private-profile-shared": {
+                "preferred_models": ["private-account:private-model-one"],
+            },
+            "private-profile-other": {
+                "preferred_models": ["private-account:private-model-one"],
+            },
+        },
+        [],
+        generated_at="2026-10-20T00:00:00+00:00",
+    )
+    monkeypatch.setattr(
+        "sys.argv",
+        ["miner_pool_resident_atlas.py", "--root", str(tmp_path), "--json"],
+    )
+    monkeypatch.setattr(
+        "ops.miner_pool_resident_atlas.collect_resident_atlas",
+        lambda _root: atlas,
+    )
+
+    main()
+
+    output = capsys.readouterr().out
+    payload = json.loads(output)
+    residents = payload["residents"]
+    assert [row["resident_id"] for row in residents] == [
+        "private-account:private-model-one",
+        "private-account:private-model-two",
+    ]
+    assert residents[0]["profile_references"] == [
+        "private-profile-other",
+        "private-profile-shared",
+    ]
+    assert residents[1]["profile_references"] == []
+    assert residents[0]["registry"]["meta"] == {
+        "shadow_only": True,
+        "private_note": "synthetic-private-value",
+    }
+    assert residents[0]["registry"]["capabilities"] == ["research"]
 
 
 def test_atlas_never_promotes_execution_success_or_deprecated_history():

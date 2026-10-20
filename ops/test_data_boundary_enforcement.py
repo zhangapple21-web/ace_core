@@ -194,8 +194,12 @@ def test_autonomous_kernel_experiment_blocks_private_input_before_model_or_persi
 def test_key_health_records_and_reports_never_include_visible_credential_prefix(
     tmp_path, monkeypatch
 ):
-    from core.governance.key_health import KEY_ID_PBKDF2_ITERATIONS, KeyHealthManager
+    from core.governance.key_health import (
+        KEY_ID_PBKDF2_ITERATIONS,
+        KeyHealthManager,
+    )
 
+    assert KEY_ID_PBKDF2_ITERATIONS == 600_000
     monkeypatch.setattr("core.governance.key_health.KEY_ID_PBKDF2_ITERATIONS", 1)
     fake_key = "test-only-credential-prefix-value"
     manager = KeyHealthManager(str(tmp_path))
@@ -209,10 +213,36 @@ def test_key_health_records_and_reports_never_include_visible_credential_prefix(
     assert fake_key[:10] not in report
     assert record.key_prefix == ""
 
-    manager.record_failure("test-provider", fake_key, 20, reason=f"Authorization: Bearer {fake_key}")
+    manager.record_failure(
+        "test-provider",
+        fake_key,
+        20,
+        reason=f"Authorization: Bearer {fake_key}",
+    )
     updated = manager.records_file.read_text(encoding="utf-8")
     assert fake_key not in updated
     assert "Authorization: Bearer" not in updated
+
+
+def test_key_health_fingerprint_is_stable_and_credential_specific(tmp_path, monkeypatch):
+    from core.governance.key_health import (
+        KEY_ID_PBKDF2_ITERATIONS,
+        KeyHealthManager,
+    )
+
+    assert KEY_ID_PBKDF2_ITERATIONS == 600_000
+    monkeypatch.setattr("core.governance.key_health.KEY_ID_PBKDF2_ITERATIONS", 10_000)
+    first_manager = KeyHealthManager(str(tmp_path / "first"))
+    second_manager = KeyHealthManager(str(tmp_path / "second"))
+
+    first_id = first_manager._key_id("synthetic-key-one", "synthetic-provider")
+
+    assert first_manager._key_id("synthetic-key-one", "synthetic-provider") == first_id
+    assert second_manager._key_id("synthetic-key-one", "synthetic-provider") == first_id
+    assert second_manager._key_id("synthetic-key-two", "synthetic-provider") != first_id
+    assert second_manager._key_id("synthetic-key-one", "another-provider") != first_id
+    assert len(first_id) == 64
+    assert "synthetic-key-one" not in first_id
 
 
 def test_key_health_hides_legacy_prefix_loaded_from_existing_log(tmp_path):
