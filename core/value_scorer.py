@@ -16,6 +16,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Tuple
 
+from core.curation_target import DEFAULT_REPO
+
 
 @dataclass
 class ArtifactScore:
@@ -26,8 +28,8 @@ class ArtifactScore:
     reusability: float = 0.0   # 0-100，可复用性
     composite: float = 0.0     # 综合评分 0-100
     action: str = "create"     # create / update / merge / discard / split
-    target_repo: str = ""      # 目标仓库
-    target_path: str = ""       # 目标路径
+    target_repo: str = ""      # 目标仓库名（不是路径；默认空=未授权任何仓库）
+    target_path: str = ""       # 仓内路径（含前缀），由 path_prefix + path 拼成
     split_candidates: List[Dict] = field(default_factory=list)  # 如果需要拆分，候选列表
     reason: str = ""           # 决策理由
 
@@ -39,7 +41,6 @@ class ValueScorer:
     在同步前，对每个产物进行多维度评分
     """
     
-    # 知识分类定义
     CATEGORY_PATTERNS = {
         "axiom": ["公理", "axiom", "第一性原理", "R2公理", "第一原理"],
         "constraint": ["约束", "constraint", "限制", "规则", "定律", "constraint"],
@@ -51,7 +52,9 @@ class ValueScorer:
         "ops": ["运维", "ops", "监控", "健康检查", "deployment"],
     }
     
-    # 仓库分类规则
+    # 分类 → 仓内路径前缀规则。注意：这些 key 是路径前缀，不是仓库名。
+    # 保留原表以维持既有分类规则；目标仓库名由 DEFAULT_REPO 单独给出
+    # （当前为空 = 没有任何仓库被授权写入）。
     REPO_RULES = {
         "09_KNOWLEDGE": ["axiom", "constraint", "protocol", "experience"],
         "08_ARCHAEOLOGY": ["research", "architecture"],
@@ -328,28 +331,32 @@ class ValueScorer:
     
     def _determine_target(self, artifact: Dict, category: str) -> Tuple[str, str]:
         """
-        确定目标仓库和路径
-        
+        确定目标仓库和仓内路径。
+
+        这两个字段以前是混在一起的：返回值里的 "09_KNOWLEDGE/" 是
+        仓内路径前缀，却被塞进名为 target_repo 的字段，下游按仓库名去
+        查目录表，永远查不到。现在仓库名与路径前缀分开：
+        仓库名默认为空，表示没有任何仓库被授权写入；
+        仓内路径仍按既有的分类规则生成，供暂存区与 Admission 使用。
+
         Returns:
-            (target_repo, target_path)
+            (repo_name, in_repository_path)
         """
         path = artifact.get("path", "")
         title = artifact.get("title", "")
-        
-        # 1. 如果是 Python 代码，指向 core/
-        if artifact.get("type") == "py" or path.endswith(".py"):
-            return "core/", Path(path).name
-        
-        # 2. 基于类别选择仓库
-        for repo, categories in self.REPO_RULES.items():
-            if category in categories:
-                # 生成目标路径
-                filename = Path(path).name if path else f"{title}.md"
-                return repo, filename
-        
-        # 3. 默认仓库
         filename = Path(path).name if path else f"{title}.md"
-        return "09_KNOWLEDGE/", filename
+
+        if artifact.get("type") == "py" or path.endswith(".py"):
+            return DEFAULT_REPO, f"core/{filename}"
+
+        for prefix, categories in self.REPO_RULES.items():
+            if category in categories:
+                # REPO_RULES 的 key 是无尾斜杠的前缀，这里补上，保证
+                # 仓内路径始终是 "<prefix>/<filename>" 的形状。
+                clean = prefix.rstrip("/") + "/"
+                return DEFAULT_REPO, f"{clean}{filename}"
+
+        return DEFAULT_REPO, f"09_KNOWLEDGE/{filename}"
     
     def _detect_need_split(self, artifact: Dict) -> List[Dict]:
         """

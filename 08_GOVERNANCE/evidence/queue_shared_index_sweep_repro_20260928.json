@@ -1,0 +1,61 @@
+{
+  "artifact": "queue_shared_index_sweep_repro",
+  "measured_at": "2026-09-28T18:02:32+08:00",
+  "clock_note": "CST via time.localtime on this box (UTC+8); take-data ruler is this script itself",
+  "scratch_root": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\queue_sweep_repro",
+  "field_incident": {
+    "repo": "C:/轻量项目/ace_task_queue",
+    "card": "pending/for_A/20260928T1755_F_F04__fail_task-has-no-type-or-fence-gate.yaml",
+    "staged_by": "F@513447f4 (pathspec-only git add at 17:59)",
+    "carried_by_commit": "5a85806 by O@7ab6d22c",
+    "carrier_commit_claim": "他窗未提交正文一律未 add",
+    "content_intact": "git show HEAD:<card> == on-disk bytes (8754 B, cr=0, 58 lines)",
+    "rulers": [
+      "git log --oneline --diff-filter=A -- pending/for_A/...F04...",
+      "git show --stat 5a85806",
+      "git ls-files pending/for_A/ | grep F04"
+    ]
+  },
+  "arms": [
+    {
+      "arm": "bare_commit_sweeps_foreign_staged_file",
+      "staged_index_at_commit_time": [
+        "F_card.yaml",
+        "O_card.yaml"
+      ],
+      "files_in_O_commit": [
+        "F_card.yaml",
+        "O_card.yaml"
+      ],
+      "F_card_carried_by_O_commit": true,
+      "F_card_still_uncommitted": false
+    },
+    {
+      "arm": "commit_time_pathspec_contains_the_blast_radius",
+      "files_in_O_commit": [
+        "O_card.yaml"
+      ],
+      "index_after_commit": [
+        "F_card.yaml"
+      ],
+      "only_own_file_committed": true
+    },
+    {
+      "arm": "staged_diff_audit_sees_the_foreign_rows",
+      "own_staged": [
+        "F_card.yaml"
+      ],
+      "foreign_staged_rows": [
+        "O_card.yaml"
+      ],
+      "audit_would_have_blocked": true
+    }
+  ],
+  "verdict": "PASS",
+  "observations": {
+    "mechanism": "git add <own> stages into ONE shared index; a bare `git commit` in another live window commits the whole index, so pathspec-only staging does not bound what leaves the index",
+    "why_it_matters_here": "C-10 makes the commit part of dispatch, and C-07 makes the commit message the attribution surface; a sweep puts window F's content under window O's signature while O's message asserts no foreign content was added -- both statements become unreadable at once",
+    "not_a_corruption": "no bytes were lost or altered; the defect is attribution + silent ownership of the blast radius"
+  },
+  "runtime_mutation": false
+}

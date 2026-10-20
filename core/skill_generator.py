@@ -21,6 +21,9 @@ from collections import defaultdict
 SKILL_VERSION = "1.0"
 
 
+DEPOSITING_LANE = "skill-generator"
+
+
 class SkillGenerator:
     """
     技能生成器 — 从已归档任务中自动沉淀技能
@@ -373,8 +376,14 @@ class SkillGenerator:
     def _save_skill(self, skill: Dict[str, Any]):
         """保存技能模板"""
         path = self._skill_file_path(skill["skill_name"])
+        # Every skill says which window distilled it. Set on the copy that is
+        # written rather than by mutating the caller's dict, so the manifest and
+        # the in-memory record are untouched and only the artifact on disk gains
+        # its attribution.
+        record = dict(skill)
+        record["depositing_lane"] = DEPOSITING_LANE
         with open(path, "w", encoding="utf-8") as f:
-            json.dump(skill, f, ensure_ascii=False, indent=2)
+            json.dump(record, f, ensure_ascii=False, indent=2)
 
     def _register_skill_in_manifest(self, skill: Dict[str, Any]):
         """在清单中注册技能"""

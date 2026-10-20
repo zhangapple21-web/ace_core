@@ -1,0 +1,28 @@
+{
+  "contract_version": "ace.free_research_sandbox.v1",
+  "created_at": "2026-09-12T04:43:24.436343+00:00",
+  "distillation": {
+    "distillation_hash": "d9301fe647f29b288fda2bd375579b766663d3bd31b17a71d04b560c8ad1e0f8",
+    "evidence_hash": "487f8c14f43fe5c4f4d76a4b7023b31895314f620add2b4f4a0d38f20728d396",
+    "executable": false,
+    "pattern": "When What bounded free-zone probe can repair or explicitly delimit the missing dimensions of EXP-SHIFT-92A480C775DB32BD: dissent_blueprint?, investigate via Preserve the original artifact, address only the named missing dimensions, and record a separate result without changing production state..",
+    "source_record_hash": "c065393fadc3e9b8a208a3356def23d45d13f866005090c5a9138e6b5886a368"
+  },
+  "experiment_id": "EXP-20260905115547678104-FREEZONE-5AD138A5DB97",
+  "mode": "PROPOSAL_ONLY",
+  "prohibited_actions": [
+    "automatic_production_write",
+    "automatic_task_creation",
+    "automatic_delivery",
+    "automatic_order"
+  ],
+  "proposal_hash": "29e16637750b1776ef1bd9d6beb5c36855baf2f6fd98f4b637ff680eb8665aa9",
+  "reason": "human_and_governed_review_required",
+  "requires": [
+    "human_confirmation",
+    "existing_admission",
+    "existing_validator"
+  ],
+  "source_record_hash": "c065393fadc3e9b8a208a3356def23d45d13f866005090c5a9138e6b5886a368",
+  "status": "PROPOSAL_ONLY"
+}

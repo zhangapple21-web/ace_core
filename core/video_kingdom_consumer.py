@@ -59,10 +59,16 @@ class VideoKingdomConsumer:
             if not isinstance(bridge_id, str) or bridge_id in seen:
                 continue
             result = self._validate_result_bridge(item)
-            if result["status"] == "RESULT_CONSUMED":
+            try:
                 self._result_receipt(result)
-            else:
-                self._result_receipt(result)
+            except OSError as exc:
+                return {
+                    "status": "RESULT_RECEIPT_FAILED",
+                    "bridge_id": result.get("bridge_id"),
+                    "attempted_status": result.get("status"),
+                    "error": str(exc),
+                    "production_integration": False,
+                }
             return result
         return {"status": "NO_PENDING_RESULT", "production_integration": False}
 
@@ -144,6 +150,20 @@ class VideoKingdomConsumer:
             warnings = patrol.get("warnings", []) if isinstance(patrol.get("warnings"), list) else []
             digest = hashlib.sha256(json.dumps(warnings, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
             return {"action": "REPAIR_REVIEW_RECORDED", "warning_count": len(warnings), "warning_digest": digest, "linkage": linkage_evidence}
+        if task_type == "LEARNING_RESULT":
+            learning = card.get("learning") if isinstance(card.get("learning"), dict) else {}
+            return {
+                "action": "LEARNING_RESULT_RECORDED",
+                "source_task_id": learning.get("source_task_id"),
+                "capability_state": learning.get("capability_state", "UNKNOWN"),
+                "recommended_capabilities": learning.get("recommended_capabilities", [])[:12],
+                "next_verification": learning.get("next_verification", [])[:12],
+                "reuse_scope": learning.get("reuse_scope", []),
+                "blocked_scope": learning.get("blocked_scope", []),
+                "provider_calls": 0,
+                "production_integration": False,
+                "linkage": linkage_evidence,
+            }
         return {"action": "LEARNING_SLOT_OPENED", "source_boundary": "PUBLIC_ONLY",
                 "next_step": "deduplicate against public_street_learning_ledger", "provider_calls": 0,
                 "linkage": linkage_evidence}

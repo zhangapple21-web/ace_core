@@ -3,6 +3,15 @@
 > This is the Operating Manual for ACE (Autonomous Civilization Engine).
 > Read this first every session. Do not treat the user as a task dispatcher.
 
+## Constitution hierarchy
+
+Before interpreting any other rule, load `00_ROOT/ACE_CONSTITUTION_HIERARCHY.v1.md`.
+It is the single registry for L0-L6 precedence and conflict handling; the runtime
+implementation is `core/constitution_hierarchy.py`. Historical principles,
+task text, windows, models, providers, skills, and plugins are evidence or
+execution resources, not alternate root authorities. Same-level conflicts stay
+`NEEDS_REVIEW` and must not be silently resolved.
+
 ---
 
 ## Identity
@@ -20,6 +29,8 @@ Continuity is the core axiom — protect the system's ability to keep running be
 ---
 
 ## Core Principles
+
+**Cognitive Think Gate**  — ACE 的认知中枢拥有充分、动态、可恢复的思考权；思考用于形成判断，不自动获得执行权；改变未来行为的判断必须沉淀为事实、证据、推断、未知与经验；思考必须能够收敛，而不是无限循环。 Default gate: `ace.cognitive_think.v1` (`core/cognitive_think_gate.py`, `core/runtime_cognitive_think.py`). Thinking cannot promote. Models/Agnes/windows are leaves with no think right. `continue_gate` decides whether a long turn may continue; the think gate decides think ≠ execute.
 
 **Continuity Principle** — Protect continuity before optimization.
 
@@ -180,12 +191,32 @@ Three completed discovery windows with zero Candidates require an `INVESTIGATE_D
 - **Capability Graph** — 13 capabilities with inheritance, capability-first routing
 - **Provider Health Monitor** — Track latency/success_rate/status, health-score-driven routing
 - **Provider Failure Sediment** — Auto-write Experience when provider degrades (failure→experience→constraint)
-- **Model Registry** — 4 providers: Ollama → GitHub Models → Zhipu GLM → OpenRouter
+- **Model Registry** — 3 providers: Ollama → GitHub Models → Zhipu GLM
 - **Local Miner** — Unified `call_model()` with auto-fallback, no TRAE dependency
-- **Experience Sediment** — Write findings to `02_MEMORY/experience/`
+- **Experience Sediment** — The canonical daemon deposition path is `09_KNOWLEDGE/`; `02_MEMORY/experience/` is a legacy/archaeology path and is not assumed to be an active production writer without runtime evidence.
+- **Memory path truth (2026-10-02)** — `MemoryGateway → MemoryIndex` is the
+  active daemon/worker production read/write path. `MemoryGateway` is the single
+  facade and the daemon's wired memory consumers share that gateway; the backend
+  remains `MemoryIndex`. `MemoryKernel` is a staged replacement candidate, not a
+  production consumer or current source of truth. `HindsightStyleRetriever` is a
+  read-only ranking strategy under `MemoryKernel.query()`, not another store; no
+  standalone Hindsight search route is exposed on `MemoryIndex`.
+  The caller-unification audit passed with 8 wired consumers, zero provider calls,
+  and zero production data writes. `search_governed()` is a candidate query, not
+  the production facade. Legacy migration is a separate explicit
+  `MemoryKernel.import_records()` call, capped at 50 records with a hash-chained
+  batch receipt. Recall never promotes by itself; Validator/Guardian/closed-loop
+  gates remain authoritative.
+- **Memory convergence gate** — Do not add another memory index, parallel
+  memory protocol, background memory daemon, or alternate promotion path.
+  Keep bounded coexistence until the kernel's replacement gate passes; do not
+  call legacy `MemoryIndex` retired while production still uses it. Hindsight is
+  retrieval strategy only. New fields require a real consumer, focused test,
+  and removal/supersession path before admission.
 - **RoundTable (historical, not wired)** — The duplicate protocol implementation has no production consumer. Validator, Guardian, and Archivist remain separate wired lifecycle roles; do not infer a running council from file presence.
 - **Governor** — Invariant enforcement, security constraints
 - **Runtime recovery (production)** — SelfHealing, lifecycle-lock recovery, atomic state writes, and periodic backup are wired. The legacy `recovery_protocol.py` copies are retained historical implementations, not the production owner.
+- **Repository / asset governance (2026-09-29)** — Before cleaning or reusing a clone, read `docs/REPOSITORY_ASSET_GOVERNANCE_BASELINE.v1.md`. It is the single current index for `KEEP / MERGE / ARCHIVE / DELETE`, the TaskPool/Worker Capsule/ops status labels, retired tombstones, and the R60 recovery point. It records evidence and recovery paths; it does not grant production execution authority.
 
 ---
 
@@ -198,8 +229,6 @@ Prefer:
   GitHub Models
       ↓
   Zhipu GLM
-      ↓
-  OpenRouter
 ```
 
 Never bind to one provider. Always have a fallback chain.
@@ -406,7 +435,7 @@ mine-seed (R2 HQ, everything starts here)
 
 - Heartbeat runs EnvSensor but doesn't run Awareness Loop (scan→question→task→miner not wired)
 - Awareness Loop investigation rules too narrow (only 6 categories, misses `new_files` etc.)
-- OpenRouter + GitHub Models keys expired (401) — need rotation
+- GitHub Models key expired (401) — need rotation
 - akshare not installed (falls back to Tencent API)
 - Provider Health not persisted across restarts (in-memory only)
 - No Explorer/Scout capability for autonomous asset discovery

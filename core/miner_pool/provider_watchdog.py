@@ -32,6 +32,29 @@ DEGRADED = "DEGRADED"
 UNHEALTHY = "UNHEALTHY"
 OFFLINE = "OFFLINE"
 RECOVERING = "RECOVERING"
+#: Reported instead of the stored rating when no traffic or probe has
+#: confirmed a provider within TTL. A stale rating is not re-presented as
+#: current health, but staleness alone never fences a provider off: an
+#: idle pool is not a fault, so routing only deprioritizes stale entries.
+STALE = "STALE"
+
+#: A stored rating older than this without any confirming call or probe is
+#: reported as STALE. One full day matches the idle rhythm: an overnight
+#: quiet pool must not flap, while a rating unconfirmed for longer than a
+#: day is honestly no longer current.
+STALE_TTL_SECONDS = 24 * 3600
+
+#: Errors that prove the *model name* was wrong, never that the provider is
+#: down. A probe asking for a model the catalog does not carry (the pinned
+#: gpt-5.4-mini default is absent from the live gateway catalog) must not
+#: count toward provider health, or every probe re-poisons a provider that
+#: real traffic could still use.
+NON_PROVIDER_ERRORS = (
+    "model_unavailable",
+    "model_not_found",
+    "unknown model",
+    "invalid model",
+)
 
 
 @dataclass
@@ -67,6 +90,47 @@ class ProviderHealth:
     @classmethod
     def from_dict(cls, d: Dict) -> "ProviderHealth":
         return cls(**{k: v for k, v in d.items() if k in cls.__dataclass_fields__})
+
+
+def _as_epoch(value: Any) -> float:
+    try:
+        result = float(value or 0)
+    except (TypeError, ValueError):
+        return 0.0
+    return result if result > 0 else 0.0
+
+
+def observation_age_hours(record: Dict[str, Any], now: Optional[float] = None) -> Optional[float]:
+    """Hours since the last confirming traffic or probe, or None if never."""
+    last = max(
+        _as_epoch(record.get("last_check")),
+        _as_epoch(record.get("last_success")),
+    )
+    if last <= 0:
+        return None
+    moment = now if now is not None else time.time()
+    return max(0.0, (moment - last) / 3600.0)
+
+
+def effective_status_for(
+    record: Dict[str, Any],
+    now: Optional[float] = None,
+    ttl_seconds: float = STALE_TTL_SECONDS,
+) -> str:
+    """Stored status, unless its evidence is older than TTL.
+
+    Anything past TTL — healthy or not, never-observed or long-idle —
+    reports STALE instead of letting an old rating pose as current health.
+    Fresh UNHEALTHY/OFFLINE stay exactly what they are: STALE never masks
+    a real, recent failure.
+    """
+    stored = str(record.get("status") or UNHEALTHY)
+    age = observation_age_hours(record, now=now)
+    if age is None:
+        return STALE
+    if age * 3600.0 > ttl_seconds:
+        return STALE
+    return stored
 
 
 @dataclass
@@ -200,6 +264,23 @@ class ProviderWatchdog:
             return False
         return p.status in (HEALTHY, RECOVERING, DEGRADED)
 
+    def effective_status(
+        self,
+        provider_name: str,
+        now: Optional[float] = None,
+        ttl_seconds: float = STALE_TTL_SECONDS,
+    ) -> str:
+        """Stored status, or STALE when its evidence is older than TTL.
+
+        Routing candidacy is unchanged (see is_healthy): staleness only
+        deprioritizes via _health_score, never fences. Unknown names report
+        STALE — never observed is never current.
+        """
+        p = self._providers.get(provider_name)
+        if not p:
+            return STALE
+        return effective_status_for(p.to_dict(), now=now, ttl_seconds=ttl_seconds)
+
     def has_health_history(self, provider_name: str) -> bool:
         """Whether a provider has already had a real call outcome recorded."""
         provider = self._providers.get(provider_name)
@@ -221,7 +302,12 @@ class ProviderWatchdog:
         return candidates[0][0]
 
     @staticmethod
-    def _health_score(p: ProviderHealth) -> float:
+    def _health_score(
+        p: ProviderHealth,
+        now: Optional[float] = None,
+        ttl_seconds: float = STALE_TTL_SECONDS,
+        stale_penalty: float = 30.0,
+    ) -> float:
         """计算健康分数（越高越好）"""
         status_scores = {
             HEALTHY: 100,
@@ -231,6 +317,11 @@ class ProviderWatchdog:
             OFFLINE: 0,
         }
         score = status_scores.get(p.status, 0)
+        # Prefer fresh evidence over stale memory. The penalty can flip the
+        # order between equal stored ratings but never promotes an excluded
+        # status: UNHEALTHY/OFFLINE stay out of routing either way.
+        if effective_status_for(p.to_dict(), now=now, ttl_seconds=ttl_seconds) == STALE:
+            score -= stale_penalty
         # 成功率加成
         if p.total_calls > 10:
             success_rate = (p.total_calls - p.failed_calls) / p.total_calls
@@ -268,13 +359,35 @@ class ProviderWatchdog:
         except Exception:
             return False
 
-    def deep_check(self, provider_name: str, test_model: str = "gpt-4o") -> Dict:
+    def _update_status(self, provider: ProviderHealth, status: str, error: str = ""):
+        """更新探针失败状态；健康检查本身不得因状态记录异常而中断。"""
+        provider.status = status
+        provider.last_check = time.time()
+        if error:
+            provider.error_message = error
+        if status in (UNHEALTHY, OFFLINE):
+            provider.consecutive_failures += 1
+            provider.consecutive_successes = 0
+        self._save_state()
+
+    def deep_check(self, provider_name: str, test_model: str = None) -> Dict:
         """
         L3/L4 深度检查：HTTP + 功能验证
         """
         p = self._providers.get(provider_name)
         if not p:
             return {"status": "unknown", "error": "provider not found"}
+
+        # OneAPI is a local mapped-model gateway.  The old generic gpt-4o
+        # probe is not in its current catalog and can report a healthy gateway
+        # as unhealthy.  Keep the direct watchdog path aligned with the
+        # verified local route; callers can still pass an explicit model.
+        if not test_model:
+            test_model = (
+                os.environ.get("ONEAPI_MODEL", "gpt-5.4-mini")
+                if provider_name == "oneapi"
+                else "gpt-4o"
+            )
 
         api_key = self._api_keys.get(provider_name, "")
         base_url = p.base_url.rstrip("/")
@@ -401,6 +514,17 @@ class ProviderWatchdog:
         if not p:
             return
 
+        lowered = str(error or "").lower()
+        if any(marker in lowered for marker in NON_PROVIDER_ERRORS):
+            # Config-level miss, not provider evidence. Count the call so
+            # totals stay honest, but leave streaks and status untouched:
+            # demoting a provider for asking the wrong name would fence off
+            # models that are still served fine.
+            p.total_calls += 1
+            p.error_message = error
+            self._save_state()
+            return
+
         p.total_calls += 1
         p.failed_calls += 1
         p.consecutive_failures += 1
@@ -456,6 +580,12 @@ class ProviderWatchdog:
                 "total_calls": p.total_calls,
                 "failed_calls": p.failed_calls,
                 "consecutive_failures": p.consecutive_failures,
+                # Honest read-time view: stored rating plus what it is
+                # worth right now, and how old its evidence is. Additive
+                # only; existing consumers keep reading "status" as before.
+                "effective_status": self.effective_status(name),
+                "stale": self.effective_status(name) == STALE,
+                "age_hours": observation_age_hours(p.to_dict()),
             }
             for name, p in self._providers.items()
         ]
@@ -486,6 +616,7 @@ class ProviderWatchdog:
         unhealthy = sum(1 for p in providers if p["status"] == UNHEALTHY)
         offline = sum(1 for p in providers if p["status"] == OFFLINE)
         recovering = sum(1 for p in providers if p["status"] == RECOVERING)
+        stale = sum(1 for p in providers if p.get("stale"))
 
         total_calls = sum(p["total_calls"] for p in providers)
         total_failed = sum(p["failed_calls"] for p in providers)
@@ -498,6 +629,7 @@ class ProviderWatchdog:
             "degraded": degraded,
             "unhealthy": unhealthy,
             "offline": offline,
+            "stale": stale,
             "total_calls": total_calls,
             "total_failed": total_failed,
             "success_rate": round(success_rate, 4),
@@ -510,7 +642,12 @@ class ProviderWatchdog:
         test_models = test_models or {}
         results = {}
         for name in self._providers:
-            model = test_models.get(name, "gpt-4o")
+            model = test_models.get(
+                name,
+                os.environ.get("ONEAPI_MODEL", "gpt-5.4-mini")
+                if name == "oneapi"
+                else "gpt-4o",
+            )
             results[name] = self.deep_check(name, test_model=model)
         return results
 

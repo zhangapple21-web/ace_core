@@ -1,0 +1,28 @@
+{
+  "contract_version": "ace.free_research_sandbox.v1",
+  "created_at": "2026-09-20T10:32:58.763585+00:00",
+  "distillation": {
+    "distillation_hash": "420d7e3e21df7a043bdcdfd6dd972685599dee6d5a1a3ff7f79bc6aad9402fa1",
+    "evidence_hash": "d22acf17f47125c84d85e996332c377a301f7771947283a5ef1969d2fe588f56",
+    "executable": false,
+    "pattern": "When What bounded free-zone probe can repair or explicitly delimit the missing dimensions of EXP-MODEL-898A05764556A021: boundary_intact, dissent_blueprint?, investigate via Preserve the original artifact, address only the named missing dimensions, and record a separate result without changing production state..",
+    "source_record_hash": "d048778218c26b86627e74a20bf27a7e6a5df4ad6a037a15dc05467a0d1191c6"
+  },
+  "experiment_id": "EXP-20260920103258539299-FREEZONE-D7B0CA0A25F4",
+  "mode": "PROPOSAL_ONLY",
+  "prohibited_actions": [
+    "automatic_production_write",
+    "automatic_task_creation",
+    "automatic_delivery",
+    "automatic_order"
+  ],
+  "proposal_hash": "cad6f580b4fcabc7480a9e1cfd2d0528f42b566bbc4624ef1043b2e7c3be161a",
+  "reason": "human_and_governed_review_required",
+  "requires": [
+    "human_confirmation",
+    "existing_admission",
+    "existing_validator"
+  ],
+  "source_record_hash": "d048778218c26b86627e74a20bf27a7e6a5df4ad6a037a15dc05467a0d1191c6",
+  "status": "PROPOSAL_ONLY"
+}

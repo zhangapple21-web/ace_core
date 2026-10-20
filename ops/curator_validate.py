@@ -10,17 +10,34 @@ from core.repository_curator import RepositoryCurator
 from core.similarity_engine import SimilarityEngine
 from core.value_scorer import ValueScorer
 from core.sync_manager import SyncManager
+from core.repository_config import CANDIDATES, resolve_mine_seed
 
 
-def main():
+def main() -> int:
     ace_runtime = Path(__file__).parent.parent.resolve()
-    mine_seed = Path.home() / ".trae" / "work" / "6a3be8d2084d33999ccdf8c7" / "repos" / "mine-seed"
+    try:
+        mine_seed = resolve_mine_seed(ace_runtime)
+    except FileNotFoundError as exc:
+        print(f"路径解析失败: {exc}", file=sys.stderr)
+        return 2
+    if mine_seed is None:
+        print(
+            "未找到 mine-seed 工作副本。设置 ACE_MINE_SEED_PATH 或在候选位置放置克隆: "
+            + ", ".join(CANDIDATES),
+            file=sys.stderr,
+        )
+        return 2
 
     print("=" * 60)
     print("Repository Curator — 每日流程验证")
     print("=" * 60)
     print(f"ace_runtime: {ace_runtime}")
     print(f"mine_seed:   {mine_seed}")
+    print()
+
+    # dry_run is the default in SyncManager, so this validation cannot copy,
+    # commit or push anything. It still exercises the full decision path.
+    print("模式: dry_run（不复制、不提交、不推送）")
     print()
 
     # 初始化组件
@@ -90,10 +107,12 @@ def main():
     for agent, perms in PERMISSION_MATRIX.items():
         print(f"  {agent}:")
         for action, allowed in perms.items():
-            flag = "✅" if allowed else "❌"
+            flag = "[Y]" if allowed else "[N]"
             print(f"    {flag} {action}")
+
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main() or 0)
 

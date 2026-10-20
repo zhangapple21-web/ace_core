@@ -241,26 +241,6 @@ class CredentialManager:
                 extra={"gemini_via_apiyi": True},
             )
 
-        # OpenRouter
-        or_key = self._extract_pattern(
-            content,
-            r"OpenRouter[\s\S]*?Key:\s*`?(sk-or-v1-[\w]+)",
-            group=1,
-        )
-        or_base = self._extract_pattern(
-            content,
-            r"OpenRouter[\s\S]*?Base:\s*`?(https?://[^\s`]+)",
-            group=1,
-            default="https://openrouter.ai/api/v1",
-        )
-        if or_key:
-            self._credentials["openrouter"] = ProviderCredential(
-                provider="openrouter",
-                base_url=or_base,
-                api_keys=[or_key],
-                source=source,
-            )
-
         # OneAPI
         # Accept both the historical English labels and the current private
         # asset labels.  The latter deliberately selects the miner token, not
@@ -406,24 +386,97 @@ class CredentialManager:
             "nim": ("NIM_API_KEY", "NIM_BASE_URL", "https://integrate.api.nvidia.com/v1"),
             "github_models": ("GITHUB_PAT", "GITHUB_MODELS_BASE_URL", "https://models.inference.ai.azure.com"),
             "glm": ("ZHIPU_KEY", "GLM_BASE_URL", "https://open.bigmodel.cn/api/paas/v4"),
-            "openrouter": ("OPENROUTER_KEY", "OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"),
             "oneapi": ("ONEAPI_KEY", "ONEAPI_BASE_URL", "http://localhost:3000/v1"),
+            # Local CLI route. No key exists or is needed: the worker runs on
+            # this machine under the operator account. An empty api_keys list
+            # would fail is_valid, so a local marker stands in; it is never
+            # sent anywhere.
+            "opencode_cli": (None, None, "local://opencode-cli"),
+            # Same operator key and gateway as "oneapi": no new secret, only a
+            # separate health identity so free-route failures cannot fence off
+            # the paid pool. See PROVIDER_FACTORY "oneapi_free".
+            "oneapi_free": ("ONEAPI_KEY", "ONEAPI_BASE_URL", "http://localhost:3000/v1"),
             "sambanova": ("SAMBANOVA_KEY", "SAMBANOVA_BASE_URL", "https://api.sambanova.ai/v1"),
             "shenwen": ("SHENWEN_API_KEY", "SHENWEN_BASE_URL", "https://api.shenwenai.com/v1"),
             "shenwen_grok": ("SHENWEN_GROK_API_KEY", "SHENWEN_GROK_BASE_URL", "https://api.shenwenai.com/v1"),
+            "shenwen_ds41": ("SHENWEN_DS41_API_KEY", "SHENWEN_DS41_BASE_URL", "https://api.shenwenai.com/v1"),
             "shenwen_images": ("SHENWEN_IMAGE_API_KEY", "SHENWEN_IMAGE_BASE_URL", "https://api.shenwenai.com/v1"),
+            # AMD Radeon Token Factory — free preview (DeepSeek, Gemma, GLM, MiMo, Qwen)
+            "amd_radeon": ("AMD_RADEON_TOKEN", None, "https://developer.amd.com.cn/radeon/v1"),
         }
 
         for provider, (key_env, base_env, default_base) in provider_env_map.items():
+            if provider == "opencode_cli":
+                self._credentials[provider] = ProviderCredential(
+                    provider=provider,
+                    base_url=default_base,
+                    api_keys=["local-no-secret"],
+                    source="local",
+                )
+                continue
             key = os.environ.get(key_env)
+            if provider == "shenwen_ds41" and not key:
+                key = os.environ.get("SWA_KEY_DS41")
+            if provider == "shenwen_ds41" and not key:
+                key = self._windows_user_env("SHENWEN_DS41_API_KEY") or self._windows_user_env("SWA_KEY_DS41")
+            # The daemon is a separate process: it inherits the environment that
+            # existed when it was launched, not the one the operator exports in
+            # whatever shell set it up. A User-scope var is therefore invisible
+            # to the process env and the seat silently degrades to UNAVAILABLE
+            # at the evening window - a two-vendor room quietly becoming one.
+            if provider == "amd_radeon" and not key:
+                key = self._windows_user_env("AMD_RADEON_TOKEN")
+            # The local OneAPI/LiteLLM gateway deliberately accepts the same
+            # operator key as the OpenAI-compatible client.  Keep this
+            # fallback local-only and explicit so a missing ONEAPI_KEY does
+            # not strand an otherwise live gateway.
+            if (
+                provider in ("oneapi", "oneapi_free")
+                and not key
+                and os.environ.get("OPENAI_API_KEY")
+                and os.environ.get(base_env, default_base).startswith(("http://localhost:", "http://127.0.0.1:"))
+            ):
+                key = os.environ.get("OPENAI_API_KEY")
             if key:
-                base = os.environ.get(base_env, default_base)
+                # `default_base` is part of this table for a reason: a provider
+                # whose gateway is a known constant must stay usable when only
+                # its key is exported. os.environ.get(base_env) returns None for
+                # an unset variable, and None is not a base_url - ProviderCredential
+                # .is_valid requires both fields, so the credential was built and
+                # then silently discarded. Every provider in this table with a
+                # default was affected whenever its *_BASE_URL was unset.
+                #
+                # Concretely: the fallback above (L433-439) accepts OPENAI_API_KEY
+                # for oneapi/oneapi_free precisely so a missing ONEAPI_KEY does not
+                # strand a live localhost gateway, and then this line threw that
+                # credential away unless ONEAPI_BASE_URL happened to be exported
+                # too. test_miner_pool_free_key_isolation.py pins that path; it was
+                # failing for this reason, not because the isolation was wrong.
+                base = (os.environ.get(base_env) if base_env else "") or default_base
+                if provider == "shenwen_ds41" and not os.environ.get(base_env):
+                    base = self._windows_user_env(base_env) or default_base
                 self._credentials[provider] = ProviderCredential(
                     provider=provider,
                     base_url=base,
                     api_keys=[key],
                     source="environment",
                 )
+
+    @staticmethod
+    def _windows_user_env(name: str) -> str:
+        """Read a User-scope env var when the current process missed the refresh."""
+        if os.name != "nt" or not name:
+            return ""
+        try:
+            import winreg
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Environment") as key:
+                value, _ = winreg.QueryValueEx(key, name)
+        except OSError:
+            return ""
+        text_value = str(value or "").strip()
+        if text_value and name not in os.environ:
+            os.environ[name] = text_value
+        return text_value
 
     @staticmethod
     def _extract_pattern(text: str, pattern: str, group: int = 1, default: str = "") -> str:

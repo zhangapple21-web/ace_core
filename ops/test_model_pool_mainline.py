@@ -1,7 +1,9 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 import sys
 import tempfile
 from pathlib import Path
+
+import pytest
 
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -256,7 +258,11 @@ def test_failed_model_call_persists_failure_trace_and_keeps_local_lifecycle():
 def test_miner_pool_initializes_shenwen_from_runtime_environment(monkeypatch):
     from core.miner_pool.miner_pool import MinerPool
 
+    # ProviderCredential.is_valid requires the base URL as well as the key, so a
+    # key-only fixture leaves the provider unregistered and this reads as an
+    # initialization bug rather than a half-configured environment.
     monkeypatch.setenv("SHENWEN_API_KEY", "test-runtime-key")
+    monkeypatch.setenv("SHENWEN_BASE_URL", "https://api.shenwenai.com/v1")
     pool = MinerPool(coze_assets_path="C:/nonexistent-assets")
 
     assert pool.initialize() is True
@@ -267,6 +273,7 @@ def test_miner_pool_initializes_separate_shenwen_grok_channel(monkeypatch):
     from core.miner_pool.miner_pool import MinerPool
 
     monkeypatch.setenv("SHENWEN_GROK_API_KEY", "test-grok-heavy-key")
+    monkeypatch.setenv("SHENWEN_GROK_BASE_URL", "https://api.shenwenai.com/v1")
     pool = MinerPool(coze_assets_path="C:/nonexistent-assets")
 
     assert pool.initialize() is True
@@ -281,20 +288,39 @@ def test_role_profiles_register_native_strategic_execution_and_free_boundaries()
     free = get_task_profile("free_exploration")
 
     assert strategic["expected_model"] == "gpt-5.6-terra"
-    assert strategic["preferred_models"] == ["shenwen:gpt-5.6-terra"]
-    assert strategic["allowed_providers"] == {"shenwen"}
+    assert strategic["preferred_models"] == ["oneapi:gpt-5.6-terra", "shenwen:gpt-5.6-terra"]
+    # da891f1 widened this to match the profile's own governed fallback: the
+    # fallback models are glm:glm-4-flash and nim:qwen/qwen3.5-397b-a17b, and
+    # routing_policy is terra_default_astra_complex_with_governed_fallback.
+    # allowed_providers is exactly the set of providers named by allowed_models,
+    # so the profile is self-consistent; only this expectation was stale.
+    assert strategic["allowed_providers"] == {"shenwen", "oneapi", "glm", "nim"}
+    assert {m.split(":")[0] for m in strategic["allowed_models"]} <= \
+        strategic["allowed_providers"], "every allowed model's provider must be allowed"
     assert execution["expected_model"] == "gpt-5.4-mini"
-    assert execution["preferred_models"] == ["shenwen:gpt-5.4-mini"]
-    assert execution["allowed_providers"] == {"shenwen"}
-    assert free["allowed_providers"] == {"glm", "nim", "ollama"}
+    assert execution["preferred_models"] == [
+        "shenwen_ds41:deepseek-v4.1-flash",
+        "oneapi:deepseek-v4.1-flash",
+        "oneapi:gpt-5.4-mini",
+        "shenwen:gpt-5.4-mini",
+    ]
+    # Same da891f1 widening as `strategic`: the governed fallbacks are glm and
+    # nim, and allowed_providers is exactly the providers of allowed_models.
+    assert execution["allowed_providers"] == {
+        "shenwen_ds41", "shenwen", "oneapi", "glm", "nim"}
+    assert {m.split(":")[0] for m in execution["allowed_models"]} <= \
+        execution["allowed_providers"], "every allowed model's provider must be allowed"
+    # Owner-directed 2026-10-09: free CLI route serves the sandbox first.
+    # The exclusion intent below is unchanged: no paid strategic models.
+    assert free["allowed_providers"] == {"shenwen_ds41", "oneapi", "glm", "nim", "ollama", "opencode_cli"}
+    assert free["preferred_models"][0] == "opencode_cli:muse-spark-1.3-contributor-free"
     assert "shenwen:gpt-5.6-terra" not in free["preferred_models"]
     assert "shenwen:gpt-5.4-mini" not in free["preferred_models"]
-
 
 def test_strategic_uses_native_profile_and_records_terra_result():
     response = {
         "success": True,
-        "content": "战略结论",
+        "content": "{\"facts\": [\"战略结论\"], \"evidence\": [\"bounded route fixture\"], \"inference\": [\"strategic route was selected\"], \"unknowns\": [\"test fixture scope\"], \"objections\": [\"route behavior only\"], \"next_verification\": [\"assert profile trace\"], \"stop_condition\": [\"after route assertion\"], \"hard_objections\": [], \"advisory_objections\": [], \"counter_examples\": []}",
         "provider": "shenwen",
         "model": "gpt-5.6-terra",
         "error": "",
@@ -309,12 +335,13 @@ def test_strategic_uses_native_profile_and_records_terra_result():
     assert all(entry["expected_model"] == "gpt-5.6-terra" for entry in trace)
     assert all(entry["selected_model"] == "gpt-5.6-terra" for entry in trace)
     assert all(entry["result"] == "success" for entry in trace)
+    assert all(entry["output_contract_gate"]["status"] == "pass" for entry in trace)
 
 
 def test_execution_uses_native_profile_and_records_mini_result():
     response = {
         "success": True,
-        "content": "执行结论",
+        "content": "{\"facts\": [\"执行结论\"], \"evidence\": [\"bounded route fixture\"], \"inference\": [\"execution route was selected\"], \"unknowns\": [\"test fixture scope\"], \"objections\": [\"route behavior only\"], \"next_verification\": [\"assert profile trace\"], \"stop_condition\": [\"after route assertion\"], \"hard_objections\": [], \"advisory_objections\": [], \"counter_examples\": []}",
         "provider": "shenwen",
         "model": "gpt-5.4-mini",
         "error": "",
@@ -328,6 +355,8 @@ def test_execution_uses_native_profile_and_records_mini_result():
     assert all(entry["profile"] == "execution" for entry in trace)
     assert all(entry["expected_model"] == "gpt-5.4-mini" for entry in trace)
     assert all(entry["selected_model"] == "gpt-5.4-mini" for entry in trace)
+    assert all(entry["result"] == "success" for entry in trace)
+    assert all(entry["output_contract_gate"]["status"] == "pass" for entry in trace)
     assert all(entry["selected_model"] != "gpt-5.6-terra" for entry in trace)
 
 
@@ -412,6 +441,7 @@ def test_execution_retries_the_same_allowed_model_after_transient_failure():
         task_type="execution",
         messages=[{"role": "user", "content": "retry"}],
         max_retries=3,
+        data_boundary={"data_class": "PUBLIC"},
     )
 
     assert result["success"] is True
@@ -437,6 +467,7 @@ def test_execution_does_not_retry_non_retryable_provider_error():
         task_type="execution",
         messages=[{"role": "user", "content": "retry"}],
         max_retries=3,
+        data_boundary={"data_class": "PUBLIC"},
     )
 
     assert result["success"] is False
@@ -474,6 +505,7 @@ def test_openai_compatible_provider_rejects_empty_content_response(monkeypatch):
     result = provider.chat(
         messages=[{"role": "user", "content": "test"}],
         model="test-model",
+        data_boundary={"data_class": "PUBLIC"},
     )
 
     assert result["success"] is False
@@ -519,6 +551,7 @@ def test_openai_compatible_provider_rejects_tool_call_without_content(monkeypatc
     result = provider.chat(
         messages=[{"role": "user", "content": "test"}],
         model="test-model",
+        data_boundary={"data_class": "PUBLIC"},
     )
 
     assert result["success"] is False
@@ -542,6 +575,7 @@ def test_multi_chat_uses_each_preselected_model_spec():
         messages=[{"role": "user", "content": "compare routes"}],
         model_count=2,
         diverse=True,
+        data_boundary={"data_class": "PUBLIC"},
     )
 
     assert [result["requested_model"] for result in results] == [
@@ -569,6 +603,7 @@ def test_miner_pool_skips_provider_watchdog_offline_candidate_before_call():
         task_type="reasoning",
         messages=[{"role": "user", "content": "route around known offline provider"}],
         max_retries=1,
+        data_boundary={"data_class": "PUBLIC"},
     )
 
     assert result["success"] is True
@@ -593,6 +628,164 @@ class UsageProvider:
         }
 
 
+def _cost_evidence_chat(monkeypatch, responses, provider="shenwen", model="gpt-5.4-mini"):
+    from core.miner_pool.miner_pool import MinerPool
+    from core.miner_pool.model_router import ModelSpec
+
+    class SequenceProvider:
+        def chat(self, **kwargs):
+            return next(response_iter)
+
+    response_iter = iter(responses)
+    pool = MinerPool(coze_assets_path="C:/nonexistent-assets")
+    pool._initialized = True
+    pool._providers = {provider: SequenceProvider()}
+    pool._router.set_available_providers([provider])
+    recorded_calls = []
+    record_call = pool._router.record_call
+
+    def capture_call(**kwargs):
+        recorded_calls.append(kwargs)
+        record_call(**kwargs)
+
+    monkeypatch.setattr(pool._router, "record_call", capture_call)
+    monkeypatch.setattr("core.miner_pool.miner_pool.time.sleep", lambda _seconds: None)
+    result = pool.chat(
+        "execution",
+        [{"role": "user", "content": "cost evidence"}],
+        max_retries=len(responses),
+        selected_spec=ModelSpec.from_id(f"{provider}:{model}"),
+        data_boundary={"data_class": "PUBLIC"},
+    )
+    return result, recorded_calls
+
+
+def test_cost_evidence_failed_charge_then_success_preserves_each_attempt(monkeypatch):
+    failed_usage = {"prompt_tokens": 1_000_000}
+    final_usage = {"completion_tokens": 1_000_000}
+    result, recorded_calls = _cost_evidence_chat(monkeypatch, [
+        {"success": False, "error": "timeout", "usage": failed_usage},
+        {"success": True, "usage": final_usage},
+    ])
+
+    assert result["success"] is True
+    assert result["cost"]["total_usd"] == 0.99
+    assert [item["usage"] for item in result["attempts"]] == [failed_usage, final_usage]
+    assert [item["cost_status"] for item in result["attempts"]] == ["known", "known"]
+    assert [item["cost"]["total_usd"] for item in result["attempts"]] == [0.165, 0.99]
+    assert [item["cost"]["total_usd"] for item in recorded_calls] == [0.165, 0.99]
+
+
+@pytest.mark.parametrize("usage", [None, {}, {"total_tokens": 10}, {"unrelated": 0}])
+@pytest.mark.parametrize("success", [True, False])
+def test_cost_evidence_missing_billable_usage_is_unknown(monkeypatch, usage, success):
+    response = {"success": success, "error": "empty response"}
+    if usage is not None:
+        response["usage"] = usage
+    result, _ = _cost_evidence_chat(monkeypatch, [response])
+
+    assert result["cost"] == {}
+    assert result["attempts"][0]["cost"] == {}
+    assert result["attempts"][0]["cost_status"] == "unknown"
+    assert result["attempts"][0]["usage"] == (usage or {})
+
+
+@pytest.mark.parametrize("success", [True, False])
+def test_cost_evidence_other_provider_authoritative_ticks(monkeypatch, success):
+    result, _ = _cost_evidence_chat(monkeypatch, [
+        {"success": success, "usage": {"cost_in_usd_ticks": 1_234_567}},
+    ], provider="oneapi")
+
+    attempt = result["attempts"][0]
+    assert attempt["cost_status"] == "known"
+    assert attempt["cost"]["total_usd"] == 1.234567
+    assert attempt["cost"]["provider_cost_ticks"] == 1_234_567
+    assert result["cost"] == (attempt["cost"] if success else {})
+
+
+@pytest.mark.parametrize("provider,model", [
+    ("shenwen", "unpriced-model"), ("oneapi", "gpt-5.4-mini"),
+])
+def test_cost_evidence_no_applicable_price_is_unknown(monkeypatch, provider, model):
+    result, _ = _cost_evidence_chat(monkeypatch, [
+        {"success": True, "usage": {"prompt_tokens": 1_000_000}},
+    ], provider=provider, model=model)
+
+    assert result["cost"] == {}
+    assert result["attempts"][0]["cost_status"] == "unknown"
+
+
+@pytest.mark.parametrize("value", [True, False, -1, float("nan"), float("inf"), float("-inf"), "10", None, 10 ** 400])
+@pytest.mark.parametrize("field", ["prompt_tokens", "completion_tokens", "cache_read_tokens", "cache_write_tokens", "cost_in_usd_ticks"])
+def test_cost_evidence_invalid_numbers_are_unknown(monkeypatch, field, value):
+    result, _ = _cost_evidence_chat(monkeypatch, [
+        {"success": True, "usage": {field: value}},
+    ])
+
+    assert result["cost"] == {}
+    assert result["attempts"][0]["cost_status"] == "unknown"
+
+
+def test_cost_evidence_computed_overflow_is_unknown(monkeypatch):
+    result, _ = _cost_evidence_chat(monkeypatch, [
+        {"success": True, "usage": {"completion_tokens": 1e308}},
+    ], model="gpt-5.6-terra")
+    assert result["cost"] == {}
+    assert result["attempts"][0]["cost_status"] == "unknown"
+
+
+def test_cost_evidence_invalid_present_token_does_not_become_free(monkeypatch):
+    result, _ = _cost_evidence_chat(monkeypatch, [
+        {"success": True, "usage": {"prompt_tokens": 100, "completion_tokens": -1}},
+    ])
+    assert result["cost"] == {}
+    assert result["attempts"][0]["cost_status"] == "unknown"
+
+
+@pytest.mark.parametrize("field", ["prompt_tokens", "completion_tokens", "cache_read_tokens", "cache_write_tokens", "cost_in_usd_ticks"])
+def test_cost_evidence_explicit_zero_is_known(monkeypatch, field):
+    result, _ = _cost_evidence_chat(monkeypatch, [
+        {"success": True, "usage": {field: 0}},
+    ])
+
+    assert result["cost"]["total_usd"] == 0
+    assert result["attempts"][0]["cost_status"] == "known"
+
+
+def test_cost_evidence_final_failure_retains_charge_in_attempts(monkeypatch):
+    usage = {"prompt_tokens": 1_000_000, "cache_read_tokens": 1_000_000}
+    result, recorded_calls = _cost_evidence_chat(monkeypatch, [
+        {"success": False, "error": "empty response", "usage": usage},
+    ])
+
+    assert result["success"] is False
+    assert result["cost"] == {}
+    assert result["attempts"][0]["usage"] == usage
+    assert result["attempts"][0]["cost_status"] == "known"
+    assert result["attempts"][0]["cost"]["total_usd"] == 0.1815
+    assert recorded_calls[0]["cost"]["total_usd"] == 0.1815
+
+
+def test_cost_evidence_unconfigured_provider_is_not_called(monkeypatch):
+    from core.miner_pool.miner_pool import MinerPool
+    from core.miner_pool.model_router import ModelSpec
+
+    provider = RecordingProvider("gpt-5.4-mini")
+    pool = MinerPool(coze_assets_path="C:/nonexistent-assets")
+    pool._initialized = True
+    pool._providers = {"shenwen": provider}
+    result = pool.chat(
+        "execution", [{"role": "user", "content": "cost evidence"}],
+        max_retries=1, selected_spec=ModelSpec.from_id("missing:gpt-5.4-mini"),
+        data_boundary={"data_class": "PUBLIC"},
+    )
+
+    assert provider.calls == 0
+    assert result["attempts"][0]["usage"] == {}
+    assert result["attempts"][0]["cost"] == {}
+    assert result["attempts"][0]["cost_status"] == "not_called"
+
+
 def test_shenwen_terra_cost_uses_only_actual_usage_fields():
     from core.miner_pool.miner_pool import MinerPool
 
@@ -611,7 +804,7 @@ def test_shenwen_terra_cost_uses_only_actual_usage_fields():
     }
     pool._router.set_available_providers(["shenwen"])
 
-    result = pool.chat("strategic", [{"role": "user", "content": "cost"}])
+    result = pool.chat("strategic", [{"role": "user", "content": "cost"}], data_boundary={"data_class": "PUBLIC"})
 
     assert result["cost"] == {
         "currency": "USD",
@@ -641,7 +834,7 @@ def test_shenwen_mini_cost_treats_absent_usage_fields_as_zero():
     }
     pool._router.set_available_providers(["shenwen"])
 
-    result = pool.chat("execution", [{"role": "user", "content": "cost"}])
+    result = pool.chat("execution", [{"role": "user", "content": "cost"}], data_boundary={"data_class": "PUBLIC"})
 
     assert result["cost"] == {
         "currency": "USD",

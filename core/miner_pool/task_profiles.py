@@ -9,7 +9,7 @@
   2. ace_proxy（ACE 本地代理，如已启动则自动接管）
   3. nim（NVIDIA NIM，已验证 deepseek-v4-flash + mistral-large 可用）
   4. github_models（GitHub Models，Token 失效待更新）
-  5. 其他提供商（OpenRouter、SambaNova 等，作为兜底）
+  5. 其他提供商（SambaNova 等，作为兜底）
 
 注意：
   1. 模型顺序 = 尝试顺序。第一个可用的会被直接使用，失败自动降级。
@@ -29,7 +29,6 @@ NIM_NEMOTRON_ULTRA = "nim:nvidia/nemotron-3-ultra-550b-a55b"
 NIM_MISTRAL_LARGE = "nim:mistralai/mistral-large-3-675b-instruct-2512"
 NIM_DEEPSEEK_V4 = "nim:deepseek-ai/deepseek-v4-flash"
 NIM_QWEN_397B = "nim:qwen/qwen3.5-397b-a17b"
-OPENROUTER_CLAUDE = "openrouter:anthropic/claude-3.5-sonnet"
 # Shadow-only candidates.  These are deliberately not part of production
 # profiles until Provider Registry verification and billing A/B are complete.
 SHENWEN_GROK_45 = "shenwen_grok:grok-4.5"
@@ -37,6 +36,25 @@ SHENWEN_GROK_46 = "shenwen_grok:grok-4.6"
 SHENWEN_TERRA = "shenwen:gpt-5.6-terra"
 SHENWEN_ASTRA = "shenwen:gpt-6-astra"
 SHENWEN_GPT54_MINI = "shenwen:gpt-5.4-mini"
+ONEAPI_GPT54_MINI = "oneapi:gpt-5.4-mini"
+ONEAPI_TERRA = "oneapi:gpt-5.6-terra"
+ONEAPI_ASTRA = "oneapi:gpt-6-astra"
+SHENWEN_DS41_FLASH = "shenwen_ds41:deepseek-v4.1-flash"
+ONEAPI_DS41_FLASH = "oneapi:deepseek-v4.1-flash"
+OPENCODE_FLEDGE_FREE = "oneapi_free:fledge-alpha-free"
+OPENCODE_LING_FREE = "oneapi_free:ling-3.0-flash-fin-free"
+OPENCODE_MIMO_FREE = "oneapi_free:mimo-v2.6-flash-free"
+OPENCODE_MUSE_FREE = "oneapi_free:muse-spark-1.3-contributor-free"
+OPENCODE_LONGCAT_FREE = "oneapi_free:longcat-2.5-preview-free"
+OPENCODE_NEMOTRON_LIGHTNING_FREE = "oneapi_free:nemotron-3.5-lightning-free"
+OPENCODE_NEMOTRON_ULTRA_FREE = "oneapi_free:nemotron-3-ultra-free"
+CLI_FLEDGE_FREE = 'opencode_cli:fledge-alpha-free'
+CLI_MIMO_FREE = 'opencode_cli:mimo-v2.6-flash-free'
+CLI_MUSE_FREE = 'opencode_cli:muse-spark-1.3-contributor-free'
+CLI_LING_31_FREE = 'opencode_cli:ling-3.1-flash-free'
+# CLI twins ride the local OpenCode service instead of the 3001 relay, so
+# free-tier thinking survives a dead relay. Same model, other transport.
+
 
 
 TASK_PROFILES: Dict[str, Dict[str, Any]] = {
@@ -53,7 +71,6 @@ TASK_PROFILES: Dict[str, Dict[str, Any]] = {
             GITHUB_GPT4O,
             NIM_MISTRAL_LARGE,
             NIM_NEMOTRON_ULTRA,
-            OPENROUTER_CLAUDE,
         ],
         "fallback_models": [
             ACE_GPT4O_MINI,
@@ -88,6 +105,7 @@ TASK_PROFILES: Dict[str, Dict[str, Any]] = {
         "max_tokens": 3072,
         "timeout": 120,
         "preferred_models": [
+            OPENCODE_MUSE_FREE, CLI_MUSE_FREE,
             GLM_FLASH,
             ACE_GPT4O,
             GITHUB_GPT4O,
@@ -107,6 +125,9 @@ TASK_PROFILES: Dict[str, Dict[str, Any]] = {
         "max_tokens": 256,
         "timeout": 30,
         "preferred_models": [
+            OPENCODE_MIMO_FREE, CLI_MIMO_FREE,
+            SHENWEN_DS41_FLASH,
+            ONEAPI_DS41_FLASH,
             GLM_FLASH,
             ACE_GPT4O_MINI,
             GITHUB_GPT4O_MINI,
@@ -125,6 +146,7 @@ TASK_PROFILES: Dict[str, Dict[str, Any]] = {
         "max_tokens": 1024,
         "timeout": 60,
         "preferred_models": [
+            OPENCODE_LING_FREE, CLI_LING_31_FREE,
             GLM_FLASH,
             ACE_GPT4O_MINI,
             GITHUB_GPT4O_MINI,
@@ -143,6 +165,8 @@ TASK_PROFILES: Dict[str, Dict[str, Any]] = {
         "max_tokens": 4096,
         "timeout": 180,
         "preferred_models": [
+            SHENWEN_DS41_FLASH,
+            ONEAPI_DS41_FLASH,
             GLM_FLASH,
             ACE_GPT4O,
             GITHUB_GPT4O,
@@ -165,6 +189,10 @@ TASK_PROFILES: Dict[str, Dict[str, Any]] = {
         "max_tokens": 4096,
         "timeout": 240,
         "preferred_models": [
+            CLI_MUSE_FREE,
+            CLI_MIMO_FREE,
+            ONEAPI_ASTRA,
+            ONEAPI_TERRA,
             SHENWEN_TERRA,
             GLM_FLASH,
             ACE_GPT4O,
@@ -178,54 +206,61 @@ TASK_PROFILES: Dict[str, Dict[str, Any]] = {
         "strategy": "quality_first",
         # Terra remains the default.  The router may prepend Astra only when
         # the task envelope explicitly proves complex/high-risk work.
-        "escalation_models": [SHENWEN_ASTRA],
+        "escalation_models": [ONEAPI_ASTRA, SHENWEN_ASTRA],
         "routing_policy": "terra_default_astra_complex",
     },
     "strategic": {
         "description": "战略推理",
         "expected_model": "gpt-5.6-terra",
         "model_enabled": True,
-        "allowed_providers": {"shenwen"},
+        "allowed_providers": {"shenwen", "oneapi", "glm", "nim"},
         # Keep Terra as the historical baseline while allowing the governed
         # complex-task escalation path to use Astra.
-        "allowed_models": {SHENWEN_TERRA, SHENWEN_ASTRA},
+        "allowed_models": {SHENWEN_TERRA, SHENWEN_ASTRA, ONEAPI_TERRA, ONEAPI_ASTRA, GLM_FLASH, NIM_QWEN_397B},
         "preferred_traits": ["strategic", "logical", "thorough"],
         "avoid_traits": ["fast_but_wrong", "superficial"],
         "temperature": 0.5,
         "max_tokens": 4096,
         "timeout": 240,
-        "preferred_models": [SHENWEN_TERRA],
-        "fallback_models": [],
+        "preferred_models": [ONEAPI_TERRA, SHENWEN_TERRA],
+        "fallback_models": [GLM_FLASH, NIM_QWEN_397B],
         "strategy": "quality_first",
-        "escalation_models": [SHENWEN_ASTRA],
-        "routing_policy": "terra_default_astra_complex",
+        "escalation_models": [ONEAPI_ASTRA, SHENWEN_ASTRA],
+        "routing_policy": "terra_default_astra_complex_with_governed_fallback",
     },
     "execution": {
         "description": "执行推理",
         "expected_model": "gpt-5.4-mini",
         "model_enabled": True,
-        "allowed_providers": {"shenwen"},
-        "allowed_models": {SHENWEN_GPT54_MINI},
+        "allowed_providers": {"shenwen_ds41", "shenwen", "oneapi", "glm", "nim"},
+        "allowed_models": {SHENWEN_DS41_FLASH, ONEAPI_DS41_FLASH, SHENWEN_GPT54_MINI, ONEAPI_GPT54_MINI, GLM_FLASH, NIM_QWEN_397B},
         "preferred_traits": ["implementation", "precise", "concise"],
         "avoid_traits": ["strategic", "verbose"],
         "temperature": 0.4,
         "max_tokens": 4096,
         "timeout": 180,
-        "preferred_models": [SHENWEN_GPT54_MINI],
-        "fallback_models": [],
+        "preferred_models": [SHENWEN_DS41_FLASH, ONEAPI_DS41_FLASH, ONEAPI_GPT54_MINI, SHENWEN_GPT54_MINI],
+        "fallback_models": [GLM_FLASH, NIM_QWEN_397B],
         "strategy": "quality_first",
     },
     "free_exploration": {
         "description": "Free Zone 探索",
         "expected_model": "free_zone",
         "model_enabled": True,
-        "allowed_providers": {"glm", "nim", "ollama"},
+        "allowed_providers": {"shenwen_ds41", "oneapi", "glm", "nim", "ollama", "opencode_cli"},
         "preferred_traits": ["breadth", "exploration", "cost_effective"],
         "avoid_traits": ["strategic", "paid_channel"],
         "temperature": 0.7,
         "max_tokens": 2048,
         "timeout": 120,
         "preferred_models": [
+            # Free-first: sandbox research must not depend on paid channels
+            # (see avoid_traits). CLI_MUSE_FREE carries a live production
+            # receipt; the paid entries below remain as fallback depth.
+            CLI_MUSE_FREE,
+            CLI_MIMO_FREE,
+            SHENWEN_DS41_FLASH,
+            ONEAPI_DS41_FLASH,
             GLM_FLASH,
             NIM_DEEPSEEK_V4,
             NIM_NEMOTRON_ULTRA,
@@ -243,6 +278,9 @@ TASK_PROFILES: Dict[str, Dict[str, Any]] = {
         "max_tokens": 512,
         "timeout": 20,
         "preferred_models": [
+            OPENCODE_FLEDGE_FREE, CLI_FLEDGE_FREE,
+            SHENWEN_DS41_FLASH,
+            ONEAPI_DS41_FLASH,
             GLM_FLASH,
             ACE_GPT4O_MINI,
             GITHUB_GPT4O_MINI,

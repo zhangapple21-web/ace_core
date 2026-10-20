@@ -14,6 +14,7 @@ TRAE 负责叫醒，ACE 自己决定今天挖什么、怎么挖、挖多少。
 """
 
 import json
+import hashlib
 import os
 import signal
 import sys
@@ -29,9 +30,16 @@ from threading import Event, Thread
 base_dir = Path(__file__).parent
 sys.path.insert(0, str(base_dir))
 
+# The archivist window's name in the shared substrate. Every record the
+# lifecycle deposits says this window put it there; before this, all of them
+# were anonymous and a reader could not tell the daemon's own learning from a
+# helper's.
+DEPOSITING_LANE = "daemon-archivist"
+
 from core.identity import Identity
 from core.lexicon import Lexicon
 from core.memory_index import MemoryIndex
+from core.memory_gateway import MemoryGateway
 from core.disk_scanner import DiskScanner
 from core.eco_parser import EcoLayerParser
 from core.slice_clusterer import SliceClusterer
@@ -43,6 +51,12 @@ from core.task_roles import Observer, Researcher, Validator, Archivist, Guardian
 from core.task_creator import TaskCreator
 from core.fragment_index import FragmentIndex
 from core.file_scanner import FileScanner
+from core.knowledge_reuse import (
+    KnowledgeReuseGate,
+    artifact_contributions,
+    build_daily_report,
+    write_report,
+)
 from core.mine_seed_scanner import MineSeedScanner
 from core.heartbeat import Heartbeat
 from core.self_healing import SelfHealing
@@ -51,6 +65,10 @@ from core.local_archaeologist import LocalArchaeologist
 from core.skill_generator import SkillGenerator
 from core.observation import RuntimeObserver
 from core.observation_to_task import ObservationToTaskConverter
+from core.self_evolution import SelfEvolutionCoordinator
+from core.closed_loop_engine import ClosedLoopEngine
+from core.closed_loop_background import ClosedLoopBackgroundRunner
+from core.inquiry_pipeline import InquiryPipeline
 from core.host_session_observer import observe_host_sessions
 from core.discovery import DiscoveryCandidate, DiscoveryMode
 from core.model_work_discovery import ModelWorkDiscovery
@@ -62,11 +80,17 @@ from core.hourly_service import HourlyTaskService
 from core.continuity_audit import ContinuityAuditor
 from core.free_zone_model_shift import FreeZoneModelShift
 from core.free_zone_autonomy import FreeZoneAutonomy
+from core.free_zone_roundtable import FreeZoneRoundtable
+from core.free_zone_social_room import FreeZoneSocialRoom
+from core.free_zone_external_reviewer import FreeZoneExternalReviewer
 from core.sandbox_society import SandboxSociety
 from core.reality_gap_relay import RealityGapRelay
 from core.free_zone_loop_status import FreeZoneLoopStatus
+from core.free_zone_reflection_relay import FreeZoneReflectionRelay
 from core.daily_learning import DAILY_LEARNING_OBSERVATION_LIMIT, DailyLearningLoop
 from core.open_source_learning import OpenSourceLearningBacklog
+from core.open_source_learning import CATALOG as OPEN_SOURCE_CATALOG
+from core.governed_external_miner import GovernedExternalMiner
 from core.external_learning_discovery import ExternalLearningDiscovery
 from core.autonomous_work_allocation import AutonomousWorkAllocation
 from core.stock_discovery_sources import StockDiscoverySources
@@ -86,9 +110,14 @@ from core.policy_feedback import PolicyCardStore
 from core.video_kingdom_dispatch import VideoKingdomDispatch
 from core.video_kingdom_consumer import VideoKingdomConsumer
 from core.runtime_continue_gate import evaluate_daemon_boundary
+from core.runtime_cognitive_think import evaluate_daemon_cognitive_think
 from core.workspace_write_lock import WorkspaceWriteLock
+from core.config import load_config
 
 from core.experience_deposition import ExperienceDeposition
+from core.learning_return_bridge import LearningReturnBridge
+from core.video_learning_bridge_backlog import VideoLearningBridgeBacklog
+from core.evolution_kernel import route_learning
 
 
 # Mine-seed discovery can walk several broad, operator-owned directories.
@@ -98,15 +127,6 @@ from core.experience_deposition import ExperienceDeposition
 _MINE_SEED_DISCOVERY_CACHE: Dict[str, Optional[str]] = {}
 _ECO_FALLBACK_DISCOVERY_CACHE: Dict[str, List[str]] = {}
 _OMEGA_FALLBACK_DISCOVERY_CACHE: Dict[str, List[str]] = {}
-
-
-def load_config(base_dir: Path) -> dict:
-    config_path = base_dir / "ace_config.json"
-    config_path = config_path.resolve()
-    if config_path.exists():
-        with open(config_path, "r", encoding="utf-8") as f:
-            return json.load(f)
-    return {}
 
 
 DAILY_BUDGET = {
@@ -125,6 +145,18 @@ DAILY_BUDGET = {
 
 class AceDaemon:
     """ACE 自动考古主循环 v2 — 深度挖矿版"""
+
+    @property
+    def memory_index(self):
+        """Compatibility alias for the one governed memory gateway."""
+        return self.memory_gateway
+
+    @memory_index.setter
+    def memory_index(self, gateway):
+        # Older tests and integrations construct AceDaemon via __new__ and
+        # assign memory_index directly. Keep that assignment on the same
+        # single backend instead of creating a second path.
+        self.memory_gateway = gateway
 
     def __init__(self, base_dir: Path, config: dict):
         self.base_dir = base_dir
@@ -163,8 +195,16 @@ class AceDaemon:
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.identity = Identity(base_dir, config)
         self.lexicon = Lexicon(self.data_dir, self.identity)
-        self.memory_index = MemoryIndex(self.data_dir, self.identity, self.lexicon)
-        self.disk_scanner = DiskScanner(self.identity, self.lexicon, self.memory_index)
+        # All production readers/writers receive this one compatibility facade.
+        # Its sole backend remains MemoryIndex; the staged MemoryKernel is not
+        # part of this runtime path and cannot be selected implicitly.
+        self.memory_gateway = MemoryGateway(
+            MemoryIndex(self.data_dir, self.identity, self.lexicon)
+        )
+        # Keep the old attribute as an identity alias for existing status/tests;
+        # there is still exactly one gateway and one underlying backend.
+        self.memory_index = self.memory_gateway
+        self.disk_scanner = DiskScanner(self.identity, self.lexicon, self.memory_gateway)
 
         self.state_file = self.data_dir / "daemon_state.json"
         self._state_persistence_degraded = False
@@ -191,17 +231,29 @@ class AceDaemon:
         self.guardian = None
         self.event_listener = None
         self.experience_deposition = None
+        # One Governor instance for the whole runtime.  It resolves the
+        # canonical root itself, so its dedup search and record file match
+        # the store that ExperienceDeposition actually writes.
+        self.knowledge_governor = Governor(str(base_dir / "06_RUNTIME" / "ace"))
         self.outcome_receipt_recorder = OutcomeReceiptRecorder()
+        self.learning_return_bridge = None
         self.policy_card_store = PolicyCardStore(self.data_dir / "policy_feedback")
         self.task_creator = None
         self.fragment_index = None
         self.file_scanner = None
         self.mine_seed_scanner = None
         self.web_scout = None
+        self.governed_external_miner = None
         self.local_archaeologist = None
         self.skill_generator = None
         self.runtime_observer = None  # RO：持续观察者
         self.obs_to_task_converter = None  # Observation → Task 转换器
+        self.self_evolution = None  # 主动发现→融合→提案协调器
+        # 统一的“观察→验证→复盘→晋升/回滚”收口引擎。它不拥有第二套
+        # TaskPool，也不会在没有结构化输入时自行修改生产配置。
+        self.closed_loop_engine = ClosedLoopEngine(base_dir)
+        self.closed_loop_background = None
+        self._closed_loop_dry_run = False
         self.discovery_mode = None
         self.daily_learning = None
         self.daily_growth = None
@@ -213,6 +265,7 @@ class AceDaemon:
         # changes TaskPool / Admission authority.
         self.continuity_auditor = ContinuityAuditor(base_dir)
         self.reality_gap_relay = RealityGapRelay(base_dir)
+        self.free_zone_reflection_relay = None
         self.free_zone_loop_status = FreeZoneLoopStatus(base_dir)
         self.miner_pool = None
         self.model_router = None
@@ -240,7 +293,7 @@ class AceDaemon:
                 self.eco_parser = EcoLayerParser(
                     eco_candidates[0],
                     lexicon=self.lexicon,
-                    memory_index=self.memory_index,
+                    memory_index=self.memory_gateway,
                 )
                 if self.eco_parser.load():
                     pass
@@ -255,7 +308,7 @@ class AceDaemon:
                 self.slice_clusterer = SliceClusterer(
                     omega_candidates[0],
                     lexicon=self.lexicon,
-                    memory_index=self.memory_index,
+                    memory_index=self.memory_gateway,
                 )
                 if self.slice_clusterer.load():
                     pass
@@ -289,6 +342,7 @@ class AceDaemon:
                     remote="origin",
                     branch="main",
                     debounce_minutes=60,
+                    data_class=os.environ.get("ACE_CORE_SYNC_DATA_CLASS", "PRIVATE"),
                 )
             except Exception as e:
                 self._log_error("core_syncer_init", str(e))
@@ -326,10 +380,36 @@ class AceDaemon:
         try:
             task_pool_dir = self.base_dir / "task_pool"
             self.task_pool = TaskPool(str(task_pool_dir))
+            # Free Zone 独立 TaskPool，隔离实验任务与生产任务
+            freezone_pool_dir = self.base_dir / "task_pool_freezone"
+            self.freezone_task_pool = TaskPool(str(freezone_pool_dir))
+            # The relay writes ACE-side verification tasks, so its target must be
+            # a pool the lifecycle actually serves. It was pointed at
+            # freezone_task_pool, which no Researcher, Validator, or Archivist
+            # reads: 67 tasks landed in pending and were never touched again,
+            # while the same creator's 16 earlier tasks in the MAIN pool had gone
+            # through the full lifecycle. Isolation for free-zone work is carried
+            # by the admission metadata (production_integration False, next gate
+            # EXISTING_ACE_ADMISSION), never by an unserved pool.
+            self.free_zone_reflection_relay = FreeZoneReflectionRelay(
+                self.base_dir,
+                sandbox_root=self.base_dir / "07_SANDBOX" / "free_research",
+                task_pool=self.task_pool,
+            )
+            # Canonical Knowledge writer.  Constructed before the Guardian so
+            # the promotion gate can consult historical lessons.  Observer and
+            # Researcher deliberately stay unwired: Observer's use of this
+            # store is a knowledge-count heuristic that manufactures review work
+            # every cycle (Work Conservation), and reuse of archived knowledge
+            # already has one owner, ``core/knowledge_reuse.py``, wired as
+            # ``_run_knowledge_reuse_stage``.  A second, keyword-based reuse
+            # path would be a parallel architecture, not a repair.
+            knowledge_dir = self.base_dir / "09_KNOWLEDGE"
+            self.experience_deposition = ExperienceDeposition(str(knowledge_dir))
             self.observer = Observer(
                 task_pool=self.task_pool,
                 lexicon=self.lexicon,
-                memory_index=self.memory_index,
+                memory_index=self.memory_gateway,
                 daemon_state=self.state,
             )
             model_state_dir = self.base_dir / "06_RUNTIME" / "ace" / "data" / "miner_pool"
@@ -341,7 +421,7 @@ class AceDaemon:
             self.researcher = Researcher(
                 task_pool=self.task_pool,
                 lexicon=self.lexicon,
-                memory_index=self.memory_index,
+                memory_index=self.memory_gateway,
                 eco_parser=self.eco_parser,
                 slice_clusterer=self.slice_clusterer,
                 llm_router=self.miner_pool,
@@ -351,23 +431,37 @@ class AceDaemon:
             self.validator = Validator(
                 task_pool=self.task_pool,
                 lexicon=self.lexicon,
-                memory_index=self.memory_index,
+                memory_index=self.memory_gateway,
                 llm_router=self.miner_pool,
                 run_id_supplier=lambda: self.run_id,
             )
+            # 验证不通过时自动向 MinerPool 发起有限轮次的质询；质询只能
+            # 补证据和形成问题包，不能直接批准、改生产配置或绕过 Guardian。
+            self.inquiry_pipeline = InquiryPipeline(
+                validator=self.validator,
+                researcher=self.researcher,
+                llm_engine=self.miner_pool,
+                max_rounds=3,
+            )
             self.archivist = Archivist(
                 task_pool=self.task_pool,
-                memory_index=self.memory_index,
+                memory_index=self.memory_gateway,
                 lexicon=self.lexicon,
             )
+            # Guardian is the last gate before long-term knowledge, so it must
+            # be able to see historical lessons before judging a promotion.
             self.guardian = Guardian(
                 task_pool=self.task_pool,
                 lexicon=self.lexicon,
-                memory_index=self.memory_index,
+                memory_index=self.memory_gateway,
+                experience_deposition=self.experience_deposition,
             )
             self.event_listener = None
-            knowledge_dir = self.base_dir / "09_KNOWLEDGE"
-            self.experience_deposition = ExperienceDeposition(str(knowledge_dir))
+            configured_video_root = self.config.get("runtime", {}).get("video_kingdom_root")
+            self.learning_return_bridge = LearningReturnBridge(
+                self.base_dir,
+                video_root=configured_video_root,
+            )
             fragment_dir = self.base_dir / "02_FRAGMENT_INDEX"
             self.fragment_index = FragmentIndex(str(fragment_dir))
             # Automatic production archaeology stays inside the authorized
@@ -381,6 +475,18 @@ class AceDaemon:
                 scan_roots=scan_roots,
                 max_depth=4,
             )
+            # Archived-knowledge reuse. Off unless the config says otherwise,
+            # and dry-run until it is told otherwise twice. It owns no
+            # scheduler: the daily shift calls it per in-flight task.
+            self.knowledge_reuse = KnowledgeReuseGate(
+                base_dir=self.base_dir,
+                task_pool=self.task_pool,
+                settings=self.config.get("runtime", {}).get("knowledge_reuse", {}),
+            )
+            self._knowledge_reuse_day = ""
+            self._knowledge_reuse_entries: list = []
+            self._knowledge_reuse_attached = 0
+            self._knowledge_reuse_contributions: list = []
             if self.mine_seed_path:
                 state_file = self.base_dir / "02_FRAGMENT_INDEX" / ".mine_seed_state.json"
                 self.mine_seed_scanner = MineSeedScanner(
@@ -394,7 +500,7 @@ class AceDaemon:
             self.local_archaeologist = LocalArchaeologist(
                 base_dir=self.base_dir,
                 lexicon=self.lexicon,
-                memory_index=self.memory_index,
+                memory_index=self.memory_gateway,
                 task_pool=self.task_pool,
                 state_file=local_arch_state,
             )
@@ -405,7 +511,7 @@ class AceDaemon:
                 self.web_scout = WebScout(
                     base_dir=self.base_dir,
                     lexicon=self.lexicon,
-                    memory_index=self.memory_index,
+                    memory_index=self.memory_gateway,
                     task_pool=self.task_pool,
                     state_file=web_scout_state,
                 )
@@ -422,7 +528,7 @@ class AceDaemon:
                 task_pool=self.task_pool,
                 base_dir=self.base_dir,
                 lexicon=self.lexicon,
-                memory_index=self.memory_index,
+                memory_index=self.memory_gateway,
                 skill_generator=self.skill_generator,
             )
 
@@ -431,6 +537,16 @@ class AceDaemon:
             self.runtime_observer = RuntimeObserver(str(obs_data_dir))
             self.obs_to_task_converter = ObservationToTaskConverter(
                 observer=self.runtime_observer,
+                task_pool=self.task_pool,
+            )
+            self.self_evolution = SelfEvolutionCoordinator(
+                base_dir=self.base_dir,
+                observer=self.runtime_observer,
+                task_pool=self.task_pool,
+            )
+            self.closed_loop_background = ClosedLoopBackgroundRunner(
+                engine=self.closed_loop_engine,
+                miner_pool=self.miner_pool,
                 task_pool=self.task_pool,
             )
             # Discovery and execution must observe the same routing authority.
@@ -492,6 +608,10 @@ class AceDaemon:
                 public_sentiment=PublicSentimentObservation(
                     str(self.base_dir / "06_RUNTIME" / "ace" / "data")
                 ),
+                # A stalled data-admission blocker routes one bounded review
+                # task through the existing pool instead of repeating the
+                # research action that already failed.
+                task_pool=self.task_pool,
             )
             self.daily_shift = DailyShift(
                 self.task_pool,
@@ -502,16 +622,52 @@ class AceDaemon:
             )
             governance_dir = self.base_dir / "08_GOVERNANCE"
             self.open_source_learning_backlog = OpenSourceLearningBacklog(self.task_pool)
+            # 视频王国学习收据只通过 ACE Evolution Kernel 的单向桥进入既有
+            # DailyLearningLoop；它不是第二任务池，也没有生产执行权。
+            self.video_learning_bridge = VideoLearningBridgeBacklog(
+                self.task_pool,
+                governance_dir / "video_learning_bridge" / "packets.jsonl",
+            )
+            # 新的外部矿源入口是受治理的只读 WebScout，不启用旧旁路 WebScout。
+            # 每个 daemon 周期最多抓取一个未处理仓库，之后仍由同一个
+            # TaskPool → Researcher → Validator → Guardian 生命周期接管。
+            governed_targets = [
+                item for item in OPEN_SOURCE_CATALOG
+                if "video" in (item.get("title", "") + item.get("objective", "")).lower()
+                or item.get("id") in {"story-claw", "awesome-seedance", "arcreel-workbench", "huobao-drama-boundaries"}
+            ]
+            governed_cfg = self.config.get("runtime", {}).get("governed_external_mining", {})
+            if not isinstance(governed_cfg, dict):
+                governed_cfg = {}
+            self.governed_external_miner = GovernedExternalMiner(
+                base_dir=self.base_dir,
+                task_pool=self.task_pool,
+                miner_pool=self.miner_pool,
+                targets=governed_targets,
+                # 生产配置必须显式打开；临时/单测配置即使允许普通外部学习，
+                # 也不能因为构造 daemon 就发起网络抓取。
+                enabled=self.external_learning_enabled and governed_cfg.get("enabled", False),
+                max_readme_chars=int(governed_cfg.get("max_readme_chars", 12000)),
+                timeout=int(governed_cfg.get("timeout_seconds", 20)),
+                revisit_after_hours=int(governed_cfg.get("revisit_after_hours", 168)),
+                discovery_interval_hours=int(governed_cfg.get("discovery_interval_hours", 24)),
+            )
             self.daily_learning = DailyLearningLoop(
                 data_dir=str(self.data_dir / "daily_learning"),
                 discovery=self.discovery_mode,
                 converter=self.obs_to_task_converter,
                 task_pool=self.task_pool,
                 evidence_registry=EvidenceRegistry(str(governance_dir)),
-                knowledge_governor=Governor(str(self.base_dir / "06_RUNTIME" / "ace")),
+                knowledge_governor=self.knowledge_governor,
                 lifecycle_manager=LifecycleManager(str(governance_dir / "daily_learning_lifecycle.jsonl")),
-                internal_candidate_sources=[self._daily_learning_candidates, self.open_source_learning_backlog.candidates],
+                internal_candidate_sources=[
+                    self._daily_learning_candidates,
+                    self.video_learning_bridge.candidates,
+                    self.open_source_learning_backlog.candidates,
+                ],
                 external_discoverer=(self.external_learning_discovery.discover if self.external_learning_discovery else None),
+                learning_router=route_learning,
+                knowledge_dir=str(self.base_dir / "09_KNOWLEDGE"),
             )
             self.lifecycle_lock_file = task_pool_dir / ".lifecycle.lock"
         except Exception as e:
@@ -883,6 +1039,11 @@ class AceDaemon:
         self.state["continuation_context_fresh"] = True
         self.state["continue_gate_failure_count"] = 0
         self.state["continue_gate_prior_attempt_without_receipt"] = False
+        # A fresh process gets one chance to re-probe the configured local
+        # model gateway.  Do not inherit a stale provider-degraded latch from
+        # a previous run and close the gate before the health probe executes.
+        self.state["continue_gate_provider_degraded"] = False
+        self.state["continue_gate_fallbacks_configured"] = True
         continuity_auditor = getattr(self, "continuity_auditor", None)
         if continuity_auditor is not None:
             try:
@@ -1027,7 +1188,7 @@ class AceDaemon:
 
     def get_status(self) -> dict:
         lex_stats = self.lexicon.get_stats()
-        mem_stats = self.memory_index.get_stats()
+        mem_stats = self.memory_gateway.get_stats()
 
         eco_info = None
         if self.eco_parser:
@@ -1112,6 +1273,13 @@ class AceDaemon:
             "export_sync": export_info,
             "task_pool": task_info,
             "knowledge": knowledge_info,
+            "closed_loop_engine": {
+                "contract_version": "ace.closed_loop_engine.v1",
+                "receipt_path": str(self.closed_loop_engine.ledger_path),
+                "state_path": str(self.closed_loop_engine.state_path),
+                "background_bridge": "ready" if self.closed_loop_background else "unavailable",
+                "plan_path": str(self.closed_loop_background.plan_path) if self.closed_loop_background else "",
+            },
             "fragment_index": fragment_info,
             "local_archaeologist": local_arch_info,
             "web_scout": web_scout_info,
@@ -1128,7 +1296,7 @@ class AceDaemon:
         # past, never a renewed authorization to inspect an operator folder.
         authorized_root = self.base_dir.parent.resolve()
 
-        for entry in self.memory_index.search(limit=500):
+        for entry in self.memory_gateway.search(limit=500):
             src = entry.get("source_path", "")
             if src and src not in already_scanned:
                 parent_path = Path(src).parent
@@ -1160,7 +1328,7 @@ class AceDaemon:
         5. 都没有 → 今日无新增
         """
         lex_stats = self.lexicon.get_stats()
-        mem_stats = self.memory_index.get_stats()
+        mem_stats = self.memory_gateway.get_stats()
         current_concepts = lex_stats.get("total_concepts", 0)
         current_memories = mem_stats.get("total", 0)
 
@@ -1334,7 +1502,7 @@ class AceDaemon:
                 report = self.eco_parser.generate_deep_report(mining_progress)
                 if "error" not in report:
                     report_json = json.dumps(report, ensure_ascii=False)[:3000]
-                    self.memory_index.add(
+                    self.memory_gateway.add(
                         title=f"eco_layer深度考古报告",
                         content=report_json,
                         memory_type="eco_analysis_report",
@@ -1465,7 +1633,7 @@ class AceDaemon:
             return 0
 
         try:
-            recent_entries = self.memory_index.search(limit=200)
+            recent_entries = self.memory_gateway.search(limit=200)
             if not recent_entries:
                 return 0
 
@@ -1498,7 +1666,7 @@ class AceDaemon:
 
     def auto_archive_files(self) -> List[Dict[str, Any]]:
         archived = []
-        recent = self.memory_index.search(limit=50)
+        recent = self.memory_gateway.search(limit=50)
 
         for entry in recent:
             concepts = [c.get("name", "") for c in entry.get("related_concepts", [])]
@@ -1758,6 +1926,8 @@ class AceDaemon:
             limit=DAILY_LEARNING_OBSERVATION_LIMIT
         ):
             candidate = self._data_health_learning_candidate(observation)
+            if candidate is None:
+                candidate = self._checkup_failure_learning_candidate(observation)
             if candidate is not None:
                 candidates.append(candidate)
         return candidates
@@ -1831,6 +2001,86 @@ class AceDaemon:
             task_type="reasoning",
             severity="high",
             candidate_source="stock_data_health",
+            metadata={"learning": learning},
+        )
+        return candidate, evidence
+
+    def _failed_checkup_probe_details(self, payload: Any) -> Optional[Dict[str, Any]]:
+        if not isinstance(payload, dict):
+            return None
+        details: Dict[str, Any] = {}
+        for key in ("returncode", "stdout", "stderr", "error"):
+            if key not in payload or payload[key] is None:
+                continue
+            value = payload[key].strip() if isinstance(payload[key], str) else payload[key]
+            if value != "":
+                details[key] = value
+        if not details:
+            return None
+        if "error" not in details and details.get("returncode") in (0, None):
+            return None
+        return details
+
+    def _checkup_failure_learning_candidate(self, observation) -> Optional[Any]:
+        if not observation.auto_generated or observation.source != "checkup_history":
+            return None
+        state = observation.system_state if isinstance(observation.system_state, dict) else {}
+        snapshot = state.get("checkup_snapshot")
+        if not isinstance(snapshot, dict) or snapshot.get("overall") not in {"error", "warning"}:
+            return None
+        checks = snapshot.get("checks")
+        if not isinstance(checks, dict):
+            return None
+        path = state.get("checkup_path") or "checkup_history"
+        evidence = []
+        for name, payload in checks.items():
+            if not isinstance(name, str):
+                continue
+            details = self._failed_checkup_probe_details(payload)
+            if details is None:
+                continue
+            evidence.append({
+                "source": name,
+                "source_ref": f"{path}#{name}",
+                "content": json.dumps(details, ensure_ascii=False, sort_keys=True),
+                "confidence": 0.95,
+                "author": "checkup_probe",
+                "source_location": path,
+                "metadata": {
+                    "source_tier": "technical_primary",
+                    "publisher": name,
+                    "upstream_identity": f"ops.{name}",
+                    "independence_group": f"checkup_probe:{name}",
+                    "lineage_observable": True,
+                    "directness": "primary",
+                    "retrieval_method": "checkup_snapshot",
+                    "cross_validation_source": "internal",
+                    "observation_id": observation.obs_id,
+                },
+            })
+        if len(evidence) < 2:
+            return None
+        fingerprint = f"checkup_failure_learning:{observation.signature or observation.obs_id}"
+        learning = {
+            "why_learn": "Independent checkup probes failed with captured diagnostics, exposing a runtime failure boundary.",
+            "learning_objective": "Establish the measured failure diagnostics and permitted recovery boundary for independent checkup probes.",
+            "required_evidence": ["two independent failed checkup probe diagnostics"],
+            "mastery_criteria": [
+                "Record each failed probe diagnostic, independence group, and verification result in the governed learning outcome."
+            ],
+        }
+        candidate = DiscoveryCandidate(
+            fingerprint=fingerprint,
+            title="学习巡检独立探针失败边界",
+            description=observation.description,
+            reason=learning["why_learn"],
+            objective=learning["learning_objective"],
+            completion_criteria=learning["mastery_criteria"][0],
+            verification_method="Reinspect the recorded checkup snapshot and compare each failed probe diagnostic with its independence group.",
+            priority="medium",
+            task_type="reasoning",
+            severity="high",
+            candidate_source="checkup_failure",
             metadata={"learning": learning},
         )
         return candidate, evidence
@@ -1912,16 +2162,74 @@ class AceDaemon:
         self.state["shenwen_provider_usage_billing"] = result["state"]
         return result
 
+    _PRODUCTION_LABOR_PROVIDERS = frozenset({"shenwen_ds41", "shenwen", "glm", "oneapi"})
+
+    def _miner_pool_provider_names(self):
+        miner_pool = getattr(self, "miner_pool", None)
+        names = set()
+        if miner_pool is None:
+            return names
+        available = getattr(miner_pool, "available_providers", None)
+        if callable(available):
+            try:
+                available = available()
+            except Exception:
+                available = None
+        if isinstance(available, (list, tuple, set, frozenset)):
+            names.update(str(item) for item in available if item)
+        providers = getattr(miner_pool, "_providers", None)
+        if isinstance(providers, dict):
+            names.update(str(item) for item in providers.keys() if item)
+        return {item.lower() for item in names}
+
+    def _production_fallbacks_configured(self):
+        """True when a production labor channel can still do work.
+
+        Daily health probe failures are not the same as having no fallback.
+        DS41 / Shenwen / GLM / OneAPI remaining in MinerPool must keep the
+        continuation gate open so the miner does not sit idle all day.
+        """
+        return bool(self._miner_pool_provider_names() & self._PRODUCTION_LABOR_PROVIDERS)
+
+    def _sync_continue_gate_from_daily_health(self, health_result):
+        record = health_result.get("record") if isinstance(health_result, dict) else None
+        calls = record.get("calls") if isinstance(record, dict) else None
+        calls = calls if isinstance(calls, list) else []
+        successful = sum(1 for call in calls if isinstance(call, dict) and call.get("success") is True)
+        health_failed = bool(calls) and successful < len(calls)
+        fallbacks = self._production_fallbacks_configured()
+        if not fallbacks:
+            fallbacks = any(
+                isinstance(call, dict)
+                and call.get("success") is True
+                and str(call.get("provider") or "").lower() in self._PRODUCTION_LABOR_PROVIDERS
+                for call in calls
+            )
+        self.state["continue_gate_provider_degraded"] = health_failed
+        self.state["continue_gate_fallbacks_configured"] = fallbacks
+        self._save_state()
+        return {
+            "successful": successful,
+            "total": len(calls),
+            "health_failed": health_failed,
+            "fallbacks_configured": fallbacks,
+        }
+
     def _run_shenwen_daily_health(self, run_date: Optional[str] = None) -> Dict[str, Any]:
         date = run_date or datetime.now().date().isoformat()
         records = self.state.setdefault("shenwen_daily_health", {})
-        if date in records:
+        existing = records.get(date)
+        existing_failed = isinstance(existing, dict) and any(
+            call.get("success") is not True for call in (existing.get("calls") or [])
+        )
+        recovery_probe_done = self.state.get("shenwen_daily_health_recovery_probe_date") == date
+        if date in records and (not existing_failed or recovery_probe_done):
             return {"date": date, "executed": False, "record": records[date]}
 
         calls = []
         for task_type, model in (
             ("strategic", "gpt-5.6-terra"),
-            ("execution", "gpt-5.4-mini"),
+            ("execution", "deepseek-v4.1-flash"),
         ):
             try:
                 response = self.miner_pool.chat(
@@ -1930,6 +2238,7 @@ class AceDaemon:
                     system_prompt="Daily provider health check. Return only OK.",
                     max_retries=1,
                     max_tokens=8,
+                    data_boundary={"data_class": "PUBLIC", "source_scope": "AUTHORIZED_PROJECT_CONTEXT"},
                 )
             except Exception as error:
                 response = {"success": False, "error": str(error)}
@@ -1949,6 +2258,8 @@ class AceDaemon:
 
         record = {"date": date, "calls": calls, "completed_at": datetime.now().isoformat()}
         records[date] = record
+        if existing_failed:
+            self.state["shenwen_daily_health_recovery_probe_date"] = date
         self._refresh_shenwen_daily_cost(date)
         self._save_state()
         return {"date": date, "executed": True, "record": record}
@@ -1993,6 +2304,77 @@ class AceDaemon:
                 projected += 1
         return projected
 
+    def _refresh_governed_external_mining_receipts(self) -> int:
+        """把统一生命周期的实际阶段回写到外部矿工收据。
+
+        外部矿工创建任务时只能知道抓取、模型和入队；Researcher、Validator、
+        Guardian 是后续阶段。若不回写，收据会永远显示 PENDING，造成“只写了
+        文档”的假象。这里读取既有审计事件，不推断成功，未发生的阶段仍保持
+        PENDING。
+        """
+        if not self.task_pool:
+            return 0
+        refreshed = 0
+        latest_external = None
+        for task in self.task_pool.list_tasks(limit=10000):
+            outputs = task.outputs if isinstance(task.outputs, dict) else {}
+            external = outputs.get("external_mining")
+            if not isinstance(external, dict):
+                continue
+            actors = {str(item.get("actor", "")) for item in task.audit_log if isinstance(item, dict)}
+            events = {str(item.get("event", "")) for item in task.audit_log if isinstance(item, dict)}
+            lifecycle = external.setdefault("lifecycle", {})
+            projection = {
+                "researcher": "COMPLETED" if "researched" in events or "researcher" in actors else "PENDING",
+                "validator": "COMPLETED" if "validated" in events or "validator" in actors else "PENDING",
+                "guardian": "COMPLETED" if task.guardian_decision else "PENDING",
+                "archivist": "COMPLETED" if task.status == "archived" or "archivist" in actors else "PENDING",
+                "task_status": task.status,
+                "guardian_decision": task.guardian_decision or "",
+                "outcome_receipt": (outputs.get("outcome_receipt") or {}).get("status", "PENDING"),
+                "production_integration": False,
+            }
+            # A projection must converge. Stamping `updated_at` from the wall
+            # clock on every cycle made the value differ from the stored copy
+            # forever, so every external-mining task was rewritten every cycle
+            # (~20 atomic writes) and its real modification time became noise.
+            # Compare the semantic fields first; stamp the time only when one
+            # of them actually moved.
+            semantic_changed = any(lifecycle.get(name) != value for name, value in projection.items())
+            if semantic_changed:
+                lifecycle.update(projection)
+                lifecycle["updated_at"] = datetime.now().isoformat()
+                outputs["external_mining"] = external
+                task.outputs = outputs
+                if self.task_pool.update_task(task):
+                    refreshed += 1
+            if latest_external is None or task.updated_at > latest_external.updated_at:
+                latest_external = task
+        if latest_external is not None and self.governed_external_miner:
+            try:
+                report_path = self.governed_external_miner.report_path
+                report = json.loads(report_path.read_text(encoding="utf-8")) if report_path.exists() else {}
+                if report.get("task_id") == latest_external.task_id:
+                    lifecycle = latest_external.outputs.get("external_mining", {}).get("lifecycle", {})
+                    report["status"] = "COMPLETED_CHAIN" if all(
+                        lifecycle.get(stage) == "COMPLETED"
+                        for stage in ("researcher", "validator", "guardian", "archivist")
+                    ) else "QUEUED"
+                    report["chain"] = {
+                        "web_scout": "FETCHED",
+                        "miner_pool": "COMPLETED",
+                        "task_pool": "CREATED",
+                        "researcher": lifecycle.get("researcher", "PENDING"),
+                        "validator": lifecycle.get("validator", "PENDING"),
+                        "guardian": lifecycle.get("guardian", "PENDING"),
+                        "archivist": lifecycle.get("archivist", "PENDING"),
+                    }
+                    report["lifecycle"] = lifecycle
+                    report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+            except (OSError, ValueError, TypeError):
+                pass
+        return refreshed
+
     def _run_task_lifecycle(self) -> Dict[str, Any]:
         if not self._acquire_lifecycle_lock():
             return {"skipped": True, "reason": "lifecycle_locked"}
@@ -2018,16 +2400,21 @@ class AceDaemon:
             "stale_leases_reclaimed": 0,
             "researched": 0,
             "validated": 0,
+            "inquiries": 0,
+            "inquiry_resolved": 0,
+            "inquiry_unresolved": 0,
             "archived": 0,
             "judged": 0,
             "experiences_deposited": 0,
             "experience_deposition_failures": 0,
+            "learning_returns_materialized": 0,
             "policy_cards_projected": 0,
             "graveyarded": 0,
             "discovery": None,
             "discovery_tasks": 0,
             "model_pipeline": {},
             "daily_learning": None,
+            "governed_external_mining": None,
             "production_policy": {},
         }
         production_policy = self._task_production_policy()
@@ -2045,6 +2432,16 @@ class AceDaemon:
         except Exception as e:
             self._log_error("daily_learning", str(e))
 
+        # 外部矿源必须先完成只读抓取和 MinerPool 提炼，才能进入普通
+        # TaskPool。这里不走旧 WebScout 的自有写入旁路，避免两套生命周期
+        # 竞争同一条学习链。
+        try:
+            if self.governed_external_miner:
+                result["governed_external_mining"] = self.governed_external_miner.run_once(max_tasks=1)
+        except Exception as e:
+            self._log_error("governed_external_mining", str(e))
+            result["governed_external_mining"] = {"status": "ERROR", "error": str(e)}
+
         try:
             if self.mine_seed_scanner:
                 ms_result = self.mine_seed_scanner.scan_and_create_tasks(
@@ -2056,6 +2453,13 @@ class AceDaemon:
                 )
                 result["mine_seed_commits"] = ms_result.get("new_commits", 0)
                 result["mine_seed_tasks"] = ms_result.get("tasks_created", 0)
+                if (
+                    isinstance(ms_result, dict)
+                    and ms_result.get("fetched") is True
+                    and ms_result.get("error") is None
+                ):
+                    self.state["last_mine_seed_scan"] = datetime.now().isoformat()
+                    self._save_state()
         except Exception as e:
             self._log_error("mine_seed_scanner", str(e))
 
@@ -2064,13 +2468,36 @@ class AceDaemon:
                 scan_result = self.file_scanner.scan_and_create(
                     max_new=2,
                     allowed_priorities=None if production_policy["file_scanner"] else {"critical", "high"},
-                    allow_task_creation=False,
+                    # Discovery is allowed to admit bounded read-only material
+                    # tasks; Researcher/Validator/Guardian still gate learning.
+                    allow_task_creation=True,
                 )
                 result["fragment_scanned"] = scan_result.get("scanned", 0)
                 result["fragment_new"] = scan_result.get("new_files", 0)
                 result["fragment_tasks"] = scan_result.get("tasks_created", 0)
         except Exception as e:
             self._log_error("file_scanner", str(e))
+
+        # 主动演化入口：把运行态瓶颈、近期考古和兄弟仓库活动融合成
+        # 一个有证据的 Observation；后续仍由既有 Converter/Validator/
+        # Guardian 决定是否进入 TaskPool，避免第二套执行权限。
+        try:
+            if self.self_evolution:
+                task_stats = self.task_pool.get_stats() if self.task_pool else {}
+                result["self_evolution"] = self.self_evolution.run_cycle(
+                    runtime_state={
+                        "task_pool": task_stats,
+                        "recent_error_count": len(self.state.get("errors", [])),
+                    }
+                )
+                if self.closed_loop_background:
+                    result["closed_loop_background"] = self.closed_loop_background.run_once(
+                        result["self_evolution"],
+                        dry_run=self._closed_loop_dry_run,
+                    )
+        except Exception as e:
+            self._log_error("self_evolution", str(e))
+            result["self_evolution"] = {"status": "ERROR", "error": str(e)}
 
         if self.event_listener:
             try:
@@ -2122,6 +2549,9 @@ class AceDaemon:
                 if not task:
                     break
                 try:
+                    # Before any research or worker call, so reused knowledge can
+                    # reach the work itself rather than decorate it afterwards.
+                    self._run_knowledge_reuse_stage(task, result)
                     if task.depends_on and not self.task_pool.check_depends_satisfied(task):
                         self.task_pool.block_task(
                             task.task_id,
@@ -2141,11 +2571,34 @@ class AceDaemon:
                     self._log_error("researcher_task", str(e), task.task_id)
         except Exception as e:
             self._log_error("researcher", str(e))
+        self._run_declared_deliveries(result)
         try:
             review_tasks = self.task_pool.list_tasks(status="review", limit=3)
             for task in review_tasks:
-                self.validator.validate_task(task)
+                validation_result = self.validator.validate_task(task)
                 result["validated"] += 1
+                # Validator 已经把未通过任务退回 pending；在同一条任务上
+                # 只做一次有界质询，避免模型互相追问形成无限循环。
+                persisted = self.task_pool.load_task(task.task_id) or task
+                if (
+                    not validation_result.get("passed")
+                    and validation_result.get("objections")
+                    and not persisted.outputs.get("terminal_non_convergent")
+                    and getattr(self, "inquiry_pipeline", None) is not None
+                    and result["inquiries"] < 1
+                ):
+                    inquiry_result = self.inquiry_pipeline.run(persisted, validation_result)
+                    persisted.outputs["inquiry_pipeline"] = {
+                        **inquiry_result,
+                        "production_integration": False,
+                        "provider_write_authority": False,
+                    }
+                    self.task_pool.update_task(persisted)
+                    result["inquiries"] += 1
+                    if inquiry_result.get("final_verdict") == "passed":
+                        result["inquiry_resolved"] += 1
+                    else:
+                        result["inquiry_unresolved"] += 1
         except Exception as e:
             self._log_error("validator", str(e))
 
@@ -2187,15 +2640,20 @@ class AceDaemon:
             self._log_error("archivist", str(e))
 
         try:
+            result["governed_external_mining_receipts_refreshed"] = self._refresh_governed_external_mining_receipts()
+        except Exception as e:
+            self._log_error("governed_external_mining_receipts", str(e))
+
+        try:
             result["daily_growth"] = self.daily_growth.build()
         except Exception as e:
             self._log_error("daily_growth", str(e))
 
         try:
             preflight = self.state.get("cycle_progress", {}).get("finance_preflight")
-            if _preserve_cycle_progress and isinstance(preflight, dict):
+            if isinstance(preflight, dict):
                 result["finance_work_window"] = preflight
-            else:
+            elif self.finance_work_windows:
                 finance_heartbeat = self._start_stage_heartbeat("finance_work_window")
                 try:
                     result["finance_work_window"] = self.finance_work_windows.build()
@@ -2258,9 +2716,17 @@ class AceDaemon:
         try:
             all_tasks = self.task_pool.list_tasks(limit=100, sort_by="reference_count")
             for task in all_tasks[:20]:
-                self.task_pool.check_heat_upgrade(task)
-        except Exception:
-            pass
+                # check_heat_upgrade only persists when it actually upgrades a
+                # priority. Calling update_task unconditionally made every
+                # unmodified task pass through _save_task -> touch(), rewriting
+                # the file and refreshing mtime/updated_at with no audit or
+                # ledger row. That masked real modification times and cost
+                # ~20 atomic writes per cycle. The return value was the
+                # intended gate all along.
+                if self.task_pool.check_heat_upgrade(task):
+                    self._log_error("heat_upgrade", task.task_id)
+        except Exception as e:
+            self._log_error("heat_upgrade", str(e))
 
         try:
             if self.task_creator:
@@ -2286,9 +2752,20 @@ class AceDaemon:
         except Exception as e:
             self._log_error("sandbox_society", str(e))
         try:
+            if self.free_zone_reflection_relay:
+                result["free_zone_reflection"] = self.free_zone_reflection_relay.reflect_available()
+        except Exception as e:
+            self._log_error("free_zone_reflection", str(e))
+        try:
             result["free_zone_model_shift"] = self._run_free_zone_model_shift_if_due()
         except Exception as e:
             self._log_error("free_zone_model_shift", str(e))
+        try:
+            result["free_zone_roundtable"] = self._run_free_zone_roundtable_if_due()
+            result["free_zone_social_room"] = self._run_free_zone_social_room_if_due()
+            result["free_zone_external_review"] = self._run_free_zone_external_review_if_due()
+        except Exception as e:
+            self._log_error("free_zone_roundtable", str(e))
         try:
             result["video_kingdom_dispatch"] = self._dispatch_video_kingdom()
         except Exception as e:
@@ -2409,35 +2886,82 @@ class AceDaemon:
             return
         try:
             exp = self.experience_deposition.deposit_from_task(
-                task, lexicon=self.lexicon
+                task, lexicon=self.lexicon, lane=DEPOSITING_LANE
             )
             if exp:
                 result["experiences_deposited"] += 1
+                bridge = getattr(self, "learning_return_bridge", None)
+                if bridge:
+                    learning_return = bridge.materialize(task, exp)
+                    task.outputs["learning_return"] = learning_return
+                    if getattr(self, "task_pool", None):
+                        self.task_pool.update_task(task)
+                    if learning_return.get("status") == "MATERIALIZED":
+                        result["learning_returns_materialized"] = result.get("learning_returns_materialized", 0) + 1
         except Exception as exc:
             result["experience_deposition_failures"] += 1
             self._log_error("experience_deposition", str(exc), task.task_id)
 
     def _run_free_zone_model_shift_if_due(self) -> Dict[str, Any]:
+        # Due-cause telemetry via the shared gate vocabulary: a stage that
+        # silently skips is indistinguishable from "not due" without it.
+        # Read-only bookkeeping; the cycle persists state each round.
+        from core.stage_gates import evaluate_gates, record_gate
+
         cfg = self.config.get("runtime", {}).get("free_zone_model_shift", {})
-        if not isinstance(cfg, dict) or not cfg.get("enabled"):
-            return {"status": "DISABLED"}
         now = datetime.now()
-        if (now.hour, now.minute) < (18, 30):
-            return {"status": "WAITING_FOR_DEDICATED_SHIFT"}
         day = now.strftime("%Y-%m-%d")
-        if not self.miner_pool:
-            return {"status": "NO_EXISTING_MINER_POOL"}
+        enabled = bool(isinstance(cfg, dict) and cfg.get("enabled"))
+        in_window = (now.hour, now.minute) >= (18, 30)
+        pool_present = self.miner_pool is not None
+        due = {
+            "at": now.isoformat(),
+            "enabled": enabled,
+            "in_window": in_window,
+            "miner_pool_present": pool_present,
+            "state_date": self.state.get("free_zone_model_shift_date"),
+            "today": day,
+        }
+        gates = {
+            "config_enabled": (enabled, "free_zone_model_shift.enabled"),
+            "dedicated_window": (in_window, "evening shift window from 18:30"),
+            "miner_pool_ready": (pool_present, "existing miner pool instance"),
+        }
+        _, blocker = evaluate_gates(gates)
+        if blocker != "GO":
+            status = {
+                "config_enabled": "DISABLED",
+                "dedicated_window": "WAITING_FOR_DEDICATED_SHIFT",
+                "miner_pool_ready": "NO_EXISTING_MINER_POOL",
+            }[blocker]
+            self.state["free_zone_model_shift_due"] = {**due, "status": status}
+            record_gate(self.state, "free_zone_model_shift", gates, status)
+            return {"status": status}
         shift = FreeZoneModelShift(
             self.base_dir / "07_SANDBOX" / "free_research", self.miner_pool
         )
         inbox_fingerprint = shift.inbox_fingerprint()
         previous = self.state.get("free_zone_model_shift_last", {})
+        fingerprint_fresh = not (
+            isinstance(previous, dict)
+            and previous.get("inbox_fingerprint") == inbox_fingerprint
+        )
+        gates["new_invitation_set"] = (
+            fingerprint_fresh or self.state.get("free_zone_model_shift_date") != day,
+            "unconsumed invitation set for today",
+        )
+        due["fingerprint_match"] = not fingerprint_fresh
         if (
             self.state.get("free_zone_model_shift_date") == day
             and isinstance(previous, dict)
             and previous.get("inbox_fingerprint") == inbox_fingerprint
         ):
+            self.state["free_zone_model_shift_due"] = {**due, "status": "ALREADY_OBSERVED_CURRENT_INVITATION_SET"}
+            record_gate(self.state, "free_zone_model_shift", gates,
+                        "ALREADY_OBSERVED_CURRENT_INVITATION_SET")
             return {"status": "ALREADY_OBSERVED_CURRENT_INVITATION_SET"}
+        self.state["free_zone_model_shift_due"] = {**due, "status": "RUNNING_SHIFT"}
+        record_gate(self.state, "free_zone_model_shift", gates, "RUNNING_SHIFT")
         result = shift.run_once(max_tokens=int(cfg.get("max_tokens", 1024)))
         self.state["free_zone_model_shift_date"] = day
         self.state["free_zone_model_shift_last"] = {
@@ -2446,6 +2970,180 @@ class AceDaemon:
             "invitation": result.get("invitation"),
             "inbox_fingerprint": result.get("inbox_fingerprint", inbox_fingerprint),
             "at": now.isoformat(),
+        }
+        self._save_state()
+        return result
+
+    def _run_free_zone_roundtable_if_due(self) -> Dict[str, Any]:
+        """Let the free twins talk to each other about an open question.
+
+        Not a second scheduler: it reuses the existing evening free-zone window
+        and the same 07_SANDBOX root as the shift and the society. It creates no
+        TaskPool task, promotes nothing, and writes only inside the sandbox.
+        Its own cooldown and daily call cap live in the roundtable state, so a
+        quiet shift never turns into a silent skip.
+        """
+        from core.stage_gates import evaluate_gates, record_gate
+
+        cfg = self.config.get("runtime", {}).get("free_zone_roundtable", {})
+        now = datetime.now()
+        enabled = bool(isinstance(cfg, dict) and cfg.get("enabled", True))
+        in_window = (now.hour, now.minute) >= (18, 30)
+        pool_present = self.miner_pool is not None
+        gates = {
+            "config_enabled": (enabled, "free_zone_roundtable.enabled (default on)"),
+            "dedicated_window": (in_window, "evening free-zone window from 18:30"),
+            "miner_pool_ready": (pool_present, "existing miner pool instance"),
+        }
+        _, blocker = evaluate_gates(gates)
+        if blocker != "GO":
+            status = {
+                "config_enabled": "DISABLED",
+                "dedicated_window": "WAITING_FOR_DEDICATED_SHIFT",
+                "miner_pool_ready": "NO_EXISTING_MINER_POOL",
+            }[blocker]
+            record_gate(self.state, "free_zone_roundtable", gates, status)
+            return {"status": status}
+        roundtable = FreeZoneRoundtable(
+            self.base_dir / "07_SANDBOX" / "free_research", self.miner_pool
+        )
+        result = roundtable.run_once(max_tokens=int(cfg.get("max_tokens", 512)))
+        if result.get("status") == "ROUNDTABLE_RECORDED":
+            gates["ran_this_cycle"] = (True, "session recorded in sandbox")
+        record_gate(
+            self.state,
+            "free_zone_roundtable",
+            gates,
+            str(result.get("status")),
+            {"session_id": result.get("session_id", ""), "at": now.isoformat()},
+        )
+        self.state["free_zone_roundtable_last"] = {
+            "status": result.get("status"),
+            "reason": result.get("reason"),
+            "session_id": result.get("session_id"),
+            "seats_spoken": result.get("seats_spoken", 0),
+            "model_calls": result.get("model_calls", 0),
+            "distillation_status": result.get("distillation_status"),
+            "at": now.isoformat(),
+            "production_integration": False,
+        }
+        self._save_state()
+        return result
+
+    def _run_free_zone_social_room_if_due(self) -> Dict[str, Any]:
+        """Let the free models run their own conversation under a gate.
+
+        The roundtable asks two structured rounds of every seat. This room does
+        not: a gate seat decides who speaks next, a member may PASS, and a rolling
+        room memory survives across sessions. Same sandbox, same window, same
+        one-way production boundary as the roundtable and the shift - no second
+        scheduler and no TaskPool producer.
+        """
+        from core.stage_gates import evaluate_gates, record_gate
+
+        cfg = self.config.get("runtime", {}).get("free_zone_social_room", {})
+        now = datetime.now()
+        enabled = bool(isinstance(cfg, dict) and cfg.get("enabled", True))
+        in_window = (now.hour, now.minute) >= (18, 30)
+        pool_present = self.miner_pool is not None
+        gates = {
+            "config_enabled": (enabled, "free_zone_social_room.enabled (default on)"),
+            "dedicated_window": (in_window, "evening free-zone window from 18:30"),
+            "miner_pool_ready": (pool_present, "existing miner pool instance"),
+        }
+        _, blocker = evaluate_gates(gates)
+        if blocker != "GO":
+            status = {
+                "config_enabled": "DISABLED",
+                "dedicated_window": "WAITING_FOR_DEDICATED_SHIFT",
+                "miner_pool_ready": "NO_EXISTING_MINER_POOL",
+            }[blocker]
+            record_gate(self.state, "free_zone_social_room", gates, status)
+            return {"status": status}
+        room = FreeZoneSocialRoom(
+            self.base_dir / "07_SANDBOX" / "free_research", self.miner_pool
+        )
+        result = room.run_once(max_tokens=int(cfg.get("max_tokens", 512)))
+        if result.get("status") == "SOCIAL_ROOM_RECORDED":
+            gates["ran_this_cycle"] = (True, "session recorded in sandbox")
+        record_gate(
+            self.state,
+            "free_zone_social_room",
+            gates,
+            str(result.get("status")),
+            {"session_id": result.get("session_id", ""), "at": now.isoformat()},
+        )
+        self.state["free_zone_social_room_last"] = {
+            "status": result.get("status"),
+            "reason": result.get("reason"),
+            "session_id": result.get("session_id"),
+            "speeches": result.get("speeches", 0),
+            "passes": result.get("passes", 0),
+            "distinct_speakers": result.get("distinct_speakers", 0),
+            "model_calls": result.get("model_calls", 0),
+            "distillation_status": result.get("distillation_status"),
+            "at": now.isoformat(),
+            "production_integration": False,
+        }
+        self._save_state()
+        return result
+
+    def _run_free_zone_external_review_if_due(self) -> Dict[str, Any]:
+        """Give the 67 tasks waiting on outside evidence an outside reader.
+
+        Their own verdict is ``等待人工或外部新证据``. ACE's researcher cannot supply
+        that: re-reading its own memory is what the cap was counting. An unrelated
+        free model can read the task once, from outside, and name what a fresh
+        verifier should check. That answer is free-zone material - it never
+        reopens a task, never writes to TaskPool, and never becomes a fact here.
+        The steward decides through the existing bridge, which is the only door.
+        """
+        from core.stage_gates import evaluate_gates, record_gate
+
+        cfg = self.config.get("runtime", {}).get("free_zone_external_review", {})
+        now = datetime.now()
+        enabled = bool(isinstance(cfg, dict) and cfg.get("enabled", True))
+        in_window = (now.hour, now.minute) >= (18, 30)
+        pool_present = self.miner_pool is not None
+        gates = {
+            "config_enabled": (enabled, "free_zone_external_review.enabled (default on)"),
+            "dedicated_window": (in_window, "evening free-zone window from 18:30"),
+            "miner_pool_ready": (pool_present, "existing miner pool instance"),
+        }
+        _, blocker = evaluate_gates(gates)
+        if blocker != "GO":
+            status = {
+                "config_enabled": "DISABLED",
+                "dedicated_window": "WAITING_FOR_DEDICATED_SHIFT",
+                "miner_pool_ready": "NO_EXISTING_MINER_POOL",
+            }[blocker]
+            record_gate(self.state, "free_zone_external_review", gates, status)
+            return {"status": status}
+        reviewer = FreeZoneExternalReviewer(
+            self.base_dir,
+            self.base_dir / "07_SANDBOX" / "free_research",
+            self.miner_pool,
+        )
+        result = reviewer.run_once(
+            limit=int(cfg.get("per_cycle", 2)),
+            max_tokens=int(cfg.get("max_tokens", 512)),
+        )
+        record_gate(
+            self.state,
+            "free_zone_external_review",
+            gates,
+            str(result.get("status")),
+            {"experiment_id": result.get("experiment_id", ""), "at": now.isoformat()},
+        )
+        self.state["free_zone_external_review_last"] = {
+            "status": result.get("status"),
+            "reason": result.get("reason"),
+            "experiment_id": result.get("experiment_id"),
+            "tasks_reviewed": result.get("tasks_reviewed", 0),
+            "reviews_written": result.get("reviews_written", 0),
+            "verdict_histogram": result.get("verdict_histogram"),
+            "at": now.isoformat(),
+            "production_integration": False,
         }
         self._save_state()
         return result
@@ -2476,6 +3174,61 @@ class AceDaemon:
             "delegated_to": "task_lifecycle",
             "lifecycle": lifecycle,
         }
+
+    def _run_local_only_work(self, limit: int = 2) -> Dict[str, Any]:
+        """Consume evidence-only work while model continuation is closed.
+
+        A degraded provider must not freeze the whole ecology.  This narrow
+        lane handles only the feedback tasks created by the Free Zone relay:
+        it verifies local hashes, records the result, and leaves the task in
+        ``review`` for the normal validator/guardian path.  It never calls a
+        provider and never promotes anything to production.
+        """
+        summary = {"claimed": 0, "reviewed": 0, "blocked": 0, "provider_calls": 0, "production_integration": False}
+        if not self.task_pool:
+            return summary
+        for candidate in self.task_pool.list_tasks(status="pending", limit=10000, sort_by="created"):
+            if summary["claimed"] >= limit:
+                break
+            admission = (candidate.outputs or {}).get("admission", {})
+            source_ref = str(admission.get("source_ref", ""))
+            if not source_ref.startswith("free_zone_observation:"):
+                continue
+            task = self.task_pool.claim_task(candidate.task_id, "ace-local-evidence", lease_seconds=300)
+            if not task:
+                continue
+            summary["claimed"] += 1
+            try:
+                feedback = (task.outputs or {}).get("free_zone_feedback", {})
+                source = feedback.get("source", {})
+                source_path = self.base_dir / str(source.get("ref", ""))
+                feedback_id = str(feedback.get("feedback_id", ""))
+                feedback_path = self.base_dir / "08_GOVERNANCE" / "free_zone_bridge" / "feedback" / f"{feedback_id}.json"
+                if not source_path.is_file() or not feedback_path.is_file():
+                    raise ValueError("free_zone_feedback_evidence_missing")
+                distillation = json.loads(source_path.read_text(encoding="utf-8"))
+                receipt = json.loads(feedback_path.read_text(encoding="utf-8"))
+                stored_distillation_hash = str(source.get("distillation_sha256", ""))
+                unsigned_distillation = dict(distillation)
+                unsigned_distillation.pop("distillation_hash", None)
+                actual_distillation_hash = hashlib.sha256(json.dumps(unsigned_distillation, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+                unsigned_feedback = dict(receipt)
+                stored_feedback_hash = unsigned_feedback.pop("feedback_hash", "")
+                actual_feedback_hash = hashlib.sha256(json.dumps(unsigned_feedback, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+                if stored_distillation_hash != actual_distillation_hash or stored_feedback_hash != actual_feedback_hash:
+                    raise ValueError("free_zone_feedback_hash_mismatch")
+                task.add_evidence("本地验证通过：自由区 distillation 与 ACE feedback 回执哈希一致。", source=str(feedback_path.relative_to(self.base_dir).as_posix()))
+                task.research_notes.append({"note": "本地证据核验完成，等待独立 Validator/Guardian；未调用模型。", "researcher": "ace-local-evidence", "at": datetime.now().isoformat()})
+                task.result = {"outcome": "LOCAL_EVIDENCE_VERIFIED", "distillation_hash": actual_distillation_hash, "feedback_hash": actual_feedback_hash, "production_integration": False}
+                task.status = "review"
+                if self.task_pool.update_task(task):
+                    summary["reviewed"] += 1
+                else:
+                    summary["blocked"] += 1
+            except Exception as error:
+                self.task_pool.fail_task(task.task_id, str(error), actor="ace-local-evidence", failure_type="external_condition")
+                summary["blocked"] += 1
+        return summary
 
     def _execute_task_with_worker(self, task) -> Dict[str, Any]:
         return {
@@ -2680,6 +3433,24 @@ class AceDaemon:
                                 category="improvement",
                             )
                             obs_count += 1
+                    overall = last_checkup.get("overall")
+                    if overall in {"error", "warning"}:
+                        self.runtime_observer.record(
+                            description=f"巡检结果为 {overall}，已捕获探针诊断。",
+                            system_state={
+                                "checkup_path": str(checkup_file),
+                                "checkup_snapshot": last_checkup,
+                            },
+                            severity="high" if overall == "error" else "medium",
+                            source="checkup_history",
+                            category="health",
+                            auto_generated=True,
+                            dedup_key={
+                                "timestamp": last_time,
+                                "overall": overall,
+                            },
+                        )
+                        obs_count += 1
             except Exception:
                 pass
 
@@ -2723,7 +3494,7 @@ class AceDaemon:
             lex_data = {"error": str(e)}
 
         try:
-            mem_entries = self.memory_index.search(limit=5000)
+            mem_entries = self.memory_gateway.search(limit=5000)
             mem_data = {
                 "total": len(mem_entries),
                 "entries": mem_entries,
@@ -2754,7 +3525,7 @@ class AceDaemon:
             f"- 新增概念: {total_concepts_added}\n"
             f"- 新增索引: {total_indexed}\n"
             f"- 词库总量: {len(self.lexicon.list_concepts(limit=10000))}\n"
-            f"- 记忆索引总量: {self.memory_index.get_stats().get('total', 0)}\n"
+            f"- 记忆索引总量: {self.memory_gateway.get_stats().get('total', 0)}\n"
         )
 
         try:
@@ -2823,7 +3594,7 @@ class AceDaemon:
                 actions_summary.append(f"{atype}: {reason}")
 
         lex_stats = self.lexicon.get_stats()
-        mem_stats = self.memory_index.get_stats()
+        mem_stats = self.memory_gateway.get_stats()
 
         mining_progress = self.state.get("mining_progress", {})
         eco_prog = mining_progress.get("eco_layer", {})
@@ -2880,7 +3651,7 @@ class AceDaemon:
                     summary_content += f"- 主要类型: {', '.join(f'{k}({v})' for k, v in top_types)}\n"
                 summary_content += "\n"
 
-        summary_id = self.memory_index.add(
+        summary_id = self.memory_gateway.add(
             title=f"运行周期摘要 - {today}",
             content=summary_content,
             memory_type="cycle_summary",
@@ -2988,9 +3759,34 @@ class AceDaemon:
                 # task work must not run when the previous context lacks a
                 # trustworthy continuation proof.
                 boundary = self._check_continue_gate()
+                think = self._check_cognitive_think(str(boundary.get("status") or ""))
                 if boundary.get("status") != "CONTINUE":
-                    stop_reason = "CONTINUE_GATE_CLOSED"
-                    break
+                    # Provider degradation closes model-backed continuation,
+                    # but must not terminate the daily daemon.  Keep the
+                    # process alive, service the local evidence lane, and
+                    # retry the governed gate on the next scheduled cycle.
+                    local_work = self._run_local_only_work(limit=2)
+                    self.state["local_only_work_last"] = {
+                        **local_work,
+                        "at": datetime.now().isoformat(),
+                    }
+                    self._save_state()
+                    self.heartbeat.beat(reason="continue_gate_closed")
+                    print(f"继续闸门关闭；本地证据车道已处理 {local_work.get('reviewed', 0)} 个任务，等待下一轮")
+                    if max_iterations > 0 and iteration >= max_iterations:
+                        stop_reason = "reached_max_iterations"
+                        break
+                    self.shutdown_event.wait(max(1, interval_seconds))
+                    continue
+                if think.get("status") == "LOOP_BLOCKED":
+                    local_work = self._run_local_only_work(limit=2)
+                    self.state["local_only_work_last"] = {
+                        **local_work,
+                        "at": datetime.now().isoformat(),
+                    }
+                    self._save_state()
+                    print("COGNITIVE_THINK_LOOP_BLOCKED: skip model discovery, keep local evidence lane")
+                    continue
 
                 self._begin_cycle_progress()
                 stage_started = self._start_cycle_stage("heartbeat")
@@ -3042,12 +3838,8 @@ class AceDaemon:
                     try:
                         health_result = self._run_shenwen_daily_health()
                         if health_result.get("executed"):
-                            successful = sum(1 for call in health_result["record"]["calls"] if call["success"])
-                            health_failed = successful < len(health_result["record"]["calls"])
-                            self.state["continue_gate_provider_degraded"] = health_failed
-                            self.state["continue_gate_fallbacks_configured"] = not health_failed
-                            self._save_state()
-                            print(f"神隐每日健康调用: {successful}/2 成功")
+                            summary = self._sync_continue_gate_from_daily_health(health_result)
+                            print("神隐每日健康调用: %s/%s 成功" % (summary["successful"], summary["total"]))
                     except Exception as e:
                         self._log_error("shenwen_daily_health", str(e))
                 self._complete_cycle_stage("model_health", stage_started)
@@ -3057,9 +3849,15 @@ class AceDaemon:
                 # boundary immediately after the probe and hand off.
                 if self.state.get("continue_gate_provider_degraded") is True:
                     boundary = self._check_continue_gate()
+                    think = self._check_cognitive_think(str(boundary.get("status") or ""))
                     if boundary.get("status") != "CONTINUE":
-                        stop_reason = "CONTINUE_GATE_CLOSED"
-                        break
+                        self.heartbeat.beat(reason="provider_degraded_retry")
+                        print("provider 健康探针降级；保留 daemon 常驻并等待下一轮")
+                        self.shutdown_event.wait(max(1, interval_seconds))
+                        continue
+                    if think.get("status") == "LOOP_BLOCKED":
+                        print("COGNITIVE_THINK_LOOP_BLOCKED: skip model-backed run_once")
+                        continue
 
                 try:
                     result = self.run_once(
@@ -3147,18 +3945,557 @@ class AceDaemon:
             "final_health": final_health,
         }
 
+    def _delivery_instruction_dir(self):
+        """The reduced instruction directory, or None when it is not usable.
+
+        The delivery stage runs with the repository root as its working
+        directory, which is exactly where the PRIVATE runtime manual sits. The
+        reduced artifact lives outside that tree, so the call cannot simply keep
+        pointing at the production workspace and expect compliant instructions:
+        the gate is right to refuse, and refusing is what it does.
+
+        Returning None means "do not run the delivery worker at all". A missing
+        or unreadable reduction must not degrade into calling the model with the
+        private manual still in scope.
+        """
+        candidate = Path(self.base_dir) / "model_instructions"
+        artifact = candidate / "AGENTS.md"
+        if not artifact.is_file():
+            self._log_error("delivery_instruction_missing", str(artifact))
+            return None
+        try:
+            import shutil
+            import tempfile
+
+            from core.instruction_boundary import evaluate_instruction_set
+            from core.opencode_worker import OpenCodeWorker
+
+            # Probe exactly what the model will see. The reduced file cannot be
+            # judged where it lives: model_instructions/ sits inside the
+            # repository, so OpenCode would also load the private manual from
+            # the ancestor chain and the gate would refuse for a reason that
+            # has nothing to do with the reduction. The staging directory is
+            # outside the repository, so the probe copies it there first.
+            probe_dir = Path(tempfile.mkdtemp(prefix="ace_instruction_probe_"))
+            try:
+                shutil.copy2(artifact, probe_dir / "AGENTS.md")
+                sources, _complete = OpenCodeWorker._instruction_sources(
+                    probe_dir.resolve(),
+                )
+                verdict = evaluate_instruction_set(
+                    sources, root=str(self.base_dir),
+                )
+            finally:
+                shutil.rmtree(probe_dir, ignore_errors=True)
+        except Exception as exc:
+            self._log_error("delivery_instruction_probe", str(exc))
+            return None
+        if verdict["instruction_gate"] != "ALLOWED" or not verdict.get("instruction_gate_allowed"):
+            self._log_error(
+                "delivery_instruction_blocked",
+                ";".join(verdict.get("instruction_gate_blocked", [])) or "unknown",
+            )
+            return None
+        return candidate
+
+    def _delivery_worker_runner(self):
+        """Build a bounded delivery worker, or None when none can run.
+
+        Fail closed on purpose. OpenCodeWorker resolves the CLI by absolute
+        default (C:\\Users\\Administrator\\.local\\bin\\opencode.exe, verified
+        opencode v2.0.6) and only then falls back to OPENCODE_EXECUTABLE -- so
+        absence from PATH is not absence of a worker. When the worker genuinely
+        cannot be built or found, the executor reports NO_WORKER_AVAILABLE and
+        the task stays honestly undelivered instead of receiving a fabricated
+        receipt.
+
+        The CLI is invoked in a staging workspace carrying the reduced
+        instruction file, not in the repository root. OpenCode reads AGENTS.md
+        from its working directory upwards, so keeping the repository root here
+        would load the private runtime manual and the egress gate would refuse
+        the call. The staging directory is created per attempt and the produced
+        artifact is copied back to the declared path in the repository, because
+        that path is what delivery verification and the task receipt refer to.
+        """
+        cached = getattr(self, "_delivery_runner_cache", None)
+        if cached is not None:
+            return cached if cached != "unavailable" else None
+        runner = None
+        try:
+            from core.opencode_worker import OpenCodeWorker
+
+            worker = OpenCodeWorker()
+            self._ensure_worker_router(worker)
+            instruction_dir = self._delivery_instruction_dir()
+            if Path(worker.executable).exists() and instruction_dir is not None:
+                def runner(**kwargs):  # noqa: F811 - closed over worker on purpose
+                    return self._deliver_with_reduced_instructions(
+                        worker, instruction_dir, **kwargs
+                    )
+        except Exception as exc:
+            self._log_error("delivery_worker_init", str(exc))
+            runner = None
+        self._delivery_runner_cache = runner if runner is not None else "unavailable"
+        return runner
+
+    def _deliver_with_reduced_instructions(self, worker, instruction_dir, **kwargs):
+        """Run one delivery in a staging workspace, then place the artifact.
+
+        The model must not run with the repository root as its working
+        directory, because that is where the private runtime manual lives and the
+        egress gate would refuse the call. So each attempt gets a fresh staging
+        directory containing only the reduced instruction file, the model writes
+        there, and the declared path is copied back into the repository for
+        verification.
+
+        Copy-back is deliberately narrow: only the declared ``required_path``,
+        resolved against the repository root and refused if it escapes. The
+        staging directory is removed afterwards either way, so a model that
+        writes elsewhere leaves nothing behind and cannot influence the next
+        attempt.
+        """
+        import shutil
+        import tempfile
+
+        from core.delivery_execution import resolve_delivery_path
+
+        repo = Path(self.base_dir)
+        required_path = str(kwargs.get("required_path", "") or "")
+        target = resolve_delivery_path(repo, required_path) if required_path else None
+        if target is None:
+            return {"success": False, "error": "delivery_path_escapes_workspace"}
+
+        staging = Path(tempfile.mkdtemp(prefix="ace_delivery_stage_"))
+        try:
+            shutil.copy2(
+                instruction_dir / "AGENTS.md", staging / "AGENTS.md",
+            )
+            # The model is being asked to document this repository, so it has to
+            # be able to read the repository. Staging the instructions in a
+            # scratch directory took that away: a probe that ran without them
+            # spent its whole budget globbing an empty room and never wrote a
+            # line. The permission is scoped to this one path -- read allowed,
+            # edit denied -- because the model writes into the staging directory
+            # and nowhere else.
+            repo_pattern = str(repo).replace("\\", "/").rstrip("/") + "/*"
+            (staging / "opencode.json").write_text(
+                json.dumps({
+                    "$schema": "https://opencode.ai/config.json",
+                    "permissions": [
+                        {"action": "external_directory",
+                         "resource": repo_pattern, "effect": "allow"},
+                        {"action": "read",
+                         "resource": repo_pattern, "effect": "allow"},
+                        {"action": "edit",
+                         "resource": repo_pattern, "effect": "deny"},
+                    ],
+                }, indent=2),
+                encoding="utf-8",
+            )
+            receipt = self.worker_router.run(
+                "structured_readonly", worker,
+                verify=lambda item: item.get("success") is True and bool(item.get("raw_output")),
+                task=(
+                    f"Produce the deliverable at {required_path}. "
+                    f"Task: {kwargs.get('title', '')}. "
+                    f"Hypothesis: {kwargs.get('hypothesis', '')}. "
+                    f"The code you are documenting is readable at {repo}; "
+                    f"read it before writing. Write the deliverable into "
+                    f"your own working directory."
+                    + self._reuse_hint_for(kwargs.get("task_id", ""), str(staging))
+                ),
+                workspace=str(staging),
+                expected_result=required_path,
+                verification_method="file_exists_nonempty",
+            )
+            produced = resolve_delivery_path(staging, required_path)
+            if produced is None or not produced.is_file():
+                receipt["delivery_staging"] = {
+                    "staged_workspace": str(staging),
+                    "artifact_placed": False,
+                    "required_path": required_path,
+                }
+                return receipt
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(produced, target)
+            receipt["delivery_staging"] = {
+                "staged_workspace": str(staging),
+                "artifact_placed": True,
+                "placed_path": str(target),
+                "required_path": required_path,
+                "instruction_source": str(instruction_dir / "AGENTS.md"),
+                "instruction_sha256": receipt.get("instruction_context_sha256", ""),
+            }
+            return receipt
+        finally:
+            shutil.rmtree(staging, ignore_errors=True)
+
+    def _ensure_worker_router(self, worker) -> None:
+        """Register the CLI's models as capability workers, once.
+
+        _delivery_worker_runner calls self.worker_router, but nothing ever
+        assigned that attribute: every CLI delivery raised AttributeError and
+        delivery_execution honestly recorded WORKER_FAILED. The registry is
+        built from the worker's own model table, so a model added upstream
+        becomes routable without editing this file.
+        """
+        existing = getattr(self, "worker_router", None)
+        if existing is not None:
+            return
+        try:
+            from core.worker_router import WorkerCapability, WorkerRouter
+
+            router = WorkerRouter()
+            for rank, (name, model) in enumerate(worker.models().items()):
+                router.register(WorkerCapability(
+                    worker_id=f"opencode_cli:{name}",
+                    runtime="opencode-cli",
+                    capabilities=frozenset({"structured_readonly", "document"}),
+                    metadata={"model": model, "fallback_rank": str(rank)},
+                ))
+            self.worker_router = router
+        except Exception as exc:
+            self._log_error("worker_router_init", str(exc))
+            self.worker_router = None
+
+    def _reuse_hint_for(self, task_id: str, workspace: str) -> str:
+        """Carry already-attached archived knowledge into the work itself.
+
+        Evidence that never reaches the prompt is decoration: the artifact would
+        be produced exactly as before and the reference count would rise for
+        nothing. Only ``knowledge_join:`` items travel, only when the artifact
+        they name really exists inside the workspace, and the worker is told to
+        write the source id it used into the deliverable - which is what later
+        lets a report trace the artifact back to the archived task instead of
+        asserting it.
+        """
+        task = self.task_pool.load_task(task_id) if (self.task_pool and task_id) else None
+        if task is None:
+            return ""
+        root = Path(workspace) if workspace else None
+        items: list[str] = []
+        for entry in (task.evidence or []):
+            if not isinstance(entry, dict):
+                continue
+            source = str(entry.get("source") or "")
+            if not source.startswith("knowledge_join:"):
+                continue
+            artifact = str(entry.get("artifact") or "").strip()
+            if not artifact or root is None:
+                continue
+            if not (root / artifact).is_file():
+                continue
+            items.append(
+                f"- {source} (archived task {entry.get('archived_task')}, "
+                f"artifact {artifact}, matched by {entry.get('identity_key')})"
+            )
+        if not items:
+            return ""
+        return (
+            " Prior archived knowledge you must actually use:\n"
+            + "\n".join(items)
+            + "\nUse what applies and write the matching knowledge_join source id"
+              " into the deliverable so its origin can be traced. If none of it"
+              " applies, say so explicitly instead of citing it."
+        )
+    def _begin_knowledge_reuse_day(self, day: Optional[str] = None) -> str:
+        """Reset per-day KnowledgeReuse state before planning or budget checks."""
+        day = day or datetime.now().strftime("%Y-%m-%d")
+        if self._knowledge_reuse_day != day:
+            self._knowledge_reuse_day = day
+            self._knowledge_reuse_entries = []
+            self._knowledge_reuse_attached = 0
+            self._knowledge_reuse_contributions = []
+        return day
+
+    def _record_reuse_contributions(self, task: Task, verification: Dict[str, Any]) -> None:
+        """Ask the delivered file whether it really used the reused knowledge.
+
+        Attaching is a claim; the artifact citing the ``knowledge_join:`` id is
+        the receipt. Only ids the task actually carries can be credited, so a
+        report can never book an influence that nobody can point at.
+        """
+        gate = getattr(self, "knowledge_reuse", None)
+        if gate is None or not gate.enabled:
+            return
+        self._begin_knowledge_reuse_day()
+        required_path = str(verification.get("required_path") or "")
+        try:
+            contributions = artifact_contributions(task, required_path, self.base_dir)
+        except Exception as exc:
+            self._log_error("knowledge_reuse_contribution", str(exc),
+                            getattr(task, "task_id", ""))
+            return
+        for item in contributions:
+            if item not in self._knowledge_reuse_contributions:
+                self._knowledge_reuse_contributions.append(item)
+    def _run_knowledge_reuse_stage(self, task: Task, result: Dict[str, Any]) -> Dict[str, Any]:
+        """Tell an in-flight task what the archive already knows — or find out
+        that we cannot, without touching the task.
+
+        Dry-run is the default and the only mode that is allowed to be reached
+        first: it computes a plan, records it, and writes nothing to the pool.
+        Attaching evidence requires the switch on, the mode above dry-run, and
+        a matching canary task, so a forgotten config cannot leak history into
+        real work.
+        """
+        gate = getattr(self, "knowledge_reuse", None)
+        task_id = getattr(task, "task_id", "")
+        self._begin_knowledge_reuse_day()
+        if gate is None:
+            return {"status": "GATE_UNAVAILABLE", "task": task_id}
+        try:
+            plan = gate.plan(task)
+        except Exception as e:
+            self._log_error("knowledge_reuse_plan", str(e), task_id)
+            return {"status": "PLAN_FAILED", "task": task_id, "error": str(e)}
+
+        attach: Dict[str, Any] = {"attached": 0, "reason": "DRY_RUN"}
+        budget = int(gate.settings.get("budget_evidence_per_day") or 20)
+        if plan.get("selected") and self._knowledge_reuse_attached >= budget:
+            attach = {"attached": 0, "reason": "DAILY_BUDGET_EXHAUSTED"}
+        elif plan.get("selected") and gate.may_write(task_id):
+            try:
+                attach = gate.attach(task, plan)
+            except Exception as e:
+                self._log_error("knowledge_reuse_attach", str(e), task_id)
+                attach = {"attached": 0, "reason": f"ATTACH_FAILED:{type(e).__name__}"}
+        self._knowledge_reuse_attached += int(attach.get("attached") or 0)
+
+        entry = {
+            "task": task_id,
+            "status": "PLANNED",
+            "mode": plan.get("mode"),
+            "enabled": plan.get("enabled"),
+            "reason": plan.get("reason"),
+            "identity_keys": plan.get("identity_keys", {}),
+            "selected": plan.get("selected", []),
+            "expected_writes": plan.get("expected_writes", {}),
+            "attached": int(attach.get("attached") or 0),
+            "attach_reason": attach.get("reason"),
+            "skipped": plan.get("skipped", []),
+        }
+        self._knowledge_reuse_entries.append(entry)
+        result.setdefault("knowledge_reuse", []).append(entry)
+        return entry
+    def _write_knowledge_reuse_report(self, lifecycle_result: Dict[str, Any]) -> Optional[Path]:
+        """One file per day, rewritten in place, so a rerun is byte-identical.
+
+        The report keeps 'cited' and 'changed' apart on purpose: a rising
+        reference count is not evidence that old knowledge improved anything.
+        """
+        gate = getattr(self, "knowledge_reuse", None)
+        if gate is None:
+            return None
+        day = self._begin_knowledge_reuse_day()
+        skip_reason = None if gate.enabled else "DISABLED"
+        try:
+            report = build_daily_report(day, gate.mode,
+                                        self._knowledge_reuse_entries, skip_reason,
+                                        contributions=self._knowledge_reuse_contributions)
+            path = write_report(self.base_dir, report,
+                                gate.settings.get("report_dir"))
+        except Exception as e:
+            self._log_error("knowledge_reuse_report", str(e))
+            return None
+        if self._knowledge_reuse_entries:
+            canary_entry = next((
+                entry for entry in self._knowledge_reuse_entries
+                if entry.get("task") == gate.settings.get("canary_task")
+            ), None)
+            if canary_entry is not None:
+                gate.record_canary_success(canary_entry["task"], report, _trusted=True)
+        self.state.setdefault("cycle_progress", {})["knowledge_reuse"] = {
+            "mode": gate.mode,
+            "enabled": gate.enabled,
+            "verdict": report["verdict"],
+            "entries": len(self._knowledge_reuse_entries),
+            "evidence_selected": report["cited"]["evidence_selected"],
+            "evidence_attached": report["cited"]["evidence_attached"],
+            "duplicates_avoided": report["changed"]["duplicates_avoided"],
+            "artifact_contributions": len(report["changed"]["artifact_contributions"]),
+            "report": str(path),
+        }
+        return path
+    def _run_declared_deliveries(self, result: Dict[str, Any]) -> None:
+        """Execute and verify the physical deliverables that tasks promised.
+
+        Before this stage existed a task could promise a file, spend five
+        rounds in research/rework, and be blocked with an evidence-duplication
+        reason while the artifact was never created and never checked. The
+        declared success_metric is now decided once, against the filesystem,
+        and the receipt is stored on the task.
+        """
+        summary = {"review_seen": 0, "checked": 0, "delivered": 0, "not_produced": 0, "external_receipt": 0,
+                   "deferred": 0}
+        result["delivery_execution"] = summary
+        if not self.task_pool:
+            return
+        try:
+            from core.delivery_execution import DeliveryExecutor, declares_delivery
+
+            executor = DeliveryExecutor(self.base_dir, worker_runner=self._delivery_worker_runner())
+            # Only a worker-invoking check costs model time. Without a worker the
+            # stage is a pure disk read, so there is nothing worth deferring.
+            budget = 1 if executor.has_worker else len(self.task_pool.list_tasks(status="review", limit=5))
+            for task in self.task_pool.list_tasks(status="review", limit=5):
+                summary["review_seen"] += 1
+                if not declares_delivery(task):
+                    continue
+                if summary["checked"] >= budget:
+                    summary["deferred"] += 1
+                    continue
+                outcome = executor.execute(task)
+                verification = outcome.get("verification") or {}
+                delivery = dict(task.outputs.get("delivery") or {})
+                delivery["execution"] = outcome
+                delivery["verification"] = verification
+                task.outputs["delivery"] = delivery
+                # Everything below must happen BEFORE the persist: the validator
+                # re-reads the task from disk, so evidence or notes recorded
+                # after update_task would never enter the evidence signature.
+                if verification.get("satisfied") is True:
+                    self._record_delivery_evidence(task, verification)
+                    self._record_reuse_contributions(task, verification)
+                # Best effort only. The receipt is the evidence; a note is
+                # decoration, and a raising annotation must never be allowed to
+                # abort update_task and lose a verified delivery off the record.
+                try:
+                    task.add_research_note(
+                        f"交付已验证: {verification.get('required_path')} "
+                        f"({verification.get('size_bytes')} bytes)",
+                        researcher="delivery_executor",
+                    )
+                except Exception as exc:
+                    self._log_error("delivery_note_skipped", str(exc))
+                self.task_pool.update_task(task)
+                summary["checked"] += 1
+                if verification.get("satisfied") is True:
+                    summary["delivered"] += 1
+                    continue
+                if verification.get("satisfied") is None:
+                    summary["external_receipt"] += 1
+                    continue
+                # The promised artifact is still absent. Stop the self-debate
+                # loop and name the real reason instead of repeating evidence
+                # objections until the duplicate-evidence ceiling fires.
+                summary["not_produced"] += 1
+                required_path = verification.get("required_path") or delivery.get("required_path")
+                self.task_pool.block_task(
+                    task.task_id,
+                    reason=f"delivery_not_produced:{required_path}",
+                    actor="delivery_executor",
+                    block_type="external_condition_blocked",
+                )
+        except Exception as e:
+            self._log_error("delivery_execution", str(e))
+            result["delivery_execution"] = {**summary, "status": "ERROR", "error": str(e)}
+    def _record_delivery_evidence(self, task, verification: Dict[str, Any]) -> None:
+        """Fold a verified artifact into the task evidence set.
+
+        Keyed on the content hash so the entry is idempotent: re-verifying an
+        unchanged file adds nothing, while a real edit produces a new signature
+        and lets the validator converge instead of looping.
+        """
+        content = "verified_artifact:{path}:{sha}".format(
+            path=verification.get("required_path") or "",
+            sha=verification.get("content_sha256") or "",
+        )
+        entry = {"source": "delivery_verification", "content": content}
+        if entry in (task.evidence or []):
+            return
+        task.evidence = list(task.evidence or []) + [entry]
+    def _run_intent_pool_if_due(
+        self,
+        queue_path: Optional[Path] = None,
+        state_path: Optional[Path] = None,
+    ) -> Dict[str, Any]:
+        """Let the external intent pool choose one will for today, on the
+        existing evening shift.
+
+        This is not a second scheduler. It reuses the same 18:30 dedicated shift
+        as the free-zone turns and fires at most once a day, guarded by a date
+        key in daemon_state. The grain barn still decides: when nothing is worth
+        executing, or external work is already at capacity, this returns
+        HEALTHY_IDLE / NO_VALID_INTENT and injects nothing.
+        """
+        now = datetime.now()
+        if (now.hour, now.minute) < (18, 30):
+            return {"status": "WAITING_FOR_DEDICATED_SHIFT"}
+        day = now.strftime("%Y-%m-%d")
+        if self.state.get("intent_pool_date") == day:
+            return {"status": "ALREADY_RUN_TODAY"}
+        if not self.task_pool:
+            return {"status": "TASK_POOL_UNAVAILABLE"}
+        try:
+            from ops import daily_intent_scheduler as intent_pool
+
+            capacity = int(self.config.get("runtime", {}).get("intent_pool_capacity", 3))
+            queue = intent_pool.load_queue(queue_path)
+            state = intent_pool.load_state(state_path)
+            if not queue:
+                return {"status": "NO_VALID_INTENT", "reason": "intent_queue_empty"}
+            report = intent_pool.assess(self.task_pool, queue, capacity, state)
+            decision = intent_pool.decide(report)
+            summary: Dict[str, Any] = {
+                "status": decision["outcome"],
+                "reason": decision["reason"],
+                "external_in_flight": report["in_flight"],
+                "capacity": capacity,
+                "evaluated_at": report["evaluated_at"],
+            }
+            # Record what was observed BEFORE injecting. assess() read the pool
+            # before the injection existed, so persisting these afterwards wrote
+            # a "candidate" entry on top of the "injected" one and made the
+            # recorded state trail the truth.
+            intent_pool.record_observations(state, report)
+            if decision["outcome"] == "INJECT":
+                chosen = next(
+                    item["intent"]
+                    for item in report["eligible"]
+                    if str(item["intent"]["intent_id"]) == decision["intent_id"]
+                )
+                injection = intent_pool.inject_selected(chosen, self.task_pool, state)
+                summary["intent_id"] = decision["intent_id"]
+                summary["injection"] = injection
+                # Report what actually happened, not what was decided. INJECT is
+                # the intent to act; INJECTED / REFUSED_ALREADY_INJECTED is the
+                # outcome, and only the latter means a task exists.
+                summary["status"] = injection["outcome"]
+            # Always persist, even on a no-op turn, so the pool's own history
+            # keeps up with the live TaskPool.
+            intent_pool.save_state(state, state_path)
+            self.state["intent_pool_date"] = day
+            self.state["intent_pool_last"] = summary
+            self._save_state()
+            return summary
+        except Exception as e:
+            self._log_error("intent_pool", str(e))
+            return {"status": "ERROR", "error": str(e)}
     def run_once(
         self,
         force: bool = False,
         dry_run: bool = False,
         _preserve_cycle_progress: bool = False,
     ) -> Dict[str, Any]:
+        self._closed_loop_dry_run = dry_run
         boundary = self._check_continue_gate()
+        think = self._check_cognitive_think(str(boundary.get("status") or ""))
         if boundary.get("status") != "CONTINUE":
             return {
                 "executed": False,
                 "stop_reason": "CONTINUE_GATE_CLOSED",
                 "continue_gate": boundary,
+                "cognitive_think": think,
+            }
+        if think.get("status") == "LOOP_BLOCKED":
+            local_work = self._run_local_only_work(limit=2)
+            return {
+                "executed": False,
+                "stop_reason": "COGNITIVE_THINK_LOOP_BLOCKED",
+                "continue_gate": boundary,
+                "cognitive_think": think,
+                "local_only_work": local_work,
             }
         if not _preserve_cycle_progress:
             self._begin_cycle_progress()
@@ -3253,7 +4590,7 @@ class AceDaemon:
                 local_arch_result = self.local_archaeologist.scan(
                     allowed_priorities=allowed_priorities,
                 )
-                status_l = local_arch_result["status"]
+                status_l = local_arch_result.get("status", "unknown")
                 if status_l == "found_new_structures":
                     print(f"  扫描文件: {local_arch_result['files_scanned']} 个")
                     print(f"  发现新结构: {local_arch_result['new_structures_count']} 个")
@@ -3478,6 +4815,17 @@ class AceDaemon:
         self.state.setdefault("cycle_progress", {})["model_pipeline"] = lifecycle_result.get(
             "model_pipeline", {}
         )
+        try:
+            lifecycle_result["intent_pool"] = self._run_intent_pool_if_due()
+        except Exception as e:
+            self._log_error("intent_pool", str(e))
+        self.state.setdefault("cycle_progress", {})["delivery_execution"] = lifecycle_result.get(
+            "delivery_execution", {}
+        )
+        self.state.setdefault("cycle_progress", {})["intent_pool"] = lifecycle_result.get(
+            "intent_pool", {}
+        )
+        self._write_knowledge_reuse_report(lifecycle_result)
         if self.task_pool:
             work_allocation = AutonomousWorkAllocation(self.task_pool).report(lifecycle_result)
         else:
@@ -3512,7 +4860,10 @@ class AceDaemon:
                 print(f"    {cat}: {count} 条")
         print()
         self._complete_cycle_stage("archive_analysis", stage_started)
-
+        governance_result = self._run_memory_governance_probe(dry_run=dry_run)
+        print(f"  Entropy: {governance_result.get('entropy_score')} | 报告: {governance_result.get('entropy_report_status')}")
+        print(f"  孟婆候选: {governance_result.get('mengpo_candidates')} | 冷却执行: {governance_result.get('cooldown_executed')}")
+        print()
         stage_started = self._start_cycle_stage("daily_summary")
         print("【写入今日考古摘要】")
         summary_id = self.write_daily_summary(decision, action_results, total_concepts_added, total_indexed)
@@ -3536,7 +4887,20 @@ class AceDaemon:
         observation_priorities = (
             None if observation_policy["observer"] else {"critical", "high"}
         )
-        if obs_recorded > 0 and self.obs_to_task_converter:
+        # The queue, not this process's own pen, decides whether there is anything
+        # to convert. `obs_recorded` only counted what this cycle recorded here, so
+        # a finding written by an independent process - which is what the structural
+        # watches are, since a daemon cannot be trusted to report its own death -
+        # waited for an unrelated event before anything looked at it. Measured
+        # 2026-10-17: a SYSTEM watch's escalation sat unconverted for 16 minutes and
+        # at least three cycles, with task_generated still None on the record.
+        # get_unprocessed() adopts what other processes appended, so it answers the
+        # question that matters: is there unconsumed work? It is bounded - conversion
+        # marks what it handles consumed, so the queue drains and the gate closes.
+        has_unconsumed = False
+        if self.runtime_observer is not None:
+            has_unconsumed = bool(self.runtime_observer.get_unprocessed(limit=1))
+        if (obs_recorded > 0 or has_unconsumed) and self.obs_to_task_converter:
             try:
                 convert_result = self.obs_to_task_converter.convert(
                     allowed_priorities=observation_priorities,
@@ -3571,33 +4935,34 @@ class AceDaemon:
 
         self._save_state()
 
-        # === Curator：Today's Work Finished — 馆长唤醒 ===
-        stage_started = self._start_cycle_stage("curator")
-        print("【Repository Curator：今日产物整理】")
-        curator_heartbeat = self._start_stage_heartbeat("curator")
+        curator_stage_started = self._start_cycle_stage("curator")
+        # 馆长是持续存在的生态观察位，不是本轮产物处理节点。
+        if self.repository_curator:
+            try:
+                curator_observation = self.repository_curator.observe_ecosystem(trigger="daemon_cycle")
+                self.state["last_curator_observation"] = curator_observation
+                print("【Repository Curator：生态观察位】")
+                print("  馆长保持观察；仓库决策仅通过显式 curator 入口触发")
+            except Exception as e:
+                self._log_error("repository_curator_observation", str(e))
+        self._save_state()
+        self._complete_cycle_stage("curator", curator_stage_started)
+
+        surprise_stage_started = self._start_cycle_stage("surprise")
         try:
-            if self.repository_curator:
-                curator_result = self.repository_curator.wakeup(triggered_by="daemon_loop")
-                scanned = curator_result.get("artifacts_scanned", 0)
-                summary = curator_result.get("summary", "无")
-                print(f"  扫描产物: {scanned} 个")
-                print(f"  决策摘要: {summary}")
-                if curator_result.get("duplicates_found"):
-                    print(f"  发现重复: {len(curator_result['duplicates_found'])} 个")
-                if curator_result.get("split_candidates"):
-                    print(f"  需拆分: {len(curator_result['split_candidates'])} 个")
-            else:
-                print("  [跳过] Curator 未初始化")
+            self._run_surprise_check()
         except Exception as e:
-            self._log_error("repository_curator", str(e))
-            print(f"  [错误] {e}")
-        finally:
-            self._stop_stage_heartbeat(curator_heartbeat)
-            self.heartbeat.status.pop("current_stage", None)
-            self.heartbeat.status.pop("stage_heartbeat_at", None)
-            self.heartbeat.beat(reason="stage:curator_complete")
-        print()
-        self._complete_cycle_stage("curator", stage_started)
+            self._log_error("surprise_check", str(e))
+        try:
+            self._run_drought_check()
+        except Exception as e:
+            self._log_error("drought_check", str(e))
+        try:
+            self._run_needs_check()
+        except Exception as e:
+            self._log_error("needs_check", str(e))
+        self._save_state()
+        self._complete_cycle_stage("surprise", surprise_stage_started)
 
         if self.repository_sync_enabled and self.core_syncer:
             try:
@@ -3667,6 +5032,7 @@ class AceDaemon:
             "sync": sync_result,
         }
 
+
     def _check_continue_gate(self) -> Dict[str, Any]:
         """Evaluate the fail-closed continuation boundary before any work."""
         boundary = evaluate_daemon_boundary(self.base_dir, self.state, self.config, self.run_id)
@@ -3678,6 +5044,363 @@ class AceDaemon:
             self.shutdown_reason = "CONTINUE_GATE_CLOSED"
             self.shutdown_event.set()
         return boundary
+
+    def _run_surprise_check(self) -> Dict[str, Any]:
+        """Ask whether the world still matches expectations, and say so.
+
+        This is the curiosity half of the loop: see the field, feel that
+        something is off, and state it as a checkable question. A surprise
+        is recorded as an ``anomaly`` observation with a stable dedup
+        identity, and the existing observation-to-task converter decides
+        whether it is worth working on. The same incident never files
+        twice; a new incident always files once. Nothing here writes tasks,
+        touches the TaskPool lifecycle, or calls a model.
+        """
+        from core.surprise import check_surprises
+
+        stats = self.task_pool.get_stats() if self.task_pool else {}
+        by_status = stats.get("by_status", {}) if isinstance(stats, dict) else {}
+        heartbeat = {}
+        try:
+            heartbeat_path = (
+                self.base_dir / "06_RUNTIME" / "ace" / "data" / "memory" / "heartbeat.json"
+            )
+            if heartbeat_path.is_file():
+                import json
+
+                heartbeat = json.loads(heartbeat_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            heartbeat = {}
+        try:
+            probes = sum(
+                1 for _ in (self.base_dir / "08_GOVERNANCE" / "civilization" / "graveyard").glob(
+                    "research_probe_cycle-probe-*.json"
+                )
+            )
+        except OSError:
+            probes = None
+        current = {
+            "last_beat": heartbeat.get("last_beat"),
+            "pid": self.state.get("pid"),
+            "run_id": self.state.get("run_id"),
+            "pending": by_status.get("pending"),
+            "blocked": by_status.get("blocked"),
+            "archived": by_status.get("archived"),
+            "probes": probes,
+        }
+        previous = self.state.get("last_surprise_snapshot") or {}
+        surprises = check_surprises(current, previous if isinstance(previous, dict) else {})
+        recorded = 0
+        observer = getattr(self, "runtime_observer", None)
+        if observer is not None:
+            for surprise in surprises:
+                try:
+                    observer.record(
+                        description=surprise["question"],
+                        system_state={
+                            "surprise_key": surprise["key"],
+                            "evidence": surprise.get("evidence", {}),
+                            "snapshot": current,
+                        },
+                        severity=surprise.get("severity", "medium"),
+                        source="surprise_check",
+                        category="anomaly",
+                        auto_generated=True,
+                        dedup_key=("surprise", surprise["key"]),
+                    )
+                    recorded += 1
+                except Exception as e:
+                    self._log_error("surprise_record", str(e))
+        self.state["last_surprise_snapshot"] = current
+        tensions_stage = self._run_tension_check()
+        self.state["last_surprise_check"] = {
+            "at": __import__("datetime").datetime.now().isoformat(),
+            "surprises": len(surprises),
+            "recorded": recorded,
+            "tensions": tensions_stage.get("tensions", 0),
+            "tensions_recorded": tensions_stage.get("recorded", 0),
+        }
+        return {
+            "surprises": len(surprises),
+            "recorded": recorded,
+            "tensions": tensions_stage.get("tensions", 0),
+            "tensions_recorded": tensions_stage.get("recorded", 0),
+        }
+
+    def _run_drought_check(self) -> Dict[str, Any]:
+        """Page when thinking itself stops while routable work waits.
+
+        A quiet pool with nothing to think about is healthy idle. Only the
+        combination of zero calls plus waiting routable tasks, sustained
+        across cycles, asks. Same recording contract as tensions: anomaly
+        observation, stable dedup identity, converter decides worth.
+        """
+        from core.surprise import DROUGHT_STILL_CYCLES, check_drought
+
+        calls_total: Optional[int] = None
+        try:
+            import json as _json
+
+            ledger = self.base_dir / "06_RUNTIME" / "ace" / "data" / "miner_pool" / "provider_watchdog" / "watchdog_state.json"
+            if ledger.is_file():
+                providers = (_json.loads(ledger.read_text(encoding="utf-8")).get("providers") or {})
+                calls_total = sum(
+                    int(info.get("total_calls", 0) or 0)
+                    for info in providers.values()
+                    if isinstance(info, dict)
+                )
+        except (OSError, ValueError):
+            calls_total = None
+        routable = 0
+        try:
+            for status in ("pending", "review", "active"):
+                seen = 0
+                for path in (self.base_dir / "task_pool" / status).glob("*.json"):
+                    if seen >= 200:
+                        break
+                    seen += 1
+                    try:
+                        import json as _json
+
+                        payload = _json.loads(path.read_text(encoding="utf-8"))
+                    except (OSError, ValueError):
+                        continue
+                    tags = {str(tag).lower() for tag in payload.get("tags") or [] if isinstance(tag, str)}
+                    discovery = payload.get("outputs", {}).get("discovery", {})
+                    task_type = discovery.get("task_type", "") if isinstance(discovery, dict) else ""
+                    if task_type or any(tag.startswith("task_type:") for tag in tags):
+                        routable += 1
+        except OSError:
+            pass
+        previous = self.state.get("last_drought_snapshot") or {}
+        prev_total = previous.get("calls_total")
+        if calls_total is None or prev_total is None:
+            still = 0
+            delta = 0
+        elif calls_total > int(prev_total):
+            still = 0
+            delta = calls_total - int(prev_total)
+        elif calls_total == int(prev_total):
+            still = int(previous.get("still_cycles") or 0) + 1
+            delta = 0
+        else:
+            # Ledger totals never decrease; a drop means the ledger was
+            # reset or replaced, so the streak restarts instead of accusing.
+            still = 0
+            delta = 0
+        droughts = check_drought(delta, routable, still) if calls_total is not None else []
+        recorded = 0
+        observer = getattr(self, "runtime_observer", None)
+        if observer is not None:
+            for drought in droughts:
+                try:
+                    plan = list(drought.get("verification_plan") or [])
+                    observer.record(
+                        description=drought["question"] + (" Verify by: " + "; ".join(plan) if plan else ""),
+                        system_state={"tension_key": drought["key"], "evidence": drought.get("evidence", {})},
+                        severity=drought.get("severity", "medium"),
+                        source="drought_check",
+                        category="anomaly",
+                        auto_generated=True,
+                        dedup_key=("tension", drought["key"]),
+                    )
+                    recorded += 1
+                except Exception as e:
+                    self._log_error("drought_record", str(e))
+        self.state["last_drought_snapshot"] = {"calls_total": calls_total, "still_cycles": still}
+        return {"droughts": len(droughts), "recorded": recorded, "still_cycles": still}
+
+    def _run_needs_check(self) -> Dict[str, Any]:
+        """Say what gated work is missing, so silence becomes a named need.
+
+        Same recording contract as tensions and droughts: anomaly-category
+        observations with stable dedup keys, converter decides worth. Today
+        no conversion rule matches category "need", so these stay visible
+        without manufacturing tasks. Recovery resolves the signature.
+        Only proven needs are emitted; a new need type is a design decision.
+        """
+        from core.semantic_seed import normalize_semantic_seed
+
+        recorded = 0
+        observer = getattr(self, "runtime_observer", None)
+        if observer is None:
+            return {"recorded": 0}
+        try:
+            cfg = self.config.get("runtime", {}).get("free_zone_model_shift", {})
+            enabled = bool(isinstance(cfg, dict) and cfg.get("enabled"))
+            consumed: set = set()
+            try:
+                import json as _json
+
+                shift_state_path = (
+                    self.base_dir / "07_SANDBOX" / "free_research" / "model_shift_state.json"
+                )
+                if shift_state_path.is_file():
+                    consumed = set(
+                        _json.loads(shift_state_path.read_text(encoding="utf-8")).get(
+                            "completed_seed_hashes", []
+                        )
+                    )
+            except (OSError, ValueError):
+                consumed = set()
+            valid_unconsumed = 0
+            try:
+                inbox = self.base_dir / "07_SANDBOX" / "free_research" / "inbox"
+                if inbox.is_dir():
+                    import json as _json
+
+                    for path in sorted(inbox.glob("*.json")):
+                        try:
+                            seed = normalize_semantic_seed(
+                                _json.loads(path.read_text(encoding="utf-8"))
+                            )
+                        except Exception:
+                            continue
+                        if seed.get("seed_hash") not in consumed:
+                            valid_unconsumed += 1
+            except OSError:
+                pass
+            if enabled and valid_unconsumed == 0:
+                try:
+                    observer.record(
+                        description=(
+                            "Free-zone model shift is enabled but has no unconsumed "
+                            "semantic seed: the evening turn will report NO_SEED. "
+                            "Planting a seed is the unblock."
+                        ),
+                        system_state={"need": "free_zone_seed_supply",
+                                      "evidence": {"valid_unconsumed": 0}},
+                        severity="medium",
+                        source="needs_check",
+                        category="need",
+                        auto_generated=True,
+                        dedup_key=("need", "free_zone_seed_supply"),
+                    )
+                    recorded += 1
+                except Exception as e:
+                    self._log_error("needs_record", str(e))
+            else:
+                try:
+                    observer.resolve_signature(
+                        observer._dedup_signature(
+                            ("need", "free_zone_seed_supply"), "needs_check", "need"
+                        )
+                    )
+                except Exception:
+                    pass
+        except Exception as e:
+            self._log_error("needs_check", str(e))
+        return {"recorded": recorded}
+
+    def _run_tension_check(self) -> Dict[str, Any]:
+        """Ask from structure the system already owns.
+
+        Same contract as surprises: tensions become anomaly observations
+        with stable dedup identities, and the existing converter decides
+        worth. No new entity types, no statistics, no external calls.
+        """
+        from core.surprise import LEARN_WITHOUT_USE_DAYS, check_tensions
+
+        field: Dict[str, Any] = {}
+        curator_observation = self.state.get("last_curator_observation") or {}
+        if isinstance(curator_observation, dict) and curator_observation:
+            field["curator_observing"] = True
+            try:
+                field["curator_runs"] = int(curator_observation.get("run_count", 0))
+            except (TypeError, ValueError):
+                pass
+        try:
+            import time as _time
+
+            cutoff = _time.time() - LEARN_WITHOUT_USE_DAYS * 86400
+            recent = total = unreferenced = 0
+            knowledge_root = self.base_dir / "09_KNOWLEDGE"
+            if knowledge_root.is_dir():
+                for tier in ("pattern", "constraint", "lesson", "axiom", "observation"):
+                    tier_dir = knowledge_root / tier
+                    if not tier_dir.is_dir():
+                        continue
+                    for record in tier_dir.glob("EXP-*.json"):
+                        try:
+                            if record.stat().st_mtime < cutoff:
+                                continue
+                        except OSError:
+                            continue
+                        total += 1
+                        try:
+                            import json as _json
+
+                            payload = _json.loads(record.read_text(encoding="utf-8"))
+                        except (OSError, ValueError):
+                            continue
+                        recent += 1
+                        if int(payload.get("reference_count") or 0) <= 0:
+                            unreferenced += 1
+            if total:
+                field["recent_exp_total"] = recent
+                field["recent_exp_unreferenced"] = unreferenced
+        except OSError:
+            pass
+        tensions = check_tensions(field)
+        recorded = 0
+        observer = getattr(self, "runtime_observer", None)
+        if observer is not None:
+            for tension in tensions:
+                try:
+                    plan = list(tension.get("verification_plan") or [])
+                    observer.record(
+                        description=tension["question"]
+                        + (" Verify by: " + "; ".join(plan) if plan else ""),
+                        system_state={
+                            "tension_key": tension["key"],
+                            "evidence": tension.get("evidence", {}),
+                        },
+                        severity=tension.get("severity", "medium"),
+                        source="tension_check",
+                        category="anomaly",
+                        auto_generated=True,
+                        dedup_key=("tension", tension["key"]),
+                    )
+                    recorded += 1
+                except Exception as e:
+                    self._log_error("tension_record", str(e))
+        return {"tensions": len(tensions), "recorded": recorded}
+
+    def _run_memory_governance_probe(self, *, dry_run: bool = False) -> Dict[str, Any]:
+        from core.governance.entropy_monitor import EntropyMonitor
+        report_root = self.base_dir / "08_GOVERNANCE" / "entropy"
+        monitor = EntropyMonitor(report_path=str(report_root))
+        report = monitor.generate_report(lexicon_path=str(self.base_dir / "06_RUNTIME" / "ace" / "data" / "memory" / "lexicon.json"), experiences_path=str(self.base_dir / "09_KNOWLEDGE" / "experiences.json"), evolution_path=str(self.base_dir / "09_KNOWLEDGE" / "evolution.json"))
+        report_path = monitor.save_report(report)
+        result = {"entropy_report_status": "INPUT_ERROR" if report.has_input_errors() else "GENERATED", "entropy_score": report.entropy_score, "entropy_report": str(report_path), "entropy_input_status": report.input_status, "entropy_read_errors": report.read_errors, "mengpo_candidates": 0, "cooldown_executed": 0, "production_integration": False, "probe_only": True}
+        if dry_run:
+            return result
+        from core.governance.mengpo import ForgettingCandidate, MengpoMemoryDecay
+        # The probe verifies that the archive path still works; it is a
+        # liveness receipt, not a per-cycle artifact. A timestamped id made
+        # Mengpo write a brand new graveyard file every cycle (~250/day,
+        # 1070 files in five days), which buried the governance signals that
+        # directory exists to hold. A stable id rewrites one file instead, so
+        # the probe keeps running, keeps its receipt, and stops accumulating.
+        # No history is deleted: the existing probe files stay as evidence.
+        probe = ForgettingCandidate(id="cycle-probe", artifact="ACE_CYCLE_GOVERNANCE_PROBE", artifact_type="research_probe", reason="isolated non-production archive verification", pollution_score=MengpoMemoryDecay.POLLUTION_THRESHOLD, age_days=0, references=0, alternatives_exist=True, is_core=False)
+        mengpo = MengpoMemoryDecay(graveyard_path=str(self.base_dir / "08_GOVERNANCE" / "civilization" / "graveyard"), lines_path=str(self.base_dir / "08_GOVERNANCE" / "civilization" / "memory_lines.jsonl"), records_path=str(self.base_dir / "08_GOVERNANCE" / "decisions" / "mengpo_records.jsonl"))
+        result["mengpo_candidates"] = 1
+        if mengpo.forget(probe, reason=probe.reason):
+            result["cooldown_executed"] = 1
+        return result
+
+    def _check_cognitive_think(self, continue_status: str):
+        """Record think/judgment/execute split. Never shuts down the daemon."""
+        decision = evaluate_daemon_cognitive_think(
+            self.base_dir,
+            self.state,
+            self.config,
+            self.run_id,
+            continue_status=continue_status,
+        )
+        self.state["last_cognitive_think"] = decision
+        return decision
 
 
 def main():

@@ -123,6 +123,7 @@ def test_survival_loop_rejects_unknown_oneapi_model_before_chat_request(monkeypa
         temperature=0.7,
         max_tokens=32,
         timeout=3,
+        data_boundary={"data_class": "PUBLIC"},
     )
 
     assert result[0] is False

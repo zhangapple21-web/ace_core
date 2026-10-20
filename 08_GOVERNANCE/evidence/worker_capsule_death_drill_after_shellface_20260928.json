@@ -1,0 +1,61 @@
+{
+  "drill": "ace.worker_capsule.death_drill.v1",
+  "at": "2026-09-28T19:14:56.674059",
+  "pool_dir": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\ace_drill_shellface_pktkfoe9\\pool",
+  "task_id": "RQ-20260928-001",
+  "process_a": {
+    "pid": 20016,
+    "claim_id": "c9af220772c04efa9e6478da2b4b6865",
+    "capsule_hash": "7f23e6a3379749e5aeb0e08cc5f42afcaba9bb1a47bf1147ea943ffa8c514434",
+    "hard_exit": true,
+    "submit_status": "SUBMITTED"
+  },
+  "gap_seconds_observed": 7.51,
+  "ghost_write": {
+    "status": "REFUSED",
+    "reason": "capsule_lease_expired",
+    "task_id": "RQ-20260928-001",
+    "capsule_version": "ace.worker_capsule.v1",
+    "recovery_hint": "renew_lease before continuing, or let reclaim_stale_leases return the task to pending | nothing was written",
+    "capsule_text": null,
+    "runtime_mutation": false,
+    "lease_expires_at": "2026-09-28T19:14:53.147186"
+  },
+  "ghost_write_blocked": true,
+  "ghost_left_no_trace": true,
+  "expired_render": "capsule_lease_expired",
+  "reclaimed_task_ids": [
+    "RQ-20260928-001"
+  ],
+  "process_b": {
+    "pid": 5432,
+    "claim_id": "c6b7e2b1cd8643548bc0e1783af8803c",
+    "fencing_token": 2,
+    "capsule_status": "CAPSULE_READY",
+    "capsule_hash": "c4b466ce9b555bfc5def6657bb80e32350efcf7649d11d19d4acb60bced19e2a",
+    "capsule_carries_prior_checkpoint": true,
+    "prior_actor_visible": true,
+    "submit_status": "SUBMITTED"
+  },
+  "final": {
+    "status": "review",
+    "claim_id_cleared": true,
+    "evidence_count": 2,
+    "checkpoints": [
+      "lifecycle_start",
+      "half_done_process_A",
+      "lifecycle_start",
+      "lifecycle_start",
+      "worker_submission",
+      "lifecycle_start"
+    ],
+    "unknowns_kept": true
+  },
+  "observations": {
+    "limbo_window": "between lease expiry and the next reclaim_stale_leases pass the task is neither writable by its dead owner nor claimable; recovery is pull-based, so a scheduler pass must run for it to close",
+    "admission_gap": "core/task_admission.SOURCE_TYPES has no user-directive type, so an operator-issued task must enter as source_type=evidence; widening admission was not done here (worker-side change to 准入 is forbidden by the execution contract)",
+    "fuel_gap": "the production pool has pending=0, so the capsule has no real work to carry; the drill therefore proves the mechanism on a scratch pool and only proves the gate read-only in production",
+    "receipt_path_defect_found": "probe and resume originally shared one --receipt default, so re-running probe overwrote the committed drill PASS receipt with probe data (found at 2026-09-28T17:23 by reading the file back).  Each phase now owns its own evidence file."
+  },
+  "verdict": "PASS"
+}

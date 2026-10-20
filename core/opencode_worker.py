@@ -1,0 +1,595 @@
+"""Governed OpenCode CLI worker adapter for ACE.
+
+This worker is the only OpenCode invocation face ACE has: the miner-pool
+provider and the daemon delivery stage both land here, so instruction policy
+belongs to the worker rather than being re-decided by each caller.
+
+Instruction staging (instruction_mode) is off by default. OpenCode V2
+recognises AGENTS.md only, so a file in the call workspace is the one supported
+way to give a run persistent guidance -- but that file is also a second,
+ungoverned instruction source beside the governed system contract built by
+govern_model_messages(), and ACE_OMX_ADAPTATION_DECISION_20260905.md records
+auto-injecting project AGENTS.md as rejected because it widens the implicit
+instruction surface. So a caller opts in per worker, and every receipt states
+which way it went.
+"""
+from __future__ import annotations
+
+import hashlib
+import json
+import os
+import subprocess
+from pathlib import Path
+from typing import Any, Dict, Iterable, List, Optional
+
+from core.instruction_boundary import evaluate_instruction_set
+
+# Role -> ordered candidates. The first entry that the CLI currently serves wins.
+#
+# These were single pinned ids, and the free tier retired four of the nine:
+# long_context (fledge-alpha-free), lightweight (ling-3.1-flash-free),
+# creative_candidate (muse-spark-1.3-contributor-free) and legacy_fallback
+# (ling-3.0-flash-fin-free). The owner noted the writing workhorse was simply
+# gone, with deepseek and GLM available as replacements that were never
+# registered at all.
+#
+# A single pinned id is the wrong shape for a rotating free tier: it cannot
+# survive one retirement, and it cannot make use of a new model without a code
+# change. A candidate list survives both. What a role means - which model is good
+# for long context, which for writing - is still a human judgement recorded
+# here; which of them actually exist today is asked of the CLI at call time.
+OPENCODE_MODEL_CANDIDATES: Dict[str, List[str]] = {
+    "heavy_agent": [
+        "opencode/nemotron-3-ultra-free",
+        "opencode/nemotron-3.5-lightning-free",
+        "opencode/space-bunny-free",
+    ],
+    # deepseek-v4.1 and glm-5.3 lead here because they are the writing path the
+    # owner named on 2026-10-19; nemotron-3-5-super-vl stays for image-shaped
+    # work and nemotron-3-ultra is the broad fallback behind them.
+    "long_context": [
+        "opencode/deepseek-v4.1-flash-free",
+        "opencode/glm-5.3-flash-free",
+        "opencode/nemotron-3.5-super-vl-free",
+        "opencode/nemotron-3-ultra-free",
+        "opencode/fledge-alpha-free",
+    ],
+    "coding_reasoning": [
+        "opencode/mimo-v2.6-flash-free",
+        "opencode/deepseek-v4.1-flash-free",
+        "opencode/glm-5.3-flash-free",
+    ],
+    "ultra_long_context": [
+        "opencode/longcat-2.5-preview-free",
+        "opencode/deepseek-v4.1-flash-free",
+        "opencode/glm-5.3-flash-free",
+    ],
+    "fast_inspection": [
+        "opencode/nemotron-3.5-lightning-free",
+        "opencode/beam-free",
+        "opencode/nemotron-3-ultra-free",
+    ],
+    "lightweight": [
+        "opencode/beam-free",
+        "opencode/nemotron-3.5-lightning-free",
+        "opencode/space-bunny-free",
+        "opencode/ling-3.1-flash-free",
+    ],
+    "experimental": [
+        "opencode/space-bunny-free",
+        "opencode/beam-free",
+    ],
+    "creative_candidate": [
+        "opencode/glm-5.3-flash-free",
+        "opencode/deepseek-v4.1-flash-free",
+        "opencode/space-bunny-free",
+        "opencode/muse-spark-1.3-contributor-free",
+    ],
+    "legacy_fallback": [
+        "opencode/space-bunny-free",
+        "opencode/beam-free",
+        "opencode/ling-3.0-flash-fin-free",
+    ],
+}
+
+
+def _live() -> Optional[set]:
+    try:
+        from core.miner_pool.providers.free_model_discovery import discover_free_models
+        return set(discover_free_models())
+    except Exception:
+        return None
+
+
+def resolve_role_model(role: str) -> Optional[str]:
+    """The model this role should use right now, or None if nothing is live.
+
+    Falls back to the first candidate when the CLI cannot be asked, so a
+    transient probe failure degrades to the previous behaviour rather than to no
+    capacity at all.
+    """
+    candidates = OPENCODE_MODEL_CANDIDATES.get(role)
+    if not candidates:
+        return None
+    live = _live()
+    if not live:
+        return candidates[0]
+    for candidate in candidates:
+        if candidate in live:
+            return candidate
+    return None
+
+
+def role_status() -> Dict[str, Dict[str, Any]]:
+    """Every role, what it would pick now, and which candidates are retired.
+
+    The retired list is the useful half: it is how a retirement becomes visible
+    to a person instead of turning into a 500 at call time.
+    """
+    live = _live()
+    out: Dict[str, Dict[str, Any]] = {}
+    for role, candidates in sorted(OPENCODE_MODEL_CANDIDATES.items()):
+        out[role] = {
+            "selected": next((c for c in candidates if live and c in live), None),
+            "candidates": list(candidates),
+            "retired": [c for c in candidates if live is not None and c not in live],
+        }
+    return out
+
+
+def _first_live(candidates: List[str]) -> Optional[str]:
+    live = _live()
+    if not live:
+        return candidates[0] if candidates else None
+    return next((c for c in candidates if c in live), None)
+
+
+# Kept for the callers that read a flat dict. Values are the *current* pick, so
+# an existing caller is now following the free tier instead of a snapshot of it.
+OPENCODE_MODELS: Dict[str, str] = {
+    role: (_first_live(cands) or cands[0])
+    for role, cands in OPENCODE_MODEL_CANDIDATES.items()
+}
+
+DEFAULT_MODEL_ORDER = [
+    _first_live(OPENCODE_MODEL_CANDIDATES["fast_inspection"]) or OPENCODE_MODEL_CANDIDATES["fast_inspection"][0],
+    _first_live(OPENCODE_MODEL_CANDIDATES["lightweight"]) or OPENCODE_MODEL_CANDIDATES["lightweight"][0],
+    _first_live(OPENCODE_MODEL_CANDIDATES["coding_reasoning"]) or OPENCODE_MODEL_CANDIDATES["coding_reasoning"][0],
+    _first_live(OPENCODE_MODEL_CANDIDATES["long_context"]) or OPENCODE_MODEL_CANDIDATES["long_context"][0],
+    _first_live(OPENCODE_MODEL_CANDIDATES["heavy_agent"]) or OPENCODE_MODEL_CANDIDATES["heavy_agent"][0],
+]
+
+# "off": no instruction file is written, behaviour unchanged. "workspace": the
+# authoritative file is copied into this call's workspace as AGENTS.md before
+# the CLI starts, which is the only shape OpenCode V2 loads as instructions.
+INSTRUCTION_MODES = ("off", "workspace")
+
+# Upper bound on directories walked when enumerating nested AGENTS.md files.
+# Exceeding it blocks the call rather than reporting a partial scan: an
+# incomplete enumeration is an unclassified instruction surface wearing a
+# receipt that says it was checked.
+NESTED_SCAN_LIMIT = 50000
+
+
+class OpenCodeWorker:
+    """Run one bounded ACE task through the installed OpenCode CLI."""
+
+    def __init__(
+        self,
+        executable: Optional[str] = None,
+        timeout_seconds: int = 900,
+        standalone: Optional[bool] = None,
+        instruction_mode: str = "off",
+        instruction_source: Optional[str] = None,
+        ace_root: Optional[str] = None,
+    ):
+        self.executable = executable or os.environ.get(
+            "OPENCODE_EXECUTABLE", r"C:\Users\Administrator\.local\bin\opencode.exe"
+        )
+        self.timeout_seconds = max(1, int(timeout_seconds))
+        self.instruction_mode = str(instruction_mode or "off").strip().lower()
+        if self.instruction_mode not in INSTRUCTION_MODES:
+            raise ValueError("opencode_instruction_mode_unknown")
+        source = str(instruction_source or "").strip()
+        if self.instruction_mode == "off":
+            # A source without a mode reads as "instructions were staged" in the
+            # caller's head. Refuse it rather than silently dropping it.
+            if source:
+                raise ValueError("opencode_instruction_source_without_mode")
+            self.instruction_source: Optional[Path] = None
+        else:
+            if not source:
+                raise ValueError("opencode_instruction_source_required")
+            self.instruction_source = Path(source).expanduser().resolve()
+        self._version_cache: Optional[str] = None
+        # Where the instruction classification records live. None resolves to
+        # the checkout this module sits in; tests point it at a fixture root.
+        self.ace_root = str(ace_root).strip() if ace_root else None
+        # The interactive UI uses the background OpenCode service. Reuse it by
+        # default so CLI workers see the same auth/model/quota context. Set
+        # OPENCODE_STANDALONE=1 only when an isolated service is intentional.
+        self.standalone = (
+            os.environ.get("OPENCODE_STANDALONE", "").strip().lower() in {"1", "true", "yes"}
+            if standalone is None else bool(standalone)
+        )
+
+    @staticmethod
+    def _fingerprint(path: Path) -> str:
+        digest = hashlib.sha256()
+        if path.is_file():
+            digest.update(path.read_bytes())
+        else:
+            for child in sorted(path.rglob("*")):
+                if child.is_file() and ".git" not in child.parts:
+                    digest.update(str(child.relative_to(path)).encode("utf-8"))
+                    digest.update(child.read_bytes())
+        return digest.hexdigest()
+
+    @staticmethod
+    def _validate_workspace(workspace: str) -> Path:
+        path = Path(workspace).expanduser().resolve()
+        if not path.exists() or not path.is_dir():
+            raise ValueError("opencode_workspace_missing")
+        if path == Path(path.anchor):
+            raise ValueError("opencode_workspace_too_broad")
+        return path
+
+    @staticmethod
+    def models() -> Dict[str, str]:
+        """The registry of routable models this worker can be asked for."""
+        return dict(OPENCODE_MODELS)
+
+    @staticmethod
+    def _parse_result(raw: str) -> Optional[Dict[str, Any]]:
+        texts: List[str] = []
+        for line in raw.splitlines():
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            part = event.get("part", {})
+            if event.get("type") == "text" and isinstance(part, dict):
+                text = part.get("text")
+                if isinstance(text, str):
+                    texts.append(text)
+        for text in reversed(texts):
+            try:
+                value = json.loads(text.strip())
+            except json.JSONDecodeError:
+                continue
+            if isinstance(value, dict):
+                return value
+        return None
+
+    def _run_command(
+        self, command: List[str], cwd: str, timeout: Optional[int] = None,
+    ) -> subprocess.CompletedProcess:
+        """Run the CLI, killing the whole process tree when time runs out.
+
+        subprocess.run(timeout=...) terminates only the direct child. The CLI
+        spawns helpers of its own, so a timeout used to strand those helpers
+        as orphans long after their workspace was cleaned (14 such python
+        orphans had accumulated). taskkill /T takes the tree; on POSIX the
+        process group is signalled instead.
+        """
+        popen_kwargs: Dict[str, Any] = {}
+        if os.name == "nt":
+            popen_kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+        else:
+            popen_kwargs["start_new_session"] = True
+        process = subprocess.Popen(
+            command, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            text=True, encoding="utf-8", errors="replace", **popen_kwargs,
+        )
+        budget = self.timeout_seconds if timeout is None else max(1, int(timeout))
+        try:
+            stdout, stderr = process.communicate(timeout=budget)
+        except subprocess.TimeoutExpired:
+            self._kill_tree(process)
+            try:
+                stdout, stderr = process.communicate(timeout=10)
+            except subprocess.TimeoutExpired:
+                stdout, stderr = "", ""
+            raise subprocess.TimeoutExpired(command, budget, stdout, stderr)
+        return subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
+
+    @staticmethod
+    def _kill_tree(process: "subprocess.Popen") -> None:
+        if os.name == "nt":
+            subprocess.run(
+                ["taskkill", "/F", "/T", "/PID", str(process.pid)],
+                capture_output=True, timeout=60, check=False,
+            )
+            return
+        try:
+            import signal
+
+            os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+        except (OSError, AttributeError):
+            try:
+                process.kill()
+            except OSError:
+                pass
+
+    def _cli_version(self, workspace: Path) -> str:
+        """Best-effort CLI version for the receipt.
+
+        Diagnostic only, so it fails soft rather than refusing a call: a receipt
+        must not hinge on a probe answering. It goes through _run_command so a
+        launcher that ignores --version has its helpers killed instead of
+        stranding them. Resolved once per worker.
+        """
+        if self._version_cache is not None:
+            return self._version_cache
+        version = "UNKNOWN"
+        try:
+            completed = self._run_command(
+                [self.executable, "--version"], cwd=str(workspace), timeout=30
+            )
+            text = (completed.stdout or "").strip()
+            if completed.returncode == 0 and text:
+                version = text.splitlines()[0].strip()
+        except (OSError, subprocess.SubprocessError):
+            version = "UNKNOWN"
+        self._version_cache = version
+        return version
+
+    @staticmethod
+    def _project_root(workspace: Path) -> Optional[Path]:
+        for candidate in (workspace, *workspace.parents):
+            if (candidate / ".git").exists():
+                return candidate
+        return None
+
+    @staticmethod
+    def _instruction_sources(workspace: Path) -> List[Dict[str, Any]]:
+        """The AGENTS.md files OpenCode would combine for this workspace.
+
+        V2 loads the global file, then every AGENTS.md from the workspace
+        directory toward the home directory, stopping at the project root when
+        the workspace sits outside home. Enumerating that same set is the only
+        way a receipt can state what guidance a run actually had -- including
+        guidance nobody staged, and including a stray ancestor file that would
+        otherwise join the prompt silently.
+
+        Returns ``(sources, complete)``. ``complete`` is False when the nested
+        scan hit its bound, which callers must treat as a refusal.
+        """
+        home = Path(os.path.expanduser("~"))
+        root = OpenCodeWorker._project_root(workspace)
+        under_home = workspace == home or home in workspace.parents
+        candidates: List[Path] = []
+        if under_home:
+            for candidate in (workspace, *workspace.parents):
+                candidates.append(candidate)
+                if candidate == home:
+                    break
+        else:
+            stop = root or Path(workspace.anchor)
+            for candidate in (workspace, *workspace.parents):
+                candidates.append(candidate)
+                if candidate == stop:
+                    break
+
+        global_file = home / ".config" / "opencode" / "AGENTS.md"
+        found: List[Dict[str, Any]] = []
+        seen = set()
+        for path in [global_file, *[item / "AGENTS.md" for item in candidates]]:
+            if not path.is_file() or path in seen:
+                continue
+            seen.add(path)
+            payload = path.read_bytes()
+            origin = "global" if path == global_file else (
+                "workspace" if path.parent == workspace else "ancestor"
+            )
+            found.append({
+                "path": str(path),
+                "origin": origin,
+                "sha256": hashlib.sha256(payload).hexdigest(),
+                "bytes": len(payload),
+            })
+
+        nested, complete = OpenCodeWorker._nested_instruction_files(workspace, seen)
+        found.extend(nested)
+        return found, complete
+
+    @staticmethod
+    def _nested_instruction_files(
+        workspace: Path, seen: set,
+    ) -> tuple:
+        """AGENTS.md files below the workspace, discovered by exploration.
+
+        OpenCode loads these when the agent reads a directory under its
+        workspace, so a call that stays away from a nested file still cannot be
+        proven clean of it in advance. Enumerating all of them is the only
+        fail-closed answer.
+        """
+        found: List[Dict[str, Any]] = []
+        visited = 0
+        complete = True
+        for dirpath, dirnames, filenames in os.walk(workspace):
+            dirnames[:] = [name for name in dirnames if name != ".git"]
+            target = Path(dirpath) / "AGENTS.md"
+            if "AGENTS.md" in filenames and target not in seen:
+                seen.add(target)
+                payload = target.read_bytes()
+                found.append({
+                    "path": str(target),
+                    "origin": "nested",
+                    "sha256": hashlib.sha256(payload).hexdigest(),
+                    "bytes": len(payload),
+                })
+            visited += 1
+            if visited >= NESTED_SCAN_LIMIT:
+                complete = False
+                break
+        return found, complete
+
+    def _instruction_context(self, workspace: Path) -> Dict[str, Any]:
+        """Record the instruction set this run really carries.
+
+        Separate from staging on purpose: a workspace-mode run also has an
+        effective set, and an off-mode run usually has one anyway when its cwd
+        is a repository. Without this, "the model had no ACE instructions"
+        and "the model had them but nobody wrote it down" look identical.
+        """
+        sources, complete = self._instruction_sources(workspace)
+        digest = hashlib.sha256()
+        for entry in sources:
+            digest.update(f"{entry['path']}:{entry['sha256']}\n".encode("utf-8"))
+        return {
+            "instruction_context_sources": sources,
+            "instruction_context_count": len(sources),
+            "instruction_context_sha256": digest.hexdigest(),
+            "instruction_context_state": "present" if sources else "none",
+            "instruction_nested_scan_complete": complete,
+        }
+
+    def _stage_instruction(self, workspace: Path) -> Dict[str, Any]:
+        """Copy the authoritative instruction file into this call's workspace.
+
+        Staged before the pre-run fingerprint on purpose: this file is ours, so
+        it must not be reported as work the model did. The hash covers the
+        source bytes and the copy is read back, so the receipt proves the model
+        was handed this exact text rather than whatever the directory happened
+        to contain. Fails closed -- a workspace-mode run whose source is absent
+        raises instead of quietly calling without guidance.
+        """
+        if self.instruction_mode == "off":
+            return {"instruction_mode": "off", "instruction_staged": False}
+
+        source = self.instruction_source
+        if source is None or not source.is_file():
+            raise ValueError("opencode_instruction_source_missing")
+        payload = source.read_bytes()
+        target = workspace / "AGENTS.md"
+        if target.exists() and target.resolve() == source:
+            # The workspace already *is* the source -- this is the delivery
+            # stage, whose cwd is the production repository root. Copying here
+            # would rewrite production instructions with themselves, so record
+            # the reuse instead of touching the file.
+            return {
+                "instruction_mode": self.instruction_mode,
+                "instruction_source": str(source),
+                "instruction_sha256": hashlib.sha256(payload).hexdigest(),
+                "instruction_bytes": len(payload),
+                "instruction_staged": False,
+                "instruction_reuse": "already_in_workspace",
+                "opencode_version": self._cli_version(workspace),
+            }
+        target.write_bytes(payload)
+        if target.read_bytes() != payload:
+            raise ValueError("opencode_instruction_stage_incomplete")
+        return {
+            "instruction_mode": self.instruction_mode,
+            "instruction_source": str(source),
+            "instruction_sha256": hashlib.sha256(payload).hexdigest(),
+            "instruction_bytes": len(payload),
+            "instruction_staged": True,
+            "instruction_target": str(target),
+            "opencode_version": self._cli_version(workspace),
+        }
+
+    def run(
+        self, task: str, workspace: str, expected_result: str = "",
+        verification_method: str = "", model_order: Optional[Iterable[str]] = None,
+    ) -> Dict[str, Any]:
+        path = self._validate_workspace(workspace)
+        if not task.strip():
+            raise ValueError("opencode_task_missing")
+        if not Path(self.executable).exists():
+            raise FileNotFoundError(self.executable)
+        if model_order is None:
+            raise ValueError("opencode_model_required")
+        models = list(model_order)
+        if not models or any(model not in OPENCODE_MODELS.values() for model in models):
+            raise ValueError("opencode_model_not_registered")
+        instruction = self._stage_instruction(path)
+        context = self._instruction_context(path)
+        gate = evaluate_instruction_set(
+            context["instruction_context_sources"],
+            root=self.ace_root,
+            scan_complete=context["instruction_nested_scan_complete"],
+        )
+        if not gate["instruction_gate_allowed"]:
+            # Before any subprocess. The verdict travels in the receipt so the
+            # refusal explains itself instead of looking like a model failure.
+            return {
+                "success": False,
+                "model": "",
+                "workspace": str(path),
+                "expected_result": expected_result,
+                "verification_method": verification_method,
+                "changed": False,
+                "attempts": [],
+                "raw_output": "",
+                "stderr_output": "",
+                "error": "opencode_instruction_gate_blocked",
+                **context,
+                **instruction,
+                **gate,
+            }
+        before = self._fingerprint(path)
+        attempts: List[Dict[str, Any]] = []
+        last_raw_output = ""
+        last_stderr = ""
+        for model in models:
+            command = [self.executable, "run"]
+            if self.standalone:
+                command.append("--standalone")
+            command.extend(["--model", model, "--format", "json", task])
+            try:
+                completed = self._run_command(command, cwd=str(path))
+                raw = (completed.stdout or "").strip()
+                stderr = (completed.stderr or "").strip()
+                last_raw_output = raw
+                last_stderr = stderr
+                parsed_result = self._parse_result(raw)
+                attempt = {
+                    "model": model,
+                    "returncode": completed.returncode,
+                    "output_bytes": len(raw),
+                    "stderr_bytes": len(stderr),
+                    "raw_output": raw,
+                    "stderr_output": stderr,
+                    "parsed_result": parsed_result,
+                }
+                if completed.returncode != 0:
+                    attempt["error"] = "opencode_nonzero_exit"
+                attempts.append(attempt)
+                if completed.returncode == 0 and raw:
+                    after = self._fingerprint(path)
+                    return {
+                        "success": True,
+                        "model": model,
+                        "workspace": str(path),
+                        "expected_result": expected_result,
+                        "verification_method": verification_method,
+                        "changed": before != after,
+                        "attempts": attempts,
+                        "raw_output": raw,
+                        "stderr_output": stderr,
+                        "parsed_result": parsed_result,
+                        **context,
+                        **instruction,
+                        **gate,
+                    }
+            except subprocess.TimeoutExpired as timeout:
+                attempts.append({"model": model, "timeout": self.timeout_seconds})
+                last_raw_output = str(timeout.stdout or "")
+                last_stderr = str(timeout.stderr or "")
+        return {
+            "success": False,
+            "model": "",
+            "workspace": str(path),
+            "expected_result": expected_result,
+            "verification_method": verification_method,
+            "changed": before != self._fingerprint(path),
+            "attempts": attempts,
+            "raw_output": last_raw_output,
+            "stderr_output": last_stderr,
+            "error": "opencode_all_models_failed",
+            **context,
+            **instruction,
+            **gate,
+        }

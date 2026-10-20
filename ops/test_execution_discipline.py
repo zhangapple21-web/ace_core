@@ -39,6 +39,13 @@ def test_structured_envelope_preserves_unknowns_and_forbids_unsupported_mechanis
             "risk": "may be stale",
         },
     )
+    # build_execution_discipline returns an ExecutionDiscipline dataclass, not the
+    # dict this test used to subscript. The envelope is serialised through to_dict()
+    # before it is stored on a Task (see TaskPool.create_task), so assert against
+    # that form. Subscripting the return value raised
+    # "TypeError: 'ExecutionDiscipline' object is not subscriptable" and left the
+    # envelope contract unverified; the assertions themselves are unchanged.
+    envelope = envelope.to_dict()
     assert envelope["protocol"] == PROTOCOL_VERSION
     assert envelope["complexity"] == "complex"
     assert envelope["minimal_plan"]["status"] == "required"
@@ -77,8 +84,10 @@ def test_task_pool_persists_protocol_and_lifecycle_events(tmp_path):
 def test_legacy_task_backfill_is_deterministic():
     task = Task(task_id="RQ-legacy", title="读取状态", outputs={})
     envelope = ensure_execution_discipline(task)
-    assert envelope["protocol"] == PROTOCOL_VERSION
-    assert envelope["source"] == "legacy_task_backfill"
+    # Typed return value, same reason as above.
+    assert envelope.protocol == PROTOCOL_VERSION
+    assert envelope.source == "legacy_task_backfill"
+    assert task.outputs["execution_discipline"]["source"] == "legacy_task_backfill"
     json.dumps(task.to_dict(), ensure_ascii=False)
 
 

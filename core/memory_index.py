@@ -12,12 +12,20 @@
 """
 
 import json
+import os
+import tempfile
+import threading
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Any
 
 from .identity import Identity
 from .lexicon import Lexicon
+from .mirror_constitution import DATA_CLASSES, validate_data_boundary
+
+
+class MemoryIndexIntegrityError(RuntimeError):
+    """The durable index cannot be trusted; fail closed instead of replacing it."""
 
 
 class MemoryIndex:
@@ -31,27 +39,55 @@ class MemoryIndex:
 
         self.index_file = index_dir / "memory_index.json"
         self._index: List[Dict[str, Any]] = []
+        self._lock = threading.RLock()
         self._load()
 
     def _load(self):
-        if self.index_file.exists():
-            try:
-                with open(self.index_file, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                self._index = data.get("entries", [])
-            except Exception:
-                self._index = []
+        if not self.index_file.exists():
+            return
+        try:
+            with self.index_file.open("r", encoding="utf-8") as stream:
+                data = json.load(stream)
+        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+            raise MemoryIndexIntegrityError("memory_index_unreadable; restore a verified snapshot") from exc
+        if not isinstance(data, dict) or not isinstance(data.get("entries"), list):
+            raise MemoryIndexIntegrityError("memory_index_shape_invalid; restore a verified snapshot")
+        if any(not isinstance(entry, dict) for entry in data["entries"]):
+            raise MemoryIndexIntegrityError("memory_index_entry_invalid; restore a verified snapshot")
+        self._index = data["entries"]
+        for entry in self._index:
+            classification = str(entry.get("data_class") or "PRIVATE").strip().upper()
+            entry["data_class"] = classification if classification in DATA_CLASSES else "PRIVATE"
 
     def _save(self):
-        data = {
-            "version": "0.1.0",
-            "identity": self.identity.name,
-            "updated_at": datetime.now().isoformat(),
-            "entry_count": len(self._index),
-            "entries": self._index,
-        }
-        with open(self.index_file, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
+        with self._lock:
+            data = {
+                "version": "0.1.0",
+                "identity": self.identity.name,
+                "updated_at": datetime.now().isoformat(),
+                "entry_count": len(self._index),
+                "entries": self._index,
+            }
+            temp_path = None
+            try:
+                descriptor, temp_name = tempfile.mkstemp(
+                    prefix=f"{self.index_file.name}.",
+                    suffix=".tmp",
+                    dir=str(self.index_dir),
+                )
+                temp_path = Path(temp_name)
+                with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as stream:
+                    json.dump(data, stream, ensure_ascii=False, indent=2)
+                    stream.flush()
+                    os.fsync(stream.fileno())
+                os.replace(temp_path, self.index_file)
+            except Exception:
+                if temp_path is not None:
+                    try:
+                        temp_path.unlink(missing_ok=True)
+                    except OSError:
+                        pass
+                raise
 
     def add(
         self,
@@ -63,12 +99,16 @@ class MemoryIndex:
         source_path: Optional[str] = None,
         tags: Optional[List[str]] = None,
         related_event_id: Optional[str] = None,
+        data_class: str = "PRIVATE",
     ) -> str:
         """
         添加一条记忆到索引。
         自动用lexicon进行分类和概念关联。
         """
         import uuid
+        boundary = validate_data_boundary({"data_class": data_class}, target="INTERNAL")
+        if not boundary["valid"]:
+            raise ValueError("memory_data_boundary_invalid:" + ",".join(boundary["errors"]))
         mem_id = str(uuid.uuid4())[:8]
 
         related_concepts = []
@@ -88,6 +128,7 @@ class MemoryIndex:
             "source": source,
             "source_path": source_path,
             "related_event_id": related_event_id,
+            "data_class": boundary["data_class"],
             "tags": tags or [],
             "related_concepts": related_concepts,
             "summary": content[:200] + "..." if len(content) > 200 else content,
@@ -96,8 +137,13 @@ class MemoryIndex:
             "access_count": 0,
         }
 
-        self._index.append(entry)
-        self._save()
+        with self._lock:
+            self._index.append(entry)
+            try:
+                self._save()
+            except Exception:
+                self._index.pop()
+                raise
         return mem_id
 
     def search(
@@ -118,8 +164,10 @@ class MemoryIndex:
         - 相关概念
         """
         results = []
+        with self._lock:
+            entries = list(self._index)
 
-        for entry in self._index:
+        for entry in entries:
             if memory_type and entry.get("type") != memory_type:
                 continue
             if category and entry.get("category") != category:
@@ -135,6 +183,14 @@ class MemoryIndex:
                 text = (entry.get("title", "") + " " + entry.get("summary", "")).lower()
                 if kw not in text:
                     continue
+            # MLP保留策略：过期临时错误不再参与常规检索，治理审计永可查
+            # 旧条目无retention字段时视为未过期（向后兼容），未知永不升事实在写入侧保证
+            try:
+                from core.ruin_smelter import should_retrieve as _should_retrieve
+                if not _should_retrieve(entry):
+                    continue
+            except Exception:
+                pass
 
             results.append(entry)
 
@@ -145,10 +201,47 @@ class MemoryIndex:
         """按相关概念查找记忆"""
         return self.search(concept=concept_name, limit=limit)
 
+    def search_governed(
+        self,
+        query: str,
+        *,
+        kernel_dir: Path,
+        bank: str = "ace",
+        scope: Optional[str] = None,
+        data_classes: Optional[List[str]] = None,
+        statuses: Optional[List[str]] = None,
+        after: Optional[str] = None,
+        before: Optional[str] = None,
+        as_of: Optional[str] = None,
+        limit: int = 20,
+    ) -> Dict[str, Any]:
+        """候选路径：只读查询已存在的 MemoryKernel；不会隐式迁移旧索引。
+
+        这不是生产统一门面，现有调用方仍使用旧 ``search``/``add``。生产默认
+        仍由旧 ``search`` 服务。迁移必须由调用方先显式选择不超过
+        ``MAX_IMPORT_BATCH_RECORDS`` 条记录并调用 ``MemoryKernel.import_records``；
+        此查询方法只读内核，避免一次查询意外导入整份旧索引。
+        """
+        from .memory_kernel import MemoryKernel
+
+        kernel = MemoryKernel(kernel_dir, bank=bank)
+        return kernel.query(
+            query,
+            scope=scope,
+            data_classes=data_classes,
+            statuses=statuses,
+            after=after,
+            before=before,
+            as_of=as_of,
+            limit=limit,
+        )
+
     def get_recent(self, limit: int = 20) -> List[Dict[str, Any]]:
         """获取最近的记忆"""
+        with self._lock:
+            entries = list(self._index)
         sorted_entries = sorted(
-            self._index, key=lambda x: x.get("created_at", ""), reverse=True
+            entries, key=lambda x: x.get("created_at", ""), reverse=True
         )
         return sorted_entries[:limit]
 
@@ -158,7 +251,9 @@ class MemoryIndex:
         category_counts = {}
         concept_counts = {}
 
-        for entry in self._index:
+        with self._lock:
+            entries = list(self._index)
+        for entry in entries:
             t = entry.get("type", "unknown")
             type_counts[t] = type_counts.get(t, 0) + 1
 
@@ -190,8 +285,10 @@ class MemoryIndex:
             "edges": [],
         }
 
+        with self._lock:
+            entries = list(self._index)
         concept_memories = {}
-        for entry in self._index:
+        for entry in entries:
             for concept in entry.get("related_concepts", []):
                 name = concept.get("name")
                 if not name:
@@ -219,7 +316,7 @@ class MemoryIndex:
                 if mem_node_id not in node_set:
                     node_set.add(mem_node_id)
                     entry = next(
-                        (e for e in self._index if e["id"] == mem_id), None
+                        (e for e in entries if e["id"] == mem_id), None
                     )
                     if entry:
                         graph["nodes"].append({

@@ -46,6 +46,29 @@ class WebScout:
 
         # 信息源注册表
         self._sources = {
+            # === 视频王国外部矿区 ===
+            # 这些源只产生外部研究任务，不直接进入生产入口或 Provider 路由。
+            "github_video_short_drama": {
+                "type": "github_search",
+                "priority": 5,
+                "query": "short-drama+video+pipeline",
+                "sort": "stars",
+                "domain": "video_kingdom",
+            },
+            "github_video_consistency": {
+                "type": "github_search",
+                "priority": 4,
+                "query": "AI+video+character+consistency+storyboard",
+                "sort": "stars",
+                "domain": "video_kingdom",
+            },
+            "github_video_audio": {
+                "type": "github_search",
+                "priority": 3,
+                "query": "video+TTS+subtitle+audio+ducking+pipeline",
+                "sort": "stars",
+                "domain": "video_kingdom",
+            },
             "github_trending": {
                 "type": "github_trending",
                 "priority": 2,
@@ -117,6 +140,10 @@ class WebScout:
 
         # 关键词过滤器
         self._interest_keywords = [
+            # 视频王国矿区
+            "video", "short drama", "short-drama", "storyboard", "character consistency",
+            "image-to-video", "text-to-video", "tts", "text to speech", "subtitle",
+            "audio ducking", "ffmpeg", "comfyui", "novel-to-video", "story-to-video",
             # 系统架构
             "agent", "ai", "system", "framework", "runtime", "protocol",
             "cognitive", "memory", "architecture", "kernel", "core",

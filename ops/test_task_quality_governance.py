@@ -64,6 +64,11 @@ def test_file_scanner_duplicate_first_does_not_regress_later_files_to_pending():
                 "expected_result": "Bounded.", "verification_method": "Recheck.",
                 "risk": "Test.", "estimated_scope": "one file",
             },
+            # Identity is path + content, not the file name in the title.
+            outputs={
+                "source_file": str(duplicate.resolve()),
+                "source_fingerprint": scanner._content_fingerprint(duplicate),
+            },
         )
         result = scanner.scan_and_create(max_new=1)
         assert result["tasks_created"] == 1

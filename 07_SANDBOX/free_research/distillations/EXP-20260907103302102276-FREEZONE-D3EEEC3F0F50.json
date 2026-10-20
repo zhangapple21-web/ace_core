@@ -1,0 +1,48 @@
+{
+  "automatic_delivery": false,
+  "automatic_promotion": false,
+  "automatic_task_creation": false,
+  "contextual_state": {
+    "learning_needs": [
+      {
+        "fact_id": "FACT-INDEPENDENT-CONFIRMATION",
+        "reason": "A future observable fact could falsify the named active hypothesis.",
+        "required_by_hypotheses": [
+          "HYP-EVIDENCE-INSUFFICIENT"
+        ],
+        "status": "MISSING"
+      },
+      {
+        "fact_id": "FACT-INDEPENDENT-COUNTEREVIDENCE",
+        "reason": "A future observable fact could falsify the named active hypothesis.",
+        "required_by_hypotheses": [
+          "HYP-CANDIDATE-TRANSFER"
+        ],
+        "status": "MISSING"
+      }
+    ],
+    "packet_hash": "e8ee03721b9a286a05e3321f757c005fe17dad7b723eef4558e8ec85d78dbcaf",
+    "packet_id": "CSP-CE8DD182BC8AF3A7063B535C",
+    "scope": "FREE_ZONE_RESEARCH_ONLY"
+  },
+  "contract_version": "ace.free_research_sandbox.v1",
+  "created_at": "2026-09-12T04:43:24.464652+00:00",
+  "distillation_hash": "2fdac7a9328987e64cd997e40cf917f549b6ef25ceb0ac2a67777919bf56073a",
+  "evidence_hash": "bbd8e1ee34b61a0005e5a6d260da785537b109f8753966b4253a9743c5e262c8",
+  "experiment_id": "EXP-20260907103302102276-FREEZONE-D3EEEC3F0F50",
+  "mode": "DISTILLATION_ONLY",
+  "outcome": "INCONCLUSIVE",
+  "pattern": "When A changed local implementation surface may contain one bounded, independently testable research question., investigate via Observe a path-redacted Git delta only, retain a digest and counts, and ask for later dedicated verification rather than trusting the diff..",
+  "production_integration": false,
+  "realm_state": {
+    "authority": "SANDBOX_ONLY",
+    "contract_version": "ace.free_zone_realm.v1",
+    "outbound_rule": "REOBSERVE",
+    "production_integration": false,
+    "realm": "SHADOW",
+    "retention": "SEED"
+  },
+  "reason": "inconclusive_result_requires_new_observation",
+  "source_record_hash": "ecd14f4349cf2a24c2d0e0bb01241b85fec05f94965416ae8a145624b5f11bfd",
+  "status": "OPEN_QUESTION"
+}

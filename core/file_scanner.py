@@ -25,16 +25,22 @@
 发现了新东西 → 建任务 → 交给 Researcher 去挖。
 """
 
+import hashlib
 import json
+import os
 import zipfile
 from pathlib import Path
 from datetime import datetime
-from typing import Dict, List, Any, Optional, Set
+from typing import Any, Dict, Iterator, List, Optional, Set
 
 from .fragment_index import FragmentIndex
 
 
 SCAN_EXTENSIONS = {".zip", ".json", ".md", ".txt"}
+
+# Windows refuses paths beyond this length.  Probing such a path raises instead
+# of returning False, so the scanner has to know the limit.
+MAX_PATH = 250
 
 EXT_PRIORITY = {
     ".zip": "high",
@@ -82,6 +88,11 @@ class FileScanner:
         new_fragments = self._scan_new_fragments()
         result["scanned"] = new_fragments["total_scanned"]
         result["new_files"] = len(new_fragments["new"])
+        # Unreadable material is reported, never raised: a scanner that dies on
+        # one bad path also stops finding the good ones.
+        result["unreadable"] = len(new_fragments.get("skipped") or [])
+        if new_fragments.get("skipped"):
+            result["unreadable_examples"] = list(new_fragments["skipped"])[:3]
 
         if not new_fragments["new"]:
             return result
@@ -120,6 +131,12 @@ class FileScanner:
                 handled_paths.add(frag_path)
                 continue
 
+            if self._in_churn_cooloff(frag_path):
+                self.fragment_index.mark_seen(frag_path, status="churn_cooloff")
+                result["churn_cooled"] = result.get("churn_cooled", 0) + 1
+                handled_paths.add(frag_path)
+                continue
+
             task = self._create_archaeology_task(frag_path)
             if task:
                 result["tasks"].append(task)
@@ -139,20 +156,96 @@ class FileScanner:
 
         return result
 
+    CHURN_TERMINAL_STRIKES = 3
+    CHURN_COOLOFF_DAYS = 30
+
+    def _in_churn_cooloff(self, path: Path) -> bool:
+        """True when this source path keeps dying terminally.
+
+        A path whose last few filings all ended terminal_non_convergent is
+        churning runtime state, not yielding archaeology: state.json was
+        filed 141 times, each burning four validator reviews. After three
+        recent terminal strikes the path cools off for thirty days instead
+        of filing again. A path that ever produced an approved task is not
+        churn, no matter how many terminals surround it. Only terminal
+        records younger than the cool-off window count, so an old spree
+        cannot silence a path forever.
+        """
+        try:
+            resolved = str(path.resolve())
+        except OSError:
+            return False
+        try:
+            import time as _time
+
+            cutoff = _time.time() - self.CHURN_COOLOFF_DAYS * 86400
+        except Exception:
+            return False
+        strikes = 0
+        approved = False
+        for status_dir in ("archived", "blocked", "graveyard", "rejected"):
+            status_path = self.task_pool.pool_dir / status_dir
+            try:
+                candidates = sorted(
+                    status_path.glob("*.json"),
+                    key=lambda p: p.stat().st_mtime,
+                    reverse=True,
+                )
+            except OSError:
+                continue
+            for record in candidates[:400]:
+                try:
+                    import json as _json
+
+                    payload = _json.loads(record.read_text(encoding="utf-8"))
+                except (OSError, ValueError):
+                    continue
+                outputs = payload.get("outputs") or {}
+                if str(outputs.get("source_file", "")) != resolved:
+                    continue
+                try:
+                    fresh = record.stat().st_mtime >= cutoff
+                except OSError:
+                    continue
+                if not fresh:
+                    continue
+                if str(payload.get("status", "")) == "approved" or (
+                    status_dir == "archived"
+                    and not outputs.get("terminal_non_convergent")
+                ):
+                    approved = True
+                    break
+                if outputs.get("terminal_non_convergent"):
+                    strikes += 1
+            if approved:
+                break
+        return (not approved) and strikes >= self.CHURN_TERMINAL_STRIKES
+
     def _scan_new_fragments(self) -> Dict[str, Any]:
         new_files: List[Path] = []
         total = 0
+        skipped: List[str] = []
         seen_names: Set[str] = set()  # 基于文件名的去重
 
         for root in self.scan_roots:
-            for f in root.rglob("*"):
+            # One unreadable subtree must not abort the whole scan.  Windows
+            # raises on paths beyond MAX_PATH, and a single deep node_modules
+            # under C:\tmp otherwise fails every cycle, fills daemon_state with
+            # the same error, and hides every real fragment behind it.
+            for f in self._walk(root, skipped):
                 if not f.is_file():
                     continue
                 if f.suffix.lower() not in SCAN_EXTENSIONS:
                     continue
+                if len(str(f)) > MAX_PATH:
+                    skipped.append(f"{f}: path_too_long")
+                    continue
                 if self._is_ignored(f):
                     continue
-                parts = f.relative_to(root).parts
+                try:
+                    parts = f.relative_to(root).parts
+                except ValueError:
+                    continue
                 if len(parts) > self.max_depth:
                     continue
 
@@ -167,7 +260,42 @@ class FileScanner:
                 if not self.fragment_index.is_known(f):
                     new_files.append(f)
 
-        return {"total_scanned": total, "new": new_files}
+        return {"total_scanned": total, "new": new_files, "skipped": skipped}
+
+    def _walk(self, root: Path, skipped: List[str]) -> Iterator[Path]:
+        """Yield every path under ``root``, tolerating unreadable subtrees."""
+        stack: List[Path] = [root]
+        while stack:
+            current = stack.pop()
+            try:
+                entries = list(os.scandir(current))
+            except (OSError, ValueError) as error:
+                skipped.append(f"{current}: {type(error).__name__}")
+                continue
+            for entry in entries:
+                path = Path(entry.path)
+                try:
+                    if entry.is_dir(follow_symlinks=False):
+                        stack.append(path)
+                        continue
+                except OSError:
+                    continue
+                yield path
+
+    def _own_output_paths(self) -> List[Path]:
+        """Directories whose contents are this scanner's own bookkeeping.
+
+        ``02_FRAGMENT_INDEX/`` and the TaskPool it writes to are ACE's own
+        ledgers.  Scanning them turns the scanner's output into its next input,
+        which is how a single repeated observation kept producing fresh
+        archaeology tasks.  They are excluded by identity, not only by living
+        inside the ACE root, so a Free Zone or scratch pool cannot feed itself.
+        """
+        own = [self.fragment_index.index_dir]
+        pool_dir = getattr(self.task_pool, "pool_dir", None)
+        if pool_dir is not None:
+            own.append(Path(pool_dir))
+        return own
 
     def _is_ignored(self, path: Path) -> bool:
         p = str(path).lower()
@@ -177,8 +305,13 @@ class FileScanner:
         # into broad scanning creates work from the scanner's own output.
         # Keep sibling sources such as mine-seed and Downloads in scope.
         try:
+            resolved = path.resolve()
+            for own_root in self._own_output_paths():
+                own_root = Path(own_root).resolve()
+                if resolved == own_root or own_root in resolved.parents:
+                    return True
             ace_root = self.fragment_index.index_dir.resolve().parent
-            if path.resolve().is_relative_to(ace_root):
+            if resolved.is_relative_to(ace_root):
                 return True
         except (OSError, ValueError):
             pass
@@ -227,13 +360,29 @@ class FileScanner:
         return score
 
     def _task_exists_for(self, path: Path) -> bool:
-        name_key = path.stem[:30].lower()
-        all_tasks = self.task_pool.list_tasks(limit=200)
-        for t in all_tasks:
-            if t.status in ("pending", "active", "review", "approved"):
-                if name_key in t.title[:30].lower():
-                    return True
+        """Avoid exact duplicate observations without collapsing same-name files."""
+        try:
+            source = str(path.resolve())
+            fingerprint = self._content_fingerprint(path)
+        except OSError:
+            return False
+        for task in self.task_pool.list_tasks(limit=10000):
+            # Identity = file path + content fingerprint. A task that records
+            # only a path (or only a fingerprint) cannot be proven identical to
+            # this file, so it must not suppress creation.
+            outputs = task.outputs if isinstance(task.outputs, dict) else {}
+            recorded = outputs.get("source_fingerprint") or outputs.get("fingerprint")
+            if str(outputs.get("source_file", "")) == source and recorded == fingerprint:
+                return True
         return False
+
+    @staticmethod
+    def _content_fingerprint(path: Path) -> str:
+        digest = hashlib.sha256()
+        with path.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
+        return f"sha256:{digest.hexdigest()}"
 
     def _create_archaeology_task(self, path: Path) -> Optional[Any]:
         ext = path.suffix.lower()
@@ -258,6 +407,7 @@ class FileScanner:
 
         file_size = int(path.stat().st_size)
         file_mtime = datetime.fromtimestamp(path.stat().st_mtime).isoformat()
+        source_fingerprint = self._content_fingerprint(path)
         evidence = {
             "path": str(path),
             "extension": ext,
@@ -273,7 +423,8 @@ class FileScanner:
             tags=tags,
             admission={
                 "source_type": "archaeology",
-                "source_ref": f"{path.resolve()}:{file_mtime}:{file_size}",
+                "source_ref": str(path.resolve()),
+                "source_fingerprint": source_fingerprint,
                 "why_now": "A new or changed local fragment matched the archaeology scan.",
                 "evidence": [evidence],
                 "expected_result": "The fragment is analyzed and its reusable structures are recorded or bounded.",
@@ -282,7 +433,8 @@ class FileScanner:
                 "estimated_scope": "one local file",
             },
             outputs={
-                "source_file": str(path),
+                "source_file": str(path.resolve()),
+                "source_fingerprint": source_fingerprint,
                 "file_size": file_size,
                 "file_mtime": file_mtime,
                 "preview": preview,

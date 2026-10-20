@@ -1,0 +1,38 @@
+{
+  "receipt_type": "ace_closed_loop_background_bridge_acceptance",
+  "contract_version": "ace.closed_loop_engine.v1",
+  "recorded_at": "2026-09-20",
+  "baseline": {
+    "background_bridge": "ABSENT",
+    "existing_runtime": "ACE daemon already runs TaskPool and MinerPool, but the new closed-loop engine was not connected to a model-backed planning stage"
+  },
+  "change": {
+    "files": [
+      "core/closed_loop_background.py",
+      "ops/test_closed_loop_background.py",
+      "ace_daemon.py"
+    ],
+    "behavior": "Observed self-evolution proposals are sent to up to three diverse MinerPool models for candidate decomposition and metric planning; valid candidates enter TaskPool for the existing Researcher/Validator/Guardian path"
+  },
+  "test": {
+    "focused": "py -3 -m pytest -q ops/test_closed_loop_engine.py ops/test_closed_loop_background.py ops/test_self_evolution.py",
+    "focused_result": "11 passed",
+    "regression": "py -3 -m pytest -q ops/test_closed_loop_engine.py ops/test_closed_loop_background.py ops/test_self_evolution.py ops/test_24h_runtime_mainline.py -x",
+    "regression_result": "97 passed"
+  },
+  "evaluation": {
+    "measurable_gain": true,
+    "new_capability": "model-backed bounded planning with idempotent TaskPool admission",
+    "regression_detected": false,
+    "promotion_boundary": "model output never directly changes production or capability state"
+  },
+  "painful_review": {
+    "cost": "每个新观察候选最多调用 3 个模型，并增加一次 TaskPool 计划审议",
+    "counterfactual": "若不接桥，闭环引擎只能被手工调用，矿池模型不会参与自我拆解",
+    "recurrence_risk": "中；任何绕过 TaskPool 的新后台入口都可能重新形成旁路",
+    "reusable_lesson": "模型只能规划，证据、指标和晋升仍由 ACE 本地门禁收口",
+    "retain": true
+  },
+  "decision": "PROMOTED_TO_CAPABILITY_GROWTH",
+  "next_action": "等待真实 Observed proposal 触发一次后台计划，检查 plans.jsonl、TaskPool 任务和模型路由收据"
+}

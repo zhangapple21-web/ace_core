@@ -34,6 +34,12 @@ class EntropyReport:
     # 孤立知识
     orphaned_knowledge: List[str] = field(default_factory=list)
     
+    # 输入可观测性
+    input_paths: Dict[str, str] = field(default_factory=dict)
+    input_status: Dict[str, str] = field(default_factory=dict)
+    read_errors: Dict[str, str] = field(default_factory=dict)
+    semantic_duplicates: List[Dict] = field(default_factory=list)
+    
     # 统计
     entropy_score: float = 0.0
     duplication_rate: float = 0.0
@@ -49,12 +55,19 @@ class EntropyReport:
             "duplicate_experiences": self.duplicate_experiences,
             "duplicate_lexicons": self.duplicate_lexicons,
             "duplicate_tasks": self.duplicate_tasks,
+            "semantic_duplicates": self.semantic_duplicates,
             "conflicts": self.conflicts,
             "orphaned_knowledge": self.orphaned_knowledge,
+            "input_paths": self.input_paths,
+            "input_status": self.input_status,
+            "read_errors": self.read_errors,
             "entropy_score": self.entropy_score,
             "duplication_rate": self.duplication_rate,
             "total_duplicates": self.total_duplicates,
         }
+
+    def has_input_errors(self) -> bool:
+        return bool(self.read_errors)
 
 
 class EntropyMonitor:
@@ -111,7 +124,7 @@ class EntropyMonitor:
                     seen[content_hash] = [path]
                 
                 self._add_to_cache(content_hash, "files")
-            except:
+            except (OSError, IOError, UnicodeDecodeError):
                 pass
         
         return duplicates
@@ -292,7 +305,7 @@ class EntropyMonitor:
         try:
             with open(experiences_path, 'r', encoding='utf-8') as f:
                 experiences = json.load(f)
-        except:
+        except (FileNotFoundError, json.JSONDecodeError, OSError):
             pass
 
         concepts = []
@@ -300,7 +313,7 @@ class EntropyMonitor:
             with open(lexicon_path, 'r', encoding='utf-8') as f:
                 lexicon = json.load(f)
                 concepts = lexicon.get('concepts', [])
-        except:
+        except (FileNotFoundError, json.JSONDecodeError, OSError):
             pass
 
         all_items = experiences + [
@@ -353,71 +366,78 @@ class EntropyMonitor:
                 has_relationship = True
             if 'derived_from' in item and item['derived_from']:
                 has_relationship = True
-
-            # 检查是否有来源
             if 'source' in item and item['source']:
                 has_relationship = True
-
-            # 检查是否有血缘
             if 'lineage' in item and item['lineage']:
                 has_relationship = True
-
             if not has_relationship:
                 isolated += 1
-
         return isolated
-    
-    def generate_report(self, 
+
+    def generate_report(self,
                        lexicon_path: str = "06_RUNTIME/ace/data/memory/lexicon.json",
                        experiences_path: str = "09_KNOWLEDGE/experiences.json",
                        evolution_path: str = "09_KNOWLEDGE/evolution.json") -> EntropyReport:
-        """生成熵增报告"""
+        """生成可审计的熵增报告。"""
         report = EntropyReport()
-        
-        # 加载概念
-        try:
-            with open(lexicon_path, 'r', encoding='utf-8') as f:
-                lexicon_data = json.load(f)
-                concepts = lexicon_data.get('concepts', [])
-                report.duplicate_concepts = self.check_concept_duplicates(concepts)
-        except:
-            concepts = []
-        
-        # 加载经验
-        try:
-            with open(experiences_path, 'r', encoding='utf-8') as f:
-                experiences = json.load(f)
-                report.duplicate_experiences = self.check_experience_duplicates(experiences)
-        except:
+        report.input_paths = {"lexicon": str(lexicon_path), "experiences": str(experiences_path), "evolution": str(evolution_path)}
+
+        def load_json(label: str, path: str, default):
+            try:
+                with open(path, "r", encoding="utf-8-sig") as f:
+                    value = json.load(f)
+                report.input_status[label] = "loaded"
+                return value
+            except FileNotFoundError:
+                report.input_status[label] = "missing"
+                report.read_errors[label] = "file_not_found"
+            except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+                report.input_status[label] = "error"
+                report.read_errors[label] = f"{type(exc).__name__}: {exc}"
+            return default
+
+        lexicon_data = load_json("lexicon", lexicon_path, {})
+        raw_concepts = lexicon_data.get("concepts", []) if isinstance(lexicon_data, dict) else []
+        concepts = list(raw_concepts.values()) if isinstance(raw_concepts, dict) else raw_concepts
+        concepts = [item for item in concepts if isinstance(item, dict)]
+        report.duplicate_concepts = self.check_concept_duplicates(concepts)
+
+        experiences = load_json("experiences", experiences_path, [])
+        if not isinstance(experiences, list):
+            report.input_status["experiences"] = "error"
+            report.read_errors["experiences"] = "expected_json_array"
             experiences = []
-        
-        # 加载演化记录
-        try:
-            with open(evolution_path, 'r', encoding='utf-8') as f:
-                evolution_data = json.load(f)
-                if isinstance(evolution_data, list):
-                    report.duplicate_protocols = self.check_protocol_duplicates(evolution_data)
-        except:
-            pass
-        
-        # 计算统计
-        total_items = (len(concepts) + len(experiences))
-        total_duplicates = (
-            len(report.duplicate_concepts) +
-            len(report.duplicate_experiences) +
-            len(report.duplicate_protocols) +
-            len(report.duplicate_constraints) +
-            len(report.duplicate_lexicons)
-        )
-        
-        report.total_duplicates = total_duplicates
-        report.duplication_rate = total_duplicates / total_items if total_items > 0 else 0.0
-        
-        # 熵分数 = 重复率 * 100
+        experiences = [item for item in experiences if isinstance(item, dict)]
+        report.duplicate_experiences = self.check_experience_duplicates(experiences)
+
+        evolution_data = load_json("evolution", evolution_path, [])
+        evolution = evolution_data if isinstance(evolution_data, list) else []
+        report.duplicate_protocols = self.check_protocol_duplicates(evolution)
+
+        knowledge_items = []
+        for index, item in enumerate(experiences):
+            entry = dict(item)
+            entry.setdefault("id", entry.get("experience_id") or f"experience-{index}")
+            entry.setdefault("title", entry.get("experience_id", "experience"))
+            knowledge_items.append(entry)
+        for index, item in enumerate(concepts):
+            entry = dict(item)
+            entry.setdefault("id", entry.get("name") or f"concept-{index}")
+            entry.setdefault("title", entry.get("name", "concept"))
+            knowledge_items.append(entry)
+        report.semantic_duplicates = self.check_semantic_duplicates(knowledge_items)
+        exact_pairs = {tuple(pair) for pair in report.duplicate_experiences}
+        report.semantic_duplicates = [
+            item for item in report.semantic_duplicates
+            if (item.get("id1"), item.get("id2")) not in exact_pairs
+            and (item.get("id2"), item.get("id1")) not in exact_pairs
+        ]
+
+        total_items = len(concepts) + len(experiences)
+        report.total_duplicates = (len(report.duplicate_concepts) + len(report.duplicate_experiences) + len(report.duplicate_protocols) + len(report.semantic_duplicates))
+        report.duplication_rate = report.total_duplicates / total_items if total_items else 0.0
         report.entropy_score = report.duplication_rate * 100
-        
         return report
-    
     def save_report(self, report: EntropyReport, date: str = None) -> str:
         """保存报告"""
         if date is None:
@@ -446,7 +466,7 @@ class EntropyMonitor:
                         "duplication_rate": report.get("duplication_rate", 0),
                         "total_duplicates": report.get("total_duplicates", 0),
                     })
-            except:
+            except (FileNotFoundError, json.JSONDecodeError, OSError):
                 pass
         
         return trend

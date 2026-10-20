@@ -20,6 +20,8 @@ from datetime import datetime, timedelta
 from pathlib import Path, PurePosixPath
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
+from core.mirror_constitution import contains_credential_like_content, validate_data_boundary
+
 
 class CoreSyncer:
     """Safely commit and push an explicit content manifest, never directories."""
@@ -31,7 +33,6 @@ class CoreSyncer:
         "docs": frozenset({".md"}),
         "00_ROOT": frozenset({".md"}),
     }
-
     def __init__(
         self,
         repo_path: str,
@@ -39,12 +40,14 @@ class CoreSyncer:
         branch: str = "main",
         debounce_minutes: int = 60,
         max_automatic_files: int = 12,
+        data_class: str = "PRIVATE",
     ) -> None:
         self.repo_path = Path(repo_path).resolve()
         self.remote = remote
         self.branch = branch
         self.debounce_minutes = debounce_minutes
         self.max_automatic_files = max_automatic_files
+        self.data_class = str(data_class or "PRIVATE").strip().upper()
         self._state_file = (
             self.repo_path
             / "06_RUNTIME"
@@ -138,11 +141,39 @@ class CoreSyncer:
         suffixes = cls.ALLOWED_SUFFIXES.get(path.parts[0])
         return bool(suffixes and path.suffix.lower() in suffixes)
 
+    @classmethod
+    def _contains_secret_pattern(cls, content: bytes) -> bool:
+        """Fail closed on common credential shapes without recording values."""
+        text = content.decode("utf-8", errors="ignore")
+        return contains_credential_like_content(text)
+
     def build_manifest(self) -> Dict[str, Any]:
         """Return the precise admissible delta and every excluded dirty path."""
         admitted: List[Dict[str, str]] = []
         excluded: List[Dict[str, str]] = []
-        for xy, relpath in self._parse_status():
+        status_records = self._parse_status()
+        boundary = validate_data_boundary(
+            {"data_class": self.data_class}, target="EXTERNAL"
+        )
+        if not boundary["valid"]:
+            excluded = [
+                {"path": relpath, "status": xy, "reason": "DATA_BOUNDARY_BLOCKED"}
+                for xy, relpath in status_records
+            ]
+            canonical = json.dumps([], ensure_ascii=False, separators=(",", ":"), sort_keys=True).encode("utf-8")
+            return {
+                "files": [],
+                "excluded": excluded,
+                "sha256": hashlib.sha256(canonical).hexdigest(),
+                "data_boundary": {
+                    "data_class": boundary.get("data_class"),
+                    "target": boundary.get("target"),
+                    "allowed": False,
+                    "errors": boundary.get("errors", []),
+                },
+            }
+
+        for xy, relpath in status_records:
             # Git porcelain represents an entirely-untracked directory as one
             # ``?? directory/`` record.  Expand it only when its root is a
             # motherplate root; never recursively inspect excluded material.
@@ -155,13 +186,18 @@ class CoreSyncer:
                             continue
                         candidate_rel = candidate.relative_to(self.repo_path).as_posix()
                         if self._is_allowed(candidate_rel):
-                            admitted.append(
-                                {
-                                    "path": candidate_rel,
-                                    "status": xy,
-                                    "sha256": hashlib.sha256(candidate.read_bytes()).hexdigest(),
-                                }
-                            )
+                            content = candidate.read_bytes()
+                            if self._contains_secret_pattern(content):
+                                excluded.append({"path": candidate_rel, "status": xy, "reason": "SECRET_PATTERN_DETECTED"})
+                            else:
+                                admitted.append(
+                                    {
+                                        "path": candidate_rel,
+                                        "status": xy,
+                                        "data_class": self.data_class,
+                                        "sha256": hashlib.sha256(content).hexdigest(),
+                                    }
+                                )
                         else:
                             excluded.append({"path": candidate_rel, "status": xy, "reason": "OUTSIDE_MOTHERPLATE_ALLOWLIST"})
                     continue
@@ -174,11 +210,16 @@ class CoreSyncer:
             if not file_path.is_file():
                 excluded.append({"path": relpath, "status": xy, "reason": "NOT_A_REGULAR_FILE"})
                 continue
+            content = file_path.read_bytes()
+            if self._contains_secret_pattern(content):
+                excluded.append({"path": relpath, "status": xy, "reason": "SECRET_PATTERN_DETECTED"})
+                continue
             admitted.append(
                 {
                     "path": relpath,
                     "status": xy,
-                    "sha256": hashlib.sha256(file_path.read_bytes()).hexdigest(),
+                    "data_class": self.data_class,
+                    "sha256": hashlib.sha256(content).hexdigest(),
                 }
             )
         admitted.sort(key=lambda item: item["path"])
@@ -187,6 +228,11 @@ class CoreSyncer:
             "files": admitted,
             "excluded": excluded,
             "sha256": hashlib.sha256(canonical).hexdigest(),
+            "data_boundary": {
+                "data_class": boundary.get("data_class"),
+                "target": boundary.get("target"),
+                "allowed": True,
+            },
         }
 
     def should_push(self) -> bool:
@@ -233,6 +279,12 @@ class CoreSyncer:
         }
         try:
             full_manifest = self.build_manifest()
+            if not full_manifest.get("data_boundary", {}).get("allowed", False):
+                result["excluded_files"] = full_manifest["excluded"]
+                result["manifest_sha256"] = full_manifest["sha256"]
+                result["data_boundary"] = full_manifest["data_boundary"]
+                result["reason"] = "DATA_BOUNDARY_BLOCKED"
+                return result
             if paths is None and len(full_manifest["files"]) > self.max_automatic_files:
                 result["changed_files"] = [item["path"] for item in full_manifest["files"]]
                 result["excluded_files"] = full_manifest["excluded"]

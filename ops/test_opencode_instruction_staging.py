@@ -1,0 +1,1072 @@
+"""Regression: instruction staging is opt-in, and every call's real instruction
+set is classified before a model is touched.
+
+The CLI is the only OpenCode invocation face ACE has, so what a run is handed as
+standing guidance has to be provable from the receipt. Two independent things
+are pinned here:
+
+1. Staging is opt-in and exact. Default is unchanged; a staged file is
+   byte-identical to its source and hashed from the source, not the copy.
+2. The egress gate covers the *effective* instruction set. OpenCode merges every
+   AGENTS.md it can reach, so a gate that only looked at an explicitly staged
+   file would miss the delivery stage, whose instructions arrive by ambient
+   discovery with its cwd on the repository root.
+
+Blocked calls start no subprocess and return a verdict naming the file, its
+class, and the rule that refused. Unclassified is a refusal, not a shrug.
+"""
+
+import hashlib
+import json
+import os
+import sys
+import tempfile
+from pathlib import Path
+
+os.environ.setdefault("ONEAPI_KEY", "test-key-for-routing-only")
+os.environ.setdefault("ONEAPI_BASE_URL", "http://localhost:3000/v1")
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+import pytest
+
+from core.opencode_worker import OpenCodeWorker
+
+MODEL = "opencode/mimo-v2.6-flash-free"
+
+PROBE = r'''
+import json, pathlib, sys
+
+observed = pathlib.Path(sys.argv[1])
+args = sys.argv[2:]
+
+if "--version" in args:
+    print("opencode v0.0.0-probe")
+    raise SystemExit(0)
+
+if any("failplease" in arg for arg in args):
+    print("probe refused", flush=True)
+    raise SystemExit(3)
+
+cwd = pathlib.Path.cwd()
+target = cwd / "AGENTS.md"
+observed.mkdir(parents=True, exist_ok=True)
+(observed / "observation.json").write_text(
+    json.dumps({
+        "cwd": str(cwd),
+        "files": sorted(entry.name for entry in cwd.iterdir()),
+        "agents_md": target.read_text(encoding="utf-8") if target.is_file() else None,
+    }),
+    encoding="utf-8",
+)
+print("probe ok")
+'''
+
+
+class Probe:
+    """A stand-in CLI that records its working directory, outside the workspace.
+
+    Also owns a fixture governance root, because classification now lives in a
+    governed record rather than in a caller-supplied argument.
+    """
+
+    def __init__(self):
+        self.root = Path(tempfile.mkdtemp(prefix="instruction_probe_"))
+        self.workspace = self.root / "work"
+        self.workspace.mkdir()
+        self.observed = self.root / "observed"
+        self.ace_root = self.root / "governance"
+        (self.ace_root / "08_GOVERNANCE").mkdir(parents=True)
+        script = self.root / "probe.py"
+        script.write_text(PROBE, encoding="utf-8")
+        launcher = self.root / "probe_cli.bat"
+        launcher.write_text(
+            f'@echo off\r\n"{sys.executable}" "{script}" "{self.observed}" %*\r\n',
+            encoding="utf-8",
+        )
+        self.executable = str(launcher)
+
+    # --- governance fixture ---
+    def classify(self, *entries, receipts=()):
+        gov = self.ace_root / "08_GOVERNANCE"
+        (gov / "instruction_data_classes.json").write_text(
+            json.dumps(
+                {"version": "instruction-data-classes.v1", "entries": list(entries)}
+            ),
+            encoding="utf-8",
+        )
+        (gov / "sanitizer_receipts.jsonl").write_text(
+            "".join(json.dumps(receipt) + "\n" for receipt in receipts),
+            encoding="utf-8",
+        )
+        return self.ace_root
+
+    @staticmethod
+    def entry_for(path, data_class):
+        return {
+            "match": path.as_posix(),
+            "data_class": data_class,
+            "decided_by": "test",
+            "decided_at": "2026-10-09",
+        }
+
+    def reduction(self, source, artifact, reduced_class="PUBLIC"):
+        """A registry record plus a receipt describing a real reduction."""
+        source_payload = source.read_bytes() if isinstance(source, Path) else source
+        artifact_payload = (
+            artifact.read_bytes() if isinstance(artifact, Path) else artifact
+        )
+        return (
+            self.entry_for(source, "PRIVATE"),
+            self.receipt_for(
+                artifact if isinstance(artifact, Path) else Path(str(artifact)),
+                artifact_payload,
+                data_class=reduced_class,
+                source_path=source if isinstance(source, Path) else Path(str(source)),
+                source_payload=source_payload,
+            ),
+        )
+
+    def receipt_for(
+        self, path, payload, data_class="PUBLIC", source_path=None, source_payload=b"",
+    ):
+        # A sanitizer receipt asserts a *reduction*: it must name a registered
+        # source and bind a source hash that differs from the artifact's, or
+        # the gate refuses it as "nothing was removed".
+        return {
+            "receipt_id": "R-TEST-1",
+            "acceptance": "ACCEPTANCE_VERIFIED",
+            "path": path.as_posix(),
+            "source_path": (source_path or path).as_posix(),
+            "source_sha256": hashlib.sha256(source_payload).hexdigest(),
+            "artifact_sha256": hashlib.sha256(payload).hexdigest(),
+            "data_class": data_class,
+            "sanitizer": "test",
+            "issued_at": "2026-10-09",
+        }
+
+    def worker(self, **kwargs):
+        kwargs.setdefault("ace_root", self.ace_root)
+        return OpenCodeWorker(
+            executable=self.executable, timeout_seconds=60, **kwargs
+        )
+
+    def observation(self):
+        path = self.observed / "observation.json"
+        if not path.is_file():
+            return None
+        return json.loads(path.read_text(encoding="utf-8"))
+
+    def instruction_file(self):
+        target = self.workspace / "AGENTS.md"
+        return target.read_bytes() if target.is_file() else None
+
+    def staged_path(self):
+        return self.workspace / "AGENTS.md"
+
+
+def _source(text="ACE-DEFAULT-INSTRUCTION-TEXT\n"):
+    path = Path(tempfile.mkdtemp(prefix="instruction_source_")) / "AGENTS.md"
+    path.write_text(text, encoding="utf-8")
+    return path
+
+
+# --- staging -----------------------------------------------------------------
+
+
+def test_no_instruction_files_is_allowed():
+    """The chat route's shape: isolated temp workspace, nothing to classify."""
+    probe = Probe()
+    receipt = probe.worker().run(
+        task="ping", workspace=str(probe.workspace), model_order=[MODEL],
+    )
+
+    assert receipt["instruction_gate"] == "ALLOWED"
+    assert receipt["instruction_context_state"] == "none"
+    assert receipt["success"] is True
+
+
+def test_default_mode_is_off_and_writes_nothing():
+    probe = Probe()
+    receipt = probe.worker().run(
+        task="ping", workspace=str(probe.workspace), model_order=[MODEL],
+    )
+
+    assert receipt["success"] is True
+    assert receipt["instruction_mode"] == "off"
+    assert receipt["instruction_staged"] is False
+    assert "instruction_source" not in receipt
+    assert "instruction_sha256" not in receipt
+    assert probe.instruction_file() is None
+    assert probe.observation()["agents_md"] is None
+
+
+def test_workspace_mode_hands_the_exact_source_text_to_the_cli():
+    probe = Probe()
+    nonce = "ACE-STAGED-INSTRUCTION-3F2A"
+    source = _source(f"# runtime memory\nnonce: {nonce}\n")
+    probe.classify(probe.entry_for(probe.staged_path(), "PUBLIC"))
+
+    receipt = probe.worker(
+        instruction_mode="workspace", instruction_source=str(source),
+    ).run(task="ping", workspace=str(probe.workspace), model_order=[MODEL])
+
+    assert receipt["success"] is True
+    assert receipt["instruction_mode"] == "workspace"
+    assert receipt["instruction_staged"] is True
+    assert receipt["instruction_source"] == str(source)
+    # Hash of the source bytes, so a truncated or altered copy cannot pass.
+    assert receipt["instruction_sha256"] == hashlib.sha256(
+        source.read_bytes()
+    ).hexdigest()
+    assert receipt["instruction_bytes"] == source.stat().st_size
+    assert receipt["opencode_version"] == "opencode v0.0.0-probe"
+    assert probe.instruction_file() == source.read_bytes()
+    # The call surface really saw it, which is the whole point of staging.
+    assert nonce in probe.observation()["agents_md"]
+
+
+def test_workspace_mode_without_a_source_refuses_at_construction():
+    with pytest.raises(ValueError, match="opencode_instruction_source_required"):
+        OpenCodeWorker(instruction_mode="workspace")
+
+
+def test_unknown_mode_and_source_without_mode_are_refused():
+    with pytest.raises(ValueError, match="opencode_instruction_mode_unknown"):
+        OpenCodeWorker(instruction_mode="always")
+    with pytest.raises(ValueError, match="opencode_instruction_source_without_mode"):
+        OpenCodeWorker(instruction_source=str(_source()))
+
+
+def test_missing_source_refuses_before_any_subprocess():
+    probe = Probe()
+    missing = probe.root / "absent" / "AGENTS.md"
+
+    with pytest.raises(ValueError, match="opencode_instruction_source_missing"):
+        probe.worker(
+            instruction_mode="workspace", instruction_source=str(missing),
+        ).run(task="ping", workspace=str(probe.workspace), model_order=[MODEL])
+
+    # No observation means the probe never ran: the refusal is not "the CLI
+    # failed", it is "we did not call".
+    assert probe.observation() is None
+
+
+def test_staging_is_not_reported_as_work_the_model_did():
+    probe = Probe()
+    source = _source()
+    probe.classify(probe.entry_for(probe.staged_path(), "PUBLIC"))
+
+    receipt = probe.worker(
+        instruction_mode="workspace", instruction_source=str(source),
+    ).run(task="ping", workspace=str(probe.workspace), model_order=[MODEL])
+
+    assert receipt["instruction_staged"] is True
+    assert (probe.workspace / "AGENTS.md").is_file()
+    assert receipt["changed"] is False
+
+
+def test_instruction_provenance_survives_a_failed_call():
+    probe = Probe()
+    source = _source()
+    probe.classify(probe.entry_for(probe.staged_path(), "PUBLIC"))
+
+    receipt = probe.worker(
+        instruction_mode="workspace", instruction_source=str(source),
+    ).run(task="failplease", workspace=str(probe.workspace), model_order=[MODEL])
+
+    assert receipt["success"] is False
+    assert receipt["error"] == "opencode_all_models_failed"
+    assert receipt["instruction_staged"] is True
+    assert receipt["instruction_sha256"] == hashlib.sha256(
+        source.read_bytes()
+    ).hexdigest()
+
+
+def test_staging_onto_itself_is_reuse_not_a_rewrite():
+    """Source == workspace AGENTS.md is the delivery shape, not a copy job."""
+    probe = Probe()
+    live = probe.staged_path()
+    body = "# production instructions\n"
+    live.write_text(body, encoding="utf-8")
+    probe.classify(probe.entry_for(live, "PUBLIC"))
+
+    receipt = probe.worker(
+        instruction_mode="workspace", instruction_source=str(live),
+    ).run(task="ping", workspace=str(probe.workspace), model_order=[MODEL])
+
+    assert receipt["instruction_reuse"] == "already_in_workspace"
+    assert receipt["instruction_staged"] is False
+    assert live.read_text(encoding="utf-8") == body
+
+
+# --- egress gate -------------------------------------------------------------
+
+
+def test_unclassified_instruction_file_blocks_before_any_subprocess():
+    probe = Probe()
+    (probe.workspace / "AGENTS.md").write_text("# found by discovery\n", encoding="utf-8")
+
+    receipt = probe.worker().run(
+        task="ping", workspace=str(probe.workspace), model_order=[MODEL],
+    )
+
+    assert receipt["success"] is False
+    assert receipt["error"] == "opencode_instruction_gate_blocked"
+    assert receipt["instruction_gate"] == "BLOCKED"
+    assert any("unclassified" in reason for reason in receipt["instruction_gate_blocked"])
+    assert probe.observation() is None
+
+
+def test_local_only_classes_block_with_a_named_reason():
+    probe = Probe()
+    for data_class in ("PRIVATE", "CORE"):
+        (probe.workspace / "AGENTS.md").write_text("text\n", encoding="utf-8")
+        probe.classify(probe.entry_for(probe.staged_path(), data_class))
+
+        receipt = probe.worker().run(
+            task="ping", workspace=str(probe.workspace), model_order=[MODEL],
+        )
+
+        assert receipt["instruction_gate"] == "BLOCKED"
+        assert any(
+            data_class in reason for reason in receipt["instruction_gate_blocked"]
+        )
+    assert probe.observation() is None
+
+
+def test_conditional_classes_need_a_live_sanitizer_receipt():
+    probe = Probe()
+    for data_class in ("CAPABILITY", "STRUCTURE"):
+        (probe.workspace / "AGENTS.md").write_text("text\n", encoding="utf-8")
+        probe.classify(probe.entry_for(probe.staged_path(), data_class))
+
+        receipt = probe.worker().run(
+            task="ping", workspace=str(probe.workspace), model_order=[MODEL],
+        )
+
+        assert receipt["instruction_gate"] == "BLOCKED"
+        assert any(
+            "sanitizer_receipt_required" in reason
+            for reason in receipt["instruction_gate_blocked"]
+        )
+    assert probe.observation() is None
+
+
+def test_a_valid_sanitizer_receipt_allows_a_conditional_class():
+    """A receipt unlocks a conditional class by proving content was removed."""
+    probe = Probe()
+    original = b"kettle: 3mugs; ladder: secret/place; passphrase: hunter2\n"
+    reduced = b"reduced instruction text\n"
+    (probe.workspace / "AGENTS.md").write_bytes(reduced)
+    probe.classify(
+        probe.entry_for(probe.staged_path(), "STRUCTURE"),
+        receipts=[probe.receipt_for(
+            probe.staged_path(), reduced, data_class="PUBLIC",
+            source_payload=original,
+        )],
+    )
+
+    receipt = probe.worker().run(
+        task="ping", workspace=str(probe.workspace), model_order=[MODEL],
+    )
+
+    assert receipt["instruction_gate"] == "ALLOWED"
+    assert receipt["success"] is True
+    entry = receipt["instruction_classes"][0]
+    assert entry["basis"] == "sanitizer_receipt"
+    assert entry["data_class"] == "PUBLIC"
+    assert entry["source_data_class"] == "STRUCTURE"
+
+
+def test_a_receipt_cannot_relabel_the_private_original():
+    """The forbidden shortcut: sign PUBLIC against the unredacted bytes.
+
+    validate_data_boundary would pass this happily -- it checks the class it is
+    told, not where the content came from. The gate has to refuse it, or the
+    whole reduction requirement is decorative.
+    """
+    probe = Probe()
+    private = probe.workspace / "AGENTS.md"
+    body = b"private: coze-assets holds every secret; see C:\\tmp\\ace_core\n"
+    private.write_bytes(body)
+    probe.classify(
+        probe.entry_for(private, "PRIVATE"),
+        receipts=[{
+            "receipt_id": "R-BAD-1",
+            "acceptance": "ACCEPTANCE_VERIFIED",
+            "path": private.as_posix(),
+            "source_path": private.as_posix(),
+            "source_sha256": hashlib.sha256(body).hexdigest(),
+            "artifact_sha256": hashlib.sha256(body).hexdigest(),
+            "data_class": "PUBLIC",
+            "sanitizer": "none",
+        }],
+    )
+
+    receipt = probe.worker().run(
+        task="ping", workspace=str(probe.workspace), model_order=[MODEL],
+    )
+
+    assert receipt["instruction_gate"] == "BLOCKED"
+    assert probe.observation() is None
+    entry = receipt["instruction_classes"][0]
+    # The refused receipt does not relabel anything: the file stays PRIVATE on
+    # the registry's authority, and the reason it was refused rides along.
+    assert entry["data_class"] == "PRIVATE"
+    assert entry["basis"] == "registry"
+    assert entry["ignored_receipt"] in (
+        "receipt_cannot_relabel_local_only", "receipt_claims_unaltered_source",
+    )
+
+
+def test_a_receipt_signing_unaltered_bytes_is_refused():
+    """Same artifact hash as the source means nothing was removed."""
+    probe = Probe()
+    target = probe.workspace / "AGENTS.md"
+    body = b"unchanged conditional content\n"
+    target.write_bytes(body)
+    probe.classify(
+        probe.entry_for(target, "STRUCTURE"),
+        receipts=[{
+            "receipt_id": "R-BAD-2",
+            "acceptance": "ACCEPTANCE_VERIFIED",
+            "path": target.as_posix(),
+            "source_path": target.as_posix(),
+            "source_sha256": hashlib.sha256(body).hexdigest(),
+            "artifact_sha256": hashlib.sha256(body).hexdigest(),
+            "data_class": "PUBLIC",
+        }],
+    )
+
+    receipt = probe.worker().run(
+        task="ping", workspace=str(probe.workspace), model_order=[MODEL],
+    )
+
+    assert receipt["instruction_gate"] == "BLOCKED"
+    entry = receipt["instruction_classes"][0]
+    assert entry["data_class"] == "STRUCTURE"
+    assert entry["ignored_receipt"] in (
+        "receipt_claims_unaltered_source", "receipt_without_registered_source",
+    )
+
+
+def test_a_receipt_without_a_registered_source_is_refused():
+    probe = Probe()
+    target = probe.workspace / "AGENTS.md"
+    reduced = b"reduced\n"
+    target.write_bytes(reduced)
+    probe.classify(
+        receipts=[{
+            "receipt_id": "R-BAD-3",
+            "acceptance": "ACCEPTANCE_VERIFIED",
+            "path": target.as_posix(),
+            "source_path": (probe.root / "nowhere" / "AGENTS.md").as_posix(),
+            "source_sha256": "0" * 64,
+            "artifact_sha256": hashlib.sha256(reduced).hexdigest(),
+            "data_class": "PUBLIC",
+        }],
+    )
+
+    receipt = probe.worker().run(
+        task="ping", workspace=str(probe.workspace), model_order=[MODEL],
+    )
+
+    assert receipt["instruction_gate"] == "BLOCKED"
+    entry = receipt["instruction_classes"][0]
+    assert entry["basis"] == "unclassified"
+    assert entry["ignored_receipt"] == "receipt_without_registered_source"
+
+
+def test_sanitizer_receipt_goes_stale_when_the_file_changes():
+    probe = Probe()
+    target = probe.workspace / "AGENTS.md"
+    original = b"kettle: 3mugs; passphrase: hunter2\n"
+    target.write_bytes(original)
+    probe.classify(
+        probe.entry_for(target, "STRUCTURE"),
+        receipts=[probe.receipt_for(
+            target, original, data_class="PUBLIC",
+            source_payload=b"an even longer original body\n",
+        )],
+    )
+
+    target.write_text("version two, edited after the receipt\n", encoding="utf-8")
+
+    receipt = probe.worker().run(
+        task="ping", workspace=str(probe.workspace), model_order=[MODEL],
+    )
+
+    assert receipt["instruction_gate"] == "BLOCKED"
+    # The stale receipt no longer matches the file, so classification falls back
+    # to the registry record -- and STRUCTURE still needs a live receipt. Either
+    # way the honest reason is that the reduction is no longer proven.
+    assert any(
+        "sanitizer_receipt_required" in reason
+        or "unclassified" in reason
+        for reason in receipt["instruction_gate_blocked"]
+    )
+    assert probe.observation() is None
+
+
+def test_public_label_does_not_excuse_credential_shaped_content():
+    probe = Probe()
+    (probe.workspace / "AGENTS.md").write_text(
+        'api_key = "abcdefghijklmnopqrstuvwxyz012345"\n', encoding="utf-8",
+    )
+    probe.classify(probe.entry_for(probe.staged_path(), "PUBLIC"))
+
+    receipt = probe.worker().run(
+        task="ping", workspace=str(probe.workspace), model_order=[MODEL],
+    )
+
+    assert receipt["instruction_gate"] == "BLOCKED"
+    assert any(
+        "content_not_egressable" in reason
+        for reason in receipt["instruction_gate_blocked"]
+    )
+    assert probe.observation() is None
+
+
+def test_off_mode_still_records_the_instruction_set():
+    """Delivery shape: cwd already carries AGENTS.md, mode is off, still proved."""
+    probe = Probe()
+    body = "# Runtime memory\n\nalready here\n"
+    (probe.workspace / "AGENTS.md").write_text(body, encoding="utf-8")
+    probe.classify(probe.entry_for(probe.staged_path(), "PUBLIC"))
+
+    receipt = probe.worker().run(
+        task="ping", workspace=str(probe.workspace), model_order=[MODEL],
+    )
+
+    assert receipt["instruction_staged"] is False
+    assert receipt["instruction_context_state"] == "present"
+    paths = [entry["path"] for entry in receipt["instruction_context_sources"]]
+    assert str(probe.staged_path()) in paths
+    entry = next(
+        item for item in receipt["instruction_context_sources"]
+        if item["path"] == str(probe.staged_path())
+    )
+    assert entry["sha256"] == hashlib.sha256(
+        probe.staged_path().read_bytes()
+    ).hexdigest()
+    assert entry["origin"] == "workspace"
+
+
+def test_context_never_reports_a_file_the_workspace_does_not_have():
+    probe = Probe()
+    receipt = probe.worker().run(
+        task="ping", workspace=str(probe.workspace), model_order=[MODEL],
+    )
+
+    paths = [entry["path"] for entry in receipt["instruction_context_sources"]]
+    assert str(probe.staged_path()) not in paths
+    # Every reported path is the global file, or sits at, above, or below the
+    # workspace: no unrelated file can join a prompt unnoticed.
+    for path in paths:
+        candidate = Path(path)
+        assert candidate.parent == Path.home() / ".config" / "opencode" or (
+            candidate == probe.workspace
+            or candidate in probe.workspace.parents
+            or probe.workspace in candidate.parents
+        )
+
+
+def test_nested_instruction_files_are_enumerated():
+    """Exploration loads nested AGENTS.md, so the gate has to see them too."""
+    probe = Probe()
+    nested = probe.workspace / "notes"
+    nested.mkdir()
+    (nested / "AGENTS.md").write_text("# nested\n", encoding="utf-8")
+    deeper = nested / "deeper"
+    deeper.mkdir()
+    (deeper / "AGENTS.md").write_text("# deeper\n", encoding="utf-8")
+
+    receipt = probe.worker().run(
+        task="ping", workspace=str(probe.workspace), model_order=[MODEL],
+    )
+
+    origins = {
+        Path(entry["path"]).relative_to(probe.workspace).as_posix(): entry["origin"]
+        for entry in receipt["instruction_context_sources"]
+        if entry["path"].startswith(str(probe.workspace))
+    }
+    assert origins == {"notes/AGENTS.md": "nested", "notes/deeper/AGENTS.md": "nested"}
+    assert receipt["instruction_nested_scan_complete"] is True
+
+
+def test_an_unclassified_nested_file_blocks_before_any_subprocess():
+    """The hole this closes: nested guidance reaching a model unclassified."""
+    probe = Probe()
+    nested = probe.workspace / "notes"
+    nested.mkdir()
+    (nested / "AGENTS.md").write_text("# nested private\n", encoding="utf-8")
+
+    receipt = probe.worker().run(
+        task="ping", workspace=str(probe.workspace), model_order=[MODEL],
+    )
+
+    assert receipt["instruction_gate"] == "BLOCKED"
+    assert any("AGENTS.md" in reason for reason in receipt["instruction_gate_blocked"])
+    assert probe.observation() is None
+
+
+def test_a_classified_nested_file_passes():
+    probe = Probe()
+    nested = probe.workspace / "notes"
+    nested.mkdir()
+    (nested / "AGENTS.md").write_text("# nested public\n", encoding="utf-8")
+    probe.classify(probe.entry_for(nested / "AGENTS.md", "PUBLIC"))
+
+    receipt = probe.worker().run(
+        task="ping", workspace=str(probe.workspace), model_order=[MODEL],
+    )
+
+    assert receipt["instruction_gate"] == "ALLOWED"
+    assert receipt["success"] is True
+
+
+def test_an_incomplete_nested_scan_blocks():
+    """A bounded scan that ran out must not read as a checked set."""
+    probe = Probe()
+    nested = probe.workspace / "notes"
+    nested.mkdir()
+    (nested / "AGENTS.md").write_text("# nested public\n", encoding="utf-8")
+    probe.classify(probe.entry_for(nested / "AGENTS.md", "PUBLIC"))
+
+    import core.opencode_worker as worker_module
+
+    original = worker_module.NESTED_SCAN_LIMIT
+    worker_module.NESTED_SCAN_LIMIT = 1
+    try:
+        receipt = probe.worker().run(
+            task="ping", workspace=str(probe.workspace), model_order=[MODEL],
+        )
+    finally:
+        worker_module.NESTED_SCAN_LIMIT = original
+
+    assert receipt["instruction_gate"] == "BLOCKED"
+    assert any(
+        "instruction_scan_incomplete" in reason
+        for reason in receipt["instruction_gate_blocked"]
+    )
+    assert probe.observation() is None
+
+
+def test_context_hash_tracks_instruction_drift():
+    """Two runs, one edited file: the receipt has to tell them apart."""
+    probe = Probe()
+    instruction = probe.staged_path()
+    instruction.write_text("v1\n", encoding="utf-8")
+    probe.classify(probe.entry_for(instruction, "PUBLIC"))
+
+    first = probe.worker().run(
+        task="ping", workspace=str(probe.workspace), model_order=[MODEL],
+    )
+    instruction.write_text("v2 revised\n", encoding="utf-8")
+    second = probe.worker().run(
+        task="ping", workspace=str(probe.workspace), model_order=[MODEL],
+    )
+
+    assert (
+        first["instruction_context_sha256"] != second["instruction_context_sha256"]
+    )
+
+
+def test_miner_pool_route_stays_off(monkeypatch):
+    """The chat route decided not to inject; keep that decision in code."""
+    from core.miner_pool.providers.opencode_cli import OpenCodeCliProvider
+
+    recorded = {}
+
+    class FakeWorker:
+        def __init__(self, **kwargs):
+            recorded.update(kwargs)
+
+        def run(self, **kwargs):
+            return {
+                "success": True,
+                "attempts": [],
+                "raw_output": json.dumps({"type": "text", "part": {"text": "pong"}}),
+            }
+
+    import core.opencode_worker as worker_module
+
+    monkeypatch.setattr(worker_module, "OpenCodeWorker", FakeWorker)
+
+    result = OpenCodeCliProvider().chat(
+        messages=[{"role": "user", "content": "Reply pong."}],
+        model="oneapi_free:mimo-v2.6-flash-free",
+        timeout=30,
+        data_boundary={"data_class": "PUBLIC"},
+    )
+
+    assert result["success"] is True, result
+    assert recorded["instruction_mode"] == "off"
+
+
+# --- a refusal has to stay readable through the production call chain ---------
+# The gate is decided by the instruction set, so a block is not a flaky model
+# and not an empty answer. These pin that it survives each layer that used to
+# reduce it into an unexplained failure.
+
+
+def _blocked_receipt():
+    return {
+        "success": False,
+        "error": "opencode_instruction_gate_blocked",
+        "attempts": [],
+        "instruction_gate": "BLOCKED",
+        "instruction_gate_blocked": ["local_only_class:/repo/AGENTS.md:PRIVATE"],
+        "instruction_classes": [
+            {
+                "path": "/repo/AGENTS.md",
+                "data_class": "PRIVATE",
+                "basis": "registry",
+            }
+        ],
+        "instruction_context_sources": [],
+        "instruction_context_sha256": "0" * 64,
+        "instruction_context_state": "present",
+        "instruction_mode": "off",
+        "instruction_staged": False,
+    }
+
+
+def test_gate_block_survives_the_delivery_verdict():
+    from core.delivery_execution import worker_verdict
+
+    verdict = worker_verdict(_blocked_receipt())
+
+    assert verdict["ok"] is False
+    assert verdict["error"] == "opencode_instruction_gate_blocked"
+    # Reduced to ok/error this refusal would be unactionable: the receipt would
+    # say a worker failed and not which file was refused or under which class.
+    assert verdict["instruction_gate"] == "BLOCKED"
+    assert verdict["instruction_gate_blocked"]
+    assert verdict["instruction_classes"][0]["data_class"] == "PRIVATE"
+
+
+def test_router_stops_at_a_gate_block_instead_of_falling_through():
+    from core.opencode_worker import OPENCODE_MODELS
+    from core.worker_router import WorkerCapability, WorkerRouter
+
+    models = list(OPENCODE_MODELS.values())[:3]
+    router = WorkerRouter([
+        WorkerCapability(
+            worker_id=f"w{index}", runtime="cli",
+            capabilities=frozenset({"structured_readonly"}),
+            metadata={"model": model, "fallback_rank": str(index)},
+        )
+        for index, model in enumerate(models)
+    ])
+
+    class BlockedWorker:
+        calls = 0
+
+        def run(self, **kwargs):
+            BlockedWorker.calls += 1
+            return dict(_blocked_receipt())
+
+    result = router.run(
+        "structured_readonly", BlockedWorker(),
+        task="ping", workspace="unused",
+    )
+
+    assert result["instruction_gate"] == "BLOCKED"
+    # One governance refusal, not three model failures wearing its name.
+    assert BlockedWorker.calls == 1
+    assert len(result["router_attempts"]) == 1
+    assert result["failure_class"] == "instruction_gate_blocked"
+
+
+def test_router_still_falls_through_for_an_ordinary_failure():
+    from core.opencode_worker import OPENCODE_MODELS
+    from core.worker_router import WorkerCapability, WorkerRouter
+
+    models = list(OPENCODE_MODELS.values())[:2]
+    router = WorkerRouter([
+        WorkerCapability(
+            worker_id=f"w{index}", runtime="cli",
+            capabilities=frozenset({"structured_readonly"}),
+            metadata={"model": model, "fallback_rank": str(index)},
+        )
+        for index, model in enumerate(models)
+    ])
+
+    class FailingWorker:
+        calls = 0
+
+        def run(self, **kwargs):
+            FailingWorker.calls += 1
+            return {"success": False, "error": "opencode_nonzero_exit", "attempts": []}
+
+    router.run("structured_readonly", FailingWorker(), task="ping", workspace="unused")
+
+    assert FailingWorker.calls == len(models)
+
+
+def test_chat_route_reports_a_gate_block_with_its_verdict(monkeypatch):
+    from core.miner_pool.providers.opencode_cli import OpenCodeCliProvider
+
+    class BlockedWorker:
+        def __init__(self, **kwargs):
+            pass
+
+        def run(self, **kwargs):
+            return _blocked_receipt()
+
+    import core.opencode_worker as worker_module
+
+    monkeypatch.setattr(worker_module, "OpenCodeWorker", BlockedWorker)
+
+    result = OpenCodeCliProvider().chat(
+        messages=[{"role": "user", "content": "Reply pong."}],
+        model="oneapi_free:mimo-v2.6-flash-free",
+        timeout=30,
+        data_boundary={"data_class": "PUBLIC"},
+    )
+
+    assert result["success"] is False
+    assert result["error"] == "opencode_instruction_gate_blocked"
+    # Not "opencode_empty_reply": an empty reply is what a blocked call looks
+    # like from the outside, so the verdict is the only thing telling them apart.
+    assert result["instruction_gate"] == "BLOCKED"
+    assert result["instruction_gate_blocked"]
+
+
+# --- audit -------------------------------------------------------------------
+
+
+def test_survey_reports_an_unclassified_shipped_instruction_file():
+    """A file nobody classified is inert until a call happens to sit under it."""
+    from core.instruction_boundary import survey_instruction_egress
+
+    probe = Probe()
+    (probe.ace_root / "AGENTS.md").write_text("# shipped\n", encoding="utf-8")
+    (probe.ace_root / "nested").mkdir()
+    (probe.ace_root / "nested" / "AGENTS.md").write_text("# deeper\n", encoding="utf-8")
+
+    report = survey_instruction_egress(root=str(probe.ace_root), call_sites=[])
+
+    assert report["registry_present"] is False
+    assert len(report["unclassified"]) == 2
+    assert report["classified"] == []
+
+
+def test_survey_separates_allowed_and_blocked_call_sites():
+    from core.instruction_boundary import survey_instruction_egress
+
+    probe = Probe()
+    blocked_dir = probe.ace_root / "repo"
+    blocked_dir.mkdir()
+    (blocked_dir / "AGENTS.md").write_text("# private\n", encoding="utf-8")
+    probe.classify(probe.entry_for(blocked_dir / "AGENTS.md", "PRIVATE"))
+
+    open_dir = probe.ace_root / "public_repo"
+    open_dir.mkdir()
+    (open_dir / "AGENTS.md").write_text("# fine\n", encoding="utf-8")
+    probe.classify(probe.entry_for(open_dir / "AGENTS.md", "PUBLIC"))
+
+    clean = probe.ace_root / "clean"
+    clean.mkdir()
+
+    report = survey_instruction_egress(root=str(probe.ace_root), call_sites=[
+        {"label": "private", "workspace": str(blocked_dir)},
+        {"label": "public", "workspace": str(open_dir)},
+        {"label": "no instructions", "workspace": str(clean)},
+    ])
+
+    by_label = {site["label"]: site for site in report["call_sites"]}
+    assert by_label["private"]["gate"] == "BLOCKED"
+    assert by_label["public"]["gate"] == "ALLOWED"
+    assert by_label["no instructions"]["instruction_files"] == 0
+    assert by_label["no instructions"]["gate"] == "ALLOWED"
+    assert report["egress_blocked"] is True
+
+
+def test_refusal_survives_worker_then_router_then_verdict():
+    """The real classes, end to end. Only the executable is a stand-in.
+
+    Unit tests cover each layer; this is the one that would catch a new layer
+    quietly reducing the refusal back into an unexplained failure.
+    """
+    from core.delivery_execution import worker_verdict
+    from core.opencode_worker import OPENCODE_MODELS
+    from core.worker_router import WorkerCapability, WorkerRouter
+
+    probe = Probe()
+    (probe.workspace / "AGENTS.md").write_text("# private runtime\n", encoding="utf-8")
+    probe.classify(probe.entry_for(probe.staged_path(), "PRIVATE"))
+
+    router = WorkerRouter([
+        WorkerCapability(
+            worker_id=f"w{index}", runtime="cli",
+            capabilities=frozenset({"structured_readonly"}),
+            metadata={"model": model, "fallback_rank": str(index)},
+        )
+        for index, model in enumerate(list(OPENCODE_MODELS.values())[:3])
+    ])
+    worker = probe.worker()
+
+    receipt = router.run(
+        "structured_readonly", worker,
+        task="ping", workspace=str(probe.workspace),
+        expected_result=str(probe.staged_path()),
+        verification_method="file_exists_nonempty",
+    )
+
+    assert receipt["success"] is False
+    assert receipt["instruction_gate"] == "BLOCKED"
+    assert receipt["failure_class"] == "instruction_gate_blocked"
+    assert len(receipt["router_attempts"]) == 1
+    assert probe.observation() is None, "the CLI was started despite the block"
+
+    verdict = worker_verdict(receipt)
+    assert verdict["ok"] is False
+    assert verdict["instruction_gate"] == "BLOCKED"
+    assert verdict["instruction_classes"][0]["data_class"] == "PRIVATE"
+
+
+def test_a_corrupt_registry_reads_as_no_permission():
+    """A governance record that cannot be parsed must not read as consent."""
+    probe = Probe()
+    (probe.workspace / "AGENTS.md").write_text("# text\n", encoding="utf-8")
+    (probe.ace_root / "08_GOVERNANCE" / "instruction_data_classes.json").write_text(
+        "{ this is not json", encoding="utf-8",
+    )
+
+    receipt = probe.worker().run(
+        task="ping", workspace=str(probe.workspace), model_order=[MODEL],
+    )
+
+    assert receipt["instruction_gate"] == "BLOCKED"
+    assert any(
+        "unclassified" in reason for reason in receipt["instruction_gate_blocked"]
+    )
+    assert probe.observation() is None
+
+
+def test_a_registered_private_source_unlocks_its_reduced_artifact():
+    """The sanctioned path: PRIVATE original stays blocked, reduction egresses.
+
+    Mirrors the production case end to end -- a PRIVATE registered source, a
+    separate reduced file, and a receipt binding both hashes. The original must
+    remain blocked even with the receipt on disk, because the receipt names the
+    artifact, not the source.
+    """
+    probe = Probe()
+    private = probe.root / "AGENTS.private.md"
+    original = (
+        b"private runtime manual: coze-assets holds every secret\n"
+        b"verify passphrase: hunter2\n"
+    )
+    reduced = b"# reduced\n\nRecover before bootstrapping. Reuse before building.\n"
+    private.write_bytes(original)
+
+    artifact = probe.workspace / "AGENTS.md"
+    artifact.write_bytes(reduced)
+
+    entry, receipt = probe.reduction(private, artifact)
+    probe.classify(entry, receipts=[receipt])
+
+    allowed = probe.worker().run(
+        task="ping", workspace=str(probe.workspace), model_order=[MODEL],
+    )
+    assert allowed["instruction_gate"] == "ALLOWED"
+    assert allowed["success"] is True
+    found = allowed["instruction_classes"][0]
+    assert found["basis"] == "sanitizer_receipt"
+    assert found["data_class"] == "PUBLIC"
+    assert found["source_data_class"] == "PRIVATE"
+
+    # The original is still PRIVATE and still refused, even though a receipt
+    # derived from it exists.
+    holder = probe.root / "holder"
+    holder.mkdir()
+    (holder / "AGENTS.md").write_bytes(original)
+    probe.classify(probe.entry_for(holder / "AGENTS.md", "PRIVATE"), receipts=[receipt])
+
+    blocked = OpenCodeWorker(
+        executable=probe.executable, timeout_seconds=60, ace_root=probe.ace_root,
+    ).run(task="ping", workspace=str(holder), model_order=[MODEL])
+
+    assert blocked["instruction_gate"] == "BLOCKED"
+    assert blocked["instruction_classes"][0]["data_class"] == "PRIVATE"
+
+
+def test_a_receipt_over_an_already_public_source_is_not_a_sanitisation():
+    """Otherwise a bare-name registry entry could manufacture egress."""
+    probe = Probe()
+    target = probe.workspace / "AGENTS.md"
+    body = b"harmless\n"
+    target.write_bytes(body)
+    probe.classify(
+        probe.entry_for(target, "PUBLIC"),
+        receipts=[probe.receipt_for(
+            target, body, data_class="PUBLIC", source_payload=b"a longer body\n",
+        )],
+    )
+
+    receipt = probe.worker().run(
+        task="ping", workspace=str(probe.workspace), model_order=[MODEL],
+    )
+
+    # Allowed, but on the registry's authority, not the receipt's: the source
+    # was already PUBLIC so there was nothing to sanitise.
+    assert receipt["instruction_gate"] == "ALLOWED"
+    assert receipt["instruction_classes"][0]["basis"] == "registry"
+
+
+def test_a_receipt_may_not_raise_a_data_class():
+    probe = Probe()
+    source = probe.root / "AGENTS.source.md"
+    original = b"public-ish source\n"
+    source.write_bytes(original)
+    reduced = probe.workspace / "AGENTS.md"
+    reduced.write_bytes(b"different bytes entirely\n")
+
+    probe.classify(
+        probe.entry_for(source, "CAPABILITY"),
+        receipts=[probe.receipt_for(
+            reduced, reduced.read_bytes(), data_class="CORE",
+            source_path=source, source_payload=original,
+        )],
+    )
+
+    receipt = probe.worker().run(
+        task="ping", workspace=str(probe.workspace), model_order=[MODEL],
+    )
+
+    assert receipt["instruction_gate"] == "BLOCKED"
+    entry = receipt["instruction_classes"][0]
+    assert entry["basis"] == "unclassified"
+    assert entry["ignored_receipt"] == "receipt_raises_data_class"
+
+
+def test_production_registry_keeps_the_runtime_manual_private():
+    """Relabelling the production AGENTS.md PUBLIC to unblock a call is forbidden.
+
+    The registry is a hand-edited JSON file, and the forbidden edit is exactly
+    the one that looks like a fix when delivery is blocked. Pinning it here
+    makes that edit fail a test instead of quietly unlocking egress.
+    """
+    root = Path(__file__).resolve().parents[1]
+    registry = root / "08_GOVERNANCE" / "instruction_data_classes.json"
+    assert registry.is_file(), "the classification registry went missing"
+
+    document = json.loads(registry.read_text(encoding="utf-8"))
+    entries = {
+        str(item.get("match", "")).replace("\\", "/").lower(): item
+        for item in document.get("entries", [])
+    }
+    key = next(
+        (name for name in entries if name.endswith("ace_core/agents.md")), None,
+    )
+
+    assert key is not None, "the production AGENTS.md lost its classification record"
+    assert entries[key]["data_class"] == "PRIVATE", (
+        "the runtime manual was relabelled; that unblocks egress by definition "
+        "and is not a change anyone may make to make a call pass"
+    )
+    assert (root / "AGENTS.md").is_file()

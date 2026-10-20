@@ -10,9 +10,28 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import dataclass, field
-from typing import Any, Iterable, Mapping, Optional
+from typing import Any, Callable, Iterable, Mapping, Optional
 
 from .task_admission import validate_admission
+
+CAPABILITY_ID = "ACE-CAP-evidence-admission"
+VERSION = "1.0.0"
+TERMINAL_STATUSES = frozenset(("archived", "graveyard", "rejected"))
+ARM_INJECTED = "injected"
+ARM_COLD_ENVIRONMENT = "absent_cold_environment"
+ARM_UNINSTALLED = "uninstalled"
+VALIDATOR_ARMS = frozenset((ARM_INJECTED, ARM_COLD_ENVIRONMENT, ARM_UNINSTALLED))
+
+
+class EvidenceAdmissionError(ValueError):
+    """Invalid input or assembly state for the evidence admission contract."""
+
+
+@dataclass(frozen=True)
+class Thresholds:
+    minimum_unique_evidence: int = 3
+    minimum_independent_sources: int = 2
+    minimum_first_evidence_length: int = 50
 
 
 @dataclass(frozen=True)
@@ -34,6 +53,7 @@ class EvidenceAdmissionDecision:
     admission_valid: bool
     admission_error: str = ""
     duplicate_task_ids: tuple[str, ...] = field(default_factory=tuple)
+    validator_arm: str = ARM_INJECTED
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -51,6 +71,7 @@ class EvidenceAdmissionDecision:
             "admission_valid": self.admission_valid,
             "admission_error": self.admission_error,
             "duplicate_task_ids": list(self.duplicate_task_ids),
+            "validator_arm": self.validator_arm,
         }
 
 
@@ -112,20 +133,27 @@ def _task_signature(task: Any) -> str:
     return evidence_signature(evidence)
 
 
-def evaluate_candidate(
+def evaluate(
     candidate: Mapping[str, Any],
     existing_tasks: Iterable[Any] = (),
     *,
-    minimum_unique_evidence: int = 3,
-    minimum_independent_sources: int = 2,
-    minimum_first_evidence_length: int = 50,
+    thresholds: Thresholds = Thresholds(),
+    admission_validator: Optional[Callable[[dict[str, Any]], Any]] = validate_admission,
+    validator_arm: str = ARM_INJECTED,
 ) -> EvidenceAdmissionDecision:
-    """Evaluate a candidate without writing state or invoking a model.
+    """Evaluate a candidate with an explicit admission-validation arm.
 
-    ``existing_tasks`` is a read-only iterable of task dicts or Task-like
-    objects.  A duplicate is only reported when the candidate has a non-empty
-    signature and an existing non-terminal task has the same signature.
+    The validator is injected so this pure capability has no hidden environment
+    or filesystem dependency.  An explicitly declared cold environment may
+    perform shape-only research; an uninstalled validator fails closed.
     """
+    if not isinstance(candidate, Mapping):
+        raise EvidenceAdmissionError(
+            "candidate_not_a_mapping:%s" % type(candidate).__name__
+        )
+    if validator_arm not in VALIDATOR_ARMS:
+        raise EvidenceAdmissionError("unknown_validator_arm:%s" % validator_arm)
+
     evidence = candidate.get("evidence", [])
     quality = quality_facts(evidence)
     signature = evidence_signature(evidence)
@@ -133,21 +161,27 @@ def evaluate_candidate(
 
     admission = candidate.get("admission")
     if admission is None:
-        # Producers may pass the persisted outputs shape.
         outputs = candidate.get("outputs", {})
         admission = outputs.get("admission") if isinstance(outputs, Mapping) else None
     admission_error = ""
-    if not isinstance(admission, Mapping):
-        admission_error = "task_admission_required"
+    if admission_validator is None:
+        if not isinstance(admission, Mapping):
+            admission_error = "task_admission_required"
+        elif validator_arm != ARM_COLD_ENVIRONMENT:
+            admission_error = "admission_unvalidated:%s" % validator_arm
     else:
-        try:
-            validate_admission(dict(admission))
-        except (TypeError, ValueError) as exc:
-            admission_error = str(exc)
+        validator_arm = ARM_INJECTED
+        if not isinstance(admission, Mapping):
+            admission_error = "task_admission_required"
+        else:
+            try:
+                admission_validator(dict(admission))
+            except Exception as exc:  # noqa: BLE001 - preserve injected failure shape
+                admission_error = str(exc)
 
     for task in existing_tasks:
         status = str(_value(task, "status", ""))
-        if status in {"archived", "graveyard", "rejected"}:
+        if status in TERMINAL_STATUSES:
             continue
         if signature and _task_signature(task) == signature:
             task_id = str(_value(task, "task_id", ""))
@@ -160,11 +194,11 @@ def evaluate_candidate(
         decision, reason = "defer", admission_error
     elif quality.has_empty_content:
         decision, reason = "defer", "empty_evidence_content"
-    elif quality.unique_evidence_count < minimum_unique_evidence:
+    elif quality.unique_evidence_count < thresholds.minimum_unique_evidence:
         decision, reason = "defer", "minimum_evidence_required"
-    elif quality.independent_source_count < minimum_independent_sources:
+    elif quality.independent_source_count < thresholds.minimum_independent_sources:
         decision, reason = "defer", "independent_evidence_required"
-    elif quality.first_evidence_length < minimum_first_evidence_length:
+    elif quality.first_evidence_length < thresholds.minimum_first_evidence_length:
         decision, reason = "defer", "first_evidence_too_short"
     else:
         decision, reason = "admit", "evidence_quality_satisfied"
@@ -174,7 +208,30 @@ def evaluate_candidate(
         reason=reason,
         evidence_signature=signature,
         quality=quality,
-        admission_valid=not admission_error,
+        admission_valid=(validator_arm == ARM_INJECTED and not admission_error),
         admission_error=admission_error,
         duplicate_task_ids=tuple(sorted(set(duplicate_ids))),
+        validator_arm=validator_arm,
+    )
+
+
+def evaluate_candidate(
+    candidate: Mapping[str, Any],
+    existing_tasks: Iterable[Any] = (),
+    *,
+    minimum_unique_evidence: int = 3,
+    minimum_independent_sources: int = 2,
+    minimum_first_evidence_length: int = 50,
+) -> EvidenceAdmissionDecision:
+    """Backward-compatible wrapper for the original ACE entry point."""
+    return evaluate(
+        candidate,
+        existing_tasks,
+        thresholds=Thresholds(
+            minimum_unique_evidence=minimum_unique_evidence,
+            minimum_independent_sources=minimum_independent_sources,
+            minimum_first_evidence_length=minimum_first_evidence_length,
+        ),
+        admission_validator=validate_admission,
+        validator_arm=ARM_INJECTED,
     )

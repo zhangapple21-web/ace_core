@@ -8,14 +8,26 @@ TaskPool can issue the owner/lease/fencing record.
 
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any, Dict, Iterable, Optional
 
 from .execution_discipline import execution_gate
 
 
-def ace_start(task_pool: Any, task_id: str, owner: str, lease_seconds: int = 300) -> Dict[str, Any]:
-    """Attempt one fail-closed start and return an audit-friendly result."""
+def ace_start(task_pool: Any, task_id: str, owner: str, lease_seconds: int = 300,
+              regions: Optional[Iterable[str]] = None,
+              lane_registry: Optional[Any] = None,
+              base_dir: Optional[str] = None) -> Dict[str, Any]:
+    """Attempt one fail-closed start and return an audit-friendly result.
 
+    Starting a task and claiming a file region are two axes of one act. TaskPool's
+    owner/lease/fencing covers "this task is mine"; WindowLane's claim covers
+    "these files are mine". The draft that named the gap found that claiming only
+    the first allowed two windows to write source into one checkout with nothing
+    able to stop them, so start now takes both.
+
+    A refused lane claim fails the start: starting a task whose file region
+    another lane holds would let this window edit a file mid-write.
+    """
     task = task_pool.load_task(task_id)
     if task is None:
         return {"status": "REJECTED", "reason": "task_not_found", "task_id": task_id}
@@ -39,6 +51,55 @@ def ace_start(task_pool: Any, task_id: str, owner: str, lease_seconds: int = 300
             "owner": owner,
             "runtime_mutation": False,
         }
+
+    lane_result = None
+    lane_declaration = "NONE"
+    declared = [str(r).strip() for r in (regions or []) if str(r).strip()]
+    registry = lane_registry
+    if declared:
+        if registry is None:
+            if not base_dir:
+                return {
+                    "status": "REJECTED",
+                    "reason": "lane_registry_or_base_dir_required",
+                    "task_id": task_id, "owner": owner,
+                }
+            from .window_lane import LaneRegistry
+            registry = LaneRegistry(base_dir)
+        lane_result = _claim_lanes(registry, declared, owner)
+        lane_declaration = "CLAIMED"
+        if lane_result.get("status") == "REFUSED":
+            return {
+                "status": "REJECTED",
+                "reason": "lane_claim_refused",
+                "lane_detail": lane_result,
+                "task_id": task_id,
+                "owner": owner,
+                "lane_declaration": lane_declaration,
+                "runtime_mutation": True,
+                "release_note": (
+                    "taskpool_claim stands; the caller must release the task claim "
+                    "or let its lease expire - this module does not silently "
+                    "un-claim a claim it did not make"
+                ),
+            }
+    else:
+        # No region named. That stays a successful start - `--region` is an
+        # optional argument and refusing here would break every in-flight
+        # window - but it is recorded, because "a window started work holding
+        # no file region" is the fact the lane convention exists to make
+        # visible. See LaneRegistry.record_unclaimed_declaration.
+        if registry is None and base_dir:
+            from .window_lane import LaneRegistry
+            registry = LaneRegistry(base_dir)
+        if registry is not None:
+            unclaimed = registry.record_unclaimed_declaration(
+                owner, task_id=task_id, actor="ace_start",
+                reason="no --region declared at task start",
+            )
+            lane_declaration = "UNCLAIMED_RECORDED" if isinstance(unclaimed, dict) and \
+                unclaimed.get("status") == "UNCLAIMED_RECORDED" else "NONE"
+
     return {
         "status": "STARTED",
         "reason": "taskpool_claimed_with_fencing",
@@ -47,8 +108,30 @@ def ace_start(task_pool: Any, task_id: str, owner: str, lease_seconds: int = 300
         "claim_id": claimed.claim_id,
         "fencing_token": claimed.fencing_token,
         "lease_expires_at": claimed.lease_expires_at,
+        "lane_declaration": lane_declaration,
+        "lane_claims": (lane_result or {}).get("claims", []) if lane_result else [],
         "runtime_mutation": True,
     }
+
+
+def _claim_lanes(registry: Any, regions: list, owner: str):
+    """Claim each named region for `owner`, or refuse the whole start.
+
+    Partial success is not offered: half a lane claim is an unclaimed file the
+    window still believes it owns. The registry is passed in already built, so
+    the caller decides where the OWNERS table comes from.
+    """
+    claims = []
+    for region in regions:
+        result = registry.claim(owner, region, actor="ace_start",
+                                reason="declared at task start")
+        if isinstance(result, dict) and result.get("status") == "REFUSED":
+            for held in claims:
+                registry.release(held["claim_id"], token=held["fencing_token"],
+                                 actor="ace_start")
+            return result
+        claims.append(result.to_dict() if hasattr(result, "to_dict") else result)
+    return {"status": "CLAIMED", "claims": claims}
 
 
 def run_runtime(base_dir: Any, config: Dict[str, Any], mode: str, **kwargs: Any) -> Any:
@@ -59,10 +142,13 @@ def run_runtime(base_dir: Any, config: Dict[str, Any], mode: str, **kwargs: Any)
     """
 
     from ace_daemon import AceDaemon
+    from core.silent_windows import install_daemon_silence
 
     allowed = {"run", "once", "submit", "daemon_once", "daemon_serve"}
     if mode not in allowed:
         raise ValueError(f"unsupported_ace_start_mode:{mode}")
+    if mode in {"run", "once", "daemon_once", "daemon_serve"}:
+        install_daemon_silence()
     daemon = AceDaemon(base_dir, config)
     if mode in {"run", "daemon_serve"}:
         return daemon.run_daemon(

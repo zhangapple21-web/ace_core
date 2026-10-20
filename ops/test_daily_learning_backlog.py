@@ -2,6 +2,7 @@
 from types import SimpleNamespace
 
 from core.daily_learning import DailyLearningLoop
+from core.evolution_kernel import route_learning
 
 
 class FakeTaskPool:
@@ -168,5 +169,32 @@ def test_adopted_first_candidate_does_not_starve_later_learning_backlog_item(tmp
 
     assert mode == "internal"
     assert selection[0].title == "Next governed study"
+
+
+def test_daily_learning_uses_canonical_evolution_router_when_injected(tmp_path):
+    external = SimpleNamespace(
+        title="External workflow idea",
+        fingerprint="external-idea",
+        candidate_source="open_source_learning",
+        metadata={},
+    )
+    failure = SimpleNamespace(
+        title="Repeated local failure",
+        fingerprint="local-failure",
+        candidate_source="runtime_failure",
+        metadata={},
+    )
+    loop = loop_for(
+        tmp_path,
+        [],
+        [
+            lambda: [(external, [{"source_ref": "external://one"}])],
+            lambda: [(failure, [{"source_ref": "local://failure"}])],
+        ],
+    )
+    loop.learning_router = route_learning
+    mode, selection = loop._choose_candidate(allow_external=False)
+    assert mode == "internal"
+    assert selection[0].fingerprint == "local-failure"
 
 

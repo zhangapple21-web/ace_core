@@ -1,0 +1,148 @@
+"""A stuck incident must be diagnosable, not just stale.
+
+Two persistent semantic incidents were found stuck: fragment_backlog (18 days old)
+and cross_agent_idle (7 days), and both remediation tasks had been archived within
+minutes of creation. Both file a real complaint with a real mechanism behind it, and
+neither could be answered by looking at the incident file alone - a pointer records
+when a condition was last seen, never whether anything is still watching it.
+
+The diagnosis this pins, stated as three distinguishable states so the answer to
+"is it still real" is mechanical rather than a reading of tea leaves:
+
+  MONITORED            the rule's category is present in the queue the converter
+                       reads, so reconciliation can run.
+  STALE_TASK_DONE      the remediation task is terminal but no fresh observation
+                       has cleared the pointer yet.
+  STUCK_NO_OBSERVATION no observation in that category exists, so nothing can
+                       ever clear it. This is the state that is indistinguishable
+                       from "still true" without looking at the queue.
+
+It also pins the bound that makes it fragile: convert() reads a limited slice of
+the unprocessed queue, and if the queue is larger than that slice, whether an
+incident is reconciled can depend on queue order. That is worth failing on if it
+regresses further, not silently accepting.
+"""
+import json
+import sys
+from pathlib import Path
+
+REPO = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(REPO))
+
+import pytest  # noqa: E402
+
+from ops.diagnose_semantic_incidents import diagnose  # noqa: E402
+
+# CONDITION_STILL_TRUE joins the set rather than replacing it. The original three
+# describe the state of the reconciliation machinery; this fourth describes the
+# state of the world, which the machinery was reporting accurately all along.
+# Both incidents on file resolve to it: pending_scan is 7847 against a threshold
+# of 500, and last_mine_seed_scan is still "never". Reading either as an
+# unreachable rule blamed the safety net for a task that was archived while its
+# condition persisted.
+VERDICTS = {"MONITORED", "STALE_TASK_DONE", "STUCK_NO_OBSERVATION",
+            "CONDITION_STILL_TRUE"}
+
+
+def test_the_diagnosis_reaches_a_definite_verdict_for_every_incident():
+    report = diagnose()
+    assert report["incidents"], "no incidents to diagnose - is the file readable?"
+    for row in report["incidents"]:
+        assert row["verdict"] in VERDICTS, (
+            f"{row['incident']} got verdict {row['verdict']!r}; every incident must "
+            "resolve to one of the four states or the diagnosis is not answering "
+            "the question"
+        )
+        assert row["explanation"], f"{row['incident']} has no explanation"
+
+
+def test_every_verdict_carries_the_live_condition_it_judged_on():
+    """A verdict with no value behind it cannot be acted on or disbelieved.
+
+    This is the half the first version was missing entirely: it reported that no
+    gap observation reaches the converter and stopped, never reading
+    pending_scan or last_mine_seed_scan. So it could not distinguish a rule with
+    no input from a rule correctly reporting a condition that is still true.
+    """
+    report = diagnose()
+    for row in report["incidents"]:
+        condition = row.get("live_condition")
+        assert condition is not None, (
+            f"{row['incident']} has no live_condition; the verdict must rest on the "
+            f"state it read, not on the queue alone"
+        )
+        assert "readable" in condition
+
+
+def test_an_incident_naming_a_finished_task_is_not_reported_as_live_work():
+    """The specific harm this exists to prevent.
+
+    A retired incident that keeps naming an archived task looks exactly like live
+    work. Any reader - a human or the next window - would believe there is open
+    work indefinitely. If such a pointer is ever reachable by the reconciler, the
+    diagnosis must say so plainly.
+
+    Superseded 2026-10-17. This used to require one of the two machinery verdicts
+    here ('STALE_TASK_DONE' or 'MONITORED'). Both incidents are now terminal AND
+    reachable in the live queue - a `gap` observation is unconsumed - while both
+    conditions are still true, so the older assertion was demanding the machinery
+    framing for exactly the case the fourth verdict was introduced to describe.
+    The harm was never "the diagnosis mentions a persistent condition"; it was the
+    diagnosis hiding a dead task, and 'MONITORED' actively claims reconciliation
+    can answer a question it does not answer. What is required now: the row still
+    says so plainly, and a still-true verdict must carry the live value behind it
+    plus the name of the terminal task that was closed over it.
+
+    Note the vacuity this keeps, deliberately: if both conditions are ever
+    genuinely cleared, no incident reaches this branch and the test goes quiet.
+    That is the correct reason for it to stop asserting, and it is written down
+    here so a later window does not read the quiet as coverage.
+    """
+    report = diagnose()
+    for row in report["incidents"]:
+        if not (row["task_terminal"] and row["category_reachable_in_queue"]):
+            continue
+        assert row["verdict"] in VERDICTS
+        if row["verdict"] == "CONDITION_STILL_TRUE":
+            condition = row["live_condition"]
+            assert condition.get("still_true") is True, (
+                f"{row['incident']} was called CONDITION_STILL_TRUE without a live "
+                f"condition that is still true: {condition!r}"
+            )
+            assert "readable" in condition
+            assert row["task_id"] and row["task_id"] in row["explanation"], (
+                f"{row['incident']} names a finished task and its condition is still "
+                f"true, so the explanation has to say which task was closed over it"
+            )
+        else:
+            assert row["verdict"] in {"STALE_TASK_DONE", "MONITORED"}, (
+                f"{row['incident']} names a finished task and its category IS "
+                f"reachable, yet it was called {row['verdict']!r}"
+            )
+
+
+def test_the_diagnosis_exposes_the_conversion_limit_and_the_queue_size():
+    """Reconciliation is bounded by the slice convert() reads.
+
+    convert() iterates observer.get_unprocessed(limit=100). If the queue holds
+    more than that, an incident's fate depends on where its category's
+    observations happen to sit - so the diagnosis must report both numbers rather
+    than only the outcome.
+    """
+    report = diagnose()
+    assert report["convert_limit"] == 100
+    assert report["unprocessed_queue_size"] >= 0
+    assert "queue_categories" in report
+    assert isinstance(report["queue_categories"], dict)
+
+
+def test_diagnosis_does_not_mutate_anything():
+    """A diagnostic that records an observation would change what it measures."""
+    from ops.diagnose_semantic_incidents import INCIDENTS
+
+    before = INCIDENTS.stat().st_mtime if INCIDENTS.is_file() else None
+    before_bytes = INCIDENTS.read_bytes() if INCIDENTS.is_file() else None
+    diagnose()
+    if before is not None:
+        assert INCIDENTS.stat().st_mtime == before, "the incident file was rewritten"
+        assert INCIDENTS.read_bytes() == before_bytes, "the incident file changed"

@@ -1,0 +1,31 @@
+{
+  "contract_version": "ace.external_dead_task_observation.v1",
+  "observed_at": "2026-10-16T01:15:14",
+  "why_observed_not_acted": "These tasks are not owned by any ACE lane. A steward records them; it does not disable another owner's task or invent a missing job.",
+  "tasks": [
+    {
+      "task": "Zola3001",
+      "state": "Ready",
+      "last_result": "4294770688",
+      "action_taken": "none - observed only",
+      "note": "Ready, fires at boot, references C:\\tmp\\zola\\start-zola-service.ps1 which does not exist. Not ACE's task - no repository artifact owns it. Left running for its owner to decide.",
+      "definition_xml_length": 1180
+    },
+    {
+      "task": "Zola-3001",
+      "state": "Disabled",
+      "last_result": "4294967295",
+      "action_taken": "none - observed only",
+      "note": "Already Disabled by its owner. References C:\\tmp\\zola\\start-zola-3000.cmd which does not exist. Recorded so the census is complete.",
+      "definition_xml_length": 1124
+    },
+    {
+      "task": "ACE-Watch-Waker",
+      "state": "Ready",
+      "last_result": "4294770688",
+      "action_taken": "none - observed only",
+      "note": "Ready but its script ace_wake.ps1 cannot be identified with any repo artifact. Two-hour cadence. Left enabled and firing; re-creating its payload would be inventing a job contract. Named as the remaining gap.",
+      "definition_xml_length": 1328
+    }
+  ]
+}

@@ -1,0 +1,56 @@
+{
+  "probe": "ace.cold_face.mechanical_replay.v1",
+  "at": "2026-09-28T19:56:55+08:00",
+  "what": "a stateless script whose only input is the capsule FILE: it pulls each labelled command verbatim, fills the two 【】 holes, and pastes through cmd",
+  "what_this_is_not": "NOT the model-swap test -- that needs a fresh LLM agent and was refused by the daily Chat quota before it ran a single tool (see model_swap_blocked)",
+  "run_that_passed": {
+    "status": "REPLAY_PASS",
+    "work_dir": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\ace_cold_replay_ap11ob2d",
+    "capsule_file": "C:\\Users\\Administrator\\Documents\\Qoder\\2026-09-28\\513447f4\\state\\cold_handoff_capsule.txt",
+    "capsule_hash_from_face": "bd85a5fbffb4ac8ec36efbbb6cc59d521ee7f3801bf5453f29edd23e9d17a011",
+    "capsule_hashes_on_record": [
+      null,
+      "bd85a5fbffb4ac8ec36efbbb6cc59d521ee7f3801bf5453f29edd23e9d17a011",
+      null
+    ],
+    "hash_is_stored_on_the_task": true,
+    "read_back_worked": true,
+    "every_command_came_from_the_capsule": true
+  },
+  "steps_that_ran_verbatim": [
+    {
+      "step": "paste: 找下一件活",
+      "returncode": 0,
+      "status": "LISTED"
+    },
+    {
+      "step": "paste: 要 capsule_hash",
+      "returncode": 0,
+      "status": "CAPSULE_READY"
+    },
+    {
+      "step": "paste: 做完了，交回",
+      "returncode": 0,
+      "status": "SUBMITTED"
+    },
+    {
+      "step": "paste: 交回后自检",
+      "returncode": 0,
+      "status": "TASK_SEEN"
+    }
+  ],
+  "earlier_run_that_found_the_blind_read": {
+    "status": "REPLAY_HASH_NOT_STORED",
+    "capsule_hashes_on_record": [
+      null,
+      null,
+      null
+    ],
+    "meaning": "show existed but did not expose the stored capsule_hash, so the read side could not tell a hash-carried hand-back from a guessed one; the field was added and this run re-passed"
+  },
+  "model_swap_blocked": {
+    "at": "2026-09-28T19:56:55+08:00",
+    "reason": "sub-agent refused: daily usage limit for Chat",
+    "claim_status": "capability '模型可以换' is proven only for the first cold worker (CH-1..CH-5 above); the post-fix LLM-level replay has not run"
+  }
+}

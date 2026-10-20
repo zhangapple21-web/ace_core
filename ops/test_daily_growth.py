@@ -66,6 +66,53 @@ def test_daily_growth_counts_archives_and_production_but_not_health_probes():
         assert report["verified_outcome_count"] == 1
 
 
+def test_a_dispatch_refused_before_dispatch_is_named_rather_than_read_as_a_model_call():
+    """Measured 2026-10-19: six traces said api_called=true while no model was reached.
+
+    The data boundary refused egress before dispatch, so the day read as "6 attempted /
+    0 successful" and pointed whoever was reading at the model layer. The counters stay
+    as they are - the system did try to call - but the refusal has to be named with its
+    reason, or a number that means "blocked" is indistinguishable from one that means
+    "the models are failing".
+    """
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        pool = TaskPool(str(root / "task_pool"))
+        task = pool.create_task("Blocked research", creator="test", priority="high")
+        task.outputs["model_task_admission"] = {
+            "eligible": True, "classification": "reasoning",
+        }
+        task.outputs["model_execution"] = [{
+            "task_type": "reasoning",
+            "provider": "",
+            "selected_model": "",
+            "api_called": True,
+            "api_result": "failed",
+            "error": "DATA_BOUNDARY_BLOCKED:sensitive_data_cannot_egress",
+            "trace_complete": False,
+            "at": "2026-08-25T10:00:00",
+        }]
+        task.audit_log.append({
+            "event": "transition", "from": "approved", "to": "archived",
+            "at": "2026-08-25T10:01:00",
+        })
+        pool.update_task(task)
+
+        report = DailyGrowthLedger(
+            pool, str(root / "daily_growth.json")
+        ).build("2026-08-25")
+
+        assert report["attempted_production_model_call_count"] == 1
+        assert report["successful_production_model_call_count"] == 0
+        assert report["blocked_before_dispatch_count"] == 1, report
+        assert report["blocked_before_dispatch_reasons"] == {
+            "DATA_BOUNDARY_BLOCKED:sensitive_data_cannot_egress": 1,
+        }, report
+        assert report["production_model_call_semantics"]["blocked_before_dispatch_predicate"] == (
+            "attempted predicate + error begins DATA_BOUNDARY_BLOCKED"
+        )
+
+
 def test_successful_model_execution_without_outcome_receipt_is_not_growth():
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)

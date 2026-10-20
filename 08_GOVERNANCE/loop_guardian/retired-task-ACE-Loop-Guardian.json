@@ -1,0 +1,28 @@
+{
+  "contract_version": "ace.retired_task.v1",
+  "retired_at": "2026-10-16T01:14:40",
+  "task": "ACE-Loop-Guardian",
+  "action_taken": "Disabled (not deleted)",
+  "reason": "The loop guardian writes one closure receipt and stops asserting once every assertion holds for three consecutive sweeps. It closed on 2026-10-13 and was re-run on 2026-10-15 with all five assertions still passing, so the task firing it had nothing left to fire for. A task that references a script that no longer exists is silently absent work, which is the same failure the watch census exists to catch.",
+  "closure_receipt": "08_GOVERNANCE/loop_guardian/closure-20261013-150711.json",
+  "last_known_state": {
+    "state": "Ready",
+    "enabled": true,
+    "last_run": "10/15/2026 19:12:37",
+    "last_result": "4294770688",
+    "referenced_missing_file": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\opencode\\ace_loop_guardian_tick.ps1"
+  },
+  "definition_at_retirement": "<?xml version=\"1.0\" encoding=\"UTF-16\"?>\n<Task version=\"1.3\" xmlns=\"http://schemas.microsoft.com/windows/2004/02/mit/task\">\n  <RegistrationInfo>\n    <Description>Read-only assertion sweep that closes the autonomous loop when thresholds hold</Description>\n    <URI>\\ACE-Loop-Guardian</URI>\n  </RegistrationInfo>\n  <Principals>\n    <Principal id=\"Author\">\n      <UserId>S-1-5-21-1422934702-2018621022-4115412978-500</UserId>\n      <LogonType>InteractiveToken</LogonType>\n    </Principal>\n  </Principals>\n  <Settings>\n    <DisallowStartIfOnBatteries>true</DisallowStartIfOnBatteries>\n    <StopIfGoingOnBatteries>true</StopIfGoingOnBatteries>\n    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>\n    <StartWhenAvailable>true</StartWhenAvailable>\n    <IdleSettings>\n      <Duration>PT10M</Duration>\n      <WaitTimeout>PT1H</WaitTimeout>\n      <StopOnIdleEnd>true</StopOnIdleEnd>\n      <RestartOnIdle>false</RestartOnIdle>\n    </IdleSettings>\n    <UseUnifiedSchedulingEngine>true</UseUnifiedSchedulingEngine>\n  </Settings>\n  <Triggers>\n    <TimeTrigger>\n      <StartBoundary>2026-10-13T14:57:36+08:00</StartBoundary>\n      <Repetition>\n        <Interval>PT15M</Interval>\n        <StopAtDurationEnd>true</StopAtDurationEnd>\n      </Repetition>\n    </TimeTrigger>\n  </Triggers>\n  <Actions Context=\"Author\">\n    <Exec>\n      <Command>powershell.exe</Command>\n      <Arguments>-NoProfile -ExecutionPolicy Bypass -File \"C:\\Users\\Administrator\\AppData\\Local\\Temp\\opencode\\ace_loop_guardian_tick.ps1\"</Arguments>\n    </Exec>\n  </Actions>\n</Task>",
+  "siblings_still_open": {
+    "ACE-Watch-Hourly": {
+      "disposition": "re-pointed at ops/watch_tick.ps1, not retired",
+      "why": "the dead-component snapshot was 27 hours stale; hourly surveillance was genuinely absent work",
+      "last_run": "10/15/2026 18:44:01"
+    },
+    "ACE-Watch-Waker": {
+      "disposition": "named, not yet acted on",
+      "why": "its referenced script cannot be identified with certainty, and an unidentified job is not restored by guessing",
+      "last_run": null
+    }
+  }
+}

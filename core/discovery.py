@@ -84,8 +84,18 @@ class DiscoveryMode:
         return False
 
     def _has_viable_work(self) -> bool:
-        for status in ("pending", "active", "blocked", "review", "approved"):
+        for status in ("pending", "active", "review", "approved"):
             if self.task_pool.list_tasks(status=status, limit=1):
+                return True
+        # Blocked tasks suppress discovery only while they can still come
+        # back. Terminally non-convergent ones wait on external evidence that
+        # may never arrive; counting them as viable work kept curiosity
+        # switched off for as long as any dead end sat in blocked (25 in
+        # production while nothing moved). A fresh blocked task without the
+        # terminal flag still suppresses, as the existing contract requires.
+        for task in self.task_pool.list_tasks(status="blocked", limit=100):
+            outputs = task.outputs if isinstance(task.outputs, dict) else {}
+            if not outputs.get("terminal_non_convergent"):
                 return True
         return False
 

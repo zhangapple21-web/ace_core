@@ -9,20 +9,41 @@
   - 约束更新（如果有）
   - 词库概念（如果有）
 
-经验分类：
-  - axiom: 公理（证据充分，无反例）
-  - constraint: 约束（系统必须遵守的规则）
-  - pattern: 模式（反复出现的结构）
-  - lesson: 教训（失败或被废弃的经验）
-  - observation: 观察（弱结论，供参考）
+经验分类（同时也是认知等级，不得混用）：
+  - axiom: 公理 — VERIFIED_FACT，必须有独立验证收据
+  - constraint: 约束 — RULE，必须有独立验证收据
+  - pattern: 模式 — EVIDENCE，反复出现的结构，仍是可复核证据
+  - lesson: 教训 — COUNTEREXAMPLE，失败或被废弃的经验
+  - observation: 观察 — OBSERVATION，弱结论，供参考
+
+升级闸门：一次执行结果在拿到 ``verified_outcome_receipt``（由
+``core.outcome_receipt.OutcomeReceiptRecorder`` 产生，至少两份独立证据组）
+之前只能停在 observation/pattern；未经独立验证的观察不得成为长期规则。
 """
 
 import hashlib
 import json
+import os
 import re
 from pathlib import Path
 from datetime import datetime
 from typing import Dict, List, Any, Optional
+from .mirror_constitution import DATA_CLASSES, validate_data_boundary
+
+# 经验类型 -> 认知等级。等级不可凭“证据条数”跳级。
+EPISTEMIC_STATUS = {
+    "observation": "OBSERVATION",
+    "pattern": "EVIDENCE",
+    "lesson": "COUNTEREXAMPLE",
+    "constraint": "RULE",
+    "axiom": "VERIFIED_FACT",
+}
+
+# 只有这两个等级属于“长期规则”，因此必须经过独立验证闸门。
+LONG_TERM_TYPES = ("axiom", "constraint")
+
+# 未验证时允许降级到的最高等级。
+MAX_UNVERIFIED_TYPE = "pattern"
 
 
 class Experience:
@@ -41,7 +62,16 @@ class Experience:
         related_concepts: List[str],
         tags: Optional[List[str]] = None,
         created_at: Optional[str] = None,
+        data_class: str = "PRIVATE",
+        epistemic_status: Optional[str] = None,
+        verification: Optional[Dict] = None,
+        downgrade_reason: str = "",
+        depositing_lane: Optional[str] = None,
     ):
+        # Defaulted, not required: records written before this field existed
+        # load clean, and a default of "unattributed" says so rather than
+        # inventing a window that did the depositing.
+        self.depositing_lane = depositing_lane or "unattributed"
         self.experience_id = experience_id
         self.source_task_id = source_task_id
         self.experience_type = experience_type if experience_type in self.EXPERIENCE_TYPES else "observation"
@@ -50,23 +80,40 @@ class Experience:
         self.constraints_updated = constraints_updated
         self.related_concepts = related_concepts
         self.tags = tags or []
+        classification = str(data_class or "PRIVATE").strip().upper()
+        self.data_class = classification if classification in DATA_CLASSES else "PRIVATE"
         self.created_at = created_at or datetime.now().isoformat()
         self.reference_count = 0
         self.last_used_at = self.created_at
+        self.last_used_by = "unspecified"
+        self.epistemic_status = epistemic_status or EPISTEMIC_STATUS.get(self.experience_type, "OBSERVATION")
+        self.verification = dict(verification or {})
+        self.downgrade_reason = downgrade_reason
+        # Which window deposited this. The shared substrate is where windows
+        # meet; without provenance a steward reading a lesson cannot tell which
+        # window learned it, and "who taught this" is the difference between a
+        # shared result and an anonymous pile.
+        self.depositing_lane = depositing_lane or "unattributed"
 
     def to_dict(self) -> Dict[str, Any]:
         return {
             "experience_id": self.experience_id,
             "source_task_id": self.source_task_id,
             "experience_type": self.experience_type,
+            "epistemic_status": self.epistemic_status,
             "conclusion": self.conclusion,
             "evidence": self.evidence,
             "constraints_updated": self.constraints_updated,
             "related_concepts": self.related_concepts,
             "tags": self.tags,
+            "data_class": self.data_class,
             "created_at": self.created_at,
             "reference_count": self.reference_count,
             "last_used_at": self.last_used_at,
+            "last_used_by": self.last_used_by,
+            "verification": self.verification,
+            "downgrade_reason": self.downgrade_reason,
+            "depositing_lane": self.depositing_lane,
         }
 
     @classmethod
@@ -74,14 +121,17 @@ class Experience:
         value = dict(data)
         reference_count = int(value.pop("reference_count", 0) or 0)
         last_used_at = value.pop("last_used_at", None)
+        last_used_by = value.pop("last_used_by", None)
         experience = cls(**value)
         experience.reference_count = reference_count
         experience.last_used_at = last_used_at or experience.created_at
+        experience.last_used_by = last_used_by or "unspecified"
         return experience
 
-    def touch(self):
+    def touch(self, actor: str = "unspecified"):
         self.last_used_at = datetime.now().isoformat()
         self.reference_count += 1
+        self.last_used_by = actor or "unspecified"
 
 
 class ExperienceDeposition:
@@ -176,15 +226,95 @@ class ExperienceDeposition:
                 return experience
         return None
 
+
+    @staticmethod
+    def _verification_state(task) -> Dict[str, Any]:
+        """Read the existing outcome-receipt proof instead of inferring trust."""
+        outputs = getattr(task, "outputs", None)
+        outputs = outputs if isinstance(outputs, dict) else {}
+        receipt = outputs.get("verified_outcome_receipt")
+        if not isinstance(receipt, dict) or receipt.get("status") != "VERIFIED":
+            return {"status": "UNVERIFIED", "reason": "no_verified_outcome_receipt"}
+        groups = int(receipt.get("independent_evidence_groups", 0) or 0)
+        refs = [str(ref).strip() for ref in receipt.get("evidence_refs", []) if str(ref).strip()]
+        if groups < 2 or len(refs) < 2:
+            return {
+                "status": "UNVERIFIED",
+                "reason": "independent_evidence_required",
+                "independent_evidence_groups": groups,
+            }
+        return {
+            "status": "VERIFIED",
+            "verifier": str(receipt.get("verifier", "")),
+            "verified_at": str(receipt.get("verified_at", "")),
+            "result_ref": str(receipt.get("result_ref", "")),
+            "verification_ref": str(receipt.get("verification_ref", "")),
+            "independent_evidence_groups": groups,
+            "evidence_refs": refs,
+        }
+
+    def _persist_experience(self, experience: Experience, path: Path) -> None:
+        """Persist one experience record atomically, then refresh the index."""
+        temporary = path.with_suffix(".json.tmp")
+        with open(temporary, "w", encoding="utf-8") as handle:
+            json.dump(experience.to_dict(), handle, ensure_ascii=False, indent=2)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+        self._index_experience(experience, path)
+
     def _index_experience(self, experience: Experience, path: Path) -> None:
         index = self._load_index()
         index[experience.experience_id] = {
             "path": str(path),
             "type": experience.experience_type,
+            "epistemic_status": experience.epistemic_status,
             "conclusion": experience.conclusion[:100],
             "source_task": experience.source_task_id,
         }
         self._save_index(index)
+
+    def _persist_lane_only(self, experience: "Experience") -> None:
+        """Attach a depositing lane to a record already on disk, nothing else.
+
+        Deliberately narrow: it rewrites the lane field and leaves the rest of
+        the record byte-identical, so re-attribution can never quietly change a
+        stored conclusion. Refuses when the record is not on disk rather than
+        writing a new file.
+        """
+        index = self._load_index()
+        record = None
+        for entry in index.values():
+            if isinstance(entry, dict) and str(entry.get("source_task")) == experience.source_task_id:
+                if str(entry.get("type")) == experience.experience_type:
+                    record = entry
+                    break
+        if record is None:
+            subdir = self.EXPERIENCE_DIRS.get(experience.experience_type, "observation")
+            candidate = self.knowledge_dir / subdir / f"{experience.experience_id}.json"
+            if not candidate.is_file():
+                return
+            record = {"path": str(candidate), "source_task": experience.source_task_id,
+                      "type": experience.experience_type}
+        path_text = str(record.get("path", ""))
+        if not path_text:
+            return
+        path = Path(path_text)
+        if not path.is_file():
+            return
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return
+        if data.get("depositing_lane") == experience.depositing_lane:
+            return
+        data["depositing_lane"] = experience.depositing_lane
+        temporary = path.with_suffix(".json.tmp")
+        with open(temporary, "w", encoding="utf-8") as handle:
+            json.dump(data, handle, ensure_ascii=False, indent=2)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
 
     def deposit(
         self,
@@ -193,9 +323,21 @@ class ExperienceDeposition:
         conclusion: Optional[str] = None,
         constraints_updated: Optional[List[str]] = None,
         related_concepts: Optional[List[str]] = None,
+        lane: Optional[str] = None,
     ) -> Experience:
         """
         将任务转化为经验记录并沉积
+
+        未经独立验证的执行结果不会成为长期规则：``axiom``/``constraint``
+        会降到 ``pattern``，并在记录里留下降级原因与验证缺口。
+
+        ``lane`` is the depositing window's claim on the ``09_KNOWLEDGE``
+        area. It is recorded on the experience itself so the shared verified
+        substrate says who put what in it, instead of a flat pile where a
+        steward reading a lesson cannot tell which window learned it. It does
+        not gate the write: 09_KNOWLEDGE is the shared substrate every window
+        is meant to reach, and a refusal here would close the very door this
+        closes. The lane is provenance, not permission.
         """
         if experience_type is None:
             if task.guardian_decision in Experience.EXPERIENCE_TYPES:
@@ -205,9 +347,29 @@ class ExperienceDeposition:
         if experience_type not in Experience.EXPERIENCE_TYPES:
             experience_type = "observation"
 
+        resolved_conclusion = conclusion or task.hypothesis or task.title
+
         existing = self._find_existing(task.task_id, experience_type)
         if existing is not None:
+            # A re-deposit of something already on file must still carry its
+            # provenance. Before this the early return handed back the stored
+            # record untouched, so a depositing lane passed on the second and
+            # later attempts was silently dropped - 67 lessons written by
+            # tombstoning all came back unattributed because every one of them
+            # hit this branch. Claiming the substrate records its authors is
+            # worthless if the second writer is invisible.
+            if lane and existing.depositing_lane in ("", "unattributed"):
+                existing.depositing_lane = lane
+                self._persist_lane_only(existing)
             return existing
+
+        verification = self._verification_state(task)
+        downgrade_reason = ""
+        if experience_type in LONG_TERM_TYPES and verification["status"] != "VERIFIED":
+            downgrade_reason = "downgraded_from_{}:{}".format(
+                experience_type, verification.get("reason", "unverified")
+            )
+            experience_type = MAX_UNVERIFIED_TYPE
 
         exp_id = self._experience_id(task.task_id, experience_type)
 
@@ -223,18 +385,35 @@ class ExperienceDeposition:
             experience_id=exp_id,
             source_task_id=task.task_id,
             experience_type=experience_type,
-            conclusion=conclusion or task.hypothesis or task.title,
+            conclusion=resolved_conclusion,
             evidence=evidence,
             constraints_updated=constraints_updated or [],
             related_concepts=related_concepts or [],
             tags=task.tags + [experience_type],
+            data_class=getattr(task, "data_class", "PRIVATE"),
+            verification=verification,
+            downgrade_reason=downgrade_reason,
+            depositing_lane=lane or "unattributed",
         )
+
+        boundary = validate_data_boundary({"data_class": exp.data_class}, target="INTERNAL")
+        if not boundary["valid"]:
+            raise ValueError("experience_data_boundary_invalid:" + ",".join(boundary["errors"]))
 
         subdir = self.EXPERIENCE_DIRS.get(experience_type, "observation")
         exp_path = self.knowledge_dir / subdir / f"{exp_id}.json"
+        if exp_path.exists():
+            concurrent = self._load_experience(exp_path)
+            if (
+                not concurrent
+                or concurrent.source_task_id != task.task_id
+                or concurrent.experience_type != experience_type
+            ):
+                raise RuntimeError(f"experience_identity_collision:{exp_id}")
+            return concurrent
+
         try:
-            with open(exp_path, "x", encoding="utf-8") as f:
-                json.dump(exp.to_dict(), f, ensure_ascii=False, indent=2)
+            self._persist_experience(exp, exp_path)
         except FileExistsError:
             concurrent = self._load_experience(exp_path)
             if (
@@ -243,13 +422,11 @@ class ExperienceDeposition:
                 or concurrent.experience_type != experience_type
             ):
                 raise RuntimeError(f"experience_identity_collision:{exp_id}")
-            exp = concurrent
-
-        self._index_experience(exp, exp_path)
+            return concurrent
 
         return exp
 
-    def deposit_from_task(self, task, lexicon=None) -> Optional[Experience]:
+    def deposit_from_task(self, task, lexicon=None, lane: Optional[str] = None) -> Optional[Experience]:
         """
         根据 Guardian 判决自动选择经验类型并沉积
 
@@ -258,6 +435,12 @@ class ExperienceDeposition:
           constraint → constraint
           experience → pattern
           discard → lesson
+
+        ``lane`` names the depositing window. The daemon's archivist calls this,
+        and before the parameter existed every record the production lifecycle
+        wrote was anonymous - 9 patterns created on 2026-10-15 alone, and the
+        whole historical population before that. Optional so callers that have
+        no window to name still work; they simply deposit unattributed.
         """
         decision = task.guardian_decision or "observation"
 
@@ -289,6 +472,7 @@ class ExperienceDeposition:
             experience_type=exp_type,
             constraints_updated=constraints,
             related_concepts=related,
+            lane=lane,
         )
 
     def get_all(self, experience_type: Optional[str] = None, limit: int = 50) -> List[Experience]:
@@ -310,10 +494,38 @@ class ExperienceDeposition:
                     pass
 
         experiences.sort(key=lambda e: e.reference_count, reverse=True)
-        return experiences[:limit]
 
-    def find_related(self, keyword: str, limit: int = 10) -> List[Experience]:
-        """根据关键词查找相关经验"""
+        # Sort by reuse, but do not let age hide a freshly written record: a
+        # deposit made moments ago has reference_count 0 and would be pushed
+        # outside any limit by the 900 records that predate it, which makes a
+        # window unable to read back what it just learned - the loop closing
+        # nowhere. Recent records are therefore always in the window; the
+        # remaining budget goes to the most reused, as before.
+        newest_first = sorted(experiences, key=lambda e: e.created_at, reverse=True)
+        keep = min(len(newest_first), max(limit // 2, 25))
+        recent_ids = {e.experience_id for e in newest_first[:keep]}
+
+        head = [e for e in experiences if e.experience_id in recent_ids]
+        tail = [e for e in experiences if e.experience_id not in recent_ids]
+        return (head + tail)[:limit]
+
+    def find_related(self, keyword: str, limit: int = 10,
+                     actor: str = "unspecified",
+                     from_lane: Optional[str] = None) -> List[Experience]:
+        """根据关键词查找相关经验；调用方具名，复用可审计归属。
+
+        ``from_lane`` scopes the search to what one window deposited. Without it
+        the store is one undifferentiated pile, and a window asking about its own
+        subject gets everybody else's answers mixed in - which is how the shared
+        substrate becomes noise again. The default stays open: lineage may weight
+        a retrieval, but it must never seal off what another window learned.
+
+        A reading of what another window deposited is *not* reuse. A lesson rises
+        to a shared result only when the window that deposited it reads it back,
+        so cross-lane hits are still shown but are not counted as provenance for
+        the reader - otherwise "the same words appeared somewhere" would launder
+        itself into "this window learned".
+        """
         all_exp = self.get_all(limit=200)
         results = []
         kw = keyword.lower()
@@ -327,10 +539,44 @@ class ExperienceDeposition:
                 if kw in tag.lower():
                     score += 1
             if score > 0:
-                exp.touch()
+                exp.touch(actor=actor)
                 results.append((score, exp))
         results.sort(key=lambda x: -x[0])
-        return [e for _, e in results[:limit]]
+        selected = [e for _, e in results[:limit]]
+        if from_lane:
+            wanted = [e for e in selected if e.depositing_lane == from_lane]
+            others = [e for e in selected if e.depositing_lane != from_lane]
+            # same lane first, then everything else, so scoping is a preference
+            # and not a wall
+            selected = wanted + others
+        selected = selected[:limit]
+        # Reuse is the only thing that turns a stored record into knowledge ACE
+        # actually kept.  Persist the reference so a later audit can prove the
+        # loop closed instead of inferring it from a file count.
+        for exp in selected:
+            self._record_reuse(exp)
+        return selected
+
+    def _record_reuse(self, experience: Experience) -> None:
+        """Persist reference_count/last_used_at for a reused experience."""
+        index = self._load_index()
+        path_text = ""
+        for record in index.values():
+            if isinstance(record, dict) and record.get("source_task") == experience.source_task_id:
+                if record.get("type") == experience.experience_type:
+                    path_text = str(record.get("path", ""))
+                    break
+        if not path_text:
+            subdir = self.EXPERIENCE_DIRS.get(experience.experience_type, "observation")
+            candidate = self.knowledge_dir / subdir / f"{experience.experience_id}.json"
+            path_text = str(candidate) if candidate.is_file() else ""
+        if not path_text:
+            return
+        try:
+            self._persist_experience(experience, Path(path_text))
+        except OSError:
+            # A reuse counter must never break the research path that reused it.
+            return
 
     def get_stats(self) -> Dict[str, Any]:
         """获取经验库统计"""

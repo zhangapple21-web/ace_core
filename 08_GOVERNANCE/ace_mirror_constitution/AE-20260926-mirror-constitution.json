@@ -1,0 +1,63 @@
+{
+  "receipt_version": "ace.evolution_receipt.v1",
+  "receipt_id": "AE-20260926-MIRROR-CONSTITUTION",
+  "status": "PROMOTED",
+  "source": {
+    "kind": "R2_REFERENCE_AUDIT",
+    "repository": "https://github.com/zhangapple21-web/mine-seed.git",
+    "commit": "60b8adbd85dea63c09e35ad48b326a6f18aeefdd",
+    "source_status": "REFERENCE_ONLY",
+    "note": "R2 的思想经本地独立审计后才进入 ACE；未把 R2 运行时或权限面复制进来。"
+  },
+  "baseline": {
+    "root_protocol": "未统一命名学习/超越/守护边界",
+    "responsibility_completion": "主要依赖任务完成和既有验收，缺少统一责任收口投影",
+    "model_contract": "已有 execution_contract，但旧标记可绕过新增上下文",
+    "data_boundary": "已有治理原则，缺少运行时最小校验函数和脱敏门"
+  },
+  "change": {
+    "root_contract": "00_ROOT/ACE_MIRROR_CONSTITUTION.v1.md",
+    "runtime_contract": "core/mirror_constitution.py",
+    "existing_lifecycle_integration": [
+      "core/execution_contract.py",
+      "core/delivery_protocols.py",
+      "core/task_roles.py"
+    ],
+    "tests": "ops/test_mirror_constitution.py",
+    "non_goals": [
+      "不新增队列、调度器、人格、模型权限或第二控制面",
+      "不把模型输出直接升级为事实、授权或生产收据"
+    ]
+  },
+  "test": {
+    "focused": "20 passed",
+    "full_ops": "875 passed",
+    "compile": "py_compile passed",
+    "remote_commit": "ae66f59"
+  },
+  "evaluation": {
+    "result": "明确改善",
+    "evidence": [
+      "模型执行契约统一注入镜子宪法，旧契约标记会幂等补齐上下文",
+      "生产协议任务自动投影责任包，轻量任务不被强制激活",
+      "长期规则晋升和外部交付在 Guardian 边界严格要求学习回流、证据和结果条件",
+      "PRIVATE/CORE 禁止外发，STRUCTURE/CAPABILITY 进入模型上下文或外部前需脱敏"
+    ],
+    "regression": "全 ops 回归无退化"
+  },
+  "painful_review": {
+    "cost": "若直接全局强制 learning_return，会阻断历史轻量任务；若只写 MD，则继续出现‘学习但不用’。",
+    "impact_scope": "执行提示、生产/长期任务协议、Guardian 晋升判定和数据出站校验。",
+    "counterfactual": "不修复时，空责任包可能被误报完成，R2 经验无法形成运行时约束，旧模型契约可绕过新边界。",
+    "recurrence_risk": "中等；未来新增协议若绕过 execution_contract 或 delivery_protocols 仍可能产生旁路。",
+    "reusable_lesson": "参考矿只能经过本地审计后进入唯一生命周期；责任完成必须投影到既有收口而不是另建系统。",
+    "rollback": "回滚提交 ae66f59；既有 TaskPool/Validator/Guardian 生命周期和历史记录保持不变。"
+  },
+  "authority": {
+    "execution_authorized": false,
+    "production_integration": true,
+    "promotion": true,
+    "accepted_by": "main_steward",
+    "accepted_at": "2026-09-26"
+  }
+}

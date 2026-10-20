@@ -1,0 +1,28 @@
+{
+  "contract_version": "ace.free_research_sandbox.v1",
+  "created_at": "2026-09-23T10:34:27.895597+00:00",
+  "distillation": {
+    "distillation_hash": "5b232159be8da9fd88a2db797ce031701410c7d84cd21e8cd9bab39007737a2f",
+    "evidence_hash": "b3bbb357e3bb62bf22ec46b5582cd66ef8c7f675f3bea603e1e7965a75dc32c4",
+    "executable": false,
+    "pattern": "When The open question EXP-20260919103227085478-FREEZONE-C7878F0A66B1 can be turned into a distinct next observation without overwriting its original result., investigate via Preserve the parent distillation, formulate an explicit re-observation question, and record the new experiment separately..",
+    "source_record_hash": "8137a511b892265ae8a2375d3e34e57c1dc5281d48e6bd5e822dd83777ec3d7e"
+  },
+  "experiment_id": "EXP-20260923103427609165-FREEZONE-9223855DC17B",
+  "mode": "PROPOSAL_ONLY",
+  "prohibited_actions": [
+    "automatic_production_write",
+    "automatic_task_creation",
+    "automatic_delivery",
+    "automatic_order"
+  ],
+  "proposal_hash": "18330151b482d9ebf266037cabb7df8803253e9a23abc340b4b97c3a9c0b23de",
+  "reason": "human_and_governed_review_required",
+  "requires": [
+    "human_confirmation",
+    "existing_admission",
+    "existing_validator"
+  ],
+  "source_record_hash": "8137a511b892265ae8a2375d3e34e57c1dc5281d48e6bd5e822dd83777ec3d7e",
+  "status": "PROPOSAL_ONLY"
+}

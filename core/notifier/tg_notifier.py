@@ -49,9 +49,25 @@ class TgNotifier:
         }
         self._alert_hashes = set()
 
-    def _send_message(self, text: str, parse_mode: str = "HTML") -> bool:
+    def _send_message(
+        self,
+        text: str,
+        parse_mode: str = "HTML",
+        *,
+        data_class: str = "PRIVATE",
+    ) -> bool:
         """发送一条消息（底层）"""
         if not self.enabled:
+            return False
+
+        from core.mirror_constitution import validate_data_boundary
+        boundary = validate_data_boundary(
+            {"data_class": data_class}, target="EXTERNAL", payload=text
+        )
+        if not boundary["valid"]:
+            # Notifications are external delivery. Until a call site supplies
+            # a reviewed public projection, fail closed instead of forwarding
+            # arbitrary task or memory text.
             return False
 
         url = f"{self._api_base}/sendMessage"

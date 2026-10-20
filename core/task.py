@@ -15,15 +15,33 @@ import uuid
 from contextlib import contextmanager
 from pathlib import Path
 from datetime import datetime, timedelta
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any, Iterable, Optional
 
 from core.task_admission import duplicate_task, validate_admission
+from core.civilization_map_reference import admission_envelope, same_admission_intent, same_canonical_object
 from core.execution_discipline import (
     build_execution_discipline,
     execution_gate,
     ensure_execution_discipline,
     record_checkpoint,
     record_event,
+)
+from core.delivery_protocols import (
+    ensure_task_protocols,
+    protocol_errors,
+    validate_release_receipt,
+)
+from core.mirror_constitution import validate_data_boundary
+from core.task_ledger import (
+    LEDGER_COUNTERS,
+    LedgerDriftError,
+    LedgerError,
+    append_entry,
+    counter_values,
+    ensure_baseline,
+    prior_counters,
+    replay,
+    write_port_gate,
 )
 from collections import defaultdict
 
@@ -62,6 +80,92 @@ ALLOWED_TRANSITIONS = {
     "archived": set(),
     "graveyard": set(),
 }
+
+# Content fields whose silent rewrite would change what the record claims.
+# Status is deliberately absent: it is audited as a transition by _transition.
+# Timestamps and bookkeeping are absent because `touch()` updates them on every
+# write by design and would otherwise make every update look like a rewrite.
+_AUDITED_CONTENT_FIELDS = (
+    "title",
+    "hypothesis",
+    "priority",
+    "result",
+    "guardian_decision",
+    "tags",
+    "references",
+    "depends_on",
+    "failure_reason",
+    "blocked_reason",
+    "assignee",
+)
+
+# Fields that grow by append. A note, a piece of evidence or a counterexample
+# being added is the system recording what it just did, and every such write
+# carries a timestamp inside the entry itself - so the entry list is already the
+# record. Treating "one more note" as a rewrite produced this on live data:
+# RQ-20261018-281 reached 20 rows in under an hour, half its audit log, with
+# every row saying the same thing. That is not evidence of tampering, it is
+# evidence that the guard is wrong about what it is watching. What matters here
+# is a rewrite of what was already said: changing a hypothesis, a result, or a
+# verdict after the fact.
+_APPEND_ONLY_FIELDS = (
+    "evidence",
+    "counter_examples",
+    "validation_notes",
+    "research_notes",
+    "outputs",
+)
+
+
+def _is_pure_append(before, after) -> bool:
+    """True when `after` is `before` plus new entries, with nothing altered.
+
+    Works for lists of dicts by identity of the leading entries, and for dicts
+    by requiring every pre-existing key to keep its exact value. A rewrite that
+    happens to lengthen the container fails this and is audited.
+    """
+    if isinstance(before, list) and isinstance(after, list):
+        return len(after) >= len(before) and after[: len(before)] == before
+    if isinstance(before, dict) and isinstance(after, dict):
+        return len(after) >= len(before) and all(
+            key in after and after[key] == value for key, value in before.items()
+        )
+    return False
+
+
+# The class a task gets when its caller says nothing. Kept as a named constant
+# because "was this label chosen or inherited" is now answerable, and that
+# question is the one the audit had to guess at.
+_DEFAULT_DATA_CLASS = "PRIVATE"
+
+
+def _rewritten_fields(stored: "Task", incoming: "Task") -> list:
+    """Names of the content fields that were rewritten, not merely appended to.
+
+    Returns [] when nothing was rewritten, so the dominant production path -
+    a lease renewal, a heartbeat refresh, or a note being added to a task in
+    flight - stays silent rather than logging a row on every write.
+    """
+    changed = []
+    for field in _AUDITED_CONTENT_FIELDS:
+        before = getattr(stored, field, None)
+        after = getattr(incoming, field, None)
+        if before == after:
+            continue
+        if before in (None, [], {}, "") and after in (None, [], {}, ""):
+            continue
+        changed.append(field)
+    for field in _APPEND_ONLY_FIELDS:
+        before = getattr(stored, field, None)
+        after = getattr(incoming, field, None)
+        if before == after:
+            continue
+        if before in (None, [], {}, "") and after in (None, [], {}, ""):
+            continue
+        if _is_pure_append(before, after):
+            continue
+        changed.append(field)
+    return changed
 
 
 class Task:
@@ -108,6 +212,8 @@ class Task:
         unchanged_review_count: int = 0,
         consecutive_rework_claims: int = 0,
         starvation_age: int = 0,
+        ledger: Optional[List] = None,
+        ledger_seq: int = 0,
         **kwargs,
     ):
         self.task_id = task_id
@@ -150,6 +256,10 @@ class Task:
         self.unchanged_review_count = unchanged_review_count
         self.consecutive_rework_claims = consecutive_rework_claims
         self.starvation_age = starvation_age
+        self.ledger = list(ledger or [])
+        self.ledger_seq = int(ledger_seq or 0) or len(self.ledger)
+        supplied_data_class = str(kwargs.get("data_class") or "PRIVATE").strip().upper()
+        self.data_class = supplied_data_class if supplied_data_class in {"PUBLIC", "CAPABILITY", "STRUCTURE", "PRIVATE", "CORE"} else "PRIVATE"
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -193,6 +303,9 @@ class Task:
             "unchanged_review_count": self.unchanged_review_count,
             "consecutive_rework_claims": self.consecutive_rework_claims,
             "starvation_age": self.starvation_age,
+            "ledger": self.ledger,
+            "ledger_seq": self.ledger_seq,
+            "data_class": self.data_class,
         }
 
     @classmethod
@@ -360,6 +473,52 @@ class TaskPool:
     def _task_files(self, task_id: str) -> List[Path]:
         return [self._task_path(task_id, status) for status in TASK_STATUSES if self._task_path(task_id, status).exists()]
 
+    def _index_path(self) -> Path:
+        return self.pool_dir / "task_index.json"
+
+    def _rebuild_index(self):
+        """全量重建索引：仅存 task_id, status, priority, created_at, updated_at"""
+        index = {"version": 1, "tasks": {}}
+        for status in TASK_STATUSES:
+            directory = self.pool_dir / STATUS_DIRS[status]
+            if not directory.exists():
+                continue
+            for path in directory.glob("RQ-*.json"):
+                try:
+                    data = json.loads(path.read_text(encoding="utf-8"))
+                    index["tasks"][data["task_id"]] = {
+                        "status": status,
+                        "priority": data.get("priority", "medium"),
+                        "created_at": data.get("created_at", ""),
+                        "updated_at": data.get("updated_at", ""),
+                    }
+                except (OSError, ValueError, json.JSONDecodeError, KeyError):
+                    continue
+        self._index_path().write_text(json.dumps(index, ensure_ascii=False), encoding="utf-8")
+
+    def _load_index(self) -> dict:
+        path = self._index_path()
+        if not path.exists():
+            return {"version": 1, "tasks": {}}
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError, json.JSONDecodeError):
+            return {"version": 1, "tasks": {}}
+
+    def _update_index(self, task: Task, old_status: Optional[str] = None):
+        """增量更新单条任务索引"""
+        index = self._load_index()
+        if old_status and task.task_id in index["tasks"]:
+            index["tasks"].pop(task.task_id, None)
+        index["tasks"][task.task_id] = {
+            "status": task.status,
+            "priority": task.priority,
+            "created_at": task.created_at,
+            "updated_at": task.updated_at,
+        }
+        path = self._index_path()
+        path.write_text(json.dumps(index, ensure_ascii=False), encoding="utf-8")
+
     def _find_task_file(self, task_id: str) -> Optional[Path]:
         files = self._task_files(task_id)
         if not files:
@@ -390,6 +549,8 @@ class TaskPool:
             return Task.from_dict(json.load(handle))
 
     def _write_task_atomic(self, task: Task, path: Path):
+        # 唯一落盘口：先过账本写门（补基线 + 账实对账），再写文件。
+        write_port_gate(task, path, pool_dir=self.pool_dir)
         path.parent.mkdir(parents=True, exist_ok=True)
         temporary = path.with_suffix(f".json.{uuid.uuid4().hex}.tmp")
         payload = json.dumps(task.to_dict(), ensure_ascii=False, indent=2)
@@ -399,14 +560,89 @@ class TaskPool:
             os.fsync(handle.fileno())
         os.replace(temporary, path)
 
+    def _ledger_open(self, task: Task) -> Path:
+        """变更开始前调用：把未入账计数器种成基线（旧值取自落盘快照）。"""
+        path = self._find_task_file(task.task_id) or self._task_path(task.task_id, task.status)
+        ensure_baseline(task, path, prior=prior_counters(path))
+        return path
+
+    def _ledger_close(
+        self,
+        task: Task,
+        kind: str,
+        actor: str,
+        reason: str,
+        ref: Optional[Dict[str, Any]] = None,
+        counters: Optional[Iterable[str]] = None,
+    ) -> Dict[str, int]:
+        """变更结束后调用：把本次实际发生的计数差登记成一行，带来源。
+
+        ``counters`` names the counters this caller is responsible for. Omit it,
+        or pass None, and every current difference is absorbed under this row's
+        actor and reason.
+
+        Leaving it out of a caller that changed nothing is how a guard defeats
+        itself: ``_transition`` used to close the ledger like the lease and
+        failure paths do, but a transition moves no counter, so its row absorbed
+        whatever unregistered bump was already sitting on the task and labelled it
+        ``transition:pending->pending``. The write port then compared ledger to
+        reality, found them equal, and reported "clean" — so the one component
+        meant to prove "no counter changed without a registered source" silently
+        certified every unregistered change. Pass an empty ``counters`` to absorb
+        nothing, which is what an operation that caused no counter change should do.
+        """
+        expected = replay(task)
+        actual = counter_values(task)
+        allowed = None if counters is None else {str(name) for name in counters}
+        deltas = {
+            name: actual[name] - expected[name]
+            for name in actual
+            if name in expected
+            and actual[name] != expected[name]
+            and (allowed is None or name in allowed)
+        }
+        if deltas:
+            append_entry(
+                task,
+                kind=kind,
+                actor=actor,
+                deltas=deltas,
+                reason=reason,
+                ref=ref or {"type": "self", "task_id": task.task_id},
+                pool_dir=self.pool_dir,
+            )
+        return deltas
+
     def _save_task(self, task: Task):
         task.touch()
         self._write_task_atomic(task, self._task_path(task.task_id, task.status))
+        self._update_index(task)
 
     def _clear_lease(self, task: Task):
+        self._ledger_release(task)
         task.lease_owner = ""
         task.lease_expires_at = ""
         task.claim_id = ""
+
+    def _ledger_release(self, task: Task, actor: str = "task_pool", reason: str = "lease_released") -> None:
+        """把本次领取留下的 hold 行配平；没有未配平的 hold 就不写空行。"""
+        claim_id = str(task.claim_id or "")
+        if not claim_id:
+            return
+        rows = getattr(task, "ledger", None) or []
+        holds = [row for row in rows if row.get("kind") == "hold" and (row.get("ref") or {}).get("claim_id") == claim_id]
+        closed = [row for row in rows if row.get("kind") in ("release", "refund") and (row.get("ref") or {}).get("claim_id") == claim_id]
+        if not holds or len(closed) >= len(holds):
+            return
+        append_entry(
+            task,
+            kind="release",
+            actor=actor,
+            deltas={},
+            reason=f"{reason}:{claim_id}",
+            ref={"type": "self", "task_id": task.task_id, "claim_id": claim_id},
+            pool_dir=self.pool_dir,
+        )
 
     def _transition(self, task: Task, new_status: str, actor: str = "", reason: str = "") -> Task:
         if new_status not in TASK_STATUSES:
@@ -426,6 +662,7 @@ class TaskPool:
         ensure_execution_discipline(task)
         envelope = task.outputs.get("execution_discipline", {})
         route = envelope.get("constraints", {}).get("route") if isinstance(envelope, dict) else None
+        self._ledger_open(task)
         record_event(
             task,
             "lifecycle_transition",
@@ -437,6 +674,14 @@ class TaskPool:
         if new_status == "approved":
             record_event(task, "approved", actor=actor or "task_pool")
         elif new_status == "archived":
+            # The status this event sets is superseded by the generic `stop` recorded
+            # below, and that ordering is load-bearing. validate_execution_discipline
+            # recognises only "stopped" plus the in-flight set; an envelope left at
+            # "archived" matches neither branch, so the stopped-without-reason check
+            # would stop applying to archived tasks. The event is still recorded so
+            # the lifecycle stays auditable. Asserted by
+            # ops/test_execution_discipline_envelope_persistence.py
+            # ::test_archived_task_ends_stopped_with_a_reason_not_status_archived
             record_event(task, "archived", actor=actor or "task_pool")
         if new_status == "active":
             record_checkpoint(
@@ -455,6 +700,18 @@ class TaskPool:
                 actor=actor or "task_pool",
                 reason=reason or new_status,
             )
+        self._ledger_close(
+            task,
+            kind="consume",
+            actor=actor or "task_pool",
+            reason=f"transition:{old_status}->{new_status}",
+            # A transition moves no counter. Absorbing nothing here is what lets
+            # the write port below see a counter change nobody registered, which
+            # is the entire reason the ledger exists. ops/test_task_ledger.py
+            # pins this: an unregistered bump must become a drift row.
+            counters=(),
+        )
+        self._ledger_open(task)
         task.touch()
         new_path = self._task_path(task.task_id, new_status)
         self._write_task_atomic(task, new_path)
@@ -464,6 +721,7 @@ class TaskPool:
                     path.unlink()
                 except FileNotFoundError:
                     pass
+        self._update_index(task, old_status=old_status)
         return task
 
     def recover_incomplete_transitions(self) -> List[str]:
@@ -488,19 +746,57 @@ class TaskPool:
                     except FileNotFoundError:
                         pass
             recovered.append(task_id)
+        # 清理后重建索引
+        self._rebuild_index()
         return recovered
 
-    def create_task(self, title: str, hypothesis: str = "", creator: str = "observer", priority: str = "medium", tags: Optional[List[str]] = None, depends_on: Optional[List[str]] = None, parent_task: str = "", admission: Optional[Dict[str, Any]] = None, outputs: Optional[Dict[str, Any]] = None, complexity: Optional[str] = None) -> Task:
+    def create_task(self, title: str, hypothesis: str = "", creator: str = "observer", priority: str = "medium", tags: Optional[List[str]] = None, depends_on: Optional[List[str]] = None, parent_task: str = "", admission: Optional[Dict[str, Any]] = None, outputs: Optional[Dict[str, Any]] = None, complexity: Optional[str] = None, data_class: str = "PRIVATE") -> Task:
+        boundary = validate_data_boundary({"data_class": data_class}, target="INTERNAL")
+        if not boundary["valid"]:
+            raise ValueError("task_data_boundary_invalid:" + ",".join(boundary["errors"]))
+        data_class = boundary["data_class"]
+        # A default that was never exercised is not a decision. PRIVATE remains
+        # the default here on purpose - loosening it would weaken the boundary for
+        # every caller at once - but a caller that knows its own payload may now
+        # declare a class, and the class it declared is recorded so a reader can
+        # see the label was chosen rather than inherited.
+        #
+        # Why this exists: measured 2026-10-19, 1418 of 2173 tasks carry
+        # data_class=PRIVATE, none of them by explicit request, and of the 94 that
+        # recorded whether a model took part, zero did. The three the audit
+        # submitted to test closure were refused egress on every attempt and
+        # finished as a tokenisation of their own titles. A reasoning task whose
+        # entire method is a model call cannot complete while its label forbids
+        # the model, so the label - not the boundary rule - was the defect.
+        #
+        # The boundary itself is unchanged and still fail-closed: PRIVATE and
+        # CORE still cannot reach MODEL_CONTEXT, and credential-like content is
+        # still refused at every egress target regardless of class.
+        data_class_source = "declared" if data_class != _DEFAULT_DATA_CLASS else "default"
         admission = validate_admission(admission)
+        if admission:
+            admission = {**admission, **admission_envelope(admission, title=title)}
         with self._locked():
             existing = self.list_tasks(limit=10000, sort_by="created")
             if admission:
-                duplicate = duplicate_task(existing, admission)
-                if duplicate:
-                    return duplicate
+                for candidate in existing:
+                    if candidate.status in {"archived", "graveyard", "rejected"}:
+                        continue
+                    duplicate = duplicate_task([candidate], admission)
+                    if duplicate and same_admission_intent(duplicate, admission, title=title):
+                        return duplicate
+                for candidate in existing:
+                    if candidate.status in {"archived", "graveyard", "rejected"}:
+                        continue
+                    if same_canonical_object(candidate, admission, title=title) and same_admission_intent(candidate, admission, title=title):
+                        return candidate
             today = datetime.now().strftime("%Y%m%d")
             today_count = sum(1 for task in existing if task.task_id.startswith(f"RQ-{today}"))
             task_outputs = dict(outputs or {})
+            task_outputs.setdefault(
+                "data_class_provenance",
+                {"data_class": data_class, "source": data_class_source},
+            )
             task_outputs.setdefault(
                 "execution_discipline",
                 build_execution_discipline(
@@ -511,15 +807,20 @@ class TaskPool:
                     depends_on=depends_on or [],
                     admission=admission,
                     explicit_complexity=complexity,
-                ),
+                ).to_dict(),
             )
             task = Task(
                 task_id=f"RQ-{today}-{today_count + 1:03d}", title=title, creator=creator,
                 status="pending", priority=priority, hypothesis=hypothesis, tags=tags or [],
                 depends_on=depends_on or [], parent_task=parent_task,
+                data_class=data_class,
                 outputs={**task_outputs, **({"admission": admission} if admission else {})},
             )
+            protocols = ensure_task_protocols(task)
+            if protocols.get("active") and protocol_errors(protocols):
+                raise ValueError("delivery_protocol_invalid:" + ",".join(protocol_errors(protocols)))
             self._save_task(task)
+            self._update_index(task)
             return task
 
     def load_task(self, task_id: str) -> Optional[Task]:
@@ -538,6 +839,9 @@ class TaskPool:
                 return False
             if task.status not in TASK_STATUSES:
                 return False
+            protocols = ensure_task_protocols(task)
+            if protocols.get("active") and protocol_errors(protocols):
+                return False
             # An active task is a leased state.  A malformed active record
             # without a claim may be observed/recovered, but must not be
             # advanced through the lifecycle by an unfenced update.
@@ -551,31 +855,95 @@ class TaskPool:
                     return False
             if task.status != stored.status and task.status not in ALLOWED_TRANSITIONS[stored.status]:
                 return False
+            # Field-level rewrites were silent.  RQ-20261006-009 named this
+            # ("归档记录静默改写：update_task经_transition落盘只touch不留audit
+            # 痕迹") and it was accurate about the shape: every status change
+            # goes through move_task and is audited, but anything written by
+            # update_task landed with no trace at all - no audit_log row, no
+            # ledger entry.  The ledger's drift check only fires on counters, so
+            # rewriting a hypothesis, result or evidence list was indistinguishable
+            # from never having touched the task.
+            #
+            # A task record is evidence for every conclusion drawn from it, so a
+            # rewrite has to be visible on the record itself.  The status change
+            # is audited by _transition below; this records the content change
+            # that accompanies it.
+            rewritten = _rewritten_fields(stored, task)
+            if rewritten:
+                task.audit_log.append({
+                    "event": "content_rewritten",
+                    "actor": "task_pool.update_task",
+                    "fields": rewritten,
+                    "at": datetime.now().isoformat(),
+                    "detail": "an existing value changed; appends alone are not a rewrite",
+                })
             self._transition(task, task.status)
             return True
 
     def list_tasks(self, status: Optional[str] = None, priority: Optional[str] = None, limit: int = 100, sort_by: str = "priority") -> List[Task]:
+        # 优先用索引过滤，再按需回读全量对象
+        index = self._load_index()
+        candidate_ids = []
+        for tid, info in index.get("tasks", {}).items():
+            if status and info.get("status") != status:
+                continue
+            if priority and info.get("priority") != priority:
+                continue
+            candidate_ids.append((tid, info))
+        if sort_by == "priority":
+            candidate_ids.sort(key=lambda x: (PRIORITY_ORDER.get(x[1].get("priority", "medium"), 99), x[1].get("created_at", "")))
+        elif sort_by == "created":
+            candidate_ids.sort(key=lambda x: x[1].get("created_at", ""), reverse=True)
+        elif sort_by == "reference_count":
+            # 索引里没有 reference_count，回退全表扫描
+            pass  # 留给下面的兜底逻辑
+
         tasks = []
         seen = set()
-        for current_status in ([status] if status else TASK_STATUSES):
-            directory = self.pool_dir / STATUS_DIRS.get(current_status, current_status)
-            for path in directory.glob("RQ-*.json") if directory.exists() else []:
-                if path.stem in seen:
-                    continue
-                try:
-                    task = self._read_task(path)
-                except (OSError, ValueError, json.JSONDecodeError):
-                    continue
-                if priority and task.priority != priority:
-                    continue
-                seen.add(task.task_id)
-                tasks.append(task)
-        if sort_by == "priority":
-            tasks.sort(key=lambda task: (PRIORITY_ORDER.get(task.priority, 99), task.created_at))
-        elif sort_by == "created":
-            tasks.sort(key=lambda task: task.created_at, reverse=True)
-        elif sort_by == "reference_count":
-            tasks.sort(key=lambda task: task.reference_count, reverse=True)
+        for tid, info in candidate_ids[:limit * 2]:  # 多取一点，防止读取失败
+            if tid in seen:
+                continue
+            # 找文件
+            status_dir = STATUS_DIRS.get(info.get("status", ""), "")
+            if not status_dir:
+                continue
+            path = self.pool_dir / status_dir / f"{tid}.json"
+            if not path.exists():
+                # 索引脏了，回退全表
+                continue
+            try:
+                task = self._read_task(path)
+            except (OSError, ValueError, json.JSONDecodeError):
+                continue
+            if priority and task.priority != priority:
+                continue
+            seen.add(task.task_id)
+            tasks.append(task)
+            if len(tasks) >= limit:
+                break
+
+        # 兜底：索引不全或 sort_by=reference_count 时全表扫描
+        if len(tasks) < limit and (sort_by == "reference_count" or not index.get("tasks") or status is not None):
+            for current_status in ([status] if status else TASK_STATUSES):
+                directory = self.pool_dir / STATUS_DIRS.get(current_status, current_status)
+                for path in directory.glob("RQ-*.json") if directory.exists() else []:
+                    if path.stem in seen:
+                        continue
+                    try:
+                        task = self._read_task(path)
+                    except (OSError, ValueError, json.JSONDecodeError):
+                        continue
+                    if priority and task.priority != priority:
+                        continue
+                    seen.add(task.task_id)
+                    tasks.append(task)
+            if sort_by == "priority":
+                tasks.sort(key=lambda task: (PRIORITY_ORDER.get(task.priority, 99), task.created_at))
+            elif sort_by == "created":
+                tasks.sort(key=lambda task: task.created_at, reverse=True)
+            elif sort_by == "reference_count":
+                tasks.sort(key=lambda task: task.reference_count, reverse=True)
+
         return tasks[:limit]
 
     def move_task(self, task_id: str, new_status: str, actor: str = "", reason: str = "", task: Optional[Task] = None, claim_id: str = "") -> Optional[Task]:
@@ -592,6 +960,33 @@ class TaskPool:
                 return None
             if stored.status == "active" and new_status != "active" and not stored.claim_id:
                 return None
+            # External delivery is a key-node gate, not a default lifecycle
+            # requirement.  When it is explicitly declared, an approved task
+            # cannot be archived until a verified release receipt exists.
+            # This keeps ordinary observation/exploration tasks untouched while
+            # preventing "approved" from being mistaken for delivered.
+            if new_status == "archived":
+                protocols = ensure_task_protocols(task, refresh_evidence=True)
+                if protocols.get("active") and protocols.get("scope", {}).get("delivery_required"):
+                    receipt = task.outputs.get("release_receipt", {}) if isinstance(task.outputs, dict) else {}
+                    receipt_check = validate_release_receipt(
+                        receipt,
+                        task.task_id,
+                        require_verified=True,
+                    )
+                    if not receipt_check.get("valid"):
+                        errors = [
+                            f"release_receipt:{error}"
+                            for error in receipt_check.get("errors", [])
+                        ]
+                        task.outputs["delivery_protocol_checks"] = {
+                            "checked_by": "task_pool",
+                            "at": datetime.now().isoformat(),
+                            "errors": errors,
+                            "active": True,
+                        }
+                        self._write_task_atomic(task, self._task_path(task.task_id, stored.status))
+                        return None
             if new_status == "active" and stored.status != "active":
                 ready, _ = execution_gate(task, allow_backfill=False)
                 if not ready:
@@ -601,15 +996,42 @@ class TaskPool:
             # could therefore create an active record with no owner/claim.
             # Preserve that API only by materialising the authoritative lease
             # here; never persist an unowned active task.
+            # Align with claim_task(): execution_gate, retry_after, ledger hold, rework handling.
             if stored.status == "pending" and new_status == "active" and not expected_claim:
                 now = datetime.now()
                 owner = (actor or "move_task").strip()
+                if not isinstance(owner, str) or not owner.strip():
+                    return None
+                task = self.load_task(task_id)
+                if not task:
+                    return None
+                ready, _ = execution_gate(task, allow_backfill=False)
+                if not ready:
+                    return None
+                if task.status == "pending" and task.retry_after:
+                    try:
+                        if datetime.fromisoformat(task.retry_after) > now:
+                            return None
+                    except ValueError:
+                        return None
+                self._ledger_open(task)
                 task.assignee = owner
                 task.lease_owner = owner
                 task.claim_id = uuid.uuid4().hex
                 task.fencing_token = max(task.fencing_token, stored.fencing_token) + 1
                 task.last_claimed_at = now.isoformat()
+                if task.outputs.get("last_validator_result", {}).get("outcome") == "rework_pending":
+                    task.consecutive_rework_claims += 1
+                else:
+                    task.consecutive_rework_claims = 0
                 task.lease_expires_at = (now + timedelta(seconds=300)).isoformat()
+                self._ledger_close(
+                    task,
+                    "hold",
+                    owner,
+                    f"lease_claimed:{task.claim_id}",
+                    ref={"type": "self", "task_id": task.task_id, "claim_id": task.claim_id},
+                )
                 task.audit_log.append({
                     "event": "lease_claimed",
                     "actor": owner,
@@ -645,6 +1067,7 @@ class TaskPool:
                         return None
                 except ValueError:
                     return None
+            self._ledger_open(task)
             task.assignee = owner
             task.lease_owner = owner
             task.claim_id = uuid.uuid4().hex
@@ -655,6 +1078,13 @@ class TaskPool:
             else:
                 task.consecutive_rework_claims = 0
             task.lease_expires_at = (now + timedelta(seconds=lease_seconds)).isoformat()
+            self._ledger_close(
+                task,
+                "hold",
+                owner,
+                f"lease_claimed:{task.claim_id}",
+                ref={"type": "self", "task_id": task.task_id, "claim_id": task.claim_id},
+            )
             return self._transition(task, "active", owner, "lease_claimed")
 
     def renew_lease(self, task_id: str, owner: str, claim_id: str, lease_seconds: int = 300) -> Optional[Task]:
@@ -718,6 +1148,48 @@ class TaskPool:
             task.block_type = ""
             return self._transition(task, "pending", actor, "解除阻塞")
 
+    def reopen_task(
+        self,
+        task_id: str,
+        reason: str,
+        actor: str = "",
+        new_evidence: Optional[List[Any]] = None,
+    ) -> Optional[Task]:
+        """Reopen a task that is waiting for human or external new evidence.
+
+        ``unblock_task`` deliberately refuses anything flagged
+        ``terminal_non_convergent``, so a task blocked with the reason
+        ``相同证据集重复验证达到上限，等待人工或外部新证据`` had no way back:
+        the escape hatch the reason promised did not exist. This is that hatch.
+
+        It is fail-closed. A reason is mandatory, the non-convergent flag is
+        cleared only on the persisted record, and the reopen is written to the
+        audit log as its own event so the repeated-validation history stays
+        visible instead of being erased.
+        """
+        if not isinstance(reason, str) or not reason.strip():
+            raise ValueError("reopen_reason_required")
+        with self._locked():
+            task = self.load_task(task_id)
+            if not task or task.status != "blocked":
+                return None
+            if new_evidence:
+                task.evidence = list(task.evidence or []) + list(new_evidence)
+            task.outputs.pop("terminal_non_convergent", None)
+            task.blocked_reason = ""
+            task.block_type = ""
+            task.audit_log.append({
+                "event": "reopened",
+                "from": "blocked",
+                "to": "pending",
+                "actor": actor,
+                "reason": reason.strip(),
+                "evidence_added": len(list(new_evidence or [])),
+                "at": datetime.now().isoformat(),
+            })
+            task.touch()
+            return self._transition(task, "pending", actor, reason.strip())
+
     def unblock_ready_dependencies(self) -> List[Task]:
         unblocked = []
         for task in self.get_blocked():
@@ -732,10 +1204,12 @@ class TaskPool:
             task = self.load_task(task_id)
             if not task:
                 return None
+            self._ledger_open(task)
             task.failure_reason = reason
             task.retry_count += 1
             self._clear_lease(task)
             task.assignee = None
+            self._ledger_close(task, "consume", actor, f"failure:{failure_type}")
             if failure_type == "manual_gate":
                 task.blocked_reason = reason
                 task.block_type = "manual_gate_blocked"

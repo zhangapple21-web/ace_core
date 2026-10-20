@@ -1,0 +1,48 @@
+{
+  "automatic_delivery": false,
+  "automatic_promotion": false,
+  "automatic_task_creation": false,
+  "contextual_state": {
+    "learning_needs": [
+      {
+        "fact_id": "FACT-INDEPENDENT-CONFIRMATION",
+        "reason": "A future observable fact could falsify the named active hypothesis.",
+        "required_by_hypotheses": [
+          "HYP-EVIDENCE-INSUFFICIENT"
+        ],
+        "status": "MISSING"
+      },
+      {
+        "fact_id": "FACT-INDEPENDENT-COUNTEREVIDENCE",
+        "reason": "A future observable fact could falsify the named active hypothesis.",
+        "required_by_hypotheses": [
+          "HYP-CANDIDATE-TRANSFER"
+        ],
+        "status": "MISSING"
+      }
+    ],
+    "packet_hash": "3e8c2820deddd40ae68edf5808cbc87be2681599f50865c8a9d9f7cc69bf35a4",
+    "packet_id": "CSP-0B222797EB631C630DF2021B",
+    "scope": "FREE_ZONE_RESEARCH_ONLY"
+  },
+  "contract_version": "ace.free_research_sandbox.v1",
+  "created_at": "2026-09-23T10:34:27.893079+00:00",
+  "distillation_hash": "5b232159be8da9fd88a2db797ce031701410c7d84cd21e8cd9bab39007737a2f",
+  "evidence_hash": "b3bbb357e3bb62bf22ec46b5582cd66ef8c7f675f3bea603e1e7965a75dc32c4",
+  "experiment_id": "EXP-20260923103427609165-FREEZONE-9223855DC17B",
+  "mode": "DISTILLATION_ONLY",
+  "outcome": "PASS",
+  "pattern": "When The open question EXP-20260919103227085478-FREEZONE-C7878F0A66B1 can be turned into a distinct next observation without overwriting its original result., investigate via Preserve the parent distillation, formulate an explicit re-observation question, and record the new experiment separately..",
+  "production_integration": false,
+  "realm_state": {
+    "authority": "GOVERNED",
+    "contract_version": "ace.free_zone_realm.v1",
+    "outbound_rule": "EXISTING_ADMISSION",
+    "production_integration": false,
+    "realm": "SHADOW",
+    "retention": "SEED"
+  },
+  "reason": "clean_pass_available_for_later_review",
+  "source_record_hash": "8137a511b892265ae8a2375d3e34e57c1dc5281d48e6bd5e822dd83777ec3d7e",
+  "status": "PROPOSAL_ONLY"
+}

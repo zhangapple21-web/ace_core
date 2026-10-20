@@ -1,0 +1,73 @@
+{
+  "receipt_version": "ace.evolution_receipt.v1",
+  "receipt_id": "AE-20260926-HIERARCHY-RUNTIME-AUDIT",
+  "status": "PARTIAL_RUNTIME_ENFORCEMENT",
+  "supersedes_claims_in": [
+    "AE-20260926-constitution-hierarchy",
+    "AE-20260926-MIRROR-CONSTITUTION"
+  ],
+  "baseline": {
+    "fact": "宪法层级与镜子原则已存在，但部分真实模型任务入口没有注入统一执行契约；注册表只按字段判断，没有验证当前规范来源文件是否存在。",
+    "evidence": [
+      "core/miner_pool/miner_pool.py",
+      "core/survival_loop/engine.py",
+      "core/minimal_assistant.py",
+      "core/local_miner.py",
+      "core/llm/client.py",
+      "core/mirror_constitution.py:validate_data_boundary"
+    ]
+  },
+  "change": {
+    "implementation": [
+      "core/constitution_hierarchy.py",
+      "core/execution_contract.py",
+      "core/miner_pool/miner_pool.py",
+      "core/miner_pool/providers/openai_compatible.py",
+      "core/survival_loop/engine.py",
+      "core/minimal_assistant.py",
+      "core/local_miner.py",
+      "core/llm/client.py",
+      "ops/test_constitution_hierarchy.py",
+      "00_ROOT/ACE_CONSTITUTION_HIERARCHY.v1.md"
+    ],
+    "effects": [
+      "登记表校验当前权威来源文件存在；必需条目损坏时阻断模型调用。",
+      "正式模型任务调用注入统一层级/镜子根锁，并将调用方 system/developer 消息降为任务数据。",
+      "最终 OpenAI 兼容网关再次执行同一校验，形成入口层与传输层双门。"
+    ]
+  },
+  "test": {
+    "focused": "39 passed",
+    "full_ops": "890 passed in 547.73s",
+    "verification_scope": "仓库 ops 回归；未执行真实供应商调用或对未知自然语言协议进行语义证明",
+    "blocked_call_verified": true
+  },
+  "evaluation": {
+    "result": "改善已实现，但不满足完整能力晋升条件",
+    "promotion": "NOT_PROMOTED",
+    "measurable_gain": [
+      "注册表损坏/缺少当前规范源文件时，实际模型网关在网络调用前阻断。",
+      "MinerPool、SurvivalLoop、minimal_assistant、local_miner 和 legacy LLMRouter 的任务上下文现在经过根执行契约。",
+      "全量 ops 回归由本轮 890 项通过。"
+    ],
+    "open_gaps": [
+      "没有全库自然语言规则抽取、同层语义冲突发现和自动阻断；结构化冲突裁决器只处理显式候选。",
+      "validate_data_boundary 尚未接入覆盖模型外发、记忆写入和最终输出的统一硬门；此前收据中关于数据分级/脱敏已接线的表述不应当作当前事实。",
+      "build_intent_envelope 尚未证明为所有意图的统一生产准入入口。",
+      "未做真实模型行为对抗评测；提示词注入防护的代码门不等于模型一定服从。"
+    ]
+  },
+  "painful_review": {
+    "specific_cost": "规则只写在规范和提示词里时，正常任务入口仍可能绕过；调用方 system/developer 内容可与根规则竞争，坏登记表也未必阻断。",
+    "impact_scope": "真实任务模型入口及不同窗口/旧回退路线；本轮未评估所有持久化数据和公开交付路径。",
+    "counterfactual_if_unblocked": "跨窗口/旧入口可能执行低层冲突指令；规范文件被移动或登记表漂移时，模型仍会继续被调用并把错误结果当作正常产物。",
+    "recurrence_risk": "中等：新增直接 HTTP/provider 路线仍可能绕过入口；自然语言冲突和数据外发拦截仍未闭环。",
+    "reusable_lesson": "协议只有在调用边界有可观测阻断测试时才算运行时能力；单测绿灯、提示词注入和登记文件存在均不能证明全系统覆盖。",
+    "rollback": "按文件回滚本收据列明的接线变更即可；没有删除历史规范、记忆或用户资产。"
+  },
+  "authority": {
+    "execution_authorized": false,
+    "production_integration": false,
+    "capability_growth_promotion": false
+  }
+}

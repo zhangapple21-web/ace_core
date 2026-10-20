@@ -1,21 +1,58 @@
-﻿import json
+import json
 from core.free_zone_model_shift import FreeZoneModelShift
 
 class Pool:
-    def chat(self, **_):
+    def __init__(self):
+        self.calls = []
+
+    def chat(self, **kwargs):
+        self.calls.append(kwargs)
         return {"success": True, "content": json.dumps({"hypotheses":["a"],"counterexamples":["b"],"evidence_gaps":["c"],"next_verification":["d"]}), "provider":"fixture", "model":"fixture", "usage":{}, "latency_ms":1, "attempts":[]}
 
 def test_shift_consumes_one_seed_and_distills_model_material(tmp_path):
     inbox=tmp_path/'inbox'; inbox.mkdir()
     inbox.joinpath('seed.json').write_text(json.dumps({"contract_version":"ace.semantic_seed.v1","food_kind":"semantic_seed","source_ref":"x","source_snapshot_hash":"a"*64,"source_kind":"fixture","extracted_mechanism":"m","ace_symptom":"s","transfer_hypothesis":"h","counterexample_question":"q","next_verification":"v","local_evidence_refs":[],"external_evidence_refs":[],"lineage":["x"]}),encoding='utf-8')
-    result=FreeZoneModelShift(tmp_path,Pool()).run_once()
+    pool = Pool()
+    result=FreeZoneModelShift(tmp_path,pool).run_once(
+        selected_model="opencode_cli:muse-spark-1.3-contributor-free",
+        system_prompt="Free Zone independent review. Treat all conclusions as hypotheses.",
+        research_role="free_zone_independent_review",
+    )
+    assert pool.calls[0]["selected_spec"].full_id == "opencode_cli:muse-spark-1.3-contributor-free"
+    assert pool.calls[0]["max_retries"] == 1
+    assert pool.calls[0]["governance_role"] == "free_zone_independent_review"
+    assert pool.calls[0]["system_prompt"].startswith("Free Zone independent review")
+    assert result["research_role"] == "free_zone_independent_review"
     assert result['status']=='MODEL_SHIFT_RECORDED'
     assert result['receipt']['research_material']['status']=='STRUCTURED_DISTILLATION'
     assert result['production_integration'] is False
     state=json.loads((tmp_path/'model_shift_state.json').read_text(encoding='utf-8'))
     assert state['last_shift']['dual_source_status'] == 'LOCAL_BASELINE_PLUS_UNCLASSIFIED_MODEL'
+    assert state['last_shift']['selected_model'] == 'opencode_cli:muse-spark-1.3-contributor-free'
     assert state['last_shift']['raw_content_retained'] is False
     assert state['last_shift']['invitation']['research_object_status'] == 'ELIGIBLE_SEED_SELECTED'
+
+def test_shift_rejects_model_selector_in_user_seed_and_keeps_one_turn(tmp_path):
+    class NoModelPool(Pool):
+        def chat(self, **kwargs):
+            assert kwargs["selected_spec"].full_id == "opencode_cli:muse-spark-1.3-contributor-free"
+            return super().chat(**kwargs)
+
+    inbox = tmp_path / "inbox"
+    inbox.mkdir()
+    inbox.joinpath("seed.json").write_text(json.dumps({
+        "contract_version": "ace.semantic_seed.v1", "food_kind": "semantic_seed",
+        "source_ref": "x", "source_snapshot_hash": "a" * 64, "source_kind": "fixture",
+        "extracted_mechanism": "m", "ace_symptom": "s", "transfer_hypothesis": "h",
+        "counterexample_question": "q", "next_verification": "v",
+        "local_evidence_refs": [], "external_evidence_refs": [], "lineage": ["x"],
+    }), encoding="utf-8")
+    pool = NoModelPool()
+    with __import__("pytest").raises(ValueError):
+        FreeZoneModelShift(tmp_path, pool).run_once(selected_model="provider-without-model")
+    assert pool.calls == []
+    assert not (tmp_path / "model_shift_state.json").exists()
+
 
 def test_shift_explains_that_no_invitation_was_sent_without_a_research_object(tmp_path):
     result=FreeZoneModelShift(tmp_path, Pool()).run_once()
@@ -32,10 +69,167 @@ def test_shift_fingerprint_changes_when_a_late_research_invitation_arrives(tmp_p
     shift.inbox.joinpath('late.json').write_text('{}', encoding='utf-8')
     assert shift.inbox_fingerprint() != empty
 
+def _distillation(path, status="OPEN_QUESTION", pattern="When X is recorded nightly, Y becomes explainable without new code.", exp_id="EXP-D1"):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({
+        "experiment_id": exp_id, "status": status,
+        "outcome": "INCONCLUSIVE", "pattern": pattern,
+        "reason": "inconclusive_result_requires_new_observation",
+    }), encoding="utf-8")
+
+
+def test_empty_inbox_falls_back_to_distillation_seed(tmp_path):
+    _distillation(tmp_path / "distillations" / "EXP-D1.json")
+    (tmp_path / "inbox").mkdir(parents=True)
+    result = FreeZoneModelShift(tmp_path, Pool()).run_once()
+    assert result["status"] == "MODEL_SHIFT_RECORDED"
+    state = json.loads((tmp_path / "model_shift_state.json").read_text(encoding="utf-8"))
+    assert len(state["completed_seed_hashes"]) == 1
+    # Ephemeral: derivation writes no inbox file.
+    assert list((tmp_path / "inbox").glob("*.json")) == []
+    again = FreeZoneModelShift(tmp_path, Pool()).run_once()
+    assert again["status"] == "NO_UNCONSUMED_SEMANTIC_SEED"
+
+
+def test_fresh_human_distillation_rearms_the_fallback(tmp_path):
+    _distillation(tmp_path / "distillations" / "EXP-D1.json")
+    (tmp_path / "inbox").mkdir(parents=True)
+    assert FreeZoneModelShift(tmp_path, Pool()).run_once()["status"] == "MODEL_SHIFT_RECORDED"
+    assert FreeZoneModelShift(tmp_path, Pool()).run_once()["status"] == "NO_UNCONSUMED_SEMANTIC_SEED"
+    _distillation(tmp_path / "distillations" / "EXP-D2.json", exp_id="EXP-D2")
+    third = FreeZoneModelShift(tmp_path, Pool()).run_once()
+    assert third["status"] == "MODEL_SHIFT_RECORDED"
+
+
+class StrategicPool:
+    """Fake pool answering the foundry call with strict JSON."""
+
+    def __init__(self, content):
+        self.content = content
+        self.calls = []
+
+    def chat(self, **kwargs):
+        assert kwargs["task_type"] == "strategic"
+        assert kwargs.get("data_boundary") == {"data_class": "PUBLIC"}
+        self.calls.append(kwargs)
+        return {"success": True, "content": self.content, "provider": "oneapi",
+                "model": "gpt-5.6-terra", "usage": {}, "latency_ms": 3, "attempts": []}
+
+
+def test_foundry_mints_one_paid_seed_per_day(tmp_path):
+    from core.free_zone_model_shift import FreeZoneModelShift
+
+    (tmp_path / "inbox").mkdir(parents=True)
+    (tmp_path / "distillations").mkdir(parents=True)
+    (tmp_path / "distillations" / "OLD.json").write_text(json.dumps({
+        "experiment_id": "EXP-OLD", "status": "FAIL", "outcome": "FAIL",
+        "pattern": "", "reason": "x",
+    }), encoding="utf-8")
+    pool = StrategicPool(json.dumps({
+        "transfer_hypothesis": "H", "counterexample_question": "Q", "next_verification": "V",
+    }))
+    shift = FreeZoneModelShift(tmp_path, pool)
+    state = {}
+    foundry, seed = shift._foundry_seed(state)
+    assert seed["transfer_hypothesis"] == "H"
+    assert seed["foundry_model"] == "oneapi:gpt-5.6-terra"
+    assert state["foundry_spend"]["count"] == 1
+    assert len(pool.calls) == 1
+    # Same day: cap holds, no second paid call.
+    assert shift._foundry_seed(state) is None
+    assert len(pool.calls) == 1
+
+
+def test_foundry_refuses_garbage_and_needs_context(tmp_path):
+    from core.free_zone_model_shift import FreeZoneModelShift
+
+    (tmp_path / "inbox").mkdir(parents=True)
+    (tmp_path / "distillations").mkdir(parents=True)
+    pool = StrategicPool("not json at all {{{")
+    shift = FreeZoneModelShift(tmp_path, pool)
+    assert shift._foundry_seed({}) is None
+    (tmp_path / "distillations" / "D.json").write_text(json.dumps({
+        "experiment_id": "EXP-D", "status": "FAIL", "outcome": "FAIL",
+        "pattern": "Something failed loudly and honestly.",
+        "reason": "x",
+    }), encoding="utf-8")
+    assert shift._foundry_seed({}) is None
+    assert len(pool.calls) == 1
+
+
+def test_thin_distillation_does_not_qualify(tmp_path):
+    _distillation(tmp_path / "distillations" / "EXP-D1.json",
+                  status="FAIL", pattern="  ")
+    (tmp_path / "inbox").mkdir(parents=True)
+    result = FreeZoneModelShift(tmp_path, Pool()).run_once()
+    assert result["status"] == "NO_UNCONSUMED_SEMANTIC_SEED"
+
+
 def test_daemon_waits_for_the_dedicated_free_zone_shift():
     from ace_daemon import AceDaemon
     daemon=AceDaemon.__new__(AceDaemon); daemon.config={"runtime":{"free_zone_model_shift":{"enabled":True}}}; daemon.state={}; daemon.miner_pool=None
     assert daemon._run_free_zone_model_shift_if_due()['status'] in {'WAITING_FOR_DEDICATED_SHIFT','NO_EXISTING_MINER_POOL'}
+
+
+def test_due_telemetry_names_its_branch(monkeypatch):
+    """A silently-skipped shift must still say which gate held it."""
+    from datetime import datetime
+
+    from ace_daemon import AceDaemon
+
+    class Evening:
+        @classmethod
+        def now(cls):
+            return datetime(2026, 9, 1, 19, 5)
+
+    monkeypatch.setattr("ace_daemon.datetime", Evening)
+
+    daemon = AceDaemon.__new__(AceDaemon)
+    daemon.config = {"runtime": {"free_zone_model_shift": {"enabled": False}}}
+    daemon.state = {}
+    daemon.miner_pool = None
+    assert daemon._run_free_zone_model_shift_if_due()["status"] == "DISABLED"
+    due = daemon.state["free_zone_model_shift_due"]
+    assert due["status"] == "DISABLED" and due["enabled"] is False
+
+    daemon.config = {"runtime": {"free_zone_model_shift": {"enabled": True}}}
+    daemon.state = {}
+    assert daemon._run_free_zone_model_shift_if_due()["status"] == "NO_EXISTING_MINER_POOL"
+    due = daemon.state["free_zone_model_shift_due"]
+    assert due["status"] == "NO_EXISTING_MINER_POOL"
+    assert due["miner_pool_present"] is False and due["in_window"] is True
+
+
+def test_due_telemetry_marks_running_shift(monkeypatch, tmp_path):
+    from datetime import datetime
+
+    from ace_daemon import AceDaemon
+
+    class Evening:
+        @classmethod
+        def now(cls):
+            return datetime(2026, 9, 1, 19, 5)
+
+    inbox = tmp_path / "07_SANDBOX" / "free_research" / "inbox"
+    inbox.mkdir(parents=True)
+    inbox.joinpath("seed.json").write_text(json.dumps({
+        "contract_version": "ace.semantic_seed.v1", "food_kind": "semantic_seed",
+        "source_ref": "x", "source_snapshot_hash": "a" * 64, "source_kind": "fixture",
+        "extracted_mechanism": "m", "ace_symptom": "s", "transfer_hypothesis": "h",
+        "counterexample_question": "q", "next_verification": "v",
+        "local_evidence_refs": [], "external_evidence_refs": [], "lineage": ["x"],
+    }), encoding="utf-8")
+    monkeypatch.setattr("ace_daemon.datetime", Evening)
+    daemon = AceDaemon.__new__(AceDaemon)
+    daemon.base_dir = tmp_path
+    daemon.config = {"runtime": {"free_zone_model_shift": {"enabled": True, "max_tokens": 64}}}
+    daemon.state = {}
+    daemon.miner_pool = Pool()
+    daemon._save_state = lambda: None
+    result = daemon._run_free_zone_model_shift_if_due()
+    assert result["status"] == "MODEL_SHIFT_RECORDED"
+    assert daemon.state["free_zone_model_shift_due"]["status"] == "RUNNING_SHIFT"
+    assert daemon.state["free_zone_model_shift_date"] == "2026-09-01"
 
 
 def test_daemon_runs_one_bounded_free_zone_turn_in_the_existing_evening_cycle(monkeypatch, tmp_path):

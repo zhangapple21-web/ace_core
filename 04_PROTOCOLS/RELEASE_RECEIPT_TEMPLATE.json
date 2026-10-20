@@ -1,0 +1,18 @@
+{
+  "protocol": "ACE-RELEASE-RECEIPT-1.0",
+  "work_id": "RQ-YYYYMMDD-000",
+  "status": "NOT_APPLICABLE",
+  "reason": "未声明可交付产物或对外交付。",
+  "artifact": {
+    "path": "",
+    "sha256": ""
+  },
+  "entrypoint": "",
+  "smoke_checks": [],
+  "rollback": {
+    "ready": false,
+    "method": ""
+  },
+  "verified_at": null,
+  "origin": "deployment_system"
+}

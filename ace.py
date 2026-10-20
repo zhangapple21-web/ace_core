@@ -9,21 +9,17 @@ ACE Runtime 主入口
   python ace.py submit "标题" "内容"  # 手动提交一个观察
   python ace.py protocol <任务ID>        # 查看任务开工协议回执（只读）
   python ace.py start <任务ID> <owner>    # 通过唯一 ACE 开工入口领取任务
+  python ace.py start <任务ID> <owner> [lease_seconds] [--region core/a.py ...]
   python ace.py test         # 运行端到端测试
   python ace.py daemon       # 运行一次自动考古主循环
 """
 
 import json
+import os
 import sys
 from pathlib import Path
 
-
-def load_config(base_dir: Path) -> dict:
-    config_path = base_dir / "ace_config.json"
-    if config_path.exists():
-        with open(config_path, "r", encoding="utf-8") as f:
-            return json.load(f)
-    return {}
+from core.config import load_config
 
 
 def main(base_dir=None):
@@ -82,13 +78,29 @@ def main(base_dir=None):
 
     if cmd == "start":
         raise SystemExit(handle_start(base_dir, sys.argv[2:]))
+    if cmd == "status" and __name__ == "__main__":
+        from core.task import TaskPool
+        pool = TaskPool(str(base_dir / "task_pool"))
+        state_path = base_dir / config.get("data", {}).get("memory_cache_dir", "06_RUNTIME/ace/data/memory") / "daemon_state.json"
+        try:
+            state = json.loads(state_path.read_text(encoding="utf-8")) if state_path.is_file() else {}
+        except (OSError, ValueError, TypeError):
+            state = {}
+        print(json.dumps({
+            "task_pool": pool.get_stats(),
+            "observations": state.get("observations", {}),
+            "last_run": state.get("last_run"),
+            "mining_progress": state.get("mining_progress", {}),
+            "status_mode": "read_only_canonical_runtime",
+        }, ensure_ascii=False, indent=2))
+        return
 
     from ace_daemon import AceDaemon
 
     if cmd == "status":
-        print(json.dumps(AceDaemon(base_dir, config).get_status(), ensure_ascii=False, indent=2))
+        daemon = AceDaemon(base_dir, config)
+        print(json.dumps(daemon.get_status(), ensure_ascii=False, indent=2))
         return
-
     if cmd in {"run", "once", "submit"}:
         from core.ace_start import run_runtime
 
@@ -137,20 +149,39 @@ def handle_protocol(base_dir: Path, args) -> int:
 
 
 def handle_start(base_dir: Path, args) -> int:
-    """Start exactly one task through TaskPool owner/lease/fencing authority."""
+    """Start exactly one task through TaskPool owner/lease/fencing authority.
 
-    if len(args) not in {2, 3}:
-        print("用法: python ace.py start <任务ID> <owner> [lease_seconds]")
+    Optional trailing ``--region core/file.py`` declares which files this window
+    intends to touch. A region held by another lane refuses the start.
+    """
+
+    if len(args) < 2:
+        print("用法: python ace.py start <任务ID> <owner> [lease_seconds] [--region core/a.py] ...")
         return 2
-    try:
-        lease_seconds = int(args[2]) if len(args) == 3 else 300
-    except ValueError:
-        print(json.dumps({"status": "REJECTED", "reason": "invalid_lease_seconds"}, ensure_ascii=False))
-        return 2
+    rest = list(args[2:])
+    lease_seconds = 300
+    regions: list[str] = []
+    index = 0
+    while index < len(rest):
+        if rest[index] == "--region":
+            if index + 1 >= len(rest):
+                print(json.dumps({"status": "REJECTED", "reason": "region_value_missing"}, ensure_ascii=False))
+                return 2
+            regions.append(rest[index + 1])
+            index += 2
+            continue
+        try:
+            lease_seconds = int(rest[index])
+        except ValueError:
+            print(json.dumps({"status": "REJECTED", "reason": "invalid_lease_seconds"}, ensure_ascii=False))
+            return 2
+        index += 1
+
     from core.ace_start import ace_start
     from core.task import TaskPool
 
-    result = ace_start(TaskPool(str(base_dir / "task_pool")), args[0], args[1], lease_seconds)
+    result = ace_start(TaskPool(str(base_dir / "task_pool")), args[0], args[1], lease_seconds,
+                       regions=regions, base_dir=str(base_dir))
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0 if result.get("status") == "STARTED" else 1
 
@@ -378,6 +409,8 @@ def handle_scan_fragments(scheduler, args):
 
 
 def handle_daemon(base_dir, config, args):
+    from core.silent_windows import install_daemon_silence
+    install_daemon_silence()
     from core.ace_start import run_runtime
     dry_run = "--dry-run" in args
     force = "--force" in args

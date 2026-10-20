@@ -69,12 +69,10 @@ PROVIDER_DEFAULT_MODELS = {
     "ace_proxy": "gpt-5.5",
     "github_models": "gpt-4o",
     "oneapi": "gpt-5.4-mini",
-    "openrouter": "anthropic/claude-3.5-sonnet",
     "glm": "glm-4-flash",
 }
 
 BASE_URL_PROVIDER_HINTS = (
-    ("openrouter.ai", "openrouter"),
     ("models.inference.ai.azure.com", "github_models"),
     ("open.bigmodel.cn", "glm"),
     ("bigmodel.cn", "glm"),
@@ -146,7 +144,7 @@ def resolve_assistant_config(model: str | None = None) -> AssistantConfig:
 
     credential_manager = CredentialManager()
     credential_manager.load()
-    for provider_name in ("ace_proxy", "github_models", "oneapi", "openrouter", "glm"):
+    for provider_name in ("ace_proxy", "github_models", "oneapi", "glm"):
         credential = credential_manager.get(provider_name)
         if credential and credential.is_valid:
             return AssistantConfig(
@@ -211,19 +209,45 @@ def _clarification_response(packet: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def call_assistant(user_text: str, model: str | None = None) -> dict[str, Any]:
+def call_assistant(
+    user_text: str,
+    model: str | None = None,
+    *,
+    data_class: str = "PRIVATE",
+) -> dict[str, Any]:
     packet = interpret_explicit_input(user_text)
     if packet["confirmation_required"]:
         return _clarification_response(packet)
 
     config = resolve_assistant_config(model=model)
     provider = OpenAICompatibleProvider(api_key=config.api_key, base_url=config.base_url, provider_name=config.provider)
+    from core.execution_contract import ensure_execution_contract, normalize_untrusted_messages
+
+    raw_messages = build_messages(user_text)
+    caller_system = "\n\n".join(
+        str(message.get("content", ""))
+        for message in raw_messages
+        if isinstance(message, dict) and str(message.get("role", "")).lower() == "system"
+    )
+    task_messages = normalize_untrusted_messages(
+        [
+            message
+            for message in raw_messages
+            if not (isinstance(message, dict) and str(message.get("role", "")).lower() == "system")
+        ]
+    )
+    system_prompt = ensure_execution_contract(
+        caller_system,
+        task_type="assistant_response",
+        role="ace_assistant_execution_node",
+    )
     result = provider.chat(
-        messages=build_messages(user_text),
+        messages=[{"role": "system", "content": system_prompt}, *task_messages],
         model=config.model,
         temperature=config.temperature,
         max_tokens=config.max_tokens,
         timeout=90,
+        data_boundary={"data_class": data_class},
     )
     result["resolved_provider"] = config.provider
     result["resolved_model"] = config.model
@@ -237,10 +261,12 @@ def handle_assistant_command(args: list[str]) -> int:
         print("  python ace.py assistant <问题>")
         print("  python ace.py assistant --model <模型名> <问题>")
         print("  python ace.py assistant --json <问题>")
+        print("  --public-input 仅当输入已确认可公开发送时使用；默认按 PRIVATE 拒绝外发")
         return 0
 
     model = None
     json_mode = False
+    data_class = "PRIVATE"
     remaining: list[str] = []
     idx = 0
     while idx < len(args):
@@ -253,6 +279,10 @@ def handle_assistant_command(args: list[str]) -> int:
             json_mode = True
             idx += 1
             continue
+        if arg == "--public-input":
+            data_class = "PUBLIC"
+            idx += 1
+            continue
         remaining.append(arg)
         idx += 1
 
@@ -262,7 +292,7 @@ def handle_assistant_command(args: list[str]) -> int:
         return 1
 
     try:
-        result = call_assistant(prompt, model=model)
+        result = call_assistant(prompt, model=model, data_class=data_class)
     except Exception as exc:
         print(f"assistant 调用失败: {exc}")
         return 1

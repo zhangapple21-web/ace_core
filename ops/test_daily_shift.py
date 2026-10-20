@@ -114,6 +114,104 @@ def test_daily_shift_surfaces_external_learning_status(tmp_path):
     assert "external `SOURCE_UNAVAILABLE`" in (data / "daily_shift_latest.md").read_text(encoding="utf-8")
 
 
+def test_daily_shift_does_not_print_a_measurement_it_does_not_have(tmp_path):
+    """A default that reads like an observation.
+
+    Measured 2026-10-19: finance_work_windows_latest.json carried data_refresh = null, so
+    the report printed "Live data refresh: NOT_RUN" - which reads as a refresh that ran
+    and found nothing, rather than one that was never recorded. Every neighbouring line
+    already says NOT_OBSERVED or NOT_RECORDED for that case; this one was the outlier.
+    """
+    data = tmp_path / "data"
+    data.mkdir()
+    (data / "finance_work_windows_latest.json").write_text(json.dumps({
+        "date": "2026-08-25",
+        "window": "midday_review",
+        "window_status": "RESEARCH_ONLY",
+        "daily_windows": {
+            "midday_review": {"observed_at": "2026-08-25T12:33:00+08:00",
+                              "window_status": "RESEARCH_ONLY"},
+        },
+    }), encoding="utf-8")
+
+    report = DailyShift(TaskPool(str(tmp_path / "task_pool")), str(data)).build("2026-08-25")
+
+    assert report["finance_live_refresh"] == {}, report["finance_live_refresh"]
+    markdown = (data / "daily_shift_latest.md").read_text(encoding="utf-8")
+    line = next(row for row in markdown.splitlines() if "Live data refresh" in row)
+    assert "`NO_RECORD`" in line, line
+    assert "`NOT_RUN`" not in line, line
+
+
+def test_daily_shift_names_a_dispatch_refused_before_dispatch(tmp_path):
+    """The day's zero has to say which layer produced it."""
+    data = tmp_path / "data"
+    data.mkdir()
+    (data / "daily_growth_latest.json").write_text(json.dumps({
+        "outcome": "EXECUTION_RECORDED_NO_VERIFIED_OUTCOME",
+        "archived_task_count": 3,
+        "archived_model_task_count": 3,
+        "attempted_production_model_call_count": 6,
+        "successful_production_model_call_count": 0,
+        "blocked_before_dispatch_count": 6,
+        "blocked_before_dispatch_reasons": {
+            "DATA_BOUNDARY_BLOCKED:sensitive_data_cannot_egress": 6,
+        },
+    }), encoding="utf-8")
+
+    DailyShift(TaskPool(str(tmp_path / "task_pool")), str(data)).build("2026-08-25")
+
+    markdown = (data / "daily_shift_latest.md").read_text(encoding="utf-8")
+    line = next(row for row in markdown.splitlines() if "Execution and outcomes" in row)
+    assert "6 blocked before dispatch" in line, line
+    assert "sensitive_data_cannot_egress" in line, line
+
+
+def test_daily_shift_reads_the_refresh_from_the_window_that_records_it(tmp_path):
+    """The record existed all along; the report looked one level too high.
+
+    finance_work_windows.py writes `data_refresh` inside each window entry and daily_shift
+    read it from the top level of the same file - a key nothing writes. Measured
+    2026-10-19: `open_validation` carried the record while the top level was null, so the
+    report printed its default over a refresh that had actually run.
+    """
+    data = tmp_path / "data"
+    data.mkdir()
+    (data / "finance_work_windows_latest.json").write_text(json.dumps({
+        "date": "2026-08-25",
+        "window": "midday_review",
+        "window_status": "RESEARCH_ONLY",
+        "data_refresh": None,
+        "daily_windows": {
+            "morning_observation": {
+                "observed_at": "2026-08-25T09:01:00+08:00",
+                "window_status": "RESEARCH_ONLY",
+                "data_refresh": None,
+            },
+            "open_validation": {
+                "observed_at": "2026-08-25T10:30:00+08:00",
+                "window_status": "RESEARCH_ONLY",
+                "data_refresh": {
+                    "status": "completed",
+                    "completed_at": "2026-08-25T10:30:12",
+                    "sources": ["pytdx", "sina"],
+                    "operations": ["probe_refresh"],
+                    "refreshed_probe_count": 2,
+                },
+            },
+        },
+    }), encoding="utf-8")
+
+    report = DailyShift(TaskPool(str(tmp_path / "task_pool")), str(data)).build("2026-08-25")
+
+    assert report["finance_live_refresh"]["status"] == "completed", report["finance_live_refresh"]
+    markdown = (data / "daily_shift_latest.md").read_text(encoding="utf-8")
+    line = next(row for row in markdown.splitlines() if "Live data refresh" in row)
+    assert "`completed`" in line, line
+    assert "probe_refresh" in line, line
+    assert "pytdx" in line, line
+
+
 def test_daily_shift_treats_local_archives_as_lifecycle_telemetry_not_value(tmp_path):
     data = tmp_path / "data"
     data.mkdir()

@@ -349,6 +349,7 @@ class DailyGrowthLedger:
         model_tasks = set()
         production_calls = []
         attempted_production_calls = []
+        blocked_before_dispatch = []
         verified_outcomes = []
         pending_outcome_verifications = []
         tasks_created_today = []
@@ -412,6 +413,15 @@ class DailyGrowthLedger:
                     attempted_production_calls.append(call)
                     if trace.get("api_result") == "success":
                         production_calls.append(call)
+                    elif str(trace.get("error") or "").startswith("DATA_BOUNDARY_BLOCKED"):
+                        # `api_called` records the attempt, not a call: a boundary
+                        # refusal never reached a model. It stays in the attempted count
+                        # because the system did try, and it is named here because
+                        # "6 attempted / 0 successful" is indistinguishable from a
+                        # model-layer failure unless the block is on the page.
+                        blocked_before_dispatch.append(
+                            {**call, "reason": str(trace.get("error"))}
+                        )
             verified_outcome = self._verified_outcome_receipt(task, date)
             if verified_outcome is not None:
                 verified_outcomes.append(verified_outcome)
@@ -542,12 +552,25 @@ class DailyGrowthLedger:
             ),
             "attempted_production_model_call_count": len(attempted_production_calls),
             "successful_production_model_call_count": len(production_calls),
+            "blocked_before_dispatch_count": len(blocked_before_dispatch),
+            "blocked_before_dispatch_reasons": {
+                reason: sum(1 for entry in blocked_before_dispatch if entry["reason"] == reason)
+                for reason in dict.fromkeys(entry["reason"] for entry in blocked_before_dispatch)
+            },
+            "blocked_before_dispatch_calls": blocked_before_dispatch,
             "production_model_call_count": len(production_calls),
             "production_model_calls": production_calls,
             "production_model_call_semantics": {
                 "scope": "calendar_day_admitted_model_execution_traces",
                 "attempted_predicate": "eligible admission + trace date + api_called=true",
                 "successful_predicate": "attempted predicate + api_result=success",
+                "blocked_before_dispatch_predicate":
+                    "attempted predicate + error begins DATA_BOUNDARY_BLOCKED",
+                "blocked_before_dispatch_note":
+                    "api_called records the attempt, not a call. A boundary refusal "
+                    "never reached a model, so it is counted as an attempt and named "
+                    "separately: without the name a day's zero reads as a model-layer "
+                    "failure instead of a refused dispatch.",
                 "legacy_production_model_call_count": "successful_production_model_call_count",
             },
             "model_performance_ledger": self._model_performance(all_tasks, date),

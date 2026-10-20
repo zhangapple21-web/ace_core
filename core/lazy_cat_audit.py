@@ -20,7 +20,9 @@ from pathlib import Path
 from typing import Any, Mapping
 
 
-CONTRACT_VERSION = "ace.lazy_cat_audit.v1"
+CONTRACT_VERSION = "ace.lazy_cat_audit.v2"
+RULESET_ID = "lazy_cat.ruleset.dissent-execution.v2"
+AUDIT_EPOCH = "2026-10-04-dissent-execution-boundary"
 
 
 def _now() -> str:
@@ -65,7 +67,7 @@ class LazyCatAudit:
             experiment_id = str(distillation.get("experiment_id", ""))
             if not experiment_id or experiment_id not in record_map:
                 continue
-            path = self.verdicts / f"{experiment_id}.json"
+            path = self.verdicts / f"{experiment_id}.{RULESET_ID}.json"
             if path.exists():
                 continue
             verdict, challenge = self._assess(record_map[experiment_id], distillation)
@@ -252,6 +254,8 @@ class LazyCatAudit:
             verdict_name = "RETURN_TO_FREE_ZONE"
         verdict = {
             "contract_version": CONTRACT_VERSION,
+            "ruleset_id": RULESET_ID,
+            "audit_epoch": AUDIT_EPOCH,
             "verdict_id": f"LAZY-CAT-{experiment_id}",
             "recorded_at": _now(),
             "role": "lazy_cat_post_execution_auditor",
@@ -278,6 +282,8 @@ class LazyCatAudit:
         challenge = {
             "contract_version": CONTRACT_VERSION,
             "challenge_id": f"CHALLENGE-{experiment_id}",
+            "ruleset_id": RULESET_ID,
+            "audit_epoch": AUDIT_EPOCH,
             "created_at": _now(),
             "source_experiment_id": experiment_id,
             "source_verdict_id": verdict["verdict_id"],

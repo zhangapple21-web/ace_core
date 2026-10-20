@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 """Print a read-only, evidence-first MinerPool resident atlas.
 
 Usage:
@@ -28,12 +28,13 @@ def print_text(atlas: dict) -> None:
         f"{summary['unregistered_profile_reference']} profile references needing evidence; "
         f"{summary['verified_production_eligible']} production-eligible."
     )
-    for resident in atlas["residents"]:
+    for index, resident in enumerate(atlas["residents"], 1):
         execution = resident["execution"]
         safe_room = resident["safe_room"]["room"]
+        profile_count = len(resident["profile_references"])
         print(
-            f"- {resident['resident_id']}: {resident['catalog_state']} / "
-            f"{resident['routing_eligibility']} / {safe_room} | profiles={','.join(resident['profile_references']) or '-'} | "
+            f"- resident-{index}: {resident['catalog_state']} / "
+            f"{resident['routing_eligibility']} / {safe_room} | profiles={profile_count} | "
             f"calls={execution['attempted']} ok={execution['successful']} fail={execution['failed']}"
         )
 
@@ -41,7 +42,11 @@ def print_text(atlas: dict) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Read-only ACE MinerPool resident atlas")
     parser.add_argument("--root", type=Path, default=BASE_DIR, help="ACE root")
-    parser.add_argument("--json", action="store_true", help="Print machine-readable JSON")
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Print machine-readable JSON (contains local identifiers)",
+    )
     args = parser.parse_args()
     atlas = collect_resident_atlas(args.root)
     if args.json:

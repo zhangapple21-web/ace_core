@@ -1,0 +1,35 @@
+{
+  "decision": "not_merged",
+  "recorded_at": "2026-10-18",
+  "recorded_by": "ACE full-domain audit, autonomous close-out",
+  "subject": "merging core/daemon-lifecycle-resilience-20260912 into main",
+  "facts": {
+    "main_unique_commits": 1,
+    "branch_unique_commits": 225,
+    "fast_forward_possible": false,
+    "main_unique_commit": {
+      "sha": "0143169",
+      "date": "2026-09-12",
+      "subject": "core: keep TaskPool and evening sandbox clock if lifecycle init fails (#8)",
+      "files_touched": ["ace_daemon.py"],
+      "diff_size": "49 insertions, 15 deletions"
+    },
+    "remote_main_behind_branch_by": 217
+  },
+  "why_not": [
+    "The one commit main has that this branch does not edits ace_daemon.py - the file the sole running daemon (pid 26508) executes. That branch has since been rewritten 225 commits' worth, so merging is a real three-way merge on the hottest file in the system, not a fast-forward.",
+    "A merge would put a conflict or a regression into the daemon's code path while it is live. The repository's own rules require RED reproduction, a minimal owned fix, GREEN regression and natural daemon evidence before such a change; a merge is none of those.",
+    "No test in the suite exercises main's specific fix independently - the behaviour it protects (surviving a lifecycle init failure) is only observable when that failure happens, so 'the merge did not break it' cannot be established by running the suite.",
+    "Nothing is at risk from not merging: the branch is fully pushed and the remote is verified identical to local. The 217-commit gap is a mainline currency problem, not a data-loss one."
+  ],
+  "what_is_safe_today": "Nothing further is needed for durability. refs/heads/core/daemon-lifecycle-resilience-20260912 on the remote is byte-identical to local HEAD.",
+  "how_to_do_it_safely_later": [
+    "Stop the sole daemon through ACE_Daemon_Boot (never start a second one).",
+    "Merge on a branch, not on main: git checkout -b main-integration <sha> and git merge main there.",
+    "Resolve ace_daemon.py by hand against the current file; do not accept either side wholesale.",
+    "Run the full suite, then start the daemon and confirm the lifecycle-init-failure path by forcing that failure in a scratch tree, not in production.",
+    "Only after the daemon runs clean on the merged tree, merge that into main and push."
+  ],
+  "reversible": true,
+  "evidence": "git rev-list --left-right --count main...HEAD = 1 225; git merge-base --is-ancestor main HEAD = false; git show --stat 0143169"
+}

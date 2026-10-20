@@ -77,6 +77,7 @@ class HealthChecker:
         self._check_data_integrity()
         self._check_runtime_liveness()
         self._check_task_pool()
+        self._check_provider_freshness()
         self._check_recent_errors()
         self._check_config()
 
@@ -198,6 +199,67 @@ class HealthChecker:
             detail=f"pid={pid}, command_line={command_line or 'unavailable'}",
         )
 
+    # A blocked task parked terminally while waiting on a human or
+    # external/governance decision is known inventory, not a fresh failure.
+    # Only tasks that are neither known-governance nor freshly transitional
+    # fail the gate: error-signatured reasons, or owned-by-nobody records
+    # untouched for longer than ORPHAN_AFTER_HOURS.
+    GOVERNANCE_WAIT_MARKERS = (
+        "人工", "外部", "治理", "governance", "manual", "等待",
+    )
+    ERROR_REASON_MARKERS = (
+        "失败", "错误", "error", "exception", "timeout", "超时",
+        "异常", "crash", "traceback", "refused", "unreachable",
+    )
+    ORPHAN_AFTER_HOURS = 48
+    ABNORMAL_DETAIL_IDS = 5
+
+    def _classify_blocked(self, task_pool: Path) -> dict:
+        """Split blocked files into known-governance / abnormal / unclassified.
+
+        Returns task-id lists; unreadable files count as abnormal (a task
+        the pool cannot even read is itself worth flagging). Pure read: no
+        task is moved, edited, or reaped here — 009/010 own that decision.
+        """
+        known, abnormal, unclassified = [], [], []
+        now = datetime.now()
+        for path in (task_pool / "blocked").glob("RQ-*.json"):
+            task_id = path.stem
+            try:
+                with open(path, "r", encoding="utf-8") as handle:
+                    data = json.load(handle)
+            except Exception:
+                abnormal.append((task_id, "unreadable_task_file"))
+                continue
+            if not isinstance(data, dict):
+                abnormal.append((task_id, "unreadable_task_file"))
+                continue
+            outputs = data.get("outputs") if isinstance(data.get("outputs"), dict) else {}
+            terminal = bool(outputs.get("terminal_non_convergent"))
+            reason = str(
+                data.get("blocked_reason") or outputs.get("rework_reason") or ""
+            )
+            lowered = reason.lower()
+            if terminal and any(mark in lowered for mark in self.GOVERNANCE_WAIT_MARKERS):
+                known.append(task_id)
+                continue
+            if any(mark in lowered for mark in self.ERROR_REASON_MARKERS):
+                abnormal.append((task_id, "error_reason:" + reason[:48]))
+                continue
+            owner = data.get("lease_owner") or data.get("claim_id") or ""
+            try:
+                updated = datetime.fromisoformat(
+                    str(data.get("updated_at", "")).replace("Z", "")
+                )
+                age_hours = (now - updated).total_seconds() / 3600
+            except (TypeError, ValueError):
+                age_hours = None
+            if not owner and age_hours is not None and age_hours > self.ORPHAN_AFTER_HOURS:
+                abnormal.append((task_id, f"orphaned:{age_hours:.0f}h_unowned"))
+                continue
+            unclassified.append(task_id)
+        return {"known": known, "abnormal": abnormal, "unclassified": unclassified}
+
     def _check_task_pool(self):
         task_pool = BASE_DIR / "task_pool"
         if not task_pool.is_dir():
@@ -205,15 +267,57 @@ class HealthChecker:
             return
 
         active = len(list((task_pool / "active").glob("RQ-*.json")))
-        blocked = len(list((task_pool / "blocked").glob("RQ-*.json")))
         pending = len(list((task_pool / "pending").glob("RQ-*.json")))
+        triage = self._classify_blocked(task_pool)
+        known, abnormal, unclassified = (
+            triage["known"], triage["abnormal"], triage["unclassified"],
+        )
+        total_blocked = len(known) + len(abnormal) + len(unclassified)
+        counts = (
+            f"active={active}, blocked={total_blocked} "
+            f"(known_governance={len(known)}, abnormal={len(abnormal)}, "
+            f"unclassified={len(unclassified)}), pending={pending}"
+        )
 
+        # Only genuine abnormality errors. Known governance backlog and
+        # fresh transitional tasks never fail this gate. The abnormal
+        # entries keep their reasons so the receipt names the fault.
+        abnormal_shown = ",".join(
+            f"{task_id}:{why}" for task_id, why in abnormal[: self.ABNORMAL_DETAIL_IDS]
+        )
         self.check(
             "无大量阻塞任务",
-            blocked < 5,
-            severity="warning" if blocked < 10 else "error",
-            detail=f"active={active}, blocked={blocked}, pending={pending}",
+            len(abnormal) == 0,
+            severity="error",
+            detail=counts + (f"; abnormal={abnormal_shown}" if abnormal_shown else ""),
         )
+
+        # The known backlog stays visible as inventory with its reasons —
+        # counted and named, never silently green.
+        if known:
+            reasons: dict = defaultdict(int)
+            for path in (task_pool / "blocked").glob("RQ-*.json"):
+                if path.stem not in set(known):
+                    continue
+                try:
+                    with open(path, "r", encoding="utf-8") as handle:
+                        data = json.load(handle)
+                    reason = str(
+                        data.get("blocked_reason")
+                        or (data.get("outputs") or {}).get("rework_reason")
+                        or "?"
+                    )
+                    reasons[reason[:40]] += 1
+                except Exception:
+                    reasons["unreadable"] += 1
+            inventory = ";".join(f"{count}x:{reason}" for reason, count in sorted(
+                reasons.items(), key=lambda item: -item[1])[:3])
+            self.check(
+                "已知治理阻塞登记",
+                False,
+                severity="warning",
+                detail=f"{len(known)} known_governance; {inventory}",
+            )
 
         if active > 0:
             stale_count = 0
@@ -233,6 +337,82 @@ class HealthChecker:
                 severity="warning",
                 detail=f"{stale_count} 个任务运行超过6小时",
             )
+
+    def _check_provider_freshness(self):
+        """Report model-health ratings with their age, never as timeless fact.
+
+        Read-only: parses the persisted watchdog snapshot and labels each
+        provider by the shared effective-status rule. STALE is inventory,
+        never fault — an idle pool revalidates on next live traffic, and
+        nothing here manufactures a call or a task to force a refresh.
+        """
+        state_file = (
+            BASE_DIR / "06_RUNTIME" / "ace" / "data" / "miner_pool"
+            / "provider_watchdog" / "watchdog_state.json"
+        )
+        if not state_file.is_file():
+            self.check(
+                "模型健康评级新鲜",
+                True,
+                severity="warning",
+                detail="no watchdog state yet (no traffic observed)",
+            )
+            return
+        try:
+            from core.miner_pool.provider_watchdog import (
+                STALE,
+                STALE_TTL_SECONDS,
+                effective_status_for,
+                observation_age_hours,
+            )
+        except Exception as error:
+            self.check(
+                "模型健康评级新鲜",
+                True,
+                severity="warning",
+                detail=f"watchdog module unreadable: {type(error).__name__}",
+            )
+            return
+        try:
+            with open(state_file, "r", encoding="utf-8") as handle:
+                snapshot = json.load(handle)
+            providers = snapshot.get("providers")
+            if not isinstance(providers, dict):
+                raise ValueError("watchdog snapshot has no providers")
+        except Exception as error:
+            self.check(
+                "模型健康评级新鲜",
+                True,
+                severity="warning",
+                detail=f"watchdog snapshot unreadable: {str(error)[:80]}",
+            )
+            return
+        stale_names, fresh_summary = [], defaultdict(int)
+        for name in sorted(providers):
+            record = providers[name]
+            if not isinstance(record, dict):
+                continue
+            effective = effective_status_for(record, ttl_seconds=STALE_TTL_SECONDS)
+            age = observation_age_hours(record)
+            fresh_summary[effective] += 1
+            if effective == STALE:
+                age_text = f"{age:.1f}h" if age is not None else "never"
+                stale_names.append(f"{name}({age_text})")
+        summary = ",".join(
+            f"{status}={fresh_summary[status]}" for status in sorted(fresh_summary)
+        )
+        detail = summary + (
+            "; stale:" + ",".join(stale_names[:8]) if stale_names else ""
+        )
+        # Idle is not a fault: stale ratings warn (stay visible) but never
+        # error. Fresh UNHEALTHY/OFFLINE are live failures the watchdog
+        # already owns — this probe only reports age, it does not re-judge.
+        self.check(
+            "模型健康评级新鲜",
+            not stale_names,
+            severity="warning",
+            detail=detail,
+        )
 
     def _check_recent_errors(self):
         state_file = BASE_DIR / "06_RUNTIME" / "ace" / "data" / "memory" / "daemon_state.json"

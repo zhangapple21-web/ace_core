@@ -1,0 +1,28 @@
+{
+  "contract_version": "ace.free_research_sandbox.v1",
+  "created_at": "2026-09-12T04:43:24.452839+00:00",
+  "distillation": {
+    "distillation_hash": "6ce77504099b648b17dbea4475c367df6731f71d095ff5900bf78af9cd124334",
+    "evidence_hash": "148b9dcbcf17c4166a262a2505813b66a72e0e3e9aa81d87d60299bfc0b9ef40",
+    "executable": false,
+    "pattern": "When The counterexample EXP-MODEL-898A05764556A021 can be turned into a distinct next observation without overwriting its original result., investigate via Preserve the parent distillation, formulate an explicit re-observation question, and record the new experiment separately..",
+    "source_record_hash": "f5504b8eb08c2e75779e61ea77ad85308b4786c7de2aa0a4550e0f9af5cd8422"
+  },
+  "experiment_id": "EXP-20260906103151407076-FREEZONE-6389C950E0CC",
+  "mode": "PROPOSAL_ONLY",
+  "prohibited_actions": [
+    "automatic_production_write",
+    "automatic_task_creation",
+    "automatic_delivery",
+    "automatic_order"
+  ],
+  "proposal_hash": "b9e394cbbfbac51c6cf131993765b7999ebfa65713ec88b5d03402b9372840c1",
+  "reason": "human_and_governed_review_required",
+  "requires": [
+    "human_confirmation",
+    "existing_admission",
+    "existing_validator"
+  ],
+  "source_record_hash": "f5504b8eb08c2e75779e61ea77ad85308b4786c7de2aa0a4550e0f9af5cd8422",
+  "status": "PROPOSAL_ONLY"
+}

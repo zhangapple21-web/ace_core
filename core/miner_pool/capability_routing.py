@@ -68,6 +68,18 @@ MODEL_CAPABILITIES: Dict[str, Dict[str, Any]] = {
         "production_eligible": True,
         "route_state": "PRODUCTION_CANDIDATE",
     },
+    "shenwen_ds41:deepseek-v4.1-flash": {
+        "capabilities": ["execution", "classification", "coding"],
+        "tier": "efficient",
+        "production_eligible": True,
+        "route_state": "PRODUCTION_LABOR",
+    },
+    "oneapi:deepseek-v4.1-flash": {
+        "capabilities": ["execution", "classification", "coding"],
+        "tier": "efficient",
+        "production_eligible": True,
+        "route_state": "PRODUCTION_LABOR",
+    },
 }
 
 

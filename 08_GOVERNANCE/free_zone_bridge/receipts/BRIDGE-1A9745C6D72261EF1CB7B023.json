@@ -1,0 +1,81 @@
+{
+  "ace_review": {
+    "decision": "HOLD_FOR_EVIDENCE",
+    "review_basis": [
+      "linked Free Zone distillation",
+      "bound ACE Reality exchange receipt",
+      "no automatic acceptance"
+    ],
+    "reviewer": "free_zone_reflection_relay"
+  },
+  "bridge_id": "BRIDGE-1A9745C6D72261EF1CB7B023",
+  "contract_version": "ace.free_zone_reality_bridge.v1",
+  "created_at": "2026-09-19T10:32:29.475235+00:00",
+  "destination_realm": "ACE_REALITY",
+  "disposition": {
+    "admission_bypassed": false,
+    "model_call": false,
+    "next_gate": "EXISTING_ACE_ADMISSION_OR_EXPERIENCE_REVIEW",
+    "production_runtime_mutation": false,
+    "recommendation_authority": false,
+    "status": "MAPPED_SHADOW",
+    "task_created": false
+  },
+  "evidence": {
+    "independent_count": 2,
+    "independent_groups": [
+      "ace_reality_gap",
+      "free_zone_distillation"
+    ],
+    "refs": [
+      {
+        "independence_group": "ace_reality_gap",
+        "kind": "incoming_exchange",
+        "ref": "08_GOVERNANCE/free_zone_exchange/receipts/EXCHANGE-9A6ADE0264CBC10764A4836B.json",
+        "sha256": "4f6dc930c4a127f2b5cfa61ec8807821a7d87c9469396ace66a38fbbdd985fea",
+        "size_bytes": 2648
+      },
+      {
+        "independence_group": "free_zone_distillation",
+        "kind": "sandbox_distillation",
+        "ref": "07_SANDBOX/free_research/distillations/EXP-20260919103227085478-FREEZONE-C7878F0A66B1.json",
+        "sha256": "58c84768e132a1a2325c5e7733ef330400521b93715c7789ab14dd63dbad44ac",
+        "size_bytes": 2229
+      }
+    ]
+  },
+  "mapping": {
+    "constraints": [
+      "shadow research receipt only",
+      "no automatic acceptance",
+      "TaskPool creation only through explicit admission",
+      "no production runtime mutation"
+    ],
+    "epistemic_status": "INFERENCE",
+    "expected_result": "One hash-bound shadow receipt preserves both directional lineage without changing ACE authority.",
+    "learning": "The result is preserved as a shadow reflection; it is not accepted knowledge or a production fact.",
+    "mapping_id": "FREE-ZONE-REFLECTION-EXP-20260919103227085478-FREEZONE-C7878F0A66B1",
+    "observation": "Free Zone experiment EXP-20260919103227085478-FREEZONE-C7878F0A66B1 returned INCONCLUSIVE for a linked ACE Reality gap.",
+    "reality_scope": "ACE Reality research observation",
+    "research_question": "What independent ACE-side evidence would confirm, refine, or reject this reflected Free Zone result?",
+    "verification_method": "Verify distillation, incoming exchange, source hashes, and zero TaskPool or production mutation."
+  },
+  "receipt_hash": "ef0d446579e6cc43ffec2628afc23641914fd79106bbb8c9eeac8999c84985a1",
+  "source": {
+    "artifact_ref": "07_SANDBOX/free_research/distillations/EXP-20260919103227085478-FREEZONE-C7878F0A66B1.json",
+    "artifact_sha256": "58c84768e132a1a2325c5e7733ef330400521b93715c7789ab14dd63dbad44ac",
+    "distillation_hash": "e4727b6317fd2dc7b5779a08c2c1f66ee8844546d3e5af8ff0c925b27a908bf4",
+    "experiment_id": "EXP-20260919103227085478-FREEZONE-C7878F0A66B1",
+    "experiment_ref": "07_SANDBOX/free_research/experiments/EXP-20260919103227085478-FREEZONE-C7878F0A66B1.json",
+    "experiment_sha256": "5a9e58434fefba57215c80d4bbb08b4b5afacf01519a22a8dfcadaf26697e2e7",
+    "learning_status": "OPEN_QUESTION",
+    "origin_reality_gap": {
+      "exchange_id": "EXCHANGE-9A6ADE0264CBC10764A4836B",
+      "receipt_sha256": "54617a3e6aad2a43f7e5c6d58f2fb35f1a52a6a5015fd2ca1d417b48b1a4643b"
+    },
+    "pollution_flags": [],
+    "source_outcome": "INCONCLUSIVE",
+    "source_record_hash": "e73302d159f3e7f88c52aca67b4e97c57ca64838e02f899aeb3f9c6b16b2585f"
+  },
+  "source_realm": "FREE_ZONE"
+}

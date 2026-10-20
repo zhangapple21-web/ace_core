@@ -1,0 +1,11 @@
+{
+  "protocol": "ace.target.inject.v1",
+  "title": "把 task_pool 生命周期流转写成一份文档",
+  "hypothesis": "描述 task 从 pending 到 archived 的关键流转",
+  "expected_output": "docs/TASK_LIFECYCLE.md",
+  "success_metric": "file_exists_nonempty",
+  "priority": "high",
+  "domain": "document",
+  "tags": ["external_target"],
+  "why_now": "人工验收需要一份可审阅的生命周期说明"
+}

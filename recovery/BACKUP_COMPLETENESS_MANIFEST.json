@@ -1,0 +1,121 @@
+{
+  "schema_version": "ace.backup_completeness_manifest.v4",
+  "evidence_updated_date": "2026-10-01",
+  "scope": "远程恢复发布材料、state 白名单及其验证证据",
+  "status": "PARTIAL",
+  "decision": "证据支持已发布 core 与私有 state 白名单的部分离线恢复；不支持整机完整备份、跨文件事务一致性、daemon 行为连续性或完整宿主工作流。",
+  "evidence": {
+    "remote_restore_receipt": "C:\\tmp\\ace_remote_state_final_20261001\\ACE_REMOTE_RESTORE_RECEIPT.json",
+    "remote_restore_receipt_sha256": "e029cb275f17c9685f6d2d5489e7bbfbf13978c7aed3495d74cf8e72b00d9739",
+    "core_remote_head": "4414401034b1040351b45f60cbbbb8afdb8ef434",
+    "state_remote_head": "a40340bf1329b3789773ce09d2cd11a50676f5da",
+    "state_manifest_sha256": "829b2278b5ca15fe4275a62253782eb87619933fc5f637db0fb3dbe5e33a97f2",
+    "state_hash_verification": {"status": "PASS", "files": 1674, "roots": ["task_pool", "09_KNOWLEDGE", "06_RUNTIME/ace"]},
+    "state_counts": {"06_RUNTIME/ace": 192, "09_KNOWLEDGE": 686, "task_pool": 796, "evidence_files": 65, "files": 1674, "bytes": 37960831},
+    "restored_index_evidence": {"knowledge_files": 686, "knowledge_loaded_records": 612, "runtime_files": 192, "memory_index_records": 7457, "task_pool_records": 796},
+    "core_bootstrap": {"status": "PARTIAL", "exit_code": 3, "tests": "SKIP (--skip-tests)"},
+    "core_health": {"overall": "error", "exit_code": 2, "errors": 1, "warnings": 1, "pass": false},
+    "isolated_bootstrap_tests": {"passed": 153},
+    "cleanvenv_tests": {"passed": 103, "blocked": 3},
+    "unittest": {"passed": 18},
+    "video_offline_tests": {"passed": 36},
+    "video_dry_run": {"pass": true, "provider_submission": "NOT_PERFORMED", "real_video_task": false},
+    "business_validation_overall": "FAIL",
+    "stock_time_field_semantics": "FAIL: time 字段误取价格变化值，源码未修改",
+    "stock_actual_quote": "PASS: 曾返回非空报价；单源不等于生产准入",
+    "simulated_order": "UNVERIFIED: 无现有订单接口，没有生成模拟单或成交",
+    "skill_validation": "5 个 loadable/frontmatter 检查及一次纯 helper 调用；不是宿主 E2E"
+  },
+  "dependency_lock": {
+    "path": "recovery/requirements-recovery.lock",
+    "source": "clean_venv Python 3.11.9 pip freeze",
+    "packages": 22,
+    "scope": "仅历史验证测试集，非全系统锁",
+    "source_venv_pip_check": "PASS",
+    "fresh_reinstall": "PASS: 2026-10-01 Windows AMD64 Python 3.11.9; online no-cache install and focused recovery tests only",
+    "fresh_reinstall_evidence": {
+      "workspace": "C:\\tmp\\ace_recovery_fresh_20261001_subverify",
+      "remote_url": "https://github.com/zhangapple21-web/ace_core.git",
+      "branch": "core/daemon-lifecycle-resilience-20260912",
+      "remote_and_checkout_sha": "919768e353459011f22ebfde1cd1056bffa75fdd",
+      "ref_match": true,
+      "python": "3.11.9 MSC v.1938 64 bit AMD64",
+      "venv": ".recovery-venv",
+      "include_system_site_packages": false,
+      "enable_user_site": false,
+      "pip_version": "24.0",
+      "install_command": ".recovery-venv/Scripts/python.exe -m pip install --no-cache-dir -r recovery/requirements-recovery.lock",
+      "install_exit_code": 0,
+      "installed_locked_packages": 22,
+      "pip_check": {"exit_code": 0, "stdout": "No broken requirements found."},
+      "focused_tests": {"command": ".recovery-venv/Scripts/python.exe -m pytest -q -p no:cacheprovider recovery/test_recovery.py recovery/test_state_snapshot.py", "exit_code": 0, "passed": 29, "subtests_passed": 28, "duration_seconds": 1.66},
+      "bootstrap_dependency_boundary": "Code-only preparation using the invoking Python; bootstrap.py does not create a venv or install dependencies. This manual lock reinstall is not automatic bootstrap or full ACE dependency rebuild.",
+      "network_dependency_limits": "Online package downloads and pytdx==1.72 isolated wheel build succeeded. No venv/cache copied; pip temporary build cache is not migrated. Build tooling is not pinned by this lock; no offline wheelhouse, artifact hashes, future index availability, other Python/platform or whole-business behavior verified.",
+      "safety": "Only remote code and synthetic recovery fixtures; no private state clone, daemon, provider, trading, real video task or inherited epoch execution; existing Git authentication only."
+    },
+    "cache_package_migration": false,
+    "editable_paths_or_credentials": false
+  },
+  "historical_validation_sources": {
+    "validation_summary": "C:\\tmp\\ace_restore_validation_20260930\\validation_summary.json",
+    "business_validation": "C:\\tmp\\ace_restore_validation_20260930\\business_validation.json",
+    "local_only_note": "153/103/18/36 测试与股票 FAIL 是历史隔离记录，非当前远程 checkout 重跑；当前恢复摘要已内嵌。",
+    "integrated_health": {"exit_code": 2, "errors": 1, "warnings": 3, "pass": false}
+  },
+  "remote_restore_evidence": {
+    "status": "PARTIAL",
+    "clone_core": {"branch": "core/daemon-lifecycle-resilience-20260912", "sha": "4414401034b1040351b45f60cbbbb8afdb8ef434", "ref_match": true},
+    "clone_state": {"branch": "main", "sha": "a40340bf1329b3789773ce09d2cd11a50676f5da", "ref_match": true},
+    "private_verification": "PASS; permissions recorded in receipt; no secret content read",
+    "state_inventory": "Two matching inventories; not a cross-file transaction",
+    "daemon": "NOT_STARTED; heartbeat and daily iteration unverified",
+    "forbidden_dependencies": ["3000", "3002", "legacy scheduler", "legacy heartbeat"]
+  },
+  "inventory_limits": {
+    "C_scan": {"entries_seen": 159268, "truncated": true},
+    "D_scan": {"entries_seen": 138394, "truncated": true},
+    "X": "模拟 D 目录映射，不是独立介质",
+    "Y": "模拟 D 目录映射，不是独立介质",
+    "secrets_and_user_data": "未读取、未备份、不可从 Git 恢复",
+    "historical_task_memory_db_logs": "未纳入白名单快照；历史连续性 UNKNOWN",
+    "scheduled_task_action_values": "未检查",
+    "daemon_daily_iteration": "daemon 未启动，未验"
+  },
+  "snapshot_exclusions": {
+    "backup_cache_test_validation_claim": 15152,
+    "source_or_transient_process_state": 5,
+    "raw_external_html_hash_only": 300,
+    "raw_external_html_note": "正文未上传，因此不能从 state snapshot 恢复",
+    "credentials": "credential configuration excluded; secret scan fail-closed"
+  },
+  "repositories": {
+    "remote_ref_observation": {
+      "observed_at_start": "2026-10-01T06:02:34Z",
+      "observed_at_end": "2026-10-01T06:02:37Z",
+      "method": "git -c credential.interactive=false ls-remote --heads URL refs/heads/REF; non-interactive; timeout 30s",
+      "core": {"url": "https://github.com/zhangapple21-web/ace_core.git", "ref": "core/daemon-lifecycle-resilience-20260912", "sha": "4d40191b539dfcc0e651504437e20d07daa5dd4e", "status": "EXISTS", "exit_code": 0},
+      "state": {"url": "https://github.com/zhangapple21-web/ace-civilization-backup.git", "ref": "main", "sha": "a40340bf1329b3789773ce09d2cd11a50676f5da", "status": "EXISTS", "exit_code": 0},
+      "video": {"url": "https://github.com/zhangapple21-web/ace-video-kingdom.git", "ref": "main", "sha": "27da48891ac778e88689fd1e33cdc058472f9b90", "status": "EXISTS", "exit_code": 0},
+      "current_core_restore_result": "UNVERIFIED: no restore, health or business rerun at current HEAD; evidence.core_remote_head and remote_restore_evidence.clone_core are historical rehearsal SHAs",
+      "failure_policy": "ACCESS_BLOCKED for inaccessible remote; BRANCH_MISSING for successful query without requested branch; UNVERIFIED for timeout or ambiguous evidence; sha=null, never reuse historical SHA",
+      "credential_repository": "UNVERIFIED: not queried or read",
+      "state_manifest_check": {"source": "existing isolated state checkout git object at observed remote SHA; not credential repository", "sha256": "829b2278b5ca15fe4275a62253782eb87619933fc5f637db0fb3dbe5e33a97f2", "entries": 1674, "counts_match_evidence": true, "content_hashes_rechecked": false, "state_push": "NOT_PERFORMED"}
+    },
+    "optional_ls_remote": "Observed-at 2026-10-01T06:02:34Z through 2026-10-01T06:02:37Z; non-interactive, 16/16 EXISTS, unique requested refs exit=0; full URL/ref/SHA details in REPOSITORY_MAP.md; no optional clone or content validation",
+    "unknown": ["完整跨仓 build DAG", "optional 扩展自动运行时加载", "截断扫描范围外行为关键资产", "跨文件事务一致性", "继承 epoch 行为连续性"],
+    "no_gitlinks_note": "无 gitlink 不等于全仓图完整",
+    "optional_discovery": "仅显式 clone，不自动发现"
+  },
+  "pass_conditions": [
+    "C/D 扫描未截断且范围明确",
+    "行为关键依赖和历史状态有可验证且具事务边界的快照",
+    "bootstrap、restore、health 全部 status=PASS 且 exit_code=0",
+    "daemon heartbeat、每日迭代、计划任务动作已实际验证",
+    "Skill 宿主 E2E 和模拟单均有证据",
+    "视频保持 dry-run 且 provider_submission=NOT_PERFORMED",
+    "发布 SHA 已真实提交并推送"
+  ],
+  "pass": false,
+  "local_only_critical_assessment": "UNKNOWN: 截断盘点不能证明不存在本地关键单点",
+  "never_claim": ["整机完整", "完整可恢复", "跨文件事务一致性已验证", "daemon 连续性已验证", "WARN 健康等同 PASS"]
+}

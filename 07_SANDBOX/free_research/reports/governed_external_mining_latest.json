@@ -1,0 +1,14 @@
+{
+  "at": "2026-10-03T06:26:55.734332+00:00",
+  "status": "DISABLED",
+  "chain": {
+    "web_scout": "NOT_RUN",
+    "miner_pool": "NOT_RUN",
+    "task_pool": "NOT_RUN",
+    "researcher": "PENDING",
+    "validator": "PENDING",
+    "guardian": "PENDING"
+  },
+  "tasks_created": 0,
+  "reports": []
+}

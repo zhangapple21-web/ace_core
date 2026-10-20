@@ -44,6 +44,10 @@ data/
 nodes/
 ace_core_local/
 
+# Disaster-recovery bootstrap local state (never commit operator paths/secrets)
+ace_config.local.json
+recovery/bootstrap_report.json
+
 # Local-only coordination and transient execution material.  Canonical
 # protocols, source, tests, receipts and bounded research records remain
 # versioned; these files are rebuildable or contain host-specific state.
@@ -67,3 +71,9 @@ outputs/*.png
 07_SANDBOX/free_research/lazy_cat/
 agent_team/
 archaeology/legacy_runtime/
+
+# Reduced instruction artifacts for hosted models. Generated from a PRIVATE
+# source by ops/sanitize_instruction_file.py; the receipt in
+# 08_GOVERNANCE/sanitizer_receipts.jsonl binds both hashes, so versioning the
+# file would only version a copy of what was redacted.
+model_instructions/

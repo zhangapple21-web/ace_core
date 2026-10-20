@@ -1,0 +1,624 @@
+{
+  "artifact": "queue_card_author_vs_signer_census",
+  "measured_at": "2026-09-28T18:05:25+08:00",
+  "repo": "C:/轻量项目/ace_task_queue",
+  "ruler": "git log --all --diff-filter=A --name-only --pretty=format:@@%h|%s ; author = card's own task.from (fallback task.id prefix) ; signer = subject-line `by: X@sess` ; bucket = directory the card was ADDED in (pending/ = dispatch hop where author must equal signer, running|done|blocked|failed = claim/close hop where a different signer is legitimate)",
+  "cards_with_author_and_signer": 52,
+  "author_signer_mismatches": 40,
+  "commits_without_c07_signer": 255,
+  "by_bucket": {
+    "dispatch": {
+      "cards": 15,
+      "author_ne_signer": 5,
+      "examples": [
+        {
+          "commit": "f76ac12",
+          "author": "Skill",
+          "signer": "C",
+          "path": "pending/for_A/20260928T1751_skill_T-20260928-S64__card-visibility-landing-basename-only.yaml"
+        },
+        {
+          "commit": "e3d20d6",
+          "author": "skill",
+          "signer": "C",
+          "path": "pending/for_A/20260928T1512_skill_T-20260928-S63__queue-repo-3-hops-unpushed.yaml"
+        },
+        {
+          "commit": "bad4668",
+          "author": "skill",
+          "signer": "C",
+          "path": "pending/for_A/20260928T1444_skill_T-20260928-S62__d-drive-assets-outside-preservation-ruler-scope.yaml"
+        },
+        {
+          "commit": "c80cc1d",
+          "author": "T",
+          "signer": "B",
+          "path": "pending/for_A/20260928T1342_B81_two-resident-timestamp-signer-rules-have-no-protocol-carrier.yaml"
+        },
+        {
+          "commit": "ed76edd",
+          "author": "skill",
+          "signer": "C",
+          "path": "pending/for_A/T-20260926-S39__id-and-filename-canon-conflict.yaml"
+        }
+      ]
+    },
+    "claim_or_close": {
+      "cards": 37,
+      "author_ne_signer": 35,
+      "examples": [
+        {
+          "commit": "1f4ed9e",
+          "author": "A",
+          "signer": "C",
+          "path": "done/T-20260928-A60__c23-missing-card-disposal.yaml"
+        },
+        {
+          "commit": "d91ffec",
+          "author": "O",
+          "signer": "A",
+          "path": "done/O59-20260928__tracked-card-missing-from-worktree-and-deleted-without-landing.yaml"
+        },
+        {
+          "commit": "8095a2f",
+          "author": "O",
+          "signer": "B",
+          "path": "done/O58-20260928__timestamp-ordering-and-signer-vs-owner-have-no-resident-rule.yaml"
+        },
+        {
+          "commit": "ad2a8cc",
+          "author": "T",
+          "signer": "B",
+          "path": "done/20260928T0600_B80_gate-entry-rule-exists-on-one-ruler-only.yaml"
+        },
+        {
+          "commit": "9dec5e3",
+          "author": "skill",
+          "signer": "C",
+          "path": "done/20260926T1033_Skill_s36-mechanism-upgrade-and-index-carrier.yaml"
+        },
+        {
+          "commit": "30dfa34",
+          "author": "skill",
+          "signer": "C",
+          "path": "done/T-20260926-S22__resumable-execution-node-and-panels.yaml"
+        },
+        {
+          "commit": "f3f9ef4",
+          "author": "skill",
+          "signer": "C",
+          "path": "done/20260926T0226_Skill_self-S24-capability-graph-diff.yaml"
+        },
+        {
+          "commit": "f3f9ef4",
+          "author": "skill",
+          "signer": "C",
+          "path": "done/20260926T0226_Skill_self-S25-combination-reverse-engineering.yaml"
+        }
+      ]
+    }
+  },
+  "dispatch_bucket_mismatches": [
+    {
+      "path": "pending/for_A/20260928T1751_skill_T-20260928-S64__card-visibility-landing-basename-only.yaml",
+      "adding_commit": "f76ac12",
+      "author": "Skill",
+      "author_from": "task.from",
+      "signer": "C",
+      "bucket": "dispatch",
+      "swept": true
+    },
+    {
+      "path": "pending/for_A/20260928T1512_skill_T-20260928-S63__queue-repo-3-hops-unpushed.yaml",
+      "adding_commit": "e3d20d6",
+      "author": "skill",
+      "author_from": "task.from",
+      "signer": "C",
+      "bucket": "dispatch",
+      "swept": true
+    },
+    {
+      "path": "pending/for_A/20260928T1444_skill_T-20260928-S62__d-drive-assets-outside-preservation-ruler-scope.yaml",
+      "adding_commit": "bad4668",
+      "author": "skill",
+      "author_from": "task.from",
+      "signer": "C",
+      "bucket": "dispatch",
+      "swept": true
+    },
+    {
+      "path": "pending/for_A/20260928T1342_B81_two-resident-timestamp-signer-rules-have-no-protocol-carrier.yaml",
+      "adding_commit": "c80cc1d",
+      "author": "T",
+      "author_from": "task.id prefix",
+      "signer": "B",
+      "bucket": "dispatch",
+      "swept": true
+    },
+    {
+      "path": "pending/for_A/T-20260926-S39__id-and-filename-canon-conflict.yaml",
+      "adding_commit": "ed76edd",
+      "author": "skill",
+      "author_from": "task.from",
+      "signer": "C",
+      "bucket": "dispatch",
+      "swept": true
+    }
+  ],
+  "all_rows_for_audit": [
+    {
+      "path": "pending/for_A/20260928T1635_O_O61__c19-acceptance-literal-lost-2b-to-a-write-then-revert.yaml",
+      "adding_commit": "e054bf1",
+      "author": "O",
+      "author_from": "task.from",
+      "signer": "O",
+      "bucket": "dispatch",
+      "swept": false
+    },
+    {
+      "path": "pending/for_A/20260928T1703_O_O62__stale-criterion-is-one-axis-so-it-cannot-tell-a-dead-claimant-from-a-live-long-turn.yaml",
+      "adding_commit": "e054bf1",
+      "author": "O",
+      "author_from": "task.from",
+      "signer": "O",
+      "bucket": "dispatch",
+      "swept": false
+    },
+    {
+      "path": "pending/for_A/20260928T1750_O_O63__c19-clause4-cwd-fetch-step-has-no-tool-in-the-headless-job-session-4of4.yaml",
+      "adding_commit": "e054bf1",
+      "author": "O",
+      "author_from": "task.from",
+      "signer": "O",
+      "bucket": "dispatch",
+      "swept": false
+    },
+    {
+      "path": "pending/for_A/20260928T1751_skill_T-20260928-S64__card-visibility-landing-basename-only.yaml",
+      "adding_commit": "f76ac12",
+      "author": "Skill",
+      "author_from": "task.from",
+      "signer": "C",
+      "bucket": "dispatch",
+      "swept": true
+    },
+    {
+      "path": "done/T-20260928-A60__c23-missing-card-disposal.yaml",
+      "adding_commit": "1f4ed9e",
+      "author": "A",
+      "author_from": "task.from",
+      "signer": "C",
+      "bucket": "claim_or_close",
+      "swept": true
+    },
+    {
+      "path": "pending/for_A/20260928T1736_F_F01__capsule-carrier-zero-callers.yaml",
+      "adding_commit": "352d101",
+      "author": "F",
+      "author_from": "task.from",
+      "signer": "F",
+      "bucket": "dispatch",
+      "swept": false
+    },
+    {
+      "path": "pending/for_A/20260928T1736_F_F02__capsule-carrier-not-on-onboarding-face.yaml",
+      "adding_commit": "352d101",
+      "author": "F",
+      "author_from": "task.from",
+      "signer": "F",
+      "bucket": "dispatch",
+      "swept": false
+    },
+    {
+      "path": "pending/for_A/20260928T1736_F_F03__task-admission-lacks-user-directive-type.yaml",
+      "adding_commit": "352d101",
+      "author": "F",
+      "author_from": "task.from",
+      "signer": "F",
+      "bucket": "dispatch",
+      "swept": false
+    },
+    {
+      "path": "pending/for_A/O60-20260928__checkers-take-now-but-no-flavor-contract-no-entry-guard.yaml",
+      "adding_commit": "95b03ec",
+      "author": "O",
+      "author_from": "task.id prefix",
+      "signer": "O",
+      "bucket": "dispatch",
+      "swept": false
+    },
+    {
+      "path": "done/O59-20260928__tracked-card-missing-from-worktree-and-deleted-without-landing.yaml",
+      "adding_commit": "d91ffec",
+      "author": "O",
+      "author_from": "task.id prefix",
+      "signer": "A",
+      "bucket": "claim_or_close",
+      "swept": true
+    },
+    {
+      "path": "pending/for_B/T-20260928-A61__c23-no-landing-and-second-host.yaml",
+      "adding_commit": "2a07c78",
+      "author": "A",
+      "author_from": "task.from",
+      "signer": "A",
+      "bucket": "dispatch",
+      "swept": false
+    },
+    {
+      "path": "pending/for_skill/T-20260928-A60__c23-missing-card-disposal.yaml",
+      "adding_commit": "2a07c78",
+      "author": "A",
+      "author_from": "task.from",
+      "signer": "A",
+      "bucket": "dispatch",
+      "swept": false
+    },
+    {
+      "path": "pending/for_A/20260928T1512_skill_T-20260928-S63__queue-repo-3-hops-unpushed.yaml",
+      "adding_commit": "e3d20d6",
+      "author": "skill",
+      "author_from": "task.from",
+      "signer": "C",
+      "bucket": "dispatch",
+      "swept": true
+    },
+    {
+      "path": "done/O09-20260926__queue_check_dies_with_exit1_and_no_output_on_three_card_shapes.yaml",
+      "adding_commit": "49a7472",
+      "author": "O",
+      "author_from": "task.from",
+      "signer": "O",
+      "bucket": "claim_or_close",
+      "swept": false
+    },
+    {
+      "path": "done/O07-20260926__queue_check-normalizes-verified-but-not-evidence-or-changed.yaml",
+      "adding_commit": "8b83c7d",
+      "author": "O",
+      "author_from": "task.from",
+      "signer": "O",
+      "bucket": "claim_or_close",
+      "swept": false
+    },
+    {
+      "path": "pending/for_A/20260928T1444_skill_T-20260928-S62__d-drive-assets-outside-preservation-ruler-scope.yaml",
+      "adding_commit": "bad4668",
+      "author": "skill",
+      "author_from": "task.from",
+      "signer": "C",
+      "bucket": "dispatch",
+      "swept": true
+    },
+    {
+      "path": "pending/for_B/T-20260928-A59__pending-age-second-host-in-b-resident-ruler.yaml",
+      "adding_commit": "1dfced2",
+      "author": "A",
+      "author_from": "task.from",
+      "signer": "A",
+      "bucket": "dispatch",
+      "swept": false
+    },
+    {
+      "path": "pending/for_A/20260928T1342_B81_two-resident-timestamp-signer-rules-have-no-protocol-carrier.yaml",
+      "adding_commit": "c80cc1d",
+      "author": "T",
+      "author_from": "task.id prefix",
+      "signer": "B",
+      "bucket": "dispatch",
+      "swept": true
+    },
+    {
+      "path": "done/O58-20260928__timestamp-ordering-and-signer-vs-owner-have-no-resident-rule.yaml",
+      "adding_commit": "8095a2f",
+      "author": "O",
+      "author_from": "task.id prefix",
+      "signer": "B",
+      "bucket": "claim_or_close",
+      "swept": true
+    },
+    {
+      "path": "done/20260928T0600_B80_gate-entry-rule-exists-on-one-ruler-only.yaml",
+      "adding_commit": "ad2a8cc",
+      "author": "T",
+      "author_from": "task.id prefix",
+      "signer": "B",
+      "bucket": "claim_or_close",
+      "swept": true
+    },
+    {
+      "path": "done/20260926T1033_Skill_s36-mechanism-upgrade-and-index-carrier.yaml",
+      "adding_commit": "9dec5e3",
+      "author": "skill",
+      "author_from": "task.from",
+      "signer": "C",
+      "bucket": "claim_or_close",
+      "swept": true
+    },
+    {
+      "path": "done/T-20260926-S22__resumable-execution-node-and-panels.yaml",
+      "adding_commit": "30dfa34",
+      "author": "skill",
+      "author_from": "task.from",
+      "signer": "C",
+      "bucket": "claim_or_close",
+      "swept": true
+    },
+    {
+      "path": "done/20260926T0226_Skill_self-S24-capability-graph-diff.yaml",
+      "adding_commit": "f3f9ef4",
+      "author": "skill",
+      "author_from": "task.from",
+      "signer": "C",
+      "bucket": "claim_or_close",
+      "swept": true
+    },
+    {
+      "path": "done/20260926T0226_Skill_self-S25-combination-reverse-engineering.yaml",
+      "adding_commit": "f3f9ef4",
+      "author": "skill",
+      "author_from": "task.from",
+      "signer": "C",
+      "bucket": "claim_or_close",
+      "swept": true
+    },
+    {
+      "path": "done/20260926T0226_Skill_self-S26-external-capability-inventory.yaml",
+      "adding_commit": "f3f9ef4",
+      "author": "skill",
+      "author_from": "task.from",
+      "signer": "C",
+      "bucket": "claim_or_close",
+      "swept": true
+    },
+    {
+      "path": "done/20260926T0226_Skill_self-S27-vault-admission-review.yaml",
+      "adding_commit": "f3f9ef4",
+      "author": "skill",
+      "author_from": "task.from",
+      "signer": "C",
+      "bucket": "claim_or_close",
+      "swept": true
+    },
+    {
+      "path": "done/20260926T0228_A_s14_answer_one_asset_two_records.yaml",
+      "adding_commit": "f3f9ef4",
+      "author": "A",
+      "author_from": "task.from",
+      "signer": "C",
+      "bucket": "claim_or_close",
+      "swept": true
+    },
+    {
+      "path": "done/20260926T0826_Skill_s33-archive-write-side-defects.yaml",
+      "adding_commit": "f3f9ef4",
+      "author": "skill",
+      "author_from": "task.from",
+      "signer": "C",
+      "bucket": "claim_or_close",
+      "swept": true
+    },
+    {
+      "path": "done/20260926T0828_Skill_s32-gate-carrier-fingerprint-binding.yaml",
+      "adding_commit": "f3f9ef4",
+      "author": "skill",
+      "author_from": "task.from",
+      "signer": "C",
+      "bucket": "claim_or_close",
+      "swept": true
+    },
+    {
+      "path": "done/20260926T0941_Skill_s34-vk-reversal-admission.yaml",
+      "adding_commit": "f3f9ef4",
+      "author": "skill",
+      "author_from": "task.from",
+      "signer": "C",
+      "bucket": "claim_or_close",
+      "swept": true
+    },
+    {
+      "path": "done/20260926T1035_Skill_s35-tool-lock-scope-criterion.yaml",
+      "adding_commit": "f3f9ef4",
+      "author": "skill",
+      "author_from": "task.from",
+      "signer": "C",
+      "bucket": "claim_or_close",
+      "swept": true
+    },
+    {
+      "path": "done/20260926T1506_A_skill-window-startup-three-step.yaml",
+      "adding_commit": "f3f9ef4",
+      "author": "A",
+      "author_from": "task.from",
+      "signer": "C",
+      "bucket": "claim_or_close",
+      "swept": true
+    },
+    {
+      "path": "done/20260926T1621_O_c-window-independent-outputmode.yaml",
+      "adding_commit": "f3f9ef4",
+      "author": "O",
+      "author_from": "task.from",
+      "signer": "C",
+      "bucket": "claim_or_close",
+      "swept": true
+    },
+    {
+      "path": "done/20260927T0102_Skill_s44-carrier-three-ghosts.yaml",
+      "adding_commit": "f3f9ef4",
+      "author": "skill",
+      "author_from": "task.from",
+      "signer": "C",
+      "bucket": "claim_or_close",
+      "swept": true
+    },
+    {
+      "path": "done/20260927T0154_Skill_s45-cron-skeleton.yaml",
+      "adding_commit": "f3f9ef4",
+      "author": "skill",
+      "author_from": "task.from",
+      "signer": "C",
+      "bucket": "claim_or_close",
+      "swept": true
+    },
+    {
+      "path": "done/B25-20260926__s18-verdict-return-emit-side-fidelity.yaml",
+      "adding_commit": "f3f9ef4",
+      "author": "B",
+      "author_from": "task.from",
+      "signer": "C",
+      "bucket": "claim_or_close",
+      "swept": true
+    },
+    {
+      "path": "done/B30-20260926__s20-s21-done-cards-fail-the-queue-own-gate.yaml",
+      "adding_commit": "f3f9ef4",
+      "author": "B",
+      "author_from": "task.from",
+      "signer": "C",
+      "bucket": "claim_or_close",
+      "swept": true
+    },
+    {
+      "path": "done/B31-20260926__s09-evidence-pointers-folded-spelling.yaml",
+      "adding_commit": "f3f9ef4",
+      "author": "B",
+      "author_from": "task.from",
+      "signer": "C",
+      "bucket": "claim_or_close",
+      "swept": true
+    },
+    {
+      "path": "done/B33-20260926__b31-card-stale-nested-lifecycle-block.yaml",
+      "adding_commit": "f3f9ef4",
+      "author": "B",
+      "author_from": "task.from",
+      "signer": "C",
+      "bucket": "claim_or_close",
+      "swept": true
+    },
+    {
+      "path": "done/T-20260926-A29__role-contract-writes-outputmode-as-value.yaml",
+      "adding_commit": "f3f9ef4",
+      "author": "A",
+      "author_from": "task.from",
+      "signer": "C",
+      "bucket": "claim_or_close",
+      "swept": true
+    },
+    {
+      "path": "done/T-20260926-S17__carrier-parseable-and-heartbeat-discipline.yaml",
+      "adding_commit": "f3f9ef4",
+      "author": "A",
+      "author_from": "task.from",
+      "signer": "C",
+      "bucket": "claim_or_close",
+      "swept": true
+    },
+    {
+      "path": "done/T-20260926-S19__role-pivot-capability-intelligence-landing.yaml",
+      "adding_commit": "f3f9ef4",
+      "author": "skill",
+      "author_from": "task.from",
+      "signer": "C",
+      "bucket": "claim_or_close",
+      "swept": true
+    },
+    {
+      "path": "done/T-20260926-S20__mechanism-graph-schema-and-first-extractions.yaml",
+      "adding_commit": "f3f9ef4",
+      "author": "skill",
+      "author_from": "task.from",
+      "signer": "C",
+      "bucket": "claim_or_close",
+      "swept": true
+    },
+    {
+      "path": "done/T-20260926-S21__ace-capability-graph-three-states.yaml",
+      "adding_commit": "f3f9ef4",
+      "author": "skill",
+      "author_from": "task.from",
+      "signer": "C",
+      "bucket": "claim_or_close",
+      "swept": true
+    },
+    {
+      "path": "done/T-20260926-S23__mechanism-graph-coverage.yaml",
+      "adding_commit": "f3f9ef4",
+      "author": "skill",
+      "author_from": "task.from",
+      "signer": "C",
+      "bucket": "claim_or_close",
+      "swept": true
+    },
+    {
+      "path": "done/T-20260927-A38__registry-root-unversioned-and-s15-shape-align.yaml",
+      "adding_commit": "f3f9ef4",
+      "author": "A",
+      "author_from": "task.from",
+      "signer": "C",
+      "bucket": "claim_or_close",
+      "swept": true
+    },
+    {
+      "path": "done/T-20260927-A41__s44-result-has-no-summary-key.yaml",
+      "adding_commit": "f3f9ef4",
+      "author": "A",
+      "author_from": "task.from",
+      "signer": "C",
+      "bucket": "claim_or_close",
+      "swept": true
+    },
+    {
+      "path": "running/T-20260928-A57__v5-uncommitted-face-skill.yaml",
+      "adding_commit": "d9ddbbd",
+      "author": "A",
+      "author_from": "task.from",
+      "signer": "C",
+      "bucket": "claim_or_close",
+      "swept": true
+    },
+    {
+      "path": "pending/for_A/T-20260926-S39__id-and-filename-canon-conflict.yaml",
+      "adding_commit": "ed76edd",
+      "author": "skill",
+      "author_from": "task.from",
+      "signer": "C",
+      "bucket": "dispatch",
+      "swept": true
+    },
+    {
+      "path": "running/20260928T0040_B_queue-box-invariant-has-no-carrier.yaml",
+      "adding_commit": "0dd920f",
+      "author": "T",
+      "author_from": "task.id prefix",
+      "signer": "A",
+      "bucket": "claim_or_close",
+      "swept": true
+    },
+    {
+      "path": "done/T-20260927-A51__write-side-drive-filter.yaml",
+      "adding_commit": "1437bf1",
+      "author": "T",
+      "author_from": "task.id prefix",
+      "signer": "A",
+      "bucket": "claim_or_close",
+      "swept": true
+    },
+    {
+      "path": "done/T-20260927-A55__window-liveness-reader-ignores-structured-last-run-at.yaml",
+      "adding_commit": "1f6e59c",
+      "author": "T",
+      "author_from": "task.id prefix",
+      "signer": "A",
+      "bucket": "claim_or_close",
+      "swept": true
+    }
+  ],
+  "caveats": [
+    "A `pending/` mismatch is not automatically a sweep: a window may legitimately commit a card it was asked to relay. The ruler cannot tell 'relayed on purpose' from 'swept by a bare commit' -- both look identical to a reader, and that indistinguishability IS the dispatched defect.",
+    "`--all` walks every ref, so a card renamed and re-added across refs can appear more than once; counts are per (card, adding commit), not per card.",
+    "commits_without_c07_signer counts cards whose adding commit has no `by: X@sess` subject at all -- those cannot be attributed by this ruler either way (advisory, not red)."
+  ],
+  "runtime_mutation": false
+}

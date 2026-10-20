@@ -34,6 +34,32 @@ from .task import TaskPool
 from .model_task_admission import ModelTaskAdmission
 
 
+def persona_hint_for(title: str, hypothesis: str = "") -> Dict[str, str]:
+    """生产接线点：R1人格矩阵进入调用链的唯一入口（无新调度器）.
+
+    优先 semantic_route（上下文感知），歧义/冲突交冥界，失败回落 keyword route，
+    再失败回落 assistant/customer_dialog，不阻断任务创建。
+    """
+    try:
+        from core.persona_matrix_router import PERSONA_DEFS, route as persona_route, semantic_route
+        text = f"{title or ''} {hypothesis or ''}"
+        try:
+            sem = semantic_route(text)
+            selected = str(sem.get("selected") or "")
+            # 语义明确单选则直接用；模糊/冲突的 judge 交给 keyword 仲裁复核
+            if selected and selected != "underworld_judge":
+                capability = str(PERSONA_DEFS.get(selected, {}).get("capability") or "customer_dialog")
+                return {"persona": selected, "capability": capability, "method": "semantic"}
+        except Exception:
+            pass
+        routed = persona_route(text)
+        selected = str(routed.get("selected") or "assistant")
+        capability = str(PERSONA_DEFS.get(selected, {}).get("capability") or "customer_dialog")
+        return {"persona": selected, "capability": capability, "method": "keyword"}
+    except Exception:
+        return {"persona": "assistant", "capability": "customer_dialog", "method": "fallback"}
+
+
 @dataclass
 class ConversionRule:
     """
@@ -188,6 +214,92 @@ def _valid_autonomous_maintenance_contract(contract: Any) -> bool:
     return True
 
 
+def _declare_data_class(admission: Dict[str, Any]) -> str:
+    """Class this task from what it will actually carry, not from a default.
+
+    Every task was born PRIVATE because `create_task` defaults to it, and nothing
+    ever changed it. Measured 2026-10-19: 1418 of 2173 tasks carried
+    data_class=PRIVATE, none by explicit request, and of the 94 that recorded
+    whether a model took part, zero did. A discovery candidate - whose entire
+    method is a research call - could never reach a model, so it completed as a
+    tokenisation of its own title and was archived with an outcome receipt.
+
+    The label has to describe the payload, so this reads it. A candidate whose
+    evidence is local file facts, counts and paths carries nothing that leaving
+    the process would expose, and the boundary already refuses credential-like
+    content at every egress target regardless of class. Anything whose evidence
+    quotes file content, or that cannot be read confidently, stays PRIVATE: the
+    default remains the safe answer, and this only earns its way out by proving
+    it does not need to be there.
+    """
+    try:
+        from core.mirror_constitution import contains_credential_like_content
+    except ImportError:
+        return "PRIVATE"
+
+    evidence = (admission or {}).get("evidence") or []
+    parts = []
+    for item in evidence:
+        if not isinstance(item, dict):
+            return "PRIVATE"
+        # Every field is read, not just the pointers. Reading only source_ref was
+        # the first version of this and it passed a record carrying
+        # `detail: "api_key=sk-..."` straight through as PUBLIC - the one
+        # outcome this function must never produce. A whitelist of safe fields
+        # is also a way to forget to update; a credential scan over the whole
+        # record is not.
+        for value in item.values():
+            if isinstance(value, (str, int, float)):
+                parts.append(str(value))
+            elif value is None or isinstance(value, bool):
+                continue
+            else:
+                # Nested structures are where quoted document bytes hide. The
+                # default has to cover that case, so they are not inspected.
+                return "PRIVATE"
+    blob = "\n".join(parts)
+
+    if not blob.strip():
+        return "PRIVATE"
+    try:
+        if contains_credential_like_content(blob):
+            return "PRIVATE"
+    except Exception:
+        return "PRIVATE"
+    return "PUBLIC"
+
+
+def _structural_gap_identity(state: Dict[str, Any]) -> str:
+    """The identity of a structural gap, per producer.
+
+    Four processes write `category="structural_gap"` and each already knows what
+    makes its own incident distinct: a lane's refused target, a dead component's
+    name, an unreachable rule's name, a runtime finding's kind. The dedup key those
+    producers used when recording is not carried on the observation, so it is
+    reconstructed here from the same fields rather than replaced by a new identity.
+
+    An empty string means the observation cannot be attributed to an incident, and
+    an unattributable gap is deliberately not converted: with no identity there is
+    nothing to deduplicate against, so converting it would mint one task per report.
+    """
+    if not isinstance(state, dict):
+        return ""
+    lane, region = state.get("lane"), state.get("region")
+    if lane and region:
+        kind = "unclaimed" if state.get("unclaimed") else "refused"
+        return f"lane:{kind}:{lane}:{region}"
+    component = state.get("component")
+    if component:
+        return f"component:{state.get('kind') or 'unwired'}:{component}"
+    rule = state.get("rule")
+    if rule:
+        return f"rule:{rule}"
+    kind = state.get("kind")
+    if kind:
+        return f"kind:{kind}"
+    return ""
+
+
 BUILTIN_RULES: List[ConversionRule] = [
     ConversionRule(
         name="discovery_candidate",
@@ -247,6 +359,20 @@ BUILTIN_RULES: List[ConversionRule] = [
                         "来源：{obs_id}",
     ),
     ConversionRule(
+        name="tension_question",
+        category="anomaly",
+        severity_min="medium",
+        condition_fn=lambda obs: isinstance(obs.system_state.get("tension_key"), str)
+        and len(obs.system_state.get("tension_key", "")) > 0,
+        task_title="验证系统自问 来源 {obs_id}：{description}",
+        task_priority="medium",
+        task_tags=["question_forge", "tension"],
+        task_hypothesis="系统在无人点名下提出了一个带 verification_plan 的问题"
+        "（见来源 observation 的 tension_key、evidence 与验证计划）。"
+        "按计划验证其真伪与价值，证实则推进，证伪则记录 counterexample。"
+        "来源 {obs_id}",
+    ),
+    ConversionRule(
         name="recent_errors",
         category="anomaly",
         severity_min="medium",
@@ -263,12 +389,45 @@ BUILTIN_RULES: List[ConversionRule] = [
         name="scheduled_task_inactive",
         category="improvement",
         severity_min="medium",
-        condition_fn=lambda obs: obs.system_state.get("task_never_run", False),
+        condition_fn=lambda obs: bool(obs.system_state.get("task_never_run", False))
+        or float(obs.system_state.get("hours_since", 0) or 0) > 48,
         task_title="激活自动化计划任务 — {obs_id}",
         task_priority="medium",
         task_tags=["ops", "automation"],
-        task_hypothesis="计划任务已安装但从未执行。"
+        task_hypothesis="计划任务已安装但从未执行，或上次执行已超过 48 小时。"
                         "系统失去了自动巡检和恢复能力。"
+                        "来源：{obs_id}",
+    ),
+    ConversionRule(
+        name="checkup_error",
+        category="health",
+        severity_min="medium",
+        condition_fn=lambda obs: isinstance(obs.system_state.get("checkup_snapshot"), dict)
+        and obs.system_state.get("checkup_snapshot", {}).get("overall") == "error",
+        task_title="巡检失败跟进 — {obs_id}",
+        task_priority="high",
+        task_tags=["ops", "patrol"],
+        task_hypothesis="定期巡检 overall=error，但失败明细只活在快照里。"
+                        "按快照逐条核对失败项，修好或降级误报项。"
+                        "来源：{obs_id}",
+    ),
+    ConversionRule(
+        name="structural_gap_review",
+        category="structural_gap",
+        severity_min="medium",
+        # This category had four producers and no consumer: the converter read these
+        # observations, matched nothing, and left them unconsumed in the queue - not
+        # even perception-only, which is reserved for host_session. So the three
+        # structural watches escalated into a channel that quietly accumulated. The
+        # rule is built from the same parts as the other nine - one category, a
+        # severity floor, a signature for dedup - so those escalations become work
+        # through the existing conversion path rather than a new mechanism.
+        condition_fn=lambda obs: bool(_structural_gap_identity(obs.system_state)),
+        task_title="结构性缺口复核 — {obs_id}",
+        task_priority="high",
+        task_tags=["governance", "structural_gap"],
+        task_hypothesis="独立进程观察到一个结构性缺口。需要确认它是否仍然成立、由谁处置，"
+                        "并决定它是被修复、被接受，还是该规则本来就多余。\n观察：{description}\n"
                         "来源：{obs_id}",
     ),
     ConversionRule(
@@ -423,6 +582,13 @@ class ObservationToTaskConverter:
         state field has to be present and its persistent rule must be false.
         This preserves generic terminal-task reuse while allowing a recovered
         incident to reopen when it genuinely returns.
+
+        Recovery is judged on the newest evidence, not on whichever observation
+        this loop reaches.  convert() walks the queue newest-first, so a stale
+        recovery observation left in the queue is processed *after* a relapse
+        observation that has already reopened the incident - and closing on it
+        erased the relapse in the same pass.  An incident may only close when no
+        newer observation contradicts the recovery.
         """
         state = obs.system_state if isinstance(obs.system_state, dict) else {}
         for rule in self.rules:
@@ -431,9 +597,45 @@ class ObservationToTaskConverter:
             required_key = "pending_scan" if rule.name == "fragment_backlog" else "last_mine_seed_scan"
             if required_key not in state or not rule.condition_fn or rule.condition_fn(obs):
                 continue
-            if rule.name in self._semantic_incidents:
-                self._semantic_incidents.pop(rule.name, None)
-                self._save_semantic_incidents()
+            if rule.name not in self._semantic_incidents:
+                continue
+            if self._newer_evidence_contradicts(rule, obs):
+                continue
+            self._semantic_incidents.pop(rule.name, None)
+            self._save_semantic_incidents()
+
+    def _newer_evidence_contradicts(self, rule: ConversionRule, obs: Observation) -> bool:
+        """True when a later observation still shows this rule's condition true.
+
+        Without this, recovery evidence that merely happens to sit in the queue
+        outranks evidence that is actually more recent, which is the reverse of
+        what the incident record is supposed to mean.
+
+        "Later" means recorded later, and that is the store's append order rather
+        than a wall-clock timestamp.  The daemon records several gap observations
+        inside one cycle (lexicon gap, fragment backlog, mine-seed idle), so two
+        records routinely share a timestamp.  Comparing times made neither of them
+        newer, which let a stale recovery observation left in the queue erase a
+        relapse recorded moments later in the same tick.  Positions have no ties.
+
+        An observation that has already fallen out of the bounded store cannot be
+        placed, and then no evidence is newer than it: the caller keeps the
+        incident instead of closing on something it cannot order.
+        """
+        store = list(getattr(self.observer, "_observations", None) or [])
+        obs_id = str(getattr(obs, "obs_id", "") or "")
+        position = None
+        for index, stored in enumerate(store):
+            if str(getattr(stored, "obs_id", "") or "") == obs_id:
+                position = index
+        if position is None:
+            return False
+        for other in store[position + 1:]:
+            if str(getattr(other, "category", "") or "") != rule.category:
+                continue
+            if not rule.condition_fn or rule.condition_fn(other):
+                return True
+        return False
 
     @staticmethod
     def _lexicon_gap_signature(state: Dict[str, Any]) -> tuple:
@@ -447,6 +649,72 @@ class ObservationToTaskConverter:
     def _normal_text(value: Any) -> str:
         """Normalize a diagnostic token without erasing its identity."""
         return re.sub(r"\s+", " ", str(value or "").strip().lower())
+
+    @classmethod
+    def _checkup_failed_probes(cls, state: Dict[str, Any]) -> tuple:
+        """Return the stable identity of a failing patrol: failed probe names.
+
+        Rolling counters (blocked counts, timestamps) are excluded on
+        purpose: the same red probe an hour later is the same incident, not
+        new work. Returns () when no failed probe can be determined; the
+        caller then keeps the legacy behavior (no dedup) instead of
+        collapsing distinct unknown failures into one task.
+        """
+        snapshot = state.get("checkup_snapshot")
+        if not isinstance(snapshot, dict):
+            return ()
+        # run_checkup stores the failing probes explicitly (compact form).
+        # Same names the legacy stdout-dump parse finds, so an incident
+        # keeps one identity across both snapshot shapes.
+        groups = snapshot.get("checks")
+        if isinstance(groups, dict):
+            health = groups.get("health")
+            if isinstance(health, dict) and isinstance(health.get("failed_checks"), list):
+                names = set()
+                for item in health["failed_checks"]:
+                    if isinstance(item, dict):
+                        name = cls._normal_text(item.get("name"))
+                    else:
+                        name = cls._normal_text(item)
+                    if name:
+                        names.add(name)
+                if names:
+                    return tuple(sorted(names))
+        if isinstance(groups, dict):
+            items = list(groups.items())
+        elif isinstance(groups, list):
+            items = [(None, probe) for probe in groups]
+        else:
+            return ()
+        names = set()
+        for key, probe in items:
+            if not isinstance(probe, dict):
+                continue
+            inner_checks = None
+            stdout = probe.get("stdout")
+            if isinstance(stdout, str) and stdout.strip():
+                try:
+                    inner = json.loads(stdout)
+                except (ValueError, TypeError):
+                    inner = None
+                if isinstance(inner, dict) and isinstance(inner.get("checks"), list):
+                    inner_checks = inner["checks"]
+            if inner_checks is None and isinstance(probe.get("checks"), list):
+                inner_checks = probe["checks"]
+            for check in inner_checks or []:
+                if not isinstance(check, dict):
+                    continue
+                if check.get("passed") is False:
+                    name = cls._normal_text(check.get("name"))
+                    if name:
+                        names.add(name)
+            if inner_checks is None:
+                returncode = probe.get("returncode")
+                if isinstance(returncode, int) and returncode != 0:
+                    group = cls._normal_text(key)
+                    if group:
+                        names.add("group:" + group)
+        return tuple(sorted(names))
 
     @classmethod
     def _semantic_signature(cls, rule: ConversionRule, state: Dict[str, Any]) -> str:
@@ -482,6 +750,24 @@ class ObservationToTaskConverter:
             payload = {"condition": bool((state.get("pending_scan", 0) or 0) > 500)}
         elif name == "scheduled_task_inactive":
             payload = {"condition": bool(state.get("task_never_run", False))}
+        elif name == "checkup_error":
+            failed = cls._checkup_failed_probes(state)
+            if not failed:
+                return ""
+            payload = {"failed_checks": list(failed)}
+        elif name == "tension_question":
+            # A question is re-asked every cycle by construction. Its identity is
+            # the question, not the asking: 78 observations carried 3 distinct
+            # tension_key values, and without this branch those became 78 tasks.
+            question = cls._normal_text(state.get("tension_key", ""))
+            if not question:
+                return ""
+            payload = {"tension_key": question}
+        elif name == "structural_gap_review":
+            identity = _structural_gap_identity(state)
+            if not identity:
+                return ""
+            payload = {"incident": identity}
         elif name == "disk_space_low":
             try:
                 free_pct = float(state.get("disk_free_pct", 0) or 0)
@@ -526,6 +812,9 @@ class ObservationToTaskConverter:
             "fragment_backlog",
             "scheduled_task_inactive",
             "disk_space_low",
+            "checkup_error",
+            "structural_gap_review",
+            "tension_question",
         }:
             return None
         signature = self._semantic_signature(rule, state)
@@ -547,9 +836,84 @@ class ObservationToTaskConverter:
             if incident.get("signature") == signature and incident.get("task_id"):
                 task = self.task_pool.load_task(str(incident["task_id"]))
                 if task is not None:
+                    # The incident's own task is usually archived by the time the
+                    # condition is re-observed - that is the normal steady state,
+                    # not recovery.  Refresh the incident here as the open-status
+                    # branch above does.  Without this the incident keeps pointing
+                    # at work that ended weeks ago and its last_observed_at freezes
+                    # at that moment, so "the condition is still true" is carried
+                    # by a stale record.  Same signature, same task_id: this only
+                    # restates that the condition was observed true now.  It does
+                    # not reopen the archived work; re-triggering is the watch and
+                    # escalation layer's call, not the poll loop's.
+                    self._record_persistent_incident(rule, state, task.task_id)
                     return task
                 self._semantic_incidents.pop(rule.name, None)
                 self._save_semantic_incidents()
+        return None
+
+    # Rules whose repeat observations must not become new work once their task has
+    # closed. Narrow on purpose: for a condition like a failed checkup, closing the
+    # task and seeing the condition again really is a new occurrence. A question the
+    # runtime asks itself is different - being asked again says the question is still
+    # unanswered, and "re-triggering is the watch and escalation layer's call, not the
+    # poll loop's" is this module's own rule. Measured 2026-10-18: roughly sixteen
+    # self-question tasks an hour, each archived minutes after creation, on a pool
+    # whose real work was being drowned.
+    #
+    # `structural_gap_review` joined that set for the same measured reason: 13 tasks in
+    # four hours against 4 distinct signatures, two of which minted 6 and 5 tasks
+    # because the previous task had been archived and nothing carried the incident.
+    RE_TRIGGER_SUPPRESSED = {"tension_question", "structural_gap_review"}
+
+    # Within a suppressed rule, only *standing* incidents are re-trigger suppressed.
+    # A structural gap can also be a discrete runtime event, and the daemon dying
+    # again next week is a new occurrence rather than the same unanswered condition.
+    # Suppressing that would trade churn for invisibility, which is the same mistake
+    # pointed the other way. Standing identities are the ones whose producers describe
+    # a condition that simply persists: an unreachable rule, an unwired component, a
+    # lane that refuses a write.
+    STANDING_IDENTITY_PREFIXES = ("rule:", "component:", "lane:")
+
+    def _re_trigger_suppressed(self, rule: ConversionRule, state: Dict[str, Any]):
+        """Whether a repeat of this observation may reuse a closed task.
+
+        Returns (suppressed, reason). The reason is part of the answer on purpose:
+        "why did this repeat not become work" is the question a reader of the store
+        will ask, and a bare boolean makes the two very different cases - a standing
+        condition, and a discrete event that happens to share a rule - look alike.
+        """
+        if rule.name not in self.RE_TRIGGER_SUPPRESSED:
+            return False, "rule_not_in_suppressed_set"
+        if rule.name == "structural_gap_review":
+            identity = _structural_gap_identity(state)
+            if not identity:
+                return False, "no_incident_identity"
+            if not identity.startswith(self.STANDING_IDENTITY_PREFIXES):
+                return False, "discrete_event:" + identity.split(":", 1)[0]
+        return True, "standing_condition_already_carried"
+
+    def _closed_semantic_carrier(self, rule: ConversionRule, state: Dict[str, Any]):
+        """A closed task that already carries this exact incident.
+
+        Used only for suppressed re-triggers: the observation is marked consumed
+        against the closed task rather than minting a successor, and the task itself
+        is left alone - re-opening archived work is the escalation layer's decision,
+        not this loop's.
+        """
+        suppressed, _reason = self._re_trigger_suppressed(rule, state)
+        if not suppressed:
+            return None
+        signature = self._semantic_signature(rule, state)
+        if not signature:
+            return None
+        for status in ("archived", "graveyard", "rejected"):
+            for task in self.task_pool.list_tasks(status=status, limit=10000):
+                outputs = task.outputs if isinstance(getattr(task, "outputs", None), dict) else {}
+                if outputs.get("conversion_rule") != rule.name:
+                    continue
+                if self._task_semantic_signature(task, rule) == signature:
+                    return task
         return None
 
     def _convert_discovery_candidate(
@@ -585,6 +949,9 @@ class ObservationToTaskConverter:
         ]
         if learning is not None:
             tags.append("learning")
+        # R1人格矩阵生产接线：标题映射为 persona/capability 标签
+        _hint = persona_hint_for(str(discovery.get("title", "")), str(discovery.get("objective", "")))
+        tags = list(tags) + [f"persona:{_hint['persona']}", f"capability:{_hint['capability']}"]
         source_type = "learning" if learning is not None else "maintenance"
         if discovery.get("candidate_source") == "archaeology":
             source_type = "archaeology"
@@ -634,12 +1001,18 @@ class ObservationToTaskConverter:
             priority=discovery["priority"],
             tags=tags,
             admission=admission,
+            data_class=_declare_data_class(admission),
             outputs={
                 "source_obs_id": obs.obs_id,
                 "source_obs_description": obs.description,
                 "discovery": dict(discovery),
                 "autonomous_maintenance": dict(contract),
                 "model_task_admission": decision,
+                "persona_hint": _hint,
+                "state_lineage": [
+                    {"state": "A", "reason": "observe"},
+                    {"state": "U", "reason": "discovery_candidate"},
+                ],
                 **({"learning": dict(learning)} if learning is not None else {}),
             },
         )
@@ -753,6 +1126,22 @@ class ObservationToTaskConverter:
                         "existing_task_id": duplicate.task_id,
                     })
                     break
+                carrier = self._closed_semantic_carrier(rule, state)
+                if carrier is not None:
+                    # The same incident was already carried to a terminal task. The
+                    # observation is consumed against that task so the finding is
+                    # not left looking unhandled, and no successor is minted.
+                    self.observer.mark_consumed(obs.obs_id, carrier.task_id)
+                    self._mark_triggered(obs.obs_id)
+                    result["skipped"] += 1
+                    result["semantic_duplicates"] += 1
+                    result["details"].append({
+                        "obs_id": obs.obs_id,
+                        "rule": rule.name,
+                        "status": "re_trigger_suppressed",
+                        "carrying_task_id": carrier.task_id,
+                    })
+                    break
                 gap_categories_raw = state.get("gap_categories")
                 gap_categories = gap_categories_raw if isinstance(gap_categories_raw, list) else []
                 format_args = {
@@ -800,18 +1189,26 @@ class ObservationToTaskConverter:
                 }
 
                 try:
+                    # R1人格矩阵生产接线：规则任务同样打标 persona/capability
+                    _hint2 = persona_hint_for(str(task_params.get("title", "")), str(task_params.get("hypothesis", "")))
+                    _tags2 = list(task_params.get("tags", [])) + [f"persona:{_hint2['persona']}", f"capability:{_hint2['capability']}"]
                     task = self.task_pool.create_task(
                         title=task_params["title"],
                         hypothesis=task_params["hypothesis"],
                         creator=task_params["creator"],
                         priority=task_params["priority"],
-                        tags=task_params["tags"],
+                        tags=_tags2,
                         admission=admission,
                         outputs={
                             "source_obs_id": task_params["source_obs_id"],
                             "source_obs_description": obs.description,
                             "conversion_rule": rule.name,
                             "semantic_signature": self._semantic_signature(rule, state),
+                            "persona_hint": _hint2,
+                            "state_lineage": [
+                                {"state": "A", "reason": "observe"},
+                                {"state": "U", "reason": rule.name},
+                            ],
                         },
                     )
                     self.observer.mark_consumed(obs.obs_id, task.task_id)

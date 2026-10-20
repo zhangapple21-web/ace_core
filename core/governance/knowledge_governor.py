@@ -76,22 +76,46 @@ class Governor:
         - 仓库分类 = 知识重要性分级
     """
 
+    @staticmethod
+    def _resolve_base(ace_runtime_dir: str) -> Path:
+        """Return the canonical ACE root that actually owns Knowledge/Governance.
+
+        Callers pass different directory shapes (``06_RUNTIME/ace`` from the
+        daemon, a scratch root from offline tests).  ``09_KNOWLEDGE`` is the
+        anchor because it is the one canonical long-term store; it is preferred
+        over ``08_GOVERNANCE`` so that a shadow governance directory nested
+        under ``06_RUNTIME/ace`` can never capture the records.  Without this
+        resolution every dedup search silently scanned paths that nothing
+        writes, so "search before add" could never observe real knowledge.
+        """
+        given = Path(ace_runtime_dir).resolve()
+        ancestors = [given, *given.parents]
+        for marker in ("09_KNOWLEDGE", "08_GOVERNANCE"):
+            for candidate in ancestors:
+                if (candidate / marker).is_dir():
+                    return candidate
+        return given
+
     def __init__(self, ace_runtime_dir: str):
         """
         初始化治理者
 
         Args:
-            ace_runtime_dir: ACE Runtime根目录
+            ace_runtime_dir: ACE Runtime根目录（可为其子目录，自动解析到根）
         """
-        self.ace_runtime_dir = Path(ace_runtime_dir)
+        self.ace_runtime_dir = self._resolve_base(ace_runtime_dir)
         self.data_dir = self.ace_runtime_dir / "08_GOVERNANCE"
         self.records_dir = self.data_dir / "governor"
         self.records_dir.mkdir(parents=True, exist_ok=True)
 
-        # 知识库路径
-        self.experiences_file = self.ace_runtime_dir / "09_KNOWLEDGE" / "experiences.json"
+        # 知识库路径。canonical Knowledge 由 ExperienceDeposition 写成
+        # ``09_KNOWLEDGE/index.json`` + ``09_KNOWLEDGE/<type>/EXP-*.json``；
+        # 去重搜索必须读同一份权威，不能读一个从未被写入的平行文件。
+        self.knowledge_dir = self.ace_runtime_dir / "09_KNOWLEDGE"
+        self.knowledge_index_file = self.knowledge_dir / "index.json"
+        self.experiences_file = self.knowledge_dir / "experiences.json"
         self.lexicon_file = self.ace_runtime_dir / "06_RUNTIME" / "ace" / "data" / "memory" / "lexicon.json"
-        self.evolution_file = self.ace_runtime_dir / "09_KNOWLEDGE" / "evolution.json"
+        self.evolution_file = self.knowledge_dir / "evolution.json"
 
         # Knowledge Decision 记录
         self.knowledge_records_file = self.records_dir / "knowledge_governor_records.jsonl"
@@ -251,6 +275,69 @@ class Governor:
 
         return result
 
+    def _canonical_knowledge_records(self, limit: int = 400) -> List[Dict[str, Any]]:
+        """Read the canonical Knowledge index maintained by ExperienceDeposition.
+
+        ``09_KNOWLEDGE/index.json`` plus ``09_KNOWLEDGE/<type>/EXP-*.json`` is
+        the only real long-term knowledge store.  Searching a path nothing ever
+        writes makes every admission look novel, which is how duplicate
+        knowledge accumulated unnoticed.
+        """
+        records: List[Dict[str, Any]] = []
+        seen_ids = set()
+        if self.knowledge_index_file.exists():
+            try:
+                index = json.loads(self.knowledge_index_file.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                index = {}
+            if isinstance(index, dict):
+                for key, value in index.items():
+                    if not isinstance(value, dict):
+                        continue
+                    path_text = str(value.get("path", ""))
+                    if path_text:
+                        try:
+                            payload = json.loads(Path(path_text).read_text(encoding="utf-8"))
+                        except (OSError, ValueError):
+                            payload = {}
+                        conclusion = str(payload.get("conclusion") or value.get("conclusion") or "")
+                        kind = str(payload.get("experience_type") or value.get("type") or "experience")
+                        source_task = str(payload.get("source_task_id") or value.get("source_task") or "")
+                    else:
+                        conclusion = str(value.get("conclusion", ""))
+                        kind = str(value.get("type", "experience"))
+                        source_task = str(value.get("source_task", ""))
+                    records.append({
+                        "type": kind,
+                        "id": str(key),
+                        "title": conclusion,
+                        "conclusion": conclusion,
+                        "source_task": source_task,
+                    })
+                    seen_ids.add(str(key))
+        if len(records) < limit:
+            for exp_type in ("axiom", "constraint", "pattern", "lesson", "observation"):
+                directory = self.knowledge_dir / exp_type
+                if not directory.is_dir():
+                    continue
+                for path in sorted(directory.glob("EXP-*.json")):
+                    if str(path.name) in seen_ids or path.stem in seen_ids:
+                        continue
+                    try:
+                        payload = json.loads(path.read_text(encoding="utf-8"))
+                    except (OSError, ValueError):
+                        continue
+                    records.append({
+                        "type": exp_type,
+                        "id": str(payload.get("experience_id") or path.stem),
+                        "title": str(payload.get("conclusion", "")),
+                        "conclusion": str(payload.get("conclusion", "")),
+                        "source_task": str(payload.get("source_task_id", "")),
+                    })
+                    if len(records) >= limit:
+                        break
+        return records
+
     def _search_existing_knowledge(self, knowledge: Dict[str, Any]) -> List[Dict[str, Any]]:
         """
         搜索现有知识 - Add之前必须先搜索
@@ -259,6 +346,31 @@ class Governor:
         """
         similar = []
         knowledge_type = knowledge.get("type", knowledge.get("artifact_type", "experience"))
+
+        # 0. 搜索 canonical Knowledge（唯一长期知识真源）
+        target_text = " ".join(
+            str(knowledge.get(field, ""))
+            for field in ("title", "conclusion", "content", "description")
+        ).strip().lower()
+        if target_text:
+            for record in self._canonical_knowledge_records():
+                existing_text = str(record.get("title", "")).strip().lower()
+                if not existing_text:
+                    continue
+                if existing_text == target_text:
+                    similarity = 1.0
+                elif existing_text in target_text or target_text in existing_text:
+                    similarity = 0.8
+                else:
+                    similarity = 0.0
+                if similarity > 0.5:
+                    similar.append({
+                        "type": record["type"],
+                        "id": record["id"],
+                        "title": record["title"],
+                        "similarity": similarity,
+                        "reason": "canonical knowledge index 命中",
+                    })
 
         # 1. 搜索经验库
         if self.experiences_file.exists():

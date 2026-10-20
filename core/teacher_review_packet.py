@@ -7,14 +7,27 @@ traceable shortlist based on fresh or recent multi-day evidence.
 
 from __future__ import annotations
 
+import hashlib
+import json
 from datetime import datetime
 from typing import Any, Mapping, Sequence
 
 from .teacher_review_research import assess_teacher_review_lane
 from .ultrashort_factor_profile import summarize_daily_opportunity
+from .ultrashort_review import metadata as review_boundary_metadata
 
 
 CONTRACT_VERSION = "ace.teacher_review_packet.v1"
+
+
+def _snapshot_hash(*, packet_id: str, as_of: str, cards: Sequence[Mapping[str, Any]]) -> str:
+    payload = {
+        "packet_id": str(packet_id),
+        "as_of": str(as_of),
+        "candidate_cards": [dict(card) for card in cards],
+    }
+    encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
 
 
 def _parse_time(value: Any) -> datetime:
@@ -101,14 +114,30 @@ def build_teacher_review_packet(
             for field in ("attack_grade", "conviction", "risk_level"):
                 if field in raw:
                     cards[-1][field] = str(raw[field]).strip().upper()
+            # Carry the user-supplied old-hand playbook as a bounded research
+            # context.  It is lineage only: it cannot change the factor score,
+            # grade, risk level or teacher/delivery authority.
+            playbook = raw.get("playbook_context")
+            if playbook is not None:
+                if not isinstance(playbook, Mapping):
+                    raise ValueError("candidate playbook_context must be a mapping")
+                cards[-1]["playbook_context"] = dict(playbook)
+                cards[-1]["playbook_context"]["research_status"] = "RESEARCH_ONLY"
+                cards[-1]["playbook_context"]["changes_candidate_grade"] = False
     graded_cards = [
         card for card in cards
         if all(field in card for field in ("attack_grade", "conviction", "risk_level"))
     ]
+    snapshot_as_of = _parse_time(as_of).isoformat()
+    snapshot_hash = _snapshot_hash(packet_id=str(packet_id), as_of=snapshot_as_of, cards=cards)
     if graded_cards == cards and cards:
-        opportunity_call = summarize_daily_opportunity(cards)
+        opportunity_call = summarize_daily_opportunity(
+            cards, observed_at=snapshot_as_of, snapshot_id=str(packet_id), snapshot_hash=snapshot_hash
+        )
     elif not cards:
-        opportunity_call = summarize_daily_opportunity([])
+        opportunity_call = summarize_daily_opportunity(
+            [], observed_at=snapshot_as_of, snapshot_id=str(packet_id), snapshot_hash=snapshot_hash
+        )
     else:
         opportunity_call = {
             "daily_signal": "GRADE_CALL_UNAVAILABLE",
@@ -120,6 +149,12 @@ def build_teacher_review_packet(
             "candidate_count": len(cards),
             "no_a_reason": "candidate_grade_axes_missing",
             "semantics": "daily_opportunity_truthful_no_force_two_names; research_only",
+            "call_scope": "POINT_IN_TIME_SNAPSHOT",
+            "snapshot_as_of": snapshot_as_of,
+            "snapshot_id": str(packet_id),
+            "snapshot_hash": snapshot_hash,
+            "outcome_status": "PENDING_REVIEW",
+            "final_daily_grade_not_claimed": True,
         }
     return {
         "contract_version": CONTRACT_VERSION,
@@ -142,6 +177,7 @@ def build_teacher_review_packet(
         },
         "opportunity_call": opportunity_call,
         "teacher_confirmation_required": True,
+        "review_boundary": review_boundary_metadata(),
         "delivery": {"mode": "MANUAL_ONLY", "telegram_send_performed": False, "order_placed": False},
         "disclaimer": "仅供老师审阅；不构成投资建议，不含目标价、下单或收益保证。",
     }

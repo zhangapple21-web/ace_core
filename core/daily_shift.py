@@ -204,6 +204,23 @@ class DailyShift:
         free_zone_model_shift = self._free_zone_model_shift_summary(state)
         paper_evaluation = PaperEvaluationJournal(str(self.data_dir)).summary()
         refresh = window.get("data_refresh") if isinstance(window.get("data_refresh"), dict) else {}
+        if not refresh:
+            # The finance module records the refresh inside each window entry, not at
+            # the top level of the same file, so this used to read a key nothing writes
+            # and print its default over a refresh that had run. Measured 2026-10-19:
+            # `open_validation` carried the record while the top level was null. Read
+            # the most recently observed window that has one.
+            per_window = window.get("daily_windows")
+            if isinstance(per_window, dict):
+                for name in sorted(
+                    per_window,
+                    key=lambda key: str((per_window[key] or {}).get("observed_at") or "")
+                    if isinstance(per_window.get(key), dict) else "",
+                ):
+                    candidate = (per_window.get(name) or {}).get("data_refresh")
+                    if isinstance(candidate, dict) and candidate:
+                        refresh = candidate
+                        break
         if refresh.get("status") == "already_attempted_for_window":
             initial = refresh.get("initial_result")
             refresh_evidence = initial if isinstance(initial, dict) else refresh
@@ -258,6 +275,8 @@ class DailyShift:
                 "pending_outcome_verification_count": growth.get("pending_outcome_verification_count", 0),
                 "attempted_production_model_call_count": growth.get("attempted_production_model_call_count", 0),
                 "successful_production_model_call_count": growth.get("successful_production_model_call_count", growth.get("production_model_call_count", 0)),
+                "blocked_before_dispatch_count": growth.get("blocked_before_dispatch_count", 0),
+                "blocked_before_dispatch_reasons": growth.get("blocked_before_dispatch_reasons", {}),
                 "production_model_call_count": growth.get("production_model_call_count", 0),
                 "production_model_call_semantics": growth.get("production_model_call_semantics", {}),
                 "experience_deposition": growth.get("verified_outcome_count", 0) > 0,
@@ -321,6 +340,18 @@ class DailyShift:
             self.json_path,
             json.dumps(report, ensure_ascii=False, indent=2) + "\n",
         )
+        blocked_before_dispatch = report["completed_work"]["blocked_before_dispatch_count"]
+        if blocked_before_dispatch:
+            # Name the refused dispatches on the same line as the zero they explain,
+            # so "0 successful" cannot be read as "the models are failing".
+            reasons = ", ".join(
+                sorted(report["completed_work"]["blocked_before_dispatch_reasons"])
+            ) or "unnamed"
+            blocked_clause = (
+                f" ({blocked_before_dispatch} blocked before dispatch: {reasons})"
+            )
+        else:
+            blocked_clause = ""
         self._atomic_write_text(
             self.md_path,
             "\n".join([
@@ -335,8 +366,8 @@ class DailyShift:
                 f"- Market review: `{report['market_review'].get('market_state', 'NOT_RECORDED')}`; counter-evidence `{len(report['market_review'].get('counter_evidence', []))}` items; invalidating conditions `{len(report['market_review'].get('invalidating_conditions', []))}`; next validation recorded",
                 f"- Evaluation slots: target `{report['finance_evaluation']['evaluation_pick_target']}`, eligible `{report['finance_evaluation']['evaluation_pick_count']}`, status `{report['finance_evaluation']['status']}`; publication authority `{report['finance_evaluation']['publication_authority']}`",
                 f"- Finance post-mortem: `{report['finance_postmortem']['status']}`; eligible prior records `{report['finance_postmortem']['eligible_record_count']}`",
-                f"- Live data refresh: `{report['finance_live_refresh'].get('status', 'NOT_RUN')}`; operations `{report['finance_live_refresh'].get('operations', [])}`; sources `{report['finance_live_refresh'].get('sources', [])}`",
-                f"- Execution and outcomes: `{report['completed_work']['today_cumulative_archived_task_count']}` archived records, `{report['completed_work']['archived_model_task_count']}` admitted model-task records; `{report['completed_work']['attempted_production_model_call_count']}` attempted / `{report['completed_work']['successful_production_model_call_count']}` successful production model calls; independently verified outcomes `{report['completed_work']['verified_outcome_count']}`, pending independent verification `{report['completed_work']['pending_outcome_verification_count']}`",
+                f"- Live data refresh: `{report['finance_live_refresh'].get('status', 'NO_RECORD')}`; operations `{report['finance_live_refresh'].get('operations', [])}`; sources `{report['finance_live_refresh'].get('sources', [])}`",
+                f"- Execution and outcomes: `{report['completed_work']['today_cumulative_archived_task_count']}` archived records, `{report['completed_work']['archived_model_task_count']}` admitted model-task records; `{report['completed_work']['attempted_production_model_call_count']}` attempted{blocked_clause} / `{report['completed_work']['successful_production_model_call_count']}` successful production model calls; independently verified outcomes `{report['completed_work']['verified_outcome_count']}`, pending independent verification `{report['completed_work']['pending_outcome_verification_count']}`",
                 f"- Model performance: `{report['model_performance'].get('group_count', 0)}` groups, shadow-only `{report['model_performance'].get('shadow_only', True)}`",
                 f"- Daily learning: recorded `{report['daily_learning'].get('outcome', 'NOT_RECORDED')}`; task `{report['daily_learning'].get('task_runtime', {}).get('task_id', 'NOT_RECORDED')}` currently `{report['daily_learning'].get('task_runtime', {}).get('status', 'NOT_RECORDED')}`; external `{report['daily_learning'].get('external_learning', {}).get('status', 'NOT_RECORDED')}`",
                 f"- TaskPool current snapshot: `{counts}` (not daily totals)",

@@ -32,6 +32,7 @@ from pathlib import Path
 from datetime import datetime
 from typing import Dict, List, Any, Optional
 from dataclasses import dataclass, field
+from core.mirror_constitution import validate_data_boundary
 
 
 TRIGGER_TYPES = [
@@ -279,6 +280,7 @@ class AutonomousKernel:
         providers: Optional[List[str]] = None,
         experiment_id: Optional[str] = None,
         max_tokens: int = 500,
+        data_class: str = "PRIVATE",
     ) -> Dict[str, Any]:
         """
         对照实验：同一输入跑所有（或指定）provider，收集输出做对比。
@@ -286,6 +288,24 @@ class AutonomousKernel:
         注意：这不是顺序 fallback，是故意每个都跑一遍做对比。
         即使第一个成功了，后面的也要跑，因为目的是对照，不是快速返回。
         """
+        boundary = validate_data_boundary(
+            {"data_class": data_class},
+            target="MODEL_CONTEXT",
+            payload={"prompt": prompt, "system_prompt": system_prompt},
+        )
+        if not boundary["valid"]:
+            return {
+                "status": "BLOCKED",
+                "reason": "DATA_BOUNDARY_BLOCKED",
+                "data_boundary": {
+                    "data_class": boundary.get("data_class"),
+                    "target": boundary.get("target"),
+                    "allowed": False,
+                    "errors": boundary.get("errors", []),
+                },
+                "provider_calls": 0,
+            }
+
         if not experiment_id:
             experiment_id = f"exp_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{self._experiment_count}"
         self._experiment_count += 1
@@ -307,6 +327,7 @@ class AutonomousKernel:
                     system_prompt=system_prompt,
                     model=self._provider_model(provider_name),
                     max_tokens=max_tokens,
+                    data_boundary={"data_class": data_class},
                 )
                 results[provider_name] = {
                     "success": result.get("success", False),
@@ -330,6 +351,7 @@ class AutonomousKernel:
             "prompt": prompt,
             "system_prompt": system_prompt,
             "providers": target_providers,
+            "data_class": data_class,
             "results": results,
         }
 
@@ -342,8 +364,14 @@ class AutonomousKernel:
         """provider 的默认模型"""
         defaults = {
             "glm": "glm-4-flash",
-            "openrouter": "anthropic/claude-3.5-sonnet",
-            "nim": "deepseek-ai/deepseek-v4-flash",
+            # 2026-10-13 修正: 原 "deepseek-ai/deepseek-v4-flash" 已被 NVIDIA 下架
+            # (HTTP 410 Gone)。曾改为 deepseek-v4.1-flash, 但同日 3 连发深测显示
+            # 它经 NIM 直连 0/3 (45s 超时, 路由在但 effectively 不可用),
+            # 故默认指向 3/3 稳定的 nemotron-3-super-120b-a12b。
+            # v4.1-flash 的生产路径仍是 Shenwen 专用通道, 与 NIM 无关。
+            # 注意: kernel 的 _provider_model 只在未显式指定模型时兜底,
+            # 生产路由仍以 08_GOVERNANCE/provider_registry + health score 为准。
+            "nim": "nvidia/nemotron-3-super-120b-a12b",
             "apiyi": "gemini-pro",
             "sambanova": "Meta-Llama-3.1-405B-Instruct",
             "oneapi": os.environ.get("ONEAPI_MODEL", "gpt-5.4-mini"),

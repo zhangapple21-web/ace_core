@@ -44,5 +44,14 @@ class OneAPIModelCatalog:
             for item in payload.get("data", [])
             if isinstance(item, dict) and isinstance(item.get("id"), str)
         }
+        # LiteLLM/OneAPI may answer with the public gateway model id while
+        # callers use a provider-qualified alias.  Keep validation strict on
+        # the actual catalog but normalize only the harmless ``provider:``
+        # prefix used by ACE's router.
+        models.update(
+            item.split(":", 1)[1]
+            for item in list(models)
+            if isinstance(item, str) and ":" in item
+        )
         self._cache[cache_key] = (now, models)
         return models

@@ -1,0 +1,94 @@
+{
+  "contract_version": "ace.hindsight_memory_adapter.v1",
+  "benchmark": "synthetic_hindsight_style_ab",
+  "status": "PASS",
+  "baseline_hit_rate": 0.0,
+  "adapter_hit_rate": 1.0,
+  "baseline_mrr": 0.0,
+  "adapter_mrr": 1.0,
+  "baseline_precision_at_3": 0.0,
+  "adapter_precision_at_3": 0.3333333333333333,
+  "baseline_median_latency_ms": 0.006,
+  "adapter_median_latency_ms": 0.2005,
+  "adapter_warm_median_latency_ms": 0.1321,
+  "boundary_rejections": 1,
+  "boundary_leaks": 0,
+  "external_model_calls": 0,
+  "network_calls": 0,
+  "estimated_llm_cost_usd": 0.0,
+  "temporal_expected_top1": true,
+  "dedup_input_evidence": 2,
+  "dedup_unique_evidence": 2,
+  "case_results": [
+    {
+      "query": "抬头 手部",
+      "expected": [
+        "m-video"
+      ],
+      "baseline": [],
+      "adapter": [
+        "m-video",
+        "m-routing"
+      ]
+    },
+    {
+      "query": "远程上班 安全",
+      "expected": [
+        "m-routing"
+      ],
+      "baseline": [],
+      "adapter": [
+        "m-routing"
+      ]
+    },
+    {
+      "query": "2026-09-20 连续性",
+      "expected": [
+        "m-video"
+      ],
+      "baseline": [],
+      "adapter": [
+        "m-video",
+        "m-routing",
+        "m-old"
+      ]
+    }
+  ],
+  "consolidation": {
+    "contract_version": "ace.hindsight_memory_adapter.v1",
+    "observations": [
+      {
+        "observation_id": "OBS-ddeb902628c32965",
+        "observation_key": "video.action_continuity",
+        "status": "CANDIDATE_OBSERVATION",
+        "support_count": 2,
+        "source_record_ids": [
+          "obs-1",
+          "obs-2"
+        ],
+        "evidence": [
+          {
+            "evidence_sha256": "a413294a38b6f9141ab9f90fce2bcc1ccdf532af0a62c468adfa414ca64f6e79",
+            "source_ref_sha256": "d9426c8932c5cf37b8c68f303ed1afffe7e36e9f8f67d5008e1bbe564e76f90b",
+            "has_source_ref": true
+          },
+          {
+            "evidence_sha256": "41289e6bbb402cc57ddb03444e4988a4245e3cad92b664ccd5fe0560071262ce",
+            "source_ref_sha256": "29abc532f14796e30a715dc2f5996be93a4103ce999c6db1593936d5c2d27826",
+            "has_source_ref": true
+          }
+        ],
+        "data_class": "STRUCTURE",
+        "execution_authorized": false,
+        "production_integration": false
+      }
+    ],
+    "rejected": [],
+    "promotion_status": "CANDIDATE_ONLY",
+    "execution_authorized": false,
+    "production_integration": false
+  },
+  "execution_authorized": false,
+  "production_integration": false,
+  "promotion_decision": "NOT_AUTOMATICALLY_PROMOTED"
+}

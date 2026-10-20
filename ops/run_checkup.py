@@ -1,4 +1,4 @@
-﻿# ACE 运维脚本 - 巡检执行器 (ID-08)
+# ACE 运维脚本 - 巡检执行器 (ID-08)
 #
 # 每30/60分钟自动执行：
 #   1. 健康检查
@@ -36,6 +36,17 @@ def run_script(script_name: str, args: list = None) -> dict:
             cmd,
             capture_output=True,
             text=True,
+            # The checks this runs write UTF-8 (they report on Chinese task
+            # titles). `text=True` alone decodes with the *locale* encoding,
+            # which on this host is GBK, so any Chinese byte in the child's
+            # output raised UnicodeDecodeError inside the reader thread. That
+            # killed the reader, lost the output and made the hourly task exit
+            # non-zero - a green-looking patrol that could not read what it was
+            # patrolling. errors="replace" keeps a malformed byte from
+            # aborting the read at all; the child was UTF-8 and must be decoded
+            # as such.
+            encoding="utf-8",
+            errors="replace",
             timeout=120,
             cwd=str(BASE_DIR),
         )
@@ -51,6 +62,17 @@ def run_script(script_name: str, args: list = None) -> dict:
         return {"success": False, "error": str(e)}
 
 
+def _failure_details(result: dict) -> dict:
+    details = {}
+    for key in ("returncode", "stdout", "stderr", "error"):
+        if key not in result or result[key] is None:
+            continue
+        value = result[key].strip() if isinstance(result[key], str) else result[key]
+        if value != "":
+            details[key] = value
+    return details
+
+
 def write_snapshot(snapshot: dict):
     """写入状态快照到日志"""
     LOGS_DIR.mkdir(parents=True, exist_ok=True)
@@ -59,9 +81,11 @@ def write_snapshot(snapshot: dict):
         f.write(json.dumps(snapshot, ensure_ascii=False) + "\n")
 
 
-def send_alert(level: str, module: str, message: str, notify: bool = False):
+def send_alert(level: str, module: str, message: str, notify: bool = False, details: dict = None):
     """发送告警"""
     args = ["--level", level, "--module", module, "--message", message]
+    if details:
+        args.extend(["--details", json.dumps(details, ensure_ascii=False)])
     if notify:
         args.append("--notify")
     run_script("alert.py", args)
@@ -92,22 +116,55 @@ def main():
     if not args.quiet:
         print("【1/4】健康检查...")
     hc_result = run_script("health_check.py", ["--json"])
-    if hc_result["success"]:
+    # health_check exits 0/1/2 for ok/warning/error but prints valid JSON
+    # in all three cases. A warning (rc=1) is not a failure: discarding its
+    # JSON and forcing overall=error turned every warning-only patrol into
+    # an error observation downstream. Trust a parseable self-report.
+    hc_data = None
+    if hc_result.get("stdout"):
         try:
-            hc_data = json.loads(hc_result["stdout"])
+            parsed = json.loads(hc_result["stdout"])
+            if isinstance(parsed, dict) and isinstance(parsed.get("overall"), str):
+                hc_data = parsed
+        except Exception:
+            hc_data = None
+    if hc_data is not None:
+        try:
+            failed_checks = [
+                {"name": str(item.get("name", "")), "severity": str(item.get("severity", ""))}
+                for item in hc_data.get("checks", [])
+                if isinstance(item, dict) and not item.get("passed")
+            ]
             snapshot["checks"]["health"] = {
                 "overall": hc_data["overall"],
                 "passed": hc_data["passed"],
                 "warnings": hc_data["warnings"],
                 "errors": hc_data["errors"],
+                # Explicit failing-probe identity so downstream dedup does
+                # not depend on parsing nested raw output. Same names the
+                # legacy stdout-dump parse would find.
+                "failed_checks": failed_checks,
+                "returncode": hc_result.get("returncode", 0),
             }
             if hc_data["overall"] == "error":
                 snapshot["overall"] = "error"
-                send_alert("error", "checkup", f"健康检查失败: {hc_data['errors']}个错误", args.alert)
+                send_alert(
+                    "error",
+                    "checkup",
+                    f"健康检查失败: {hc_data['errors']}个错误",
+                    args.alert,
+                    {"failed_checks": failed_checks, "observed_at": timestamp},
+                )
             elif hc_data["overall"] == "warning":
                 if snapshot["overall"] == "ok":
                     snapshot["overall"] = "warning"
-                send_alert("warn", "checkup", f"健康检查警告: {hc_data['warnings']}个警告", args.alert)
+                send_alert(
+                    "warn",
+                    "checkup",
+                    f"健康检查警告: {hc_data['warnings']}个警告",
+                    args.alert,
+                    {"failed_checks": failed_checks, "observed_at": timestamp},
+                )
             if not args.quiet:
                 print(f"  结果: {hc_data['overall']} (通过{hc_data['passed']}, 警告{hc_data['warnings']}, 错误{hc_data['errors']})")
         except Exception as e:
@@ -115,7 +172,8 @@ def main():
             if not args.quiet:
                 print(f"  解析失败: {e}")
     else:
-        snapshot["checks"]["health"] = {"error": hc_result.get("error", "执行失败")}
+        snapshot["checks"]["health"] = _failure_details(hc_result)
+        snapshot["checks"]["health"].setdefault("error", "执行失败")
         snapshot["overall"] = "error"
         if not args.quiet:
             print(f"  失败: {hc_result.get('error', '未知错误')}")
@@ -140,13 +198,15 @@ def main():
         except Exception as e:
             snapshot["checks"]["status"] = {"error": str(e)}
     else:
-        snapshot["checks"]["status"] = {"error": ss_result.get("error", "执行失败")}
+        snapshot["checks"]["status"] = _failure_details(ss_result)
+        snapshot["checks"]["status"].setdefault("error", "执行失败")
 
     # 3. 日志轮转（仅full模式）
     if args.full:
         if not args.quiet:
             print("【3/4】日志轮转...")
-        lr_result = run_script("log_rotate.py", ["--verbose" if not args.quiet else ""])
+        lr_args = ["--verbose"] if not args.quiet else []
+        lr_result = run_script("log_rotate.py", lr_args)
         snapshot["checks"]["log_rotate"] = {"success": lr_result["success"]}
         if not args.quiet:
             print(f"  {'完成' if lr_result['success'] else '失败'}")
@@ -162,6 +222,11 @@ def main():
             "checkup",
             f"巡检结果: {snapshot['overall']}",
             args.alert,
+            {
+                "overall": snapshot["overall"],
+                "checks": snapshot["checks"],
+                "observed_at": timestamp,
+            },
         )
         if not args.quiet:
             print(f"  已发送 {snapshot['overall']} 级别告警")

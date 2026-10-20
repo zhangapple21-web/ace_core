@@ -263,26 +263,6 @@ class AssetCurator:
             ))
             count += 2
 
-        openrouter_match = re.search(r"OpenRouter.*?- Key:\s*(\S+).*?- Base:\s*(\S+)", content, re.DOTALL)
-        if openrouter_match:
-            key = openrouter_match.group(1).strip()
-            base = openrouter_match.group(2).strip()
-            self._add_asset(Asset(
-                name="openrouter_endpoint",
-                url=base,
-                type="endpoint",
-                auth_type="bearer",
-                metadata={"provider": "openrouter", "source": "SECRET.md"}
-            ))
-            self._add_asset(Asset(
-                name="openrouter_key",
-                url=base,
-                type="api_key",
-                auth_type="bearer",
-                metadata={"provider": "openrouter", "key": key, "source": "SECRET.md"}
-            ))
-            count += 2
-
         oneapi_match = re.search(r"OneAPI.*?- 地址:\s*(\S+).*?- Token-v2:\s*(\S+).*?- Token-miner:\s*(\S+)", content, re.DOTALL)
         if oneapi_match:
             addr = oneapi_match.group(1).strip()
@@ -373,26 +353,6 @@ class AssetCurator:
                 type="api_key",
                 auth_type="bearer",
                 metadata={"provider": "sambanova", "key": key, "source": "miner_env.sh"}
-            ))
-            count += 2
-
-        openrouter_env_match = re.search(r'export OPENROUTER_KEY="([^"]+)".*?export OPENROUTER_BASE="([^"]+)"', content, re.DOTALL)
-        if openrouter_env_match:
-            key = openrouter_env_match.group(1).strip()
-            base = openrouter_env_match.group(2).strip()
-            self._add_asset(Asset(
-                name="openrouter_env_endpoint",
-                url=base,
-                type="endpoint",
-                auth_type="bearer",
-                metadata={"provider": "openrouter", "source": "miner_env.sh"}
-            ))
-            self._add_asset(Asset(
-                name="openrouter_env_key",
-                url=base,
-                type="api_key",
-                auth_type="bearer",
-                metadata={"provider": "openrouter", "key": key, "source": "miner_env.sh"}
             ))
             count += 2
 

@@ -1,0 +1,21 @@
+{
+  "protocol": "ACE-WORK-CONTRACT-1.0",
+  "work_id": "RQ-YYYYMMDD-000",
+  "purpose": "internal_production",
+  "delivery_required": false,
+  "objective": "",
+  "scope": [],
+  "non_goals": [],
+  "acceptance_criteria": [
+    {
+      "id": "criterion-1",
+      "description": "",
+      "evidence_refs": []
+    }
+  ],
+  "constraints": [],
+  "rollback": "",
+  "status": "CANDIDATE",
+  "created_at": "",
+  "origin": "human_or_observer"
+}

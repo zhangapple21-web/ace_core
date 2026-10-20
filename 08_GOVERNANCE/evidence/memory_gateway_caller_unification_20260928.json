@@ -1,0 +1,21 @@
+{
+  "contract_version": "ace.memory_gateway.caller_unification.v1",
+  "status": "PASS_SINGLE_GATEWAY_RUNTIME_AUDIT",
+  "occurred_at": "2026-09-28T15:53:15.997938Z",
+  "daemon_source_sha256": "31afb5b72ffd63b8d60eb01ee04ff76b8bd9777fd530911fb1098b0563109808",
+  "cli_source_sha256": "0ed8af60289e6021552a794d62a8df20b5f3aae502808ce2573cac27f7dc9594",
+  "wired_consumer_count": 8,
+  "checks": {
+    "single_gateway_backend": true,
+    "all_wired_consumers_share_gateway": true,
+    "daemon_has_no_direct_memory_index_reads_or_writes": true,
+    "candidate_kernel_not_in_daemon_path": true,
+    "legacy_cli_fails_closed": true
+  },
+  "provider_calls": 0,
+  "production_data_writes": 0,
+  "execution_authorized": false,
+  "production_integration": false,
+  "evidence_authenticated": false,
+  "receipt_ref": "08_GOVERNANCE/evidence/memory_gateway_caller_unification_20260928.json"
+}

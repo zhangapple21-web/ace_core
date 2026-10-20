@@ -1,0 +1,50 @@
+{
+  "receipt_type": "ace_closed_loop_engine_acceptance",
+  "contract_version": "ace.closed_loop_engine.v1",
+  "recorded_at": "2026-09-20T00:00:00+08:00",
+  "baseline": {
+    "unified_closed_loop_engine": "ABSENT",
+    "evidence": [
+      "core/self_evolution.py 只负责跨来源融合并生成提案",
+      "core/autonomous/kernel.py 负责触发实验和写回，但没有统一的基线/痛苦复盘/晋升门",
+      "以上两条链路没有共享一个可比较的收口收据"
+    ]
+  },
+  "change": {
+    "files": [
+      "core/closed_loop_engine.py",
+      "ops/test_closed_loop_engine.py",
+      "04_PROTOCOLS/closed_loop_engine.v1.md",
+      "ace_daemon.py"
+    ],
+    "capabilities": [
+      "bounded_decomposition",
+      "baseline_change_evaluation",
+      "painful_review_gate",
+      "promote_reject_rollback",
+      "next_observation_feedback",
+      "append_only_failure_and_growth_ledgers"
+    ]
+  },
+  "test": {
+    "focused": "py -3 -m pytest -q ops/test_closed_loop_engine.py",
+    "focused_result": "7 passed",
+    "regression": "py -3 -m pytest -q ops/test_closed_loop_engine.py ops/test_self_evolution.py ops/test_24h_runtime_mainline.py -x",
+    "regression_result": "95 passed"
+  },
+  "evaluation": {
+    "measurable_gain": true,
+    "comparison": "从无统一收口门变为可执行、可测试的基线/改动/评估/复盘/决策链",
+    "regression_detected": false,
+    "scope": "ACE 核心协议与运行时可观测入口；未自动改生产配置"
+  },
+  "painful_review": {
+    "cost": "新增一个通用协议与 7 个专项测试，并增加 daemon 的只读状态入口",
+    "counterfactual": "若不补，局部实验仍可能直接写回或重复失败，无法区分有效进化与活跃度",
+    "recurrence_risk": "中；后续模块若绕过 ClosedLoopEngine 仍可能形成旁路",
+    "reusable_lesson": "所有能力增长必须带可比较指标、痛苦复盘和下一次观察，不以代码增量代替学习",
+    "retain": true
+  },
+  "decision": "PROMOTED_TO_CAPABILITY_GROWTH",
+  "next_action": "将现有领域任务的结果收据逐步接入该引擎；未接入的旧链路保持历史证据，不自动晋升"
+}

@@ -1,0 +1,46 @@
+{
+  "decision": "not_enabled",
+  "recorded_at": "2026-10-18",
+  "recorded_by": "ACE full-domain audit, autonomous close-out",
+  "subject": "enabling KnowledgeReuseGate (runtime.knowledge_reuse.enabled)",
+  "current_state": {
+    "default_enabled": false,
+    "default_mode": "dry-run",
+    "configured_in_ace_config_json": "absent",
+    "configured_in_ace_config_local_json": "absent",
+    "effective_setting": "disabled",
+    "observed_runtime_effect": "stage reports NO_RUN / DISABLED every cycle",
+    "daemon_wiring": "present - _run_knowledge_reuse_stage is called at ace_daemon.py:2547"
+  },
+  "gates_that_are_not_met": [
+    {
+      "gate": "join index within index_max_age_days",
+      "required": "<= 7 days",
+      "actual": "09 days",
+      "index_built_at": "2026-10-09T19:43:28",
+      "index_path": "09_KNOWLEDGE/join_index.v1.json",
+      "coverage": "876 of 2090 tasks; 0 of the 944 tasks created 10-17..10-18",
+      "consequence": "even with the flag set, the gate would refuse the stale index"
+    },
+    {
+      "gate": "labelled query set for quantitative A/B",
+      "required": ">= 300 independent labelled queries",
+      "actual": 0,
+      "searched": ["ops/**/*label*", "ops/**/*ab_*", "ops/**/*query_set*", "08_GOVERNANCE/**/*query*"],
+      "consequence": "SOURCE_OF_TRUTH section 7 records this as an open item; without it the A/B gate is REVIEW_REQUIRED"
+    }
+  ],
+  "why_not": [
+    "The gate is deliberately fail-closed and its own precondition is currently unmet. Enabling the flag would not make reuse work - it would make reuse *look* enabled while refusing to run, which is worse than an honest DISABLED because the report would stop being a signal.",
+    "The index was built 2026-10-09 and no cycle rebuilds it; ops/build_knowledge_join_index.py exists but nothing in the daemon calls it. Enabling now would additionally require first wiring that builder, which is a change in its own right and needs its own acceptance path.",
+    "source docs (SOURCE_OF_TRUTH section 4/7, AGENTS.md memory-path truth 2026-10-02) both state the reuse stage is dry-run by design pending independent evidence. Nothing in this audit produced that evidence.",
+    "Reuse attaches evidence to new tasks. Attaching stale or unvalidated evidence is worse than attaching none, because a reused pointer can satisfy a validator's independence count - which is the exact failure this audit found in the task-card ring."
+  ],
+  "what_would_change_this": [
+    "Wire ops/build_knowledge_join_index.py into a scheduled path so the index stops ageing, and prove it by showing coverage of tasks created since the last build.",
+    "Assemble the labelled query set and run ops/assess_memory_index_migration.py to a real A/B verdict rather than REVIEW_REQUIRED.",
+    "Only then set enabled=true, and keep mode=dry-run for the first cycle so the gate reports plans without attaching."
+  ],
+  "reversible": true,
+  "evidence": "core/knowledge_reuse.py DEFAULTS; ace_config.json runtime.knowledge_reuse absent; join_index built_at 2026-10-09; ace_daemon.py:2547 wiring present"
+}

@@ -3,6 +3,28 @@
 > Daily working memory. Updated when progress is made.
 > For permanent principles, see AGENTS.md.
 
+## Cognitive Think Gate (2026-09-24)
+
+- 默认思考闸门已接入：`ace.cognitive_think.v1`。
+- ACE 的认知中枢拥有充分、动态、可恢复的思考权；思考用于形成判断，不自动获得执行权；改变未来行为的判断必须沉淀为事实、证据、推断、未知与经验；思考必须能够收敛，而不是无限循环。
+- 运行时落盘 `runtime/cognitive_think_runtime_state.json`；daemon 每轮 continue_gate 之后评估，LOOP_BLOCKED 只跳过模型发现，不停机。
+- 不要新造第二套调度器。
+
+## Memory Path Decision (2026-09-29)
+
+- 当前生产路径为唯一 `MemoryGateway → MemoryIndex`；daemon 构造一个 Gateway，并向所有已 wiring 的记忆消费者注入同一实例。`daemon.memory_index` 是同一 Gateway 的兼容别名，不是第二后端。`MemoryKernel` 仍是 `STAGED_TARGET`，没有生产消费者。
+- CLI 的旧 `mem` 命令在导入 legacy scheduler 前 fail-closed；scheduler 本身也已退役。`core.agent.memory_system.ACEBaseMemory` 是旧 Markdown 迁移专用类型，无 daemon 生产 wiring。`SelfHealing` 现只读检查 canonical runtime index，发现损坏时禁止自动重建空索引。
+- `MemoryIndex` 现对文件损坏/结构错误 fail-closed，写入经 fsync + 同目录原子替换；写失败回滚内存追加。活跃消费者对象身份和故障保存行为已有回归测试。准确调用清单见 `docs/ACE_MEMORY_KERNEL.v1.md`。
+- `HindsightStyleRetriever` 是 `MemoryKernel.query()` 内部的只读排序策略，不拥有存储或晋升权；旧 `MemoryIndex` 上重复的独立 Hindsight 搜索入口已移除。
+- 选择有界并置，不双写、不默认双读。迁移必须显式调用 `MemoryKernel.import_records()`，每批最多 50 条；`search_governed()` 只读内核，不再在查询时导入旧库。
+- 迁移批次以 `IMPORT_BATCH_STARTED/COMPLETED/REJECTED` 进入内核现有哈希事件链；可回读 `batch_id`、调用方声明的 `selected_by`、逐条哈希、结果摘要和中断状态。该调用方标识未认证。
+- 候选导入保留旧记录的创建时间、来源引用和分级；同标题不同来源不会误合并。2026-09-28 两条同名记录的时间/来源测试通过。
+- 活跃 daemon 的 8 个记忆消费者经 `ops/run_memory_gateway_caller_audit.py` 实测共享同一 Gateway；收据 `08_GOVERNANCE/evidence/memory_gateway_caller_unification_20260928.json` 绑定 daemon/CLI 源码哈希。旧 CLI fail-closed；该收据是本机可复跑证据，不是治理批准。
+- 真实本地 PRIVATE 索引副本回滚演练：`PASS_REAL_PRIVATE_DATA_BACKEND_ROLLBACK_REHEARSAL`，最新收据 `06_RUNTIME/ace/data/memory/evidence/real_memory_backend_rollback_20260929.json`。当前快照 6,985 条 PRIVATE；50 条进入一次性隔离候选 Kernel；候选账本故障后恢复旧索引副本，基线 ID 集合与快照哈希一致，未写生产文件。旧的 6,979 条收据保留为历史证据；该离线演练不等于生产切换窗口已演练。
+- 量化 A/B 门槛已预注册于 `ops/assess_memory_index_migration.py`，但当前没有合格的 300 条独立标注查询集，也没有真实 A/B 与 Validator/Guardian 治理复核。状态为 `REVIEW_REQUIRED`，不得切换默认路径。
+- 最新评估 `08_GOVERNANCE/evidence/memory_kernel_migration_assessment_20260929.json` 已对齐 6,985 条当前索引及 6,985 条回滚快照。Kernel 自检和 focused regression 证明内核局部机制，不证明生产迁移或默认路径已切换。后续不得新增第三套索引/协议/后台记忆进程。
+
+
 ---
 
 ## Runtime Boundary Closure (2026-09-06)
@@ -14,6 +36,29 @@
 - **验证：** 全量 `pytest` `744 passed`；`compileall` 通过；`git diff --check` 仅有既有 EOF 空行和一处既有尾随空格。
 
 历史日记和下方旧 sprint/open-task 内容保留为历史事实；不应再据此判断当前运行时边界。
+
+---
+
+## Runtime Snapshot (2026-09-12)
+
+换窗先读这一段。不要用下方 2026-07-10 Open Tasks 当现场，也不要重开 8001/8003/1443 端口审计。
+
+- **身份：** 看 `06_RUNTIME/ace/data/memory/heartbeat.json`，不看 `daemon_state.run_status=alive`。生产 owner 固定 `ace_daemon`，每条含 `run_id`。
+- **宿主重启路径：** `ACE_Daemon_Boot`（`ops/install_tasks.ps1`）开机 + 约 10 分钟探活；Execute=`pythonw.exe`，`ace.py daemon --serve`，工作目录 `C:\tmp\ace_core`。3000/3002 由 `ACE-Local-OneAPI` 独立拉起，不经过 AceDaemon。仓库脚本没有 Disable；任务可被外部关掉。本轮曾 Ready→**Disabled**（LastTaskResult -1）→只 `Enable-ScheduledTask`，不另启第二份 daemon。15:17 探活拉起 sole pid **28196**，`run_id=e47919c264dc4ae7bd6b815036b306d4`，任务现 `Running`。
+- **时间切片：** 9/8 `cycle_complete` → 9/11 13:20 `host_termination`（刷机）→ 心跳 stale。9/12 Trae 拉 26108 → 14:35 pythonw 26812 → 14:48 自启 9996（死后心跳假活）→ Enable 后 15:18 pid 28196。现场 pid 会变，不以某个 pid 当身份。
+- **NameError：** `_run_task_lifecycle_unlocked` 曾引用 `run_once` 局部名 `_preserve_cycle_progress`，每轮 `finance_work_window` 打日志。源码已改为：有 `cycle_progress.finance_preflight` dict 就复用；否则且 `self.finance_work_windows` 非空才 `build()`。日志最新一条仍是 **14:47:17**（26812）；15:18 之后没有新的该 NameError。补丁在本机工作树；本地 `.git/objects` 损坏，远程同步走干净克隆独立分支 `fix/finance-work-window-nameerror`（`5fb6f94`），禁止 `git add .`，未合 main。
+- **政策卡投影：** `PolicyCardStore.project` / `_project_verified_policy_cards` 会跑，但只投影 `verified_outcome_receipt` 且 `VERIFIED`、≥2 独立证据组。2026-09-12 全机无 `policy_cards.json`、无 `policy_feedback/`。`RQ-20260912-002` 在 `task_pool/blocked/`，`blocked_non_convergent`（相同证据集重审上限），**不是**政策卡已生效。
+- **申文 10054（2026-09-12 15:40 核）：** Codex `base_url=http://127.0.0.1:3002/v1`（Responses）。链：Codex → 3002 pid 2184 → 3000 pid 6440 LiteLLM → `https://api.shenwenai.com`。3000/3002 都在听；`/v1/models` 带本地 master key 200；无 key 的 `/health` 500 是鉴权不是网关死。申文 443 TCP 通。短 `grok-4.6` chat 经 3000 已 200/`pong`（~2.3s，0 fallback）。用户贴的 WinError 10054 / HTTP 500 是对端 RST 长流，LiteLLM 包成 500。yaml 已有 `allowed_fails: 3`、`cooldown_time: 10`、主模型 fallback `grok-4.6`。
+- **Trae 窗走 3000 + custom_auth（2026-09-12 16:26 核）：** Trae 聊天窗原先直连 `https://api.shenwenai.com`，RST/10054 会冲进聊天窗。意图是把 14 条 `custom_openai_compatible` `base_url` 改到 `http://127.0.0.1:3000/v1/chat/completions`。16:26 只读核 `C:\Users\Administrator\AppData\Roaming\Trae\User\globalStorage\state.vscdb` key `7683184598163637266_AI.agent.model.model_list_map`：**leftover `api.shenwenai.com` 仍 14 条，local `127.0.0.1:3000` = 0**（7 条 `/chat/completions` + 7 条 `/v1/chat/completions`）。未改 ak/sk。进程内存可能仍缓存/回写旧 URL，需重载 Trae 窗才保证生效；磁盘现状不是 3000。
+- **3000 鉴权重启：** 只杀 3000 旧 pid 29572，hidden vbs + Python311 拉 `local_oneapi_gateway_launcher.py`。新 pid **28376**；**3002 仍 2184**（`shenwen_responses_compat_proxy.py`），未动 AceDaemon。`local_oneapi_config.yaml`：`litellm_settings.num_retries=3`、`router_settings.num_retries=3`、`general_settings.custom_auth=local_oneapi_custom_auth.user_api_key_auth`。stderr 有 `local_oneapi_custom_auth: loaded and accepting local/shenwen keys`。四条 probe 全 HTTP 200：`models_master` / `models_swa` / `chat_master` / `chat_swa`（短 `grok-4.6`）。申文对端 RST 不能从上游根除；目标是 RST 在 3000 内重试/fallback，不再以 `api.shenwenai.com` 直冲 Trae 窗。
+- **金融门禁：** daemon 在跑 ≠ 荐股生产开了。Finance 仍 `RESEARCH_ONLY`，Advisor `BLOCKED`，Owner TG `OFF`，quote 源未准入。
+- **R1 端口即边界：** 职责在代码，不是本机 TCP 监听口。8001→AceDaemon+Admission+CoreSyncer allowlist+Telegram 出口；8003→`07_SANDBOX/free_research`；1443→`08_GOVERNANCE/free_zone_bridge` 收据；3000→本机网关。不重开端口。
+- **文明地图：** `civilization_map.py` 会扫 GitHub stale 并写本文件 `## Civilization Map`；**daemon 从不调用扫描器**，所以会停更。不要把扫描器塞进生产循环，也不扩 CoreSyncer allowlist。
+- **CoreSyncer：** 窄母板 allowlist（`AGENTS.md` / `README.md` / `ace_daemon.py` + 指定后缀）。脏工作树正常。`runtime.allow_repository_sync` 未设则默认 false。
+- **连续性：** 聊天窗不是 ACE 记忆本体。说「同一个 ACE 继续」需要 `CONTINUITY_VERIFIED` 或 `CONTINUITY_VERIFIED_AFTER_MIGRATION`；`CONTINUITY_ESTABLISHED` 只是新基线。auditor 不启 daemon、不重放工作。Codex 同窗压缩能保住结论；新开一条没有日记忆的窗仍会从头审计——所以本段必须更新。
+- **明确不做：** 不重开 8001/8003/1443；不另启 daemon；不 git add .；不把拾荒网接入生产；不扩 CoreSyncer；secrets / mine-seed-credentials 不上公共远程。
+
+对照材料（已推独立 docs 分支，不是生产准入）：`docs/ACE_CIVILIZATION_MAP_DAILY_20260912.md`、`docs/ACE_R1_PORT_BOUNDARY_VS_DRAWERS_20260912.md`。
 
 ---
 
@@ -31,7 +76,7 @@ Goal: Make ACE autonomously discover problems, ask questions, research answers, 
 
 ### What was accomplished
 
-1. **去TRAE化完成** — Local Miner v2, multi-source fallback (Ollama → GitHub → Zhipu → OpenRouter)
+1. **去TRAE化完成** — Local Miner v2, multi-source fallback (Ollama → GitHub → Zhipu)
 2. **Capability Graph** — 13 capabilities with inheritance, capability-first routing
 3. **Provider Health Monitor** — Health-score-driven routing, skip down providers
 4. **Environment Layer (ENV-001)** — Sensor + SituationBuilder, integrated into Heartbeat
@@ -68,7 +113,6 @@ It doesn't keep gaining new abilities — it keeps improving collaboration effic
 
 | Problem | Severity | Impact | Status |
 |---|---|---|---|
-| OpenRouter key expired (401) | Medium | Fallback chain works, but one less provider | 🟡 Open |
 | GitHub Models key expired (401) | Medium | Fallback chain works, but one less provider | 🟡 Open |
 | akshare not installed | Low | Falls back to Tencent API, stock coverage limited | 🟡 Open |
 | Provider Health not persisted across restarts | Medium | In-memory only, restart = reset | 🟡 Open |
@@ -83,24 +127,26 @@ It doesn't keep gaining new abilities — it keeps improving collaboration effic
 
 ---
 
-## Civilization Map (7 repos)
+## Civilization Map
+
+Last scanned: 2026-09-12T12:50:36.047744
 
 ```
 zhangapple21-web
 │
-├── 🏠 mine-seed              Active     9.3MB   R2 HQ (今天的主战场)
-├── ⚡ ace_core               Active     1.5MB   Runtime 精选 (刚从 8 天停更恢复)
-├── 🏛️ r1-archaeology          Warming    310KB   考古档案馆 (昨天更新过)
-├── 🌱 r1-open-source-seed    Stale       32KB   开源种子 (几乎空的)
-├── 📜 R1                     Dormant      0KB   文明思想/官网 (空壳)
-├── 🧪 -                      Dormant      0KB   测试仓库
-└── 🔑 coze-assets            PRIVATE      ?     文明钥匙 (密钥，绝不公开)
+├── 🟡 ace_core             Runtime Core         1d stale
+├── 🔴 mine-seed            Civilization Seed    3d stale
+├── 🔴 r1-archaeology       Civilization Memory  5d stale
+├── 🔴 -                    Unknown              10d stale
+├── 🔴 R1_continuity_archive Unknown              24d stale
+├── 🔴 R1                   Civilization Philosophy 55d stale
+├── 🔴 aum-protocol         Unknown              59d stale
+├── 🔴 r1-open-source-seed  Open Source Seed     66d stale
 ```
 
-**Cross-repo observation:** Each repo is an organ, not a silo.
-When one is stale, it's a civilization health problem, not just "inactive".
-
----
+**Stats**: 8 repos (8 public, 0 private)
+**Stale**: 4
+**Critical**: mine-seed
 
 ## Latest Evolution (this week)
 
@@ -150,4 +196,4 @@ When opening the repository tomorrow morning:
 
 ---
 
-*Last updated: 2026-07-10 20:30*
+*Last updated: 2026-09-12 14:55（Runtime Snapshot 覆盖现场；下方 2026-07-10 段落保留为历史）*

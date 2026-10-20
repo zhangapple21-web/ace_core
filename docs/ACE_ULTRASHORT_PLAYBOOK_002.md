@@ -3,6 +3,32 @@
 更新时间：2026-08-31  
 状态：`RESEARCH_ONLY`；本手册只定义研究、回放和老师审阅格式，不改变 ACE 的 Data Health、Admission、Advisor、Risk、TaskPool、Scheduler、Runtime 或 Telegram。
 
+## 0. 用户补充方法的落地状态（2026-09-24）
+
+用户提供的《A 股超短线交易：像老手一样判断》已完成一次规则化吸收。它与本手册原有的“预期差 → 确认 → 可退出”主轴一致，新增的可执行部分已落到 `core/ultrashort_playbook.py`：
+
+- `classify_market_regime()`：用市场宽度、涨跌停平衡、炸板率、成交活跃度、板块宽度和高位延续性，把环境标为 `ATTACK`、`RANGE`、`RISK_OFF` 或 `UNKNOWN`；缺字段不补默认值。
+- `classify_setup()`：统一检查强势突破、分歧转一致、趋势回踩、板块跟随和提前识别五类形态；尾段加速、接近涨停、板块不同步或失效距离不足会被标记为失败/待补证据。
+- `assess_volume_price()`：记录上涨/下跌与放量/缩量的组合，只描述量价行为，不把成交量直接解释成“主力买入”。
+- `assess_risk_reward()` 与 `research_position_ceiling()`：把事前赔率、T+1 和单笔最大风险转成可审计研究字段；仓位函数只给研究上限，不产生委托数量或买卖指令。
+
+这些结果已接入 `ace.ultrashort_factor_profile.v2` 的画像元数据，并可随候选卡以 `playbook_context` 形式交给老师审阅。它们不会改变六因子分数、攻击等级、风险等级、Data Health 或生产准入；在至少 20 个点时历史交易日冻结回放、样本外验证和当前数据准入完成前，仍保持 `RESEARCH_ONLY`。
+
+### 快照等级与人工审阅边界
+
+为避免“当时存在”被事后结果改写，日级机会判断现在明确分为两类记录：
+
+1. `OPPORTUNITY_SNAPSHOT`：记录快照时刻的 `A+ / A / B...`，语义是 `AS_OF_NOT_FINAL_DAY_GRADE`；必须保留 `snapshot_as_of`、`snapshot_id` 和内容哈希。它只回答“在这个时刻，按当时信息等级是什么”。
+2. `OPPORTUNITY_OUTCOME_REVIEW`：在 D+1/D+2 或收盘后记录 `VALIDATED`、`INVALIDATED`、`DIRECTION_RIGHT_TIMING_WRONG`、`EVIDENCE_INSUFFICIENT` 或 `NOT_TRADED`。结果记录引用原快照哈希，不能回写快照等级，也不能把单张 A 卡事后改成“当天最终 A/非 A”。
+
+老师人工判断按 `TEACHER_DECISION` 单独记录：
+
+- 老师否决的候选仍保留在选择样本，并进入反事实结果回放；否则只统计被采纳的票会产生幸存者偏差。
+- 老师采纳的候选进入结果回放，但只有另有成交/执行证据时，才允许标记为实际交易回放；“采纳”不等于“已买入”。
+- 老师的理由作为上下文标签，不直接改快照、因子分数、永久权重或规则；任何规则变更都必须经过独立回放、反例挑战和新的审阅，不能用人工判断事后调参。
+
+上述边界已落到 `core/ultrashort_review.py`，并通过 `profile_metadata()` 和老师审阅包暴露。当前仍无生产推荐或自动交付权限。
+
 ## 1. 这套方法从哪里来
 
 本次公开资料考古只吸收“可解释、可记录、可回放”的思想，不把任何网站的营销页面、单次战绩或传闻当作收益证明。

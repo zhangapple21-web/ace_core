@@ -9,26 +9,26 @@
     "oneapi": {
       "secret_md": {
         "base_url": "http://localhost:3000",
-        "api_key_prefix": "jHhtKnCu...",
+        "api_key_prefix": "[REDACTED]",
         "has_key": true
       }
     },
     "glm": {
       "secret_md": {
         "base_url": "https://open.bigmodel.cn/api/paas/v4",
-        "api_key_prefix": "c4c766fa...",
+        "api_key_prefix": "[REDACTED]",
         "has_key": true
       }
     },
     "github_models": {
       "secret_md": {
         "base_url": "https://models.inference.ai.azure.com",
-        "api_key_prefix": "github_p...",
+        "api_key_prefix": "[REDACTED]",
         "has_key": true
       },
       "miner_env": {
         "miner_env_pat": {
-          "api_key_prefix": "github_p...",
+          "api_key_prefix": "[REDACTED]",
           "has_key": true
         }
       }
@@ -37,27 +37,27 @@
       "secret_md": {
         "base_url": "http://localhost:3001/v1",
         "has_key": true,
-        "api_key_prefix": "ace-local-..."
+        "api_key_prefix": "[REDACTED]"
       }
     },
     "openrouter": {
       "secret_md": {
         "base_url": "https://openrouter.ai/api/v1",
-        "api_key_prefix": "sk-or-v1-437...",
+        "api_key_prefix": "[REDACTED]",
         "has_key": true
       }
     },
     "apiyi": {
       "secret_md": {
         "base_url": "https://api.apiyi.com",
-        "api_key_prefix": "sk-xQrs9...",
+        "api_key_prefix": "[REDACTED]",
         "has_key": true
       }
     },
     "modelscope": {
       "secret_md": {
         "base_url": "https://api-inference.modelscope.cn/v1",
-        "api_key_prefix": "ms-7ab1f...",
+        "api_key_prefix": "[REDACTED]",
         "has_key": true
       }
     },
@@ -65,25 +65,21 @@
       "miner_env": {
         "base_url": "https://integrate.api.nvidia.com/v1",
         "key_count": 16,
-        "api_key_prefixes": [
-          "nvapi-dr...",
-          "nvapi-bu...",
-          "nvapi-3H..."
-        ],
+        "api_key_prefixes": [],
         "has_key": true
       }
     },
     "sambanova": {
       "miner_env": {
         "base_url": "https://api.sambanova.ai/v1",
-        "api_key_prefix": "820feeb9...",
+        "api_key_prefix": "[REDACTED]",
         "has_key": true
       }
     },
     "huggingface": {
       "miner_env": {
         "base_url": "https://api-inference.huggingface.co/v1",
-        "api_key_prefix": "hf_rtqFh...",
+        "api_key_prefix": "[REDACTED]",
         "has_key": true
       }
     }
@@ -104,4 +100,4 @@
     ],
     "sources_count": 3
   }
-}
+}\n

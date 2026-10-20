@@ -4,7 +4,7 @@ Survival Loop Engine — 单循环执行内核（极简版）
 笨但活得久。
 
 规则：
-  1. 固定顺序：glm → openrouter → nim → apiyi → sambanova → oneapi → github_models → modelscope → huggingface
+  1. 固定顺序：glm → nim → apiyi → sambanova → oneapi → github_models → modelscope → huggingface
   2. 成功即返回，失败直接跳过
   3. 无重试、无路由、无决策、无动态配置
   4. 永远有输出、不崩溃、不循环
@@ -37,6 +37,8 @@ from pathlib import Path
 from typing import Dict, List, Any, Optional
 
 from core.oneapi_model_catalog import OneAPIModelCatalog
+from core.execution_contract import ensure_execution_contract, normalize_untrusted_messages
+from core.mirror_constitution import validate_data_boundary
 
 
 _ONEAPI_MODEL_CATALOG = OneAPIModelCatalog()
@@ -44,7 +46,6 @@ _ONEAPI_MODEL_CATALOG = OneAPIModelCatalog()
 
 PROVIDER_ORDER = [
     "glm",
-    "openrouter",
     "nim",
     "apiyi",
     "sambanova",
@@ -58,7 +59,6 @@ PROVIDER_ORDER = [
 
 DEFAULT_MODEL = {
     "glm": "glm-4-flash",
-    "openrouter": "qwen/qwen3.7-plus",
     "nim": "deepseek-ai/deepseek-v4-flash",
     "apiyi": "gpt-4o",
     "sambanova": "DeepSeek-V3.1",
@@ -74,7 +74,6 @@ DEFAULT_MODEL = {
 
 DEFAULT_BASE_URL = {
     "glm": "https://open.bigmodel.cn/api/paas/v4",
-    "openrouter": "https://openrouter.ai/api/v1",
     "nim": "https://integrate.api.nvidia.com/v1",
     "apiyi": "https://api.apiyi.com",
     "sambanova": "https://api.sambanova.ai/v1",
@@ -153,10 +152,6 @@ class SurvivalLoopEngine:
             "glm": {
                 "key": r"智谱 GLM[\s\S]*?Key:\s*`([^`]+)`",
                 "base": r"智谱 GLM[\s\S]*?Base:\s*`?(https?://[^\s`]+)",
-            },
-            "openrouter": {
-                "key": r"OpenRouter[\s\S]*?Key:\s*`([^`]+)`",
-                "base": r"OpenRouter[\s\S]*?Base:\s*`?(https?://[^\s`]+)",
             },
             "nim": {
                 # NIM 在 SECRET.md 中是表格格式，没有 "Key:" 词
@@ -297,12 +292,60 @@ class SurvivalLoopEngine:
         """
         tried: List[Dict] = []
         last_error = ""
+        data_boundary = kwargs.pop("data_boundary", None)
+        boundary = validate_data_boundary(data_boundary, target="MODEL_CONTEXT", payload={"system_prompt": system_prompt, "messages": messages})
+        if not boundary["valid"]:
+            return {
+                "success": False,
+                "content": "",
+                "model": "",
+                "provider": "",
+                "usage": {},
+                "latency_ms": 0,
+                "error": "DATA_BOUNDARY_BLOCKED:" + ",".join(boundary["errors"]),
+                "tried": [],
+                "data_boundary": {
+                    "data_class": boundary.get("data_class"),
+                    "target": boundary.get("target"),
+                    "allowed": False,
+                },
+            }
+
+        task_type = str(kwargs.pop("task_type", "survival_loop"))
+        try:
+            system_prompt = ensure_execution_contract(
+                system_prompt,
+                task_type=task_type,
+                role="survival_loop_execution_node",
+            )
+        except RuntimeError as error:
+            if str(error).startswith("ACE_CONSTITUTION_HIERARCHY_INVALID:"):
+                return {
+                    "success": False,
+                    "content": "",
+                    "model": "",
+                    "provider": "",
+                    "usage": {},
+                    "latency_ms": 0,
+                    "error": "constitution hierarchy invalid; model call blocked",
+                    "tried": [],
+                }
+            return {
+                "success": False,
+                "content": "",
+                "model": "",
+                "provider": "",
+                "usage": {},
+                "latency_ms": 0,
+                "error": "execution contract unavailable",
+                "tried": [],
+            }
 
         try:
             full_messages = []
             if system_prompt:
                 full_messages.append({"role": "system", "content": system_prompt})
-            full_messages.extend(messages)
+            full_messages.extend(normalize_untrusted_messages(messages))
         except Exception:
             full_messages = messages or []
 
@@ -323,6 +366,7 @@ class SurvivalLoopEngine:
                     temperature=temperature,
                     max_tokens=max_tokens,
                     timeout=timeout,
+                    data_boundary=data_boundary,
                     **kwargs,
                 )
             except Exception as e:
@@ -375,6 +419,11 @@ class SurvivalLoopEngine:
             if not model:
                 return False, "", model, {}, 0, "model is required"
 
+            data_boundary = kwargs.pop("data_boundary", None)
+            boundary = validate_data_boundary(data_boundary, target="MODEL_CONTEXT", payload=messages)
+            if not boundary["valid"]:
+                return False, "", model, {}, 0, "DATA_BOUNDARY_BLOCKED:" + ",".join(boundary["errors"])
+
             if name == "gemini":
                 return self._call_gemini(
                     base_url=base_url,
@@ -385,6 +434,7 @@ class SurvivalLoopEngine:
                     max_tokens=max_tokens,
                     timeout=timeout,
                     start_time=start,
+                    data_boundary=data_boundary,
                     **kwargs,
                 )
 
@@ -412,9 +462,6 @@ class SurvivalLoopEngine:
                 "Content-Type": "application/json",
                 "Authorization": f"Bearer {api_key}",
             }
-            if name == "openrouter":
-                headers["HTTP-Referer"] = "https://ace-runtime.local"
-                headers["X-Title"] = "ACE Runtime"
 
             req = urllib.request.Request(chat_url, data=data, headers=headers, method="POST")
 
@@ -475,6 +522,9 @@ class SurvivalLoopEngine:
         返回: (ok, content, model, usage, latency_ms, error)
         """
         try:
+            boundary = validate_data_boundary(kwargs.pop("data_boundary", None), target="MODEL_CONTEXT", payload=messages)
+            if not boundary["valid"]:
+                return False, "", model, {}, 0, "DATA_BOUNDARY_BLOCKED:" + ",".join(boundary["errors"])
             base_url = base_url.rstrip("/")
             chat_url = f"{base_url}/models/{model}:generateContent?key={api_key}"
 

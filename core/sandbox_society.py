@@ -65,6 +65,7 @@ class SandboxSociety:
         # post-reconciliation count, not the earlier pre-backfill snapshot.
         lazy_cat["pending_challenge_count"] = lazy_cat["challenge_reconciliation"]["pending_challenge_count"]
         court = self._court_audit()
+        curator_simulation = self._curator_simulation()
         queue = self._teacher_queue(self.lazy_cat.verdict_by_experiment())
         report = {
             "contract_version": CONTRACT_VERSION,
@@ -77,6 +78,7 @@ class SandboxSociety:
                     "new_proposal_ids": new_proposals,
                     "new_smelter_receipt_ids": new_smelter_receipts,
                     "action": "distill_all_outcomes" if new_distillations else "NO_NEW_SANDBOX_WORK",
+                    "simulation": curator_simulation,
                 },
                 "court": court,
                 "lazy_cat": lazy_cat,
@@ -91,6 +93,43 @@ class SandboxSociety:
         }
         self._write_report(report)
         return report
+
+    def _curator_simulation(self) -> dict[str, Any]:
+        """馆长专属 FA 推演：只产生沙盒决策草案，不执行任何动作。"""
+        distillations = self._distillation_records()
+        proposals = self._proposal_records()
+        routes = []
+        for item in distillations:
+            status = str(item.get("status", "UNKNOWN"))
+            action = {
+                "PROPOSAL_ONLY": "REVISE_OR_MERGE",
+                "COUNTEREXAMPLE_ONLY": "RETAIN_COUNTEREXAMPLE",
+                "OPEN_QUESTION": "DELAY_FOR_EVIDENCE",
+                "QUARANTINED": "KEEP_QUARANTINED",
+            }.get(status, "OBSERVE")
+            routes.append({
+                "experiment_id": item.get("experiment_id"),
+                "status": status,
+                "simulated_action": action,
+                "source_record_hash": item.get("source_record_hash"),
+                "production_action": False,
+            })
+        simulation = {
+            "skill": "curator_fa_simulation",
+            "mode": "SANDBOX_ONLY",
+            "simulated_at": _now(),
+            "inputs": {"distillations": len(distillations), "proposals": len(proposals)},
+            "routes": routes,
+            "decision_count": len(routes),
+            "writes_production": False,
+            "creates_taskpool_task": False,
+            "approves_promotion": False,
+            "requires_court": True,
+            "replayable": True,
+        }
+        target = self.reports / "curator_fa_simulation_latest.json"
+        self._write_report(simulation, target=target)
+        return simulation
 
     def _design_seed_summary(self) -> dict[str, Any]:
         """Expose which parts of the R1 seed are observable in today's turn.
@@ -252,9 +291,9 @@ class SandboxSociety:
     def _distillation_records(self) -> list[dict[str, Any]]:
         return self._records(self.sandbox.distillations)
 
-    def _write_report(self, report: dict[str, Any]) -> None:
+    def _write_report(self, report: dict[str, Any], target: Path | None = None) -> None:
         self.reports.mkdir(parents=True, exist_ok=True)
-        target = self.reports / "sandbox_society_latest.json"
+        target = target or (self.reports / "sandbox_society_latest.json")
         temporary = target.with_suffix(".json.tmp")
         encoded = json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
         with temporary.open("w", encoding="utf-8") as handle:

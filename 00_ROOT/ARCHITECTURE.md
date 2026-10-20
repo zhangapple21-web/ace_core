@@ -41,6 +41,10 @@ Validation → Distillation → Repository ──┘
 
 模型、工具和 Worker 是可替换的执行资源。Scheduler 可以按时间触发 Observation / Discovery，但时钟事件本身不是 Valuable Work 的证据；TaskPool 仍是唯一生产任务池。应用只能请求 Work、接收 Capability、产出结果并回灌 Evidence；不能修改 ACE Core。
 
+### 认知中枢与执行节点分工
+
+ACE 的认知中枢负责理解整体变化、方向判断、证据收敛和长期沉淀；Trae、Codex 后台任务及其他 Agent 只是可替换的执行节点或责任位置承载者。执行节点负责观察、实验、修复和提交收据，认知中枢负责区分事实/推断/未知、判断是否形成能力，并决定 promote、reject、rollback 或升级人工决策。任何节点都不能把自己的进程状态、模型输出或局部项目当作 ACE 本体。详见 `docs/ACE_COGNITIVE_EXECUTION_PROTOCOL.v1.md` 与 `00_ROOT/COGNITIVE_CHARTER.md`。
+
 ---
 
 ## 三层架构（来自九层架构的收敛）

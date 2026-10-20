@@ -1,0 +1,58 @@
+{
+  "at": "2026-10-16T05:13:16.853698+00:00",
+  "contract_version": "ace.incident_reachability_watch.v1",
+  "convert_limit": 100,
+  "findings": [
+    {
+      "category": "gap",
+      "detail": "the condition is still true: pending_scan=7847 against 500; task RQ-20260928-002 is terminal, so the work was closed without the condition changing",
+      "last_observed_at": "2026-09-28T00:06:35.405727",
+      "live_condition": {
+        "archaeologized": 161,
+        "readable": true,
+        "source": "C:/tmp/ace_core/02_FRAGMENT_INDEX/fragment_index.json",
+        "state_key": "pending_scan",
+        "still_true": true,
+        "threshold": 500,
+        "total": 17293,
+        "value": 7847
+      },
+      "rule": "fragment_backlog",
+      "task_id": "RQ-20260928-002",
+      "task_status": "task_pool/archived",
+      "task_terminal": true,
+      "unverified_days": 18,
+      "verdict": "CONDITION_STILL_TRUE"
+    },
+    {
+      "category": "gap",
+      "detail": "the condition is still true: last_mine_seed_scan='never' against 'never'; task RQ-20261009-007 is terminal, so the work was closed without the condition changing",
+      "last_observed_at": "2026-10-09T05:54:08.036084",
+      "live_condition": {
+        "readable": true,
+        "source": "C:/tmp/ace_core/06_RUNTIME/ace/data/memory/daemon_state.json",
+        "state_key": "last_mine_seed_scan",
+        "still_true": true,
+        "threshold": "never",
+        "value": "never"
+      },
+      "rule": "cross_agent_idle",
+      "task_id": "RQ-20261009-007",
+      "task_status": "task_pool/archived",
+      "task_terminal": true,
+      "unverified_days": 6,
+      "verdict": "CONDITION_STILL_TRUE"
+    }
+  ],
+  "queue_categories": {
+    "financial_research": 18,
+    "health": 92,
+    "need": 1,
+    "structural_gap": 4
+  },
+  "unprocessed_queue_size": 115,
+  "unreachable_incident_rules": [
+    "fragment_backlog",
+    "cross_agent_idle"
+  ]
+}
